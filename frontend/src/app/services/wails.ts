@@ -1,17 +1,5 @@
 import { Injectable } from '@angular/core';
-
-declare global {
-  interface Window {
-    go: {
-      app: {
-        App: {
-          ConvertFile: (req: ConversionRequest) => Promise<ConversionResult>;
-          GetSupportedFormats: () => Promise<SupportedFormat[]>;
-        };
-      };
-    };
-  }
-}
+import { Call } from '@wailsio/runtime';
 
 export interface ConversionRequest {
   inputPath: string;
@@ -37,10 +25,10 @@ export interface SupportedFormat {
 })
 export class Wails {
   async convertFile(request: ConversionRequest): Promise<ConversionResult> {
-    return window.go.app.App.ConvertFile(request);
+    return Call.ByID(3302357039, request);
   }
 
   async getSupportedFormats(): Promise<SupportedFormat[]> {
-    return window.go.app.App.GetSupportedFormats();
+    return Call.ByID(742994356);
   }
 }

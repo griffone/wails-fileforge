@@ -9,7 +9,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-//go:embed all:frontend/dist
+//go:embed all:frontend/dist/frontend/browser
 var assets embed.FS
 
 func main() {
@@ -27,12 +27,22 @@ func main() {
 		},
 	})
 
-	application.NewWindow(application.WebviewWindowOptions{
-		Title:  "FileForge Desktop",
-		Width:  1200,
-		Height: 800,
-		URL:    "/",
+	window := application.NewWindow(application.WebviewWindowOptions{
+		Title:       "FileForge Desktop",
+		Width:       1200,
+		Height:      800,
+		URL:         "/",
+		MinWidth:    800,
+		MinHeight:   600,
+		X:           200,
+		Y:           200,
+		Hidden:      false,
+		AlwaysOnTop: false,
+		Frameless:   false,
 	})
+
+	// Forzar que la ventana sea visible
+	window.Show()
 
 	err := app.Run()
 	if err != nil {

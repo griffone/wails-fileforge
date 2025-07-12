@@ -35,13 +35,21 @@ import {
 export class ImageConverter implements OnInit {
   @ViewChild('fileInput') fileInput!: ElementRef<HTMLInputElement>;
 
+  readonly UploadIcon = Upload;
+  readonly DownloadIcon = Download;
+  readonly CheckCircleIcon = CheckCircle;
+  readonly XCircleIcon = XCircle;
+
   conversionForm: FormGroup;
   isConverting = false;
   result: ConversionResult | null = null;
   supportedFormats = ['webp', 'jpeg', 'png', 'gif'];
   dragOver = false;
 
-  constructor(private fb: FormBuilder, private wailsService: Wails) {
+  constructor(
+    private readonly fb: FormBuilder,
+    private readonly wailsService: Wails
+  ) {
     this.conversionForm = this.fb.group({
       inputPath: ['', Validators.required],
       outputPath: [''],
@@ -49,7 +57,9 @@ export class ImageConverter implements OnInit {
     });
   }
 
-  ngOnInit() {}
+  ngOnInit() {
+    // Component initialization
+  }
 
   onDragOver(event: DragEvent) {
     event.preventDefault();
@@ -84,7 +94,7 @@ export class ImageConverter implements OnInit {
     const file = event.target.files[0];
     if (file) {
       this.conversionForm.patchValue({
-        inputPath: file.path || file.name,
+        inputPath: file.path ?? file.name,
       });
     }
   }
