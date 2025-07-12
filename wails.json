@@ -1,0 +1,15 @@
+{
+  "name": "fileforge-desktop",
+  "version": "1.0.0",
+  "build": {
+    "appName": "FileForge Desktop",
+    "assetDir": "frontend/dist/frontend",
+    "webDir": "frontend/dist/frontend",
+    "frontendBuildCommand": "cd frontend && npm run build",
+    "frontendDevCommand": "cd frontend && npm run start",
+    "frontendDevServerURL": "http://localhost:4200"
+  },
+  "capabilities": {
+    "filesystem": true
+  }
+}
