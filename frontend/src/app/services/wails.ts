@@ -25,10 +25,37 @@ export interface SupportedFormat {
 })
 export class Wails {
   async convertFile(request: ConversionRequest): Promise<ConversionResult> {
-    return Call.ByID(3302357039, request);
+    try {
+      return await Call.ByID(3302357039, request);
+    } catch (error) {
+      console.error('Error in convertFile:', error);
+      return {
+        success: false,
+        message: `Conversion failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        outputPath: '',
+      };
+    }
   }
 
   async getSupportedFormats(): Promise<SupportedFormat[]> {
-    return Call.ByID(742994356);
+    try {
+      return await Call.ByID(742994356);
+    } catch (error) {
+      console.error('Error in getSupportedFormats:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Check if the Wails runtime is available (without waiting)
+   */
+  isRuntimeAvailable(): boolean {
+    return (
+      typeof window !== 'undefined' &&
+      (window as any)._wails &&
+      typeof Call?.ByID === 'function'
+    );
   }
 }
