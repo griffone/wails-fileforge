@@ -18,3 +18,29 @@ type SupportedFormat struct {
 	Category string   `json:"category"`
 	Formats  []string `json:"formats"`
 }
+
+// New models for batch conversion
+type BatchConversionRequest struct {
+	InputPaths    []string       `json:"inputPaths"`
+	OutputDir     string         `json:"outputDir"`
+	Format        string         `json:"format"`
+	Options       map[string]any `json:"options"`
+	Category      string         `json:"category"`
+	KeepStructure bool           `json:"keepStructure"` // Whether to maintain directory structure
+}
+
+type FileConversionResult struct {
+	InputPath  string `json:"inputPath"`
+	OutputPath string `json:"outputPath"`
+	Success    bool   `json:"success"`
+	Message    string `json:"message"`
+}
+
+type BatchConversionResult struct {
+	Success      bool                   `json:"success"`
+	Message      string                 `json:"message"`
+	TotalFiles   int                    `json:"totalFiles"`
+	SuccessCount int                    `json:"successCount"`
+	FailureCount int                    `json:"failureCount"`
+	Results      []FileConversionResult `json:"results"`
+}

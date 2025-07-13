@@ -11,13 +11,24 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as models$0 from "../models/models.js";
 
 /**
+ * ConvertBatch converts multiple files in batch
+ * @param {models$0.BatchConversionRequest} req
+ * @returns {$CancellablePromise<models$0.BatchConversionResult>}
+ */
+export function ConvertBatch(req) {
+    return $Call.ByID(2484487663, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * Wails bindings
  * @param {models$0.ConversionRequest} req
  * @returns {$CancellablePromise<models$0.ConversionResult>}
  */
 export function ConvertFile(req) {
     return $Call.ByID(3302357039, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -26,7 +37,34 @@ export function ConvertFile(req) {
  */
 export function GetSupportedFormats() {
     return $Call.ByID(742994356).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType3($result);
+    }));
+}
+
+/**
+ * OpenDirectoryDialog opens a native directory dialog and returns the selected directory path
+ * TODO: Implement proper directory selection when Wails 3 API is available
+ * @returns {$CancellablePromise<string>}
+ */
+export function OpenDirectoryDialog() {
+    return $Call.ByID(261105429);
+}
+
+/**
+ * OpenFileDialog opens a native file dialog and returns the selected file path
+ * @returns {$CancellablePromise<string>}
+ */
+export function OpenFileDialog() {
+    return $Call.ByID(2246342916);
+}
+
+/**
+ * OpenMultipleFilesDialog opens a native file dialog and returns multiple selected file paths
+ * @returns {$CancellablePromise<string[]>}
+ */
+export function OpenMultipleFilesDialog() {
+    return $Call.ByID(3029276213).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType4($result);
     }));
 }
 
@@ -38,6 +76,8 @@ export function SetContext() {
 }
 
 // Private type creation functions
-const $$createType0 = models$0.ConversionResult.createFrom;
-const $$createType1 = models$0.SupportedFormat.createFrom;
-const $$createType2 = $Create.Array($$createType1);
+const $$createType0 = models$0.BatchConversionResult.createFrom;
+const $$createType1 = models$0.ConversionResult.createFrom;
+const $$createType2 = models$0.SupportedFormat.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $Create.Array($Create.Any);

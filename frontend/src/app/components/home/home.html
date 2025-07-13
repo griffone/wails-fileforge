@@ -1,84 +1,38 @@
-<div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
-  <div class="max-w-6xl mx-auto">
-    <!-- Header -->
-    <div class="text-center mb-12">
-      <h1 class="text-4xl font-bold text-gray-900 mb-4">FileForge Desktop</h1>
-      <p class="text-xl text-gray-600">
-        Cross-platform file conversion toolkit
-      </p>
-    </div>
+<div style="padding: 20px; font-family: Arial, sans-serif">
+  <h1 style="color: #333; margin-bottom: 20px">FileForge Desktop</h1>
+  <p style="color: #666; margin-bottom: 20px">
+    Cross-platform file conversion toolkit
+  </p>
 
-    <!-- Converter Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-      <div
-        *ngFor="let format of supportedFormats"
-        class="card hover:shadow-lg transition-shadow cursor-pointer"
-        (click)="navigateToConverter(format.category)"
-      >
-        <div class="flex items-center mb-4">
-          <lucide-icon
-            [name]="getIconForCategory(format.category)"
-            class="w-8 h-8 text-primary-600 mr-3"
-          ></lucide-icon>
-          <h3 class="text-xl font-semibold text-gray-900">
-            {{ getCategoryDisplayName(format.category) }}
-          </h3>
-        </div>
+  <div
+    style="
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    "
+  >
+    <h3 style="margin-bottom: 10px">Debug Information:</h3>
+    <p>Runtime Available: {{ isRuntimeAvailable() ? "Yes" : "No" }}</p>
+    <p>Supported Formats Count: {{ supportedFormats.length }}</p>
+  </div>
 
-        <p class="text-gray-600 mb-4">
-          {{ getCategoryDescription(format.category) }}
-        </p>
-
-        <div class="flex flex-wrap gap-2">
-          <span
-            *ngFor="let fmt of format.formats"
-            class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-sm"
-          >
-            {{ fmt.toUpperCase() }}
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Coming Soon Cards -->
-    <div class="mt-12">
-      <h2 class="text-2xl font-semibold text-gray-900 mb-6 text-center">
-        Coming Soon
-      </h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        <div class="card opacity-60">
-          <div class="flex items-center mb-4">
-            <lucide-icon
-              name="file-text"
-              class="w-8 h-8 text-gray-400 mr-3"
-            ></lucide-icon>
-            <h3 class="text-xl font-semibold text-gray-600">Documents</h3>
-          </div>
-          <p class="text-gray-500 mb-4">PDF, DOCX, Markdown conversion</p>
-        </div>
-
-        <div class="card opacity-60">
-          <div class="flex items-center mb-4">
-            <lucide-icon
-              name="video"
-              class="w-8 h-8 text-gray-400 mr-3"
-            ></lucide-icon>
-            <h3 class="text-xl font-semibold text-gray-600">Video</h3>
-          </div>
-          <p class="text-gray-500 mb-4">MP4, WEBM, GIF conversion</p>
-        </div>
-
-        <div class="card opacity-60">
-          <div class="flex items-center mb-4">
-            <lucide-icon
-              name="music"
-              class="w-8 h-8 text-gray-400 mr-3"
-            ></lucide-icon>
-            <h3 class="text-xl font-semibold text-gray-600">Audio</h3>
-          </div>
-          <p class="text-gray-500 mb-4">MP3, FLAC, OGG conversion</p>
-        </div>
-      </div>
-    </div>
+  <div style="background: #e1f5fe; padding: 15px; border-radius: 8px">
+    <h3 style="margin-bottom: 10px">Image Converter</h3>
+    <p>Convert between PNG, JPG, WebP, GIF formats</p>
+    <button
+      style="
+        background: #2196f3;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-top: 10px;
+      "
+      (click)="navigateToConverter('img')"
+    >
+      Open Image Converter
+    </button>
   </div>
 </div>

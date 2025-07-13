@@ -16,9 +16,7 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "FileForge Desktop",
 		Description: "Cross-platform file conversion toolkit",
-		Services: []application.Service{
-			application.NewService(myapp.New()),
-		},
+		Services:    []application.Service{application.NewService(myapp.New())},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
@@ -27,25 +25,13 @@ func main() {
 		},
 	})
 
-	window := application.NewWindow(application.WebviewWindowOptions{
-		Title:       "FileForge Desktop",
-		Width:       1200,
-		Height:      800,
-		URL:         "/",
-		MinWidth:    800,
-		MinHeight:   600,
-		X:           200,
-		Y:           200,
-		Hidden:      false,
-		AlwaysOnTop: false,
-		Frameless:   false,
-	})
+	win := app.Window.New()
+	win.SetTitle("FileForge Desktop").
+		SetURL("/").
+		SetSize(800, 600).
+		Show()
 
-	// Forzar que la ventana sea visible
-	window.Show()
-
-	err := app.Run()
-	if err != nil {
+	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
