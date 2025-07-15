@@ -3,9 +3,11 @@ package image
 import (
 	"fileforge-desktop/internal/interfaces"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/utils"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/h2non/bimg"
 )
@@ -70,44 +72,112 @@ func (c *ImageConverter) ConvertSingle(inputPath, outputPath, format string) err
 // ConvertBatch converts multiple files in batch
 func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format string, keepStructure bool) []models.FileConversionResult {
 	results := make([]models.FileConversionResult, len(inputPaths))
+	resultsMutex := sync.Mutex{}
 
-	for i, inputPath := range inputPaths {
-		result := models.FileConversionResult{
-			InputPath: inputPath,
-			Success:   false,
-		}
+	// Create worker pool
+	workerPool := utils.NewWorkerPool(utils.DefaultWorkerCount)
 
-		// Generate output path
-		var outputPath string
-		if keepStructure {
-			// Maintain directory structure relative to common base
-			outputPath = c.generateStructuredOutputPath(inputPath, outputDir, format)
-		} else {
-			// Flatten all files to output directory
-			outputPath = c.generateFlatOutputPath(inputPath, outputDir, format)
-		}
-
-		result.OutputPath = outputPath
+	// Define the processing function
+	processFunc := func(job utils.Job) error {
+		inputPath := job.InputFile
+		outputPath := job.OutputFile
 
 		// Ensure output directory exists
 		if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-			result.Message = fmt.Sprintf("error creating output directory: %v", err)
-			results[i] = result
-			continue
+			return fmt.Errorf("error creating output directory: %v", err)
 		}
 
 		// Convert the file
-		if err := c.ConvertSingle(inputPath, outputPath, format); err != nil {
-			result.Message = fmt.Sprintf("conversion failed: %v", err)
-		} else {
-			result.Success = true
-			result.Message = "conversion successful"
-		}
-
-		results[i] = result
+		return c.ConvertSingle(inputPath, outputPath, format)
 	}
 
+	// Start workers
+	workerPool.Start(processFunc)
+
+	// Submit jobs and initialize results
+	jobIndexMap := c.submitJobs(inputPaths, outputDir, format, keepStructure, results, workerPool, &resultsMutex)
+
+	// Close the jobs channel after all jobs are submitted
+	workerPool.CloseJobs()
+
+	// Collect results - use the actual number of submitted jobs
+	c.collectResults(workerPool, jobIndexMap, results, &resultsMutex)
+
+	// Make sure to close the worker pool properly
+	workerPool.Close()
+
 	return results
+}
+
+func (c *ImageConverter) submitJobs(inputPaths []string, outputDir, format string, keepStructure bool, results []models.FileConversionResult, workerPool *utils.WorkerPool, resultsMutex *sync.Mutex) map[string]int {
+	jobIndexMap := make(map[string]int)
+
+	for i, inputPath := range inputPaths {
+		outputPath := c.generateOutputPath(inputPath, outputDir, format, keepStructure)
+
+		// Initialize result
+		results[i] = models.FileConversionResult{
+			InputPath:  inputPath,
+			OutputPath: outputPath,
+			Success:    false,
+		}
+
+		// Create and submit job
+		job := utils.Job{
+			InputFile:  inputPath,
+			OutputFile: outputPath,
+			Options:    map[string]any{"format": format},
+		}
+
+		if workerPool.Submit(job) {
+			jobIndexMap[outputPath] = i // Only add to map if successfully submitted
+		} else {
+			resultsMutex.Lock()
+			results[i].Message = "failed to submit job to worker pool"
+			resultsMutex.Unlock()
+		}
+	}
+
+	return jobIndexMap
+}
+
+func (c *ImageConverter) generateOutputPath(inputPath, outputDir, format string, keepStructure bool) string {
+	if keepStructure {
+		return c.generateStructuredOutputPath(inputPath, outputDir, format)
+	}
+	return c.generateFlatOutputPath(inputPath, outputDir, format)
+}
+
+func (c *ImageConverter) collectResults(workerPool *utils.WorkerPool, jobIndexMap map[string]int, results []models.FileConversionResult, resultsMutex *sync.Mutex) {
+	expectedResults := len(jobIndexMap)
+	processedCount := 0
+
+	for result := range workerPool.Results() {
+		index, exists := jobIndexMap[result.Job.OutputFile]
+		if !exists {
+			continue // Don't increment processedCount for invalid results
+		}
+
+		c.updateResult(index, result.Error, results, resultsMutex)
+		processedCount++
+
+		if processedCount >= expectedResults {
+			break
+		}
+	}
+}
+
+func (c *ImageConverter) updateResult(index int, err error, results []models.FileConversionResult, resultsMutex *sync.Mutex) {
+	resultsMutex.Lock()
+	defer resultsMutex.Unlock()
+
+	if err != nil {
+		results[index].Message = fmt.Sprintf("conversion failed: %v", err)
+		results[index].Success = false
+	} else {
+		results[index].Message = "conversion successful"
+		results[index].Success = true
+	}
 }
 
 func (c *ImageConverter) generateFlatOutputPath(inputPath, outputDir, format string) string {
