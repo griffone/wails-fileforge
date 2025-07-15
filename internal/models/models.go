@@ -24,6 +24,7 @@ type BatchConversionRequest struct {
 	InputPaths    []string       `json:"inputPaths"`
 	OutputDir     string         `json:"outputDir"`
 	Format        string         `json:"format"`
+	Workers       int            `json:"workers"` // Number of concurrent workers
 	Options       map[string]any `json:"options"`
 	Category      string         `json:"category"`
 	KeepStructure bool           `json:"keepStructure"` // Whether to maintain directory structure

@@ -64,6 +64,8 @@ export class ImageConverter implements OnInit {
       format: ['webp', Validators.required],
       outputDir: [''],
       keepStructure: [false],
+      showAdvancedOptions: [false],
+      workers: [4, [Validators.min(1), Validators.max(16)]],
     });
   }
 
@@ -339,6 +341,7 @@ export class ImageConverter implements OnInit {
       category: 'img',
       options: {},
       keepStructure: formValue.keepStructure ?? false,
+      workers: formValue.workers,
     };
 
     console.log('Batch conversion request:', request);
@@ -361,7 +364,12 @@ export class ImageConverter implements OnInit {
 
   resetForm() {
     this.conversionForm.reset();
-    this.conversionForm.patchValue({ format: 'webp' });
+    this.conversionForm.patchValue({
+      format: 'webp',
+      workers: 4,
+      showAdvancedOptions: false,
+      keepStructure: false,
+    });
     this.result = null;
     this.batchResult = null;
     this.selectedFiles = [];

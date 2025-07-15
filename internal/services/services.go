@@ -75,7 +75,7 @@ func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) mode
 
 	// For image converter, use the ConvertBatch method if available
 	if imageConverter, ok := converter.(*image.ImageConverter); ok {
-		results := imageConverter.ConvertBatch(req.InputPaths, req.OutputDir, req.Format, req.KeepStructure)
+		results := imageConverter.ConvertBatch(req.InputPaths, req.OutputDir, req.Format, req.KeepStructure, req.Workers)
 
 		totalFiles := len(results)
 		successCount := 0

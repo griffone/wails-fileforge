@@ -36,6 +36,14 @@ export class BatchConversionRequest {
              */
             this["format"] = "";
         }
+        if (!("workers" in $$source)) {
+            /**
+             * Number of concurrent workers
+             * @member
+             * @type {number}
+             */
+            this["workers"] = 0;
+        }
         if (!("options" in $$source)) {
             /**
              * @member
@@ -69,13 +77,13 @@ export class BatchConversionRequest {
      */
     static createFrom($$source = {}) {
         const $$createField0_0 = $$createType0;
-        const $$createField3_0 = $$createType1;
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputPaths" in $$parsedSource) {
             $$parsedSource["inputPaths"] = $$createField0_0($$parsedSource["inputPaths"]);
         }
         if ("options" in $$parsedSource) {
-            $$parsedSource["options"] = $$createField3_0($$parsedSource["options"]);
+            $$parsedSource["options"] = $$createField4_0($$parsedSource["options"]);
         }
         return new BatchConversionRequest(/** @type {Partial<BatchConversionRequest>} */($$parsedSource));
     }

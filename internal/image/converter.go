@@ -70,12 +70,12 @@ func (c *ImageConverter) ConvertSingle(inputPath, outputPath, format string) err
 }
 
 // ConvertBatch converts multiple files in batch
-func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format string, keepStructure bool) []models.FileConversionResult {
+func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format string, keepStructure bool, workers int) []models.FileConversionResult {
 	results := make([]models.FileConversionResult, len(inputPaths))
 	resultsMutex := sync.Mutex{}
 
 	// Create worker pool
-	workerPool := utils.NewWorkerPool(utils.DefaultWorkerCount)
+	workerPool := utils.NewWorkerPool(workers)
 
 	// Define the processing function
 	processFunc := func(job utils.Job) error {

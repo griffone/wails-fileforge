@@ -22,6 +22,7 @@ export interface BatchConversionRequest {
   options?: Record<string, any>;
   category: string;
   keepStructure: boolean;
+  workers?: number;
 }
 
 export interface FileConversionResult {
