@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	DefaultWorkerCount = 4 // Default 4 threads
-	DefaultBufferSize  = 8 // workerCount * 2
+	DefaultWorkerCount = 4                      // Default 4 threads
+	DefaultBufferSize  = DefaultWorkerCount * 2 // Smaller buffer since we use blocking submission
 )
 
 // Job represents a conversion task
@@ -40,11 +40,16 @@ func NewWorkerPool(workerCount int) *WorkerPool {
 		workerCount = DefaultWorkerCount
 	}
 
-	bufferSize := workerCount * 2
+	// Use a smaller buffer for better tracking - when this fills up, Submit will block
+	bufferSize := workerCount * 2 // Just 2x the number of workers
+	if bufferSize < 8 {
+		bufferSize = 8 // Minimum buffer size
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	return &WorkerPool{
 		workerCount: workerCount,
-		jobs:        make(chan Job, bufferSize), // Buffer to avoid blocking
+		jobs:        make(chan Job, bufferSize),
 		results:     make(chan Result, bufferSize),
 		ctx:         ctx,
 		cancel:      cancel,
@@ -79,8 +84,9 @@ func (wp *WorkerPool) worker(processFunc func(Job) error) {
 	}
 }
 
-// Submit a job to the pool
+// Submit a job to the pool (blocking - waits for space)
 func (wp *WorkerPool) Submit(job Job) bool {
+	// This will block until there's space in the channel or context is cancelled
 	select {
 	case wp.jobs <- job:
 		return true
@@ -91,22 +97,18 @@ func (wp *WorkerPool) Submit(job Job) bool {
 
 // Close closes the worker pool and waits for all workers to finish.
 func (wp *WorkerPool) Close() {
-	// Close jobs channel if not already closed
-	select {
-	case <-wp.jobs:
-		// Channel is already closed or drained
-	default:
-		close(wp.jobs)
-	}
-
+	// Wait for all workers to finish
 	wp.wg.Wait()
+
+	// Close results channel after all workers are done
 	close(wp.results)
 }
 
 func (wp *WorkerPool) CloseJobs() {
+	// Close jobs channel if not already closed
 	select {
-	case <-wp.jobs:
-		// Channel is already closed
+	case <-wp.ctx.Done():
+		// Context cancelled, jobs might already be closed
 	default:
 		close(wp.jobs)
 	}
