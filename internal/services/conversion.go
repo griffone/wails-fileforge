@@ -21,27 +21,18 @@ func (s *ConversionService) SetContext(ctx context.Context) {
 	s.ctx = ctx
 }
 
-func (s *ConversionService) ConvertFile(req models.ConversionRequest) models.ConversionResult {
-
+// ConvertFile converts a single file based on the provided request
+func (s *ConversionService) ConvertFile(req models.ConversionRequest) (models.ConversionResult, error) {
 	if req.InputPath == "" {
-		return models.ConversionResult{
-			Success: false,
-			Error:   "input path cannot be empty",
-		}
+		return models.ConversionResult{}, fmt.Errorf("input path cannot be empty")
 	}
 	if req.Category == "" {
-		return models.ConversionResult{
-			Success: false,
-			Error:   "category cannot be empty",
-		}
+		return models.ConversionResult{}, fmt.Errorf("category cannot be empty")
 	}
 
 	converter, err := registry.GlobalRegistry.Get(req.Category)
 	if err != nil {
-		return models.ConversionResult{
-			Success: false,
-			Error:   fmt.Sprintf("Converter not found: %v", err),
-		}
+		return models.ConversionResult{}, fmt.Errorf("converter not found: %w", err)
 	}
 
 	// Generate output path if not provided
@@ -53,46 +44,40 @@ func (s *ConversionService) ConvertFile(req models.ConversionRequest) models.Con
 		outputPath = filepath.Join(dir, fmt.Sprintf("%s.%s", baseName, req.Format))
 	}
 
-	// For image converter, use the ConvertSingle method if available
+	// Convert the file
 	err = converter.ConvertSingle(req.InputPath, outputPath, req.Format)
 	if err != nil {
-		return models.ConversionResult{
-			Success: false,
-			Error:   fmt.Sprintf("Conversion failed: %v", err),
-		}
+		return models.ConversionResult{}, fmt.Errorf("conversion failed: %w", err)
 	}
 
 	return models.ConversionResult{
 		Success:    true,
 		Message:    "Conversion successful",
 		OutputPath: outputPath,
-	}
+	}, nil
 }
 
 // ConvertBatch converts multiple files in batch
-func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) models.BatchConversionResult {
+func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) (models.BatchConversionResult, error) {
 	// Check if context is available and not cancelled
 	if s.ctx != nil {
 		select {
 		case <-s.ctx.Done():
-			return models.BatchConversionResult{
-				Success: false,
-				Error:   "operation was cancelled",
-			}
+			return models.BatchConversionResult{}, fmt.Errorf("operation was cancelled")
 		default:
 		}
 	}
 
 	converter, err := registry.GlobalRegistry.Get(req.Category)
 	if err != nil {
-		return models.BatchConversionResult{
-			Success: false,
-			Error:   fmt.Sprintf("Converter not found: %v", err),
-		}
+		return models.BatchConversionResult{}, fmt.Errorf("converter not found: %w", err)
 	}
 
-	// Use the interface method (no type assertion needed!)
-	results := converter.ConvertBatch(req.InputPaths, req.OutputDir, req.Format, req.KeepStructure, req.Workers)
+	// Use the interface method
+	results, err := converter.ConvertBatch(req.InputPaths, req.OutputDir, req.Format, req.KeepStructure, req.Workers)
+	if err != nil {
+		return models.BatchConversionResult{}, fmt.Errorf("batch conversion failed: %w", err)
+	}
 
 	totalFiles := len(results)
 	successCount := 0
@@ -104,7 +89,7 @@ func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) mode
 		errorMsg := result.Error
 		modelResults[i] = models.ConversionResult{
 			Success:    result.Success,
-			Message:    errorMsg,
+			Message:    result.Message,
 			OutputPath: result.OutputPath,
 			Error:      errorMsg,
 		}
@@ -127,7 +112,7 @@ func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) mode
 		SuccessCount: successCount,
 		FailureCount: failureCount,
 		Results:      modelResults,
-	}
+	}, nil
 }
 
 func (s *ConversionService) GetSupportedFormats() []models.SupportedFormat {

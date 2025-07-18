@@ -63,20 +63,38 @@ func (c *ImageConverter) SupportedFormats() []string {
 func (c *ImageConverter) ConvertSingle(inputPath, outputPath, format string) error {
 	input, err := os.ReadFile(inputPath)
 	if err != nil {
-		return fmt.Errorf("error reading file: %v", err)
+		return fmt.Errorf("error reading file: %w", err)
 	}
 
 	opts := map[string]any{"format": format}
 	output, err := c.Convert(input, opts)
 	if err != nil {
-		return fmt.Errorf("error converting file: %v", err)
+		return fmt.Errorf("error converting file: %w", err)
 	}
 
-	return os.WriteFile(outputPath, output, DefaultFilePermissions)
+	err = os.WriteFile(outputPath, output, DefaultFilePermissions)
+	if err != nil {
+		return fmt.Errorf("error writing output file: %w", err)
+	}
+
+	return nil
 }
 
-// ConvertBatch converts multiple files in batch
-func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format string, keepStructure bool, workers int) []models.ConversionResult {
+// ConvertBatch converts multiple files in batch and returns results with error
+func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format string, keepStructure bool, workers int) ([]models.ConversionResult, error) {
+	if len(inputPaths) == 0 {
+		return nil, fmt.Errorf("no input paths provided")
+	}
+
+	if outputDir == "" {
+		return nil, fmt.Errorf("output directory cannot be empty")
+	}
+
+	// Ensure output directory exists
+	if err := os.MkdirAll(outputDir, DirectoryPermissions); err != nil {
+		return nil, fmt.Errorf("error creating output directory: %w", err)
+	}
+
 	results := make([]models.ConversionResult, len(inputPaths))
 	resultsMutex := sync.Mutex{}
 
@@ -98,7 +116,7 @@ func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format str
 
 		// Ensure output directory exists
 		if err := os.MkdirAll(filepath.Dir(outputPath), DirectoryPermissions); err != nil {
-			return fmt.Errorf("error creating output directory: %v", err)
+			return fmt.Errorf("error creating output directory: %w", err)
 		}
 
 		// Convert the file
@@ -154,7 +172,7 @@ func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format str
 		// Context cancelled - this will cause cleanup
 	}
 
-	return results
+	return results, nil
 }
 
 func (c *ImageConverter) submitJobs(ctx context.Context, inputPaths []string, outputDir, format string, keepStructure bool, results []models.ConversionResult, workerPool *utils.WorkerPool, resultsMutex *sync.Mutex) {
@@ -202,7 +220,7 @@ func (c *ImageConverter) collectResults(ctx context.Context, workerPool *utils.W
 	expectedResults := len(jobIndexMap)
 	processedCount := 0
 
-	// Collect all results with context awareness
+	// Collect all results
 	for {
 		select {
 		case result, ok := <-workerPool.Results():
@@ -261,6 +279,7 @@ func (c *ImageConverter) updateResult(index int, err error, results []models.Con
 
 	if err != nil {
 		results[index].Message = fmt.Sprintf("conversion failed: %v", err)
+		results[index].Error = err.Error()
 		results[index].Success = false
 	} else {
 		results[index].Message = "conversion successful"

@@ -29,12 +29,26 @@ func (a *App) SetContext(ctx context.Context) {
 
 // Wails bindings
 func (a *App) ConvertFile(req models.ConversionRequest) models.ConversionResult {
-	return a.conversionService.ConvertFile(req)
+	res, err := a.conversionService.ConvertFile(req)
+	if err != nil {
+		return models.ConversionResult{
+			Success: false,
+			Message: err.Error(),
+		}
+	}
+	return res
 }
 
 // ConvertBatch converts multiple files in batch
 func (a *App) ConvertBatch(req models.BatchConversionRequest) models.BatchConversionResult {
-	return a.conversionService.ConvertBatch(req)
+	res, err := a.conversionService.ConvertBatch(req)
+	if err != nil {
+		return models.BatchConversionResult{
+			Success: false,
+			Message: err.Error(),
+		}
+	}
+	return res
 }
 
 func (a *App) GetSupportedFormats() []models.SupportedFormat {
