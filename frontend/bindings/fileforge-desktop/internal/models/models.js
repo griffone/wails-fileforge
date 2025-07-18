@@ -133,9 +133,16 @@ export class BatchConversionResult {
         if (!("results" in $$source)) {
             /**
              * @member
-             * @type {FileConversionResult[]}
+             * @type {ConversionResult[]}
              */
             this["results"] = [];
+        }
+        if (!("error" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["error"] = "";
         }
 
         Object.assign(this, $$source);
@@ -222,48 +229,6 @@ export class ConversionResult {
      * @param {Partial<ConversionResult>} [$$source = {}] - The source object to create the ConversionResult.
      */
     constructor($$source = {}) {
-        if (!("success" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["success"] = false;
-        }
-        if (!("message" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["message"] = "";
-        }
-        if (!("outputPath" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["outputPath"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ConversionResult instance from a string or object.
-     * @param {any} [$$source = {}]
-     * @returns {ConversionResult}
-     */
-    static createFrom($$source = {}) {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ConversionResult(/** @type {Partial<ConversionResult>} */($$parsedSource));
-    }
-}
-
-export class FileConversionResult {
-    /**
-     * Creates a new FileConversionResult instance.
-     * @param {Partial<FileConversionResult>} [$$source = {}] - The source object to create the FileConversionResult.
-     */
-    constructor($$source = {}) {
         if (!("inputPath" in $$source)) {
             /**
              * @member
@@ -292,18 +257,25 @@ export class FileConversionResult {
              */
             this["message"] = "";
         }
+        if (!("error" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["error"] = "";
+        }
 
         Object.assign(this, $$source);
     }
 
     /**
-     * Creates a new FileConversionResult instance from a string or object.
+     * Creates a new ConversionResult instance from a string or object.
      * @param {any} [$$source = {}]
-     * @returns {FileConversionResult}
+     * @returns {ConversionResult}
      */
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new FileConversionResult(/** @type {Partial<FileConversionResult>} */($$parsedSource));
+        return new ConversionResult(/** @type {Partial<ConversionResult>} */($$parsedSource));
     }
 }
 
@@ -349,5 +321,5 @@ export class SupportedFormat {
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = $Create.Map($Create.Any, $Create.Any);
-const $$createType2 = FileConversionResult.createFrom;
+const $$createType2 = ConversionResult.createFrom;
 const $$createType3 = $Create.Array($$createType2);

@@ -32,27 +32,30 @@ type WorkerPool struct {
 	wg          sync.WaitGroup
 	ctx         context.Context
 	cancel      context.CancelFunc
+	closed      bool
+	closeMutex  sync.RWMutex
 }
 
-// NewWorkerPool creates a new worker pool
-func NewWorkerPool(workerCount int) *WorkerPool {
+// NewWorkerPool creates a new worker pool with a parent context
+func NewWorkerPool(ctx context.Context, workerCount int) *WorkerPool {
 	if workerCount <= 0 {
 		workerCount = DefaultWorkerCount
 	}
 
-	// Use a smaller buffer for better tracking - when this fills up, Submit will block
-	bufferSize := workerCount * 2 // Just 2x the number of workers
+	bufferSize := DefaultBufferSize
 	if bufferSize < 8 {
-		bufferSize = 8 // Minimum buffer size
+		bufferSize = 8
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create a child context that can be cancelled independently
+	childCtx, cancel := context.WithCancel(ctx)
 	return &WorkerPool{
 		workerCount: workerCount,
 		jobs:        make(chan Job, bufferSize),
 		results:     make(chan Result, bufferSize),
-		ctx:         ctx,
+		ctx:         childCtx,
 		cancel:      cancel,
+		closed:      false,
 	}
 }
 
@@ -75,8 +78,21 @@ func (wp *WorkerPool) worker(processFunc func(Job) error) {
 				return // Channel closed
 			}
 
+			// Check context before processing
+			select {
+			case <-wp.ctx.Done():
+				return // Context cancelled
+			default:
+			}
+
 			err := processFunc(job)
-			wp.results <- Result{Job: job, Error: err}
+
+			// Try to send result, but don't block if context is cancelled
+			select {
+			case wp.results <- Result{Job: job, Error: err}:
+			case <-wp.ctx.Done():
+				return // Context cancelled while sending result
+			}
 
 		case <-wp.ctx.Done():
 			return // Cancellation
@@ -86,6 +102,13 @@ func (wp *WorkerPool) worker(processFunc func(Job) error) {
 
 // Submit a job to the pool (blocking - waits for space)
 func (wp *WorkerPool) Submit(job Job) bool {
+	wp.closeMutex.RLock()
+	defer wp.closeMutex.RUnlock()
+
+	if wp.closed {
+		return false
+	}
+
 	// This will block until there's space in the channel or context is cancelled
 	select {
 	case wp.jobs <- job:
@@ -97,14 +120,38 @@ func (wp *WorkerPool) Submit(job Job) bool {
 
 // Close closes the worker pool and waits for all workers to finish.
 func (wp *WorkerPool) Close() {
+	wp.closeMutex.Lock()
+	if wp.closed {
+		wp.closeMutex.Unlock()
+		return
+	}
+	wp.closed = true
+	wp.closeMutex.Unlock()
+
+	// Cancel context to stop workers
+	wp.cancel()
+
 	// Wait for all workers to finish
 	wp.wg.Wait()
 
-	// Close results channel after all workers are done
+	// Close channels safely
+	select {
+	case <-wp.jobs:
+	default:
+		close(wp.jobs)
+	}
+
 	close(wp.results)
 }
 
 func (wp *WorkerPool) CloseJobs() {
+	wp.closeMutex.RLock()
+	defer wp.closeMutex.RUnlock()
+
+	if wp.closed {
+		return
+	}
+
 	// Close jobs channel if not already closed
 	select {
 	case <-wp.ctx.Done():
@@ -122,4 +169,11 @@ func (wp *WorkerPool) Results() <-chan Result {
 // Cancel all workers
 func (wp *WorkerPool) Cancel() {
 	wp.cancel()
+}
+
+// IsClosed returns whether the worker pool is closed
+func (wp *WorkerPool) IsClosed() bool {
+	wp.closeMutex.RLock()
+	defer wp.closeMutex.RUnlock()
+	return wp.closed
 }

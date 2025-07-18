@@ -7,6 +7,5 @@ export {
     BatchConversionResult,
     ConversionRequest,
     ConversionResult,
-    FileConversionResult,
     SupportedFormat
 } from "./models.js";

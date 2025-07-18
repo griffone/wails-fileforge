@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/registry"
 	"fmt"
@@ -23,11 +22,25 @@ func (s *ConversionService) SetContext(ctx context.Context) {
 }
 
 func (s *ConversionService) ConvertFile(req models.ConversionRequest) models.ConversionResult {
+
+	if req.InputPath == "" {
+		return models.ConversionResult{
+			Success: false,
+			Error:   "input path cannot be empty",
+		}
+	}
+	if req.Category == "" {
+		return models.ConversionResult{
+			Success: false,
+			Error:   "category cannot be empty",
+		}
+	}
+
 	converter, err := registry.GlobalRegistry.Get(req.Category)
 	if err != nil {
 		return models.ConversionResult{
 			Success: false,
-			Message: fmt.Sprintf("Converter not found: %v", err),
+			Error:   fmt.Sprintf("Converter not found: %v", err),
 		}
 	}
 
@@ -41,18 +54,11 @@ func (s *ConversionService) ConvertFile(req models.ConversionRequest) models.Con
 	}
 
 	// For image converter, use the ConvertSingle method if available
-	if imageConverter, ok := converter.(*image.ImageConverter); ok {
-		err = imageConverter.ConvertSingle(req.InputPath, outputPath, req.Format)
-		if err != nil {
-			return models.ConversionResult{
-				Success: false,
-				Message: fmt.Sprintf("Conversion failed: %v", err),
-			}
-		}
-	} else {
+	err = converter.ConvertSingle(req.InputPath, outputPath, req.Format)
+	if err != nil {
 		return models.ConversionResult{
 			Success: false,
-			Message: "Generic conversion not implemented yet",
+			Error:   fmt.Sprintf("Conversion failed: %v", err),
 		}
 	}
 
@@ -65,47 +71,62 @@ func (s *ConversionService) ConvertFile(req models.ConversionRequest) models.Con
 
 // ConvertBatch converts multiple files in batch
 func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) models.BatchConversionResult {
+	// Check if context is available and not cancelled
+	if s.ctx != nil {
+		select {
+		case <-s.ctx.Done():
+			return models.BatchConversionResult{
+				Success: false,
+				Error:   "operation was cancelled",
+			}
+		default:
+		}
+	}
+
 	converter, err := registry.GlobalRegistry.Get(req.Category)
 	if err != nil {
 		return models.BatchConversionResult{
 			Success: false,
-			Message: fmt.Sprintf("Converter not found: %v", err),
+			Error:   fmt.Sprintf("Converter not found: %v", err),
 		}
 	}
 
-	// For image converter, use the ConvertBatch method if available
-	if imageConverter, ok := converter.(*image.ImageConverter); ok {
-		results := imageConverter.ConvertBatch(req.InputPaths, req.OutputDir, req.Format, req.KeepStructure, req.Workers)
+	// Use the interface method (no type assertion needed!)
+	results := converter.ConvertBatch(req.InputPaths, req.OutputDir, req.Format, req.KeepStructure, req.Workers)
 
-		totalFiles := len(results)
-		successCount := 0
-		failureCount := 0
+	totalFiles := len(results)
+	successCount := 0
+	failureCount := 0
 
-		for _, result := range results {
-			if result.Success {
-				successCount++
-			} else {
-				failureCount++
-			}
+	// Convert from interfaces.ConversionResult to models.ConversionResult
+	modelResults := make([]models.ConversionResult, len(results))
+	for i, result := range results {
+		errorMsg := result.Error
+		modelResults[i] = models.ConversionResult{
+			Success:    result.Success,
+			Message:    errorMsg,
+			OutputPath: result.OutputPath,
+			Error:      errorMsg,
 		}
 
-		success := failureCount == 0
-		message := fmt.Sprintf("Batch conversion completed: %d successful, %d failed out of %d files",
-			successCount, failureCount, totalFiles)
+		if result.Success {
+			successCount++
+		} else {
+			failureCount++
+		}
+	}
 
-		return models.BatchConversionResult{
-			Success:      success,
-			Message:      message,
-			TotalFiles:   totalFiles,
-			SuccessCount: successCount,
-			FailureCount: failureCount,
-			Results:      results,
-		}
-	} else {
-		return models.BatchConversionResult{
-			Success: false,
-			Message: "Batch conversion not implemented for this converter type",
-		}
+	success := failureCount == 0
+	message := fmt.Sprintf("Batch conversion completed: %d successful, %d failed out of %d files",
+		successCount, failureCount, totalFiles)
+
+	return models.BatchConversionResult{
+		Success:      success,
+		Message:      message,
+		TotalFiles:   totalFiles,
+		SuccessCount: successCount,
+		FailureCount: failureCount,
+		Results:      modelResults,
 	}
 }
 

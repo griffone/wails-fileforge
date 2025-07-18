@@ -1,6 +1,7 @@
 package image
 
 import (
+	"context"
 	"fileforge-desktop/internal/interfaces"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/utils"
@@ -10,6 +11,11 @@ import (
 	"sync"
 
 	"github.com/h2non/bimg"
+)
+
+const (
+	DefaultFilePermissions = 0644
+	DirectoryPermissions   = 0755
 )
 
 // Ensure ImageConverter implements the Converter interface
@@ -66,16 +72,24 @@ func (c *ImageConverter) ConvertSingle(inputPath, outputPath, format string) err
 		return fmt.Errorf("error converting file: %v", err)
 	}
 
-	return os.WriteFile(outputPath, output, 0644)
+	return os.WriteFile(outputPath, output, DefaultFilePermissions)
 }
 
 // ConvertBatch converts multiple files in batch
-func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format string, keepStructure bool, workers int) []models.FileConversionResult {
-	results := make([]models.FileConversionResult, len(inputPaths))
+func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format string, keepStructure bool, workers int) []models.ConversionResult {
+	results := make([]models.ConversionResult, len(inputPaths))
 	resultsMutex := sync.Mutex{}
 
-	// Create worker pool
-	workerPool := utils.NewWorkerPool(workers)
+	// Create worker pool with a timeout context to prevent hanging
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure context is always cancelled
+
+	workerPool := utils.NewWorkerPool(ctx, workers)
+	defer func() {
+		// Ensure proper cleanup regardless of how we exit
+		workerPool.Cancel()
+		workerPool.Close()
+	}()
 
 	// Define the processing function
 	processFunc := func(job utils.Job) error {
@@ -83,7 +97,7 @@ func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format str
 		outputPath := job.OutputFile
 
 		// Ensure output directory exists
-		if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(outputPath), DirectoryPermissions); err != nil {
 			return fmt.Errorf("error creating output directory: %v", err)
 		}
 
@@ -100,7 +114,7 @@ func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format str
 	// Initialize results
 	for i, inputPath := range inputPaths {
 		outputPath := c.generateOutputPath(inputPath, outputDir, format, keepStructure)
-		results[i] = models.FileConversionResult{
+		results[i] = models.ConversionResult{
 			InputPath:  inputPath,
 			OutputPath: outputPath,
 			Success:    false,
@@ -108,34 +122,54 @@ func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format str
 		jobIndexMap[outputPath] = i
 	}
 
-	// Start result collection in a separate goroutine BEFORE submitting jobs
-	resultsDone := make(chan bool)
+	// Use channels to coordinate goroutines properly
+	submitDone := make(chan bool, 1)
+	resultsDone := make(chan bool, 1)
+
+	// Start result collection in a separate goroutine
 	go func() {
-		defer close(resultsDone)
-		c.collectResults(workerPool, jobIndexMap, results, &resultsMutex)
+		defer func() {
+			close(resultsDone)
+		}()
+		c.collectResults(ctx, workerPool, jobIndexMap, results, &resultsMutex)
 	}()
 
-	// Submit jobs in a separate goroutine to avoid blocking
+	// Submit jobs in a separate goroutine
 	go func() {
-		defer workerPool.CloseJobs() // Close jobs channel when done submitting
-		c.submitJobs(inputPaths, outputDir, format, keepStructure, results, workerPool, &resultsMutex)
+		defer func() {
+			workerPool.CloseJobs()
+			close(submitDone)
+		}()
+		c.submitJobs(ctx, inputPaths, outputDir, format, keepStructure, results, workerPool, &resultsMutex)
 	}()
 
-	// Wait for all results to be collected
-	<-resultsDone
+	// Wait for submission to complete
+	<-submitDone
 
-	// Clean up
-	workerPool.Cancel() // Cancel any remaining workers
-	workerPool.Close()  // Wait for workers to finish and close results channel
+	// Wait for all results to be collected with timeout
+	select {
+	case <-resultsDone:
+		// Normal completion
+	case <-ctx.Done():
+		// Context cancelled - this will cause cleanup
+	}
 
 	return results
 }
 
-func (c *ImageConverter) submitJobs(inputPaths []string, outputDir, format string, keepStructure bool, results []models.FileConversionResult, workerPool *utils.WorkerPool, resultsMutex *sync.Mutex) {
+func (c *ImageConverter) submitJobs(ctx context.Context, inputPaths []string, outputDir, format string, keepStructure bool, results []models.ConversionResult, workerPool *utils.WorkerPool, resultsMutex *sync.Mutex) {
 	totalFiles := len(inputPaths)
 	fmt.Printf("Starting to submit %d jobs to worker pool\n", totalFiles)
 
 	for i, inputPath := range inputPaths {
+		// Check if context is cancelled before each submission
+		select {
+		case <-ctx.Done():
+			fmt.Printf("Context cancelled, stopping job submission at %d/%d\n", i, totalFiles)
+			return
+		default:
+		}
+
 		outputPath := c.generateOutputPath(inputPath, outputDir, format, keepStructure)
 
 		// Create and submit job
@@ -151,9 +185,9 @@ func (c *ImageConverter) submitJobs(inputPaths []string, outputDir, format strin
 				fmt.Printf("Successfully submitted %d/%d jobs to worker pool\n", i+1, totalFiles)
 			}
 		} else {
-			// This should only happen if the context is cancelled
+			// This happens if the context is cancelled or pool is closed
 			resultsMutex.Lock()
-			results[i].Message = "worker pool was cancelled"
+			results[i].Message = "worker pool was cancelled or closed"
 			results[i].Success = false
 			resultsMutex.Unlock()
 			fmt.Printf("Failed to submit job %d/%d - worker pool cancelled\n", i+1, totalFiles)
@@ -164,31 +198,45 @@ func (c *ImageConverter) submitJobs(inputPaths []string, outputDir, format strin
 	fmt.Printf("Finished submitting all jobs to worker pool\n")
 }
 
-func (c *ImageConverter) collectResults(workerPool *utils.WorkerPool, jobIndexMap map[string]int, results []models.FileConversionResult, resultsMutex *sync.Mutex) {
+func (c *ImageConverter) collectResults(ctx context.Context, workerPool *utils.WorkerPool, jobIndexMap map[string]int, results []models.ConversionResult, resultsMutex *sync.Mutex) {
 	expectedResults := len(jobIndexMap)
 	processedCount := 0
 
-	// Collect all results
-	for result := range workerPool.Results() {
-		index, exists := jobIndexMap[result.Job.OutputFile]
-		if !exists {
-			continue
-		}
+	// Collect all results with context awareness
+	for {
+		select {
+		case result, ok := <-workerPool.Results():
+			if !ok {
+				// Channel closed
+				fmt.Printf("Results channel closed, stopping collection\n")
+				goto cleanup
+			}
 
-		c.updateResult(index, result.Error, results, resultsMutex)
-		processedCount++
+			index, exists := jobIndexMap[result.Job.OutputFile]
+			if !exists {
+				continue
+			}
 
-		// Log progress
-		if processedCount%10 == 0 || processedCount == expectedResults {
-			fmt.Printf("Processed result %d/%d for file: %s\n", processedCount, expectedResults, result.Job.InputFile)
-		}
+			c.updateResult(index, result.Error, results, resultsMutex)
+			processedCount++
 
-		// Break when we've processed all expected results
-		if processedCount >= expectedResults {
-			break
+			// Log progress
+			if processedCount%10 == 0 || processedCount == expectedResults {
+				fmt.Printf("Processed result %d/%d for file: %s\n", processedCount, expectedResults, result.Job.InputFile)
+			}
+
+			// Break when we've processed all expected results
+			if processedCount >= expectedResults {
+				goto cleanup
+			}
+
+		case <-ctx.Done():
+			fmt.Printf("Context cancelled during result collection\n")
+			goto cleanup
 		}
 	}
 
+cleanup:
 	fmt.Printf("Finished collecting results. Processed: %d, Expected: %d\n", processedCount, expectedResults)
 
 	// Mark any remaining unprocessed jobs as failed
@@ -207,7 +255,7 @@ func (c *ImageConverter) collectResults(workerPool *utils.WorkerPool, jobIndexMa
 	resultsMutex.Unlock()
 }
 
-func (c *ImageConverter) updateResult(index int, err error, results []models.FileConversionResult, resultsMutex *sync.Mutex) {
+func (c *ImageConverter) updateResult(index int, err error, results []models.ConversionResult, resultsMutex *sync.Mutex) {
 	resultsMutex.Lock()
 	defer resultsMutex.Unlock()
 

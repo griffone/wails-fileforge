@@ -9,9 +9,11 @@ type ConversionRequest struct {
 }
 
 type ConversionResult struct {
+	InputPath  string `json:"inputPath"`
+	OutputPath string `json:"outputPath"`
 	Success    bool   `json:"success"`
 	Message    string `json:"message"`
-	OutputPath string `json:"outputPath"`
+	Error      string `json:"error"`
 }
 
 type SupportedFormat struct {
@@ -30,18 +32,12 @@ type BatchConversionRequest struct {
 	KeepStructure bool           `json:"keepStructure"` // Whether to maintain directory structure
 }
 
-type FileConversionResult struct {
-	InputPath  string `json:"inputPath"`
-	OutputPath string `json:"outputPath"`
-	Success    bool   `json:"success"`
-	Message    string `json:"message"`
-}
-
 type BatchConversionResult struct {
-	Success      bool                   `json:"success"`
-	Message      string                 `json:"message"`
-	TotalFiles   int                    `json:"totalFiles"`
-	SuccessCount int                    `json:"successCount"`
-	FailureCount int                    `json:"failureCount"`
-	Results      []FileConversionResult `json:"results"`
+	Success      bool               `json:"success"`
+	Message      string             `json:"message"`
+	TotalFiles   int                `json:"totalFiles"`
+	SuccessCount int                `json:"successCount"`
+	FailureCount int                `json:"failureCount"`
+	Results      []ConversionResult `json:"results"`
+	Error        string             `json:"error"`
 }
