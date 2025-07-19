@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/h2non/bimg"
@@ -16,6 +17,7 @@ import (
 const (
 	DefaultFilePermissions = 0644
 	DirectoryPermissions   = 0755
+	OperationCancelledMsg  = "operation cancelled: %w"
 )
 
 // Ensure ImageConverter implements the Converter interface
@@ -60,16 +62,47 @@ func (c *ImageConverter) SupportedFormats() []string {
 	return formats
 }
 
-func (c *ImageConverter) ConvertSingle(inputPath, outputPath, format string) error {
+func (c *ImageConverter) ConvertSingle(ctx context.Context, inputPath, outputPath, format string) error {
+	// Check context before starting
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf(OperationCancelledMsg, ctx.Err())
+	default:
+	}
+
+	// Validate input file extension
+	if err := c.validateInputFile(inputPath); err != nil {
+		return fmt.Errorf("input validation failed: %w", err)
+	}
+
+	// Validate output format
+	if err := c.validateOutputFormat(format); err != nil {
+		return fmt.Errorf("format validation failed: %w", err)
+	}
+
 	input, err := os.ReadFile(inputPath)
 	if err != nil {
 		return fmt.Errorf("error reading file: %w", err)
+	}
+
+	// Check context before conversion
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf(OperationCancelledMsg, ctx.Err())
+	default:
 	}
 
 	opts := map[string]any{"format": format}
 	output, err := c.Convert(input, opts)
 	if err != nil {
 		return fmt.Errorf("error converting file: %w", err)
+	}
+
+	// Check context before writing
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf(OperationCancelledMsg, ctx.Err())
+	default:
 	}
 
 	err = os.WriteFile(outputPath, output, DefaultFilePermissions)
@@ -81,13 +114,20 @@ func (c *ImageConverter) ConvertSingle(inputPath, outputPath, format string) err
 }
 
 // ConvertBatch converts multiple files in batch and returns results with error
-func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format string, keepStructure bool, workers int) ([]models.ConversionResult, error) {
+func (c *ImageConverter) ConvertBatch(ctx context.Context, inputPaths []string, outputDir, format string, keepStructure bool, workers int) ([]models.ConversionResult, error) {
 	if len(inputPaths) == 0 {
 		return nil, fmt.Errorf("no input paths provided")
 	}
 
 	if outputDir == "" {
 		return nil, fmt.Errorf("output directory cannot be empty")
+	}
+
+	// Check context before starting
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf(OperationCancelledMsg, ctx.Err())
+	default:
 	}
 
 	// Ensure output directory exists
@@ -98,10 +138,7 @@ func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format str
 	results := make([]models.ConversionResult, len(inputPaths))
 	resultsMutex := sync.Mutex{}
 
-	// Create worker pool with a timeout context to prevent hanging
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // Ensure context is always cancelled
-
+	// Use the provided context directly
 	workerPool := utils.NewWorkerPool(ctx, workers)
 	defer func() {
 		// Ensure proper cleanup regardless of how we exit
@@ -119,8 +156,8 @@ func (c *ImageConverter) ConvertBatch(inputPaths []string, outputDir, format str
 			return fmt.Errorf("error creating output directory: %w", err)
 		}
 
-		// Convert the file
-		return c.ConvertSingle(inputPath, outputPath, format)
+		// Convert the file with context
+		return c.ConvertSingle(ctx, inputPath, outputPath, format)
 	}
 
 	// Start workers
@@ -304,4 +341,57 @@ func (c *ImageConverter) generateFlatOutputPath(inputPath, outputDir, format str
 func (c *ImageConverter) generateStructuredOutputPath(inputPath, outputDir, format string) string {
 	// For now, implement flat structure. Can be enhanced later for complex directory structures
 	return c.generateFlatOutputPath(inputPath, outputDir, format)
+}
+
+// validateInputFile checks if the input file has a supported image extension
+func (c *ImageConverter) validateInputFile(inputPath string) error {
+	if inputPath == "" {
+		return fmt.Errorf("input path cannot be empty")
+	}
+
+	ext := strings.ToLower(filepath.Ext(inputPath))
+	if ext == "" {
+		return fmt.Errorf("input file has no extension")
+	}
+
+	// Remove the dot from extension
+	ext = ext[1:]
+
+	// Define supported input extensions
+	// TODO: Make this configurable or extendable
+	supportedInputExts := map[string]bool{
+		"jpg":  true,
+		"jpeg": true,
+		"png":  true,
+		"gif":  true,
+		"webp": true,
+		"bmp":  true,
+		"tiff": true,
+		"tif":  true,
+	}
+
+	if !supportedInputExts[ext] {
+		var supported []string
+		for supportedExt := range supportedInputExts {
+			supported = append(supported, supportedExt)
+		}
+		return fmt.Errorf("unsupported input file extension '%s'. Supported extensions: %v", ext, supported)
+	}
+
+	return nil
+}
+
+// validateOutputFormat checks if the output format is supported
+func (c *ImageConverter) validateOutputFormat(format string) error {
+	if format == "" {
+		return fmt.Errorf("output format cannot be empty")
+	}
+
+	format = strings.ToLower(format)
+
+	if _, exists := c.formats[format]; !exists {
+		return fmt.Errorf("unsupported output format '%s'. Supported formats: %v", format, c.SupportedFormats())
+	}
+
+	return nil
 }
