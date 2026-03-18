@@ -193,13 +193,13 @@ func (c *ImageConverter) ConvertBatch(ctx context.Context, inputPaths []string, 
 
 	// Initialize results
 	for i, inputPath := range inputPaths {
-		outputPath := c.generateOutputPath(inputPath, outputDir, format, keepStructure, options)
+		outputPath := c.generateOutputPath(inputPath, outputDir, format, options)
 		results[i] = models.ConversionResult{
 			InputPath:  inputPath,
 			OutputPath: outputPath,
 			Success:    false,
 		}
-		jobIndexMap[outputPath] = i
+		jobIndexMap[inputPath] = i
 	}
 
 	// Use channels to coordinate goroutines properly
@@ -250,7 +250,7 @@ func (c *ImageConverter) submitJobs(ctx context.Context, inputPaths []string, ou
 		default:
 		}
 
-		outputPath := c.generateOutputPath(inputPath, outputDir, format, keepStructure, options)
+		outputPath := c.generateOutputPath(inputPath, outputDir, format, options)
 
 		// Create and submit job
 		job := utils.Job{
@@ -292,7 +292,7 @@ func (c *ImageConverter) collectResults(ctx context.Context, workerPool *utils.W
 				goto cleanup
 			}
 
-			index, exists := jobIndexMap[result.Job.OutputFile]
+			index, exists := jobIndexMap[result.Job.InputFile]
 			if !exists {
 				continue
 			}
@@ -357,7 +357,7 @@ func (c *ImageConverter) updateResult(index int, err error, results []models.Con
 	}
 }
 
-func (c *ImageConverter) generateOutputPath(inputPath, outputDir, format string, keepStructure bool, options map[string]any) string {
+func (c *ImageConverter) generateOutputPath(inputPath, outputDir, format string, options map[string]any) string {
 	if options != nil {
 		if outPaths, ok := options["outputPaths"].(map[string]string); ok {
 			if outPath, exists := outPaths[inputPath]; exists {
@@ -365,9 +365,7 @@ func (c *ImageConverter) generateOutputPath(inputPath, outputDir, format string,
 			}
 		}
 	}
-	if keepStructure {
-		return c.generateStructuredOutputPath(inputPath, outputDir, format)
-	}
+	// Fallback to flat output when explicit mapping isn't provided.
 	return c.generateFlatOutputPath(inputPath, outputDir, format)
 }
 
@@ -376,11 +374,6 @@ func (c *ImageConverter) generateFlatOutputPath(inputPath, outputDir, format str
 	ext := filepath.Ext(baseName)
 	nameWithoutExt := baseName[:len(baseName)-len(ext)]
 	return filepath.Join(outputDir, fmt.Sprintf("%s.%s", nameWithoutExt, format))
-}
-
-func (c *ImageConverter) generateStructuredOutputPath(inputPath, outputDir, format string) string {
-	// For now, implement flat structure. Can be enhanced later for complex directory structures
-	return c.generateFlatOutputPath(inputPath, outputDir, format)
 }
 
 // validateInputFile checks if the input file has a supported image extension

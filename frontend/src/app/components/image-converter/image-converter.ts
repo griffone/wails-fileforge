@@ -59,7 +59,9 @@ export class ImageConverter implements OnInit, OnDestroy {
   unsubscribeProgress: (() => void) | null = null;
   unsubscribeComplete: (() => void) | null = null;
   selectedFiles: string[] = [];
+  selectedFolderInputs = new Set<string>();
   outputDirectory = '';
+  keepStructureHint = '';
 
   constructor(
     private readonly fb: FormBuilder,
@@ -280,8 +282,39 @@ export class ImageConverter implements OnInit, OnDestroy {
     }
   }
 
+  async selectInputFolder() {
+    try {
+      const dirPath = await this.wailsService.openDirectoryDialog();
+      if (dirPath) {
+        if (!this.selectedFiles.includes(dirPath)) {
+          this.selectedFiles.push(dirPath);
+        }
+
+        this.selectedFolderInputs.add(dirPath);
+
+        if (!this.conversionForm.get('keepStructure')?.value) {
+          this.conversionForm.patchValue({ keepStructure: true });
+        }
+
+        this.keepStructureHint =
+          'Folder input detected: Keep directory structure was enabled automatically to avoid filename collisions.';
+      }
+    } catch (error) {
+      console.error('Error opening directory dialog:', error);
+    }
+  }
+
   removeFile(index: number) {
+    const removed = this.selectedFiles[index];
     this.selectedFiles.splice(index, 1);
+
+    if (removed) {
+      this.selectedFolderInputs.delete(removed);
+    }
+
+    if (this.selectedFolderInputs.size === 0) {
+      this.keepStructureHint = '';
+    }
   }
 
   async convertImage() {
@@ -354,6 +387,13 @@ export class ImageConverter implements OnInit, OnDestroy {
 
     const formValue = this.conversionForm.value;
 
+    if (this.selectedFolderInputs.size > 0 && !formValue.keepStructure) {
+      this.conversionForm.patchValue({ keepStructure: true });
+      this.keepStructureHint =
+        'Keep directory structure was re-enabled because folder inputs are selected.';
+      formValue.keepStructure = true;
+    }
+
     if (!formValue.outputDir || formValue.outputDir.trim() === '') {
       this.batchResult = {
         success: false,
@@ -418,6 +458,8 @@ export class ImageConverter implements OnInit, OnDestroy {
     this.result = null;
     this.batchResult = null;
     this.selectedFiles = [];
+    this.selectedFolderInputs.clear();
     this.outputDirectory = '';
+    this.keepStructureHint = '';
   }
 }

@@ -1,14 +1,16 @@
 package services
 
 import (
-	"os"
-	"github.com/wailsapp/wails/v3/pkg/application"
 	"context"
-	"fileforge-desktop/internal/models"
-	"fileforge-desktop/internal/registry"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+
+	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/registry"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type ConversionService struct {
@@ -121,11 +123,11 @@ func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) (mod
 
 	// Use the interface method with context
 	results, err := converter.ConvertBatch(ctx, expandedPaths, req.OutputDir, req.Format, req.KeepStructure, req.Workers, req.Options, onProgress)
-	
+
 	if app := application.Get(); app != nil {
 		app.Event.Emit("conversion:complete", map[string]any{
 			"totalFiles": len(expandedPaths),
-			"error": err,
+			"error":      err,
 		})
 	}
 
@@ -168,48 +170,49 @@ func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) (mod
 		Results:      modelResults,
 	}, nil
 }
-
-
-
 func (s *ConversionService) expandPaths(inputPaths []string, outputDir, format string, keepStructure bool) ([]string, map[string]string, error) {
 	var expandedPaths []string
 	outputPaths := make(map[string]string)
+	usedOutputPaths := make(map[string]int)
 
 	for _, inputPath := range inputPaths {
 		info, err := os.Stat(inputPath)
 		if err != nil {
 			expandedPaths = append(expandedPaths, inputPath)
+			outputPaths[inputPath] = s.nextCollisionSafePath(
+				filepath.Join(outputDir, s.outputFileName(inputPath, format)),
+				usedOutputPaths,
+			)
 			continue
 		}
 
 		if info.IsDir() {
+			rootFolderName := filepath.Base(filepath.Clean(inputPath))
 			err = filepath.Walk(inputPath, func(path string, fInfo os.FileInfo, err error) error {
 				if err != nil {
 					return nil
 				}
 				if !fInfo.IsDir() {
 					expandedPaths = append(expandedPaths, path)
-					
+
 					var calculatedOutputPath string
 					if keepStructure {
 						relPath, err := filepath.Rel(inputPath, path)
 						if err == nil {
-							baseDir := filepath.Dir(relPath)
-							baseName := filepath.Base(path)
-							ext := filepath.Ext(baseName)
-							nameWithoutExt := baseName[:len(baseName)-len(ext)]
-							
-							calculatedOutputPath = filepath.Join(outputDir, baseDir, fmt.Sprintf("%s.%s", nameWithoutExt, format))
+							calculatedOutputPath = filepath.Join(
+								outputDir,
+								rootFolderName,
+								filepath.Dir(relPath),
+								s.outputFileName(path, format),
+							)
 						}
 					}
-					
+
 					if calculatedOutputPath == "" {
-						baseName := filepath.Base(path)
-						ext := filepath.Ext(baseName)
-						nameWithoutExt := baseName[:len(baseName)-len(ext)]
-						calculatedOutputPath = filepath.Join(outputDir, fmt.Sprintf("%s.%s", nameWithoutExt, format))
+						calculatedOutputPath = filepath.Join(outputDir, s.outputFileName(path, format))
 					}
-					outputPaths[path] = calculatedOutputPath
+
+					outputPaths[path] = s.nextCollisionSafePath(calculatedOutputPath, usedOutputPaths)
 				}
 				return nil
 			})
@@ -218,15 +221,43 @@ func (s *ConversionService) expandPaths(inputPaths []string, outputDir, format s
 			}
 		} else {
 			expandedPaths = append(expandedPaths, inputPath)
-			baseName := filepath.Base(inputPath)
-			ext := filepath.Ext(baseName)
-			nameWithoutExt := baseName[:len(baseName)-len(ext)]
-			calculatedOutputPath := filepath.Join(outputDir, fmt.Sprintf("%s.%s", nameWithoutExt, format))
-			outputPaths[inputPath] = calculatedOutputPath
+			outputPaths[inputPath] = s.nextCollisionSafePath(
+				filepath.Join(outputDir, s.outputFileName(inputPath, format)),
+				usedOutputPaths,
+			)
 		}
 	}
 
 	return expandedPaths, outputPaths, nil
+}
+
+func (s *ConversionService) outputFileName(inputPath, format string) string {
+	baseName := filepath.Base(inputPath)
+	ext := filepath.Ext(baseName)
+	nameWithoutExt := baseName[:len(baseName)-len(ext)]
+	return fmt.Sprintf("%s.%s", nameWithoutExt, format)
+}
+
+func (s *ConversionService) nextCollisionSafePath(basePath string, used map[string]int) string {
+	count := used[basePath]
+	if count == 0 {
+		used[basePath] = 1
+		return basePath
+	}
+
+	dir := filepath.Dir(basePath)
+	fileName := filepath.Base(basePath)
+	ext := filepath.Ext(fileName)
+	nameWithoutExt := strings.TrimSuffix(fileName, ext)
+
+	for suffix := count + 1; ; suffix++ {
+		candidate := filepath.Join(dir, fmt.Sprintf("%s-%d%s", nameWithoutExt, suffix, ext))
+		if used[candidate] == 0 {
+			used[basePath] = suffix
+			used[candidate] = 1
+			return candidate
+		}
+	}
 }
 
 func (s *ConversionService) GetSupportedFormats() []models.SupportedFormat {
