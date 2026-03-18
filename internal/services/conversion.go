@@ -1,6 +1,8 @@
 package services
 
 import (
+	"os"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"context"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/registry"
@@ -60,7 +62,7 @@ func (s *ConversionService) ConvertFile(req models.ConversionRequest) (models.Co
 	}
 
 	// Convert the file with context
-	err = converter.ConvertSingle(ctx, req.InputPath, outputPath, req.Format)
+	err = converter.ConvertSingle(ctx, req.InputPath, outputPath, req.Format, req.Options)
 	if err != nil {
 		return models.ConversionResult{}, fmt.Errorf("conversion failed: %w", err)
 	}
@@ -95,8 +97,38 @@ func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) (mod
 		ctx = context.Background()
 	}
 
+	expandedPaths, outputPaths, err := s.expandPaths(req.InputPaths, req.OutputDir, req.Format, req.KeepStructure)
+	if err != nil {
+		return models.BatchConversionResult{}, err
+	}
+
+	if req.Options == nil {
+		req.Options = make(map[string]any)
+	}
+	req.Options["outputPaths"] = outputPaths
+
+	onProgress := func(result models.ConversionResult) {
+		if app := application.Get(); app != nil {
+			app.Event.Emit("conversion:progress", result)
+		}
+	}
+
+	if app := application.Get(); app != nil {
+		app.Event.Emit("conversion:start", map[string]any{
+			"totalFiles": len(expandedPaths),
+		})
+	}
+
 	// Use the interface method with context
-	results, err := converter.ConvertBatch(ctx, req.InputPaths, req.OutputDir, req.Format, req.KeepStructure, req.Workers)
+	results, err := converter.ConvertBatch(ctx, expandedPaths, req.OutputDir, req.Format, req.KeepStructure, req.Workers, req.Options, onProgress)
+	
+	if app := application.Get(); app != nil {
+		app.Event.Emit("conversion:complete", map[string]any{
+			"totalFiles": len(expandedPaths),
+			"error": err,
+		})
+	}
+
 	if err != nil {
 		return models.BatchConversionResult{}, fmt.Errorf("batch conversion failed: %w", err)
 	}
@@ -135,6 +167,66 @@ func (s *ConversionService) ConvertBatch(req models.BatchConversionRequest) (mod
 		FailureCount: failureCount,
 		Results:      modelResults,
 	}, nil
+}
+
+
+
+func (s *ConversionService) expandPaths(inputPaths []string, outputDir, format string, keepStructure bool) ([]string, map[string]string, error) {
+	var expandedPaths []string
+	outputPaths := make(map[string]string)
+
+	for _, inputPath := range inputPaths {
+		info, err := os.Stat(inputPath)
+		if err != nil {
+			expandedPaths = append(expandedPaths, inputPath)
+			continue
+		}
+
+		if info.IsDir() {
+			err = filepath.Walk(inputPath, func(path string, fInfo os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+				if !fInfo.IsDir() {
+					expandedPaths = append(expandedPaths, path)
+					
+					var calculatedOutputPath string
+					if keepStructure {
+						relPath, err := filepath.Rel(inputPath, path)
+						if err == nil {
+							baseDir := filepath.Dir(relPath)
+							baseName := filepath.Base(path)
+							ext := filepath.Ext(baseName)
+							nameWithoutExt := baseName[:len(baseName)-len(ext)]
+							
+							calculatedOutputPath = filepath.Join(outputDir, baseDir, fmt.Sprintf("%s.%s", nameWithoutExt, format))
+						}
+					}
+					
+					if calculatedOutputPath == "" {
+						baseName := filepath.Base(path)
+						ext := filepath.Ext(baseName)
+						nameWithoutExt := baseName[:len(baseName)-len(ext)]
+						calculatedOutputPath = filepath.Join(outputDir, fmt.Sprintf("%s.%s", nameWithoutExt, format))
+					}
+					outputPaths[path] = calculatedOutputPath
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, nil, fmt.Errorf("error walking directory: %w", err)
+			}
+		} else {
+			expandedPaths = append(expandedPaths, inputPath)
+			baseName := filepath.Base(inputPath)
+			ext := filepath.Ext(baseName)
+			nameWithoutExt := baseName[:len(baseName)-len(ext)]
+			calculatedOutputPath := filepath.Join(outputDir, fmt.Sprintf("%s.%s", nameWithoutExt, format))
+			outputPaths[inputPath] = calculatedOutputPath
+		}
+	}
+
+	return expandedPaths, outputPaths, nil
 }
 
 func (s *ConversionService) GetSupportedFormats() []models.SupportedFormat {

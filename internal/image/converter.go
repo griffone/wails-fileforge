@@ -51,7 +51,29 @@ func (c *ImageConverter) Convert(input []byte, opts map[string]any) ([]byte, err
 		return nil, fmt.Errorf("unsupported image format: %s", format)
 	}
 
-	return img.Convert(imageType)
+	bimgOptions := bimg.Options{
+		Type: imageType,
+	}
+
+	if quality, ok := opts["quality"].(float64); ok {
+		bimgOptions.Quality = int(quality)
+	} else if quality, ok := opts["quality"].(int); ok {
+		bimgOptions.Quality = quality
+	}
+
+	if width, ok := opts["width"].(float64); ok {
+		bimgOptions.Width = int(width)
+	} else if width, ok := opts["width"].(int); ok {
+		bimgOptions.Width = width
+	}
+
+	if height, ok := opts["height"].(float64); ok {
+		bimgOptions.Height = int(height)
+	} else if height, ok := opts["height"].(int); ok {
+		bimgOptions.Height = height
+	}
+
+	return img.Process(bimgOptions)
 }
 
 func (c *ImageConverter) SupportedFormats() []string {
@@ -62,7 +84,7 @@ func (c *ImageConverter) SupportedFormats() []string {
 	return formats
 }
 
-func (c *ImageConverter) ConvertSingle(ctx context.Context, inputPath, outputPath, format string) error {
+func (c *ImageConverter) ConvertSingle(ctx context.Context, inputPath, outputPath, format string, options map[string]any) error {
 	// Check context before starting
 	select {
 	case <-ctx.Done():
@@ -93,6 +115,9 @@ func (c *ImageConverter) ConvertSingle(ctx context.Context, inputPath, outputPat
 	}
 
 	opts := map[string]any{"format": format}
+	for k, v := range options {
+		opts[k] = v
+	}
 	output, err := c.Convert(input, opts)
 	if err != nil {
 		return fmt.Errorf("error converting file: %w", err)
@@ -114,7 +139,7 @@ func (c *ImageConverter) ConvertSingle(ctx context.Context, inputPath, outputPat
 }
 
 // ConvertBatch converts multiple files in batch and returns results with error
-func (c *ImageConverter) ConvertBatch(ctx context.Context, inputPaths []string, outputDir, format string, keepStructure bool, workers int) ([]models.ConversionResult, error) {
+func (c *ImageConverter) ConvertBatch(ctx context.Context, inputPaths []string, outputDir, format string, keepStructure bool, workers int, options map[string]any, onProgress func(result models.ConversionResult)) ([]models.ConversionResult, error) {
 	if len(inputPaths) == 0 {
 		return nil, fmt.Errorf("no input paths provided")
 	}
@@ -157,7 +182,7 @@ func (c *ImageConverter) ConvertBatch(ctx context.Context, inputPaths []string, 
 		}
 
 		// Convert the file with context
-		return c.ConvertSingle(ctx, inputPath, outputPath, format)
+		return c.ConvertSingle(ctx, inputPath, outputPath, format, options)
 	}
 
 	// Start workers
@@ -168,7 +193,7 @@ func (c *ImageConverter) ConvertBatch(ctx context.Context, inputPaths []string, 
 
 	// Initialize results
 	for i, inputPath := range inputPaths {
-		outputPath := c.generateOutputPath(inputPath, outputDir, format, keepStructure)
+		outputPath := c.generateOutputPath(inputPath, outputDir, format, keepStructure, options)
 		results[i] = models.ConversionResult{
 			InputPath:  inputPath,
 			OutputPath: outputPath,
@@ -186,7 +211,7 @@ func (c *ImageConverter) ConvertBatch(ctx context.Context, inputPaths []string, 
 		defer func() {
 			close(resultsDone)
 		}()
-		c.collectResults(ctx, workerPool, jobIndexMap, results, &resultsMutex)
+		c.collectResults(ctx, workerPool, jobIndexMap, results, &resultsMutex, onProgress)
 	}()
 
 	// Submit jobs in a separate goroutine
@@ -195,7 +220,7 @@ func (c *ImageConverter) ConvertBatch(ctx context.Context, inputPaths []string, 
 			workerPool.CloseJobs()
 			close(submitDone)
 		}()
-		c.submitJobs(ctx, inputPaths, outputDir, format, keepStructure, results, workerPool, &resultsMutex)
+		c.submitJobs(ctx, inputPaths, outputDir, format, keepStructure, results, workerPool, &resultsMutex, options)
 	}()
 
 	// Wait for submission to complete
@@ -212,7 +237,7 @@ func (c *ImageConverter) ConvertBatch(ctx context.Context, inputPaths []string, 
 	return results, nil
 }
 
-func (c *ImageConverter) submitJobs(ctx context.Context, inputPaths []string, outputDir, format string, keepStructure bool, results []models.ConversionResult, workerPool *utils.WorkerPool, resultsMutex *sync.Mutex) {
+func (c *ImageConverter) submitJobs(ctx context.Context, inputPaths []string, outputDir, format string, keepStructure bool, results []models.ConversionResult, workerPool *utils.WorkerPool, resultsMutex *sync.Mutex, options map[string]any) {
 	totalFiles := len(inputPaths)
 	fmt.Printf("Starting to submit %d jobs to worker pool\n", totalFiles)
 
@@ -225,7 +250,7 @@ func (c *ImageConverter) submitJobs(ctx context.Context, inputPaths []string, ou
 		default:
 		}
 
-		outputPath := c.generateOutputPath(inputPath, outputDir, format, keepStructure)
+		outputPath := c.generateOutputPath(inputPath, outputDir, format, keepStructure, options)
 
 		// Create and submit job
 		job := utils.Job{
@@ -253,7 +278,7 @@ func (c *ImageConverter) submitJobs(ctx context.Context, inputPaths []string, ou
 	fmt.Printf("Finished submitting all jobs to worker pool\n")
 }
 
-func (c *ImageConverter) collectResults(ctx context.Context, workerPool *utils.WorkerPool, jobIndexMap map[string]int, results []models.ConversionResult, resultsMutex *sync.Mutex) {
+func (c *ImageConverter) collectResults(ctx context.Context, workerPool *utils.WorkerPool, jobIndexMap map[string]int, results []models.ConversionResult, resultsMutex *sync.Mutex, onProgress func(result models.ConversionResult)) {
 	expectedResults := len(jobIndexMap)
 	processedCount := 0
 
@@ -273,6 +298,14 @@ func (c *ImageConverter) collectResults(ctx context.Context, workerPool *utils.W
 			}
 
 			c.updateResult(index, result.Error, results, resultsMutex)
+
+			if onProgress != nil {
+				resultsMutex.Lock()
+				progressResult := results[index]
+				resultsMutex.Unlock()
+				onProgress(progressResult)
+			}
+
 			processedCount++
 
 			// Log progress
@@ -324,7 +357,14 @@ func (c *ImageConverter) updateResult(index int, err error, results []models.Con
 	}
 }
 
-func (c *ImageConverter) generateOutputPath(inputPath, outputDir, format string, keepStructure bool) string {
+func (c *ImageConverter) generateOutputPath(inputPath, outputDir, format string, keepStructure bool, options map[string]any) string {
+	if options != nil {
+		if outPaths, ok := options["outputPaths"].(map[string]string); ok {
+			if outPath, exists := outPaths[inputPath]; exists {
+				return outPath
+			}
+		}
+	}
 	if keepStructure {
 		return c.generateStructuredOutputPath(inputPath, outputDir, format)
 	}

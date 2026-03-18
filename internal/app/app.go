@@ -75,9 +75,13 @@ func (a *App) OpenMultipleFilesDialog() ([]string, error) {
 	return dialog.PromptForMultipleSelection()
 }
 
-// OpenDirectoryDialog opens a native directory dialog and returns the selected directory path
-// TODO: Implement proper directory selection when Wails 3 API is available
 func (a *App) OpenDirectoryDialog() (string, error) {
-	// For now, return empty string - user can manually input directory
-	return "", nil
+	app := application.Get()
+
+	dialog := app.Dialog.OpenFile()
+	dialog.SetTitle("Select Directory")
+	dialog.CanChooseDirectories(true)
+	dialog.CanChooseFiles(false)
+
+	return dialog.PromptForSingleSelection()
 }

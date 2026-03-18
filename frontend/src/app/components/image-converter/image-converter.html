@@ -187,6 +187,25 @@
             *ngIf="conversionForm.get('showAdvancedOptions')?.value"
             class="ml-6 p-4 bg-gray-50 rounded-lg border border-gray-200"
           >
+            
+            <!-- Quality Option -->
+            <div class="mb-4">
+              <label for="quality" class="block text-sm font-medium text-gray-700 mb-2">Quality (1-100)</label>
+              <input id="quality" type="number" formControlName="quality" min="1" max="100" class="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+            </div>
+
+            <!-- Resize Options -->
+            <div class="mb-4 flex space-x-4">
+              <div>
+                <label for="resizeWidth" class="block text-sm font-medium text-gray-700 mb-2">Width (px)</label>
+                <input id="resizeWidth" type="number" formControlName="resizeWidth" class="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" placeholder="Auto" />
+              </div>
+              <div>
+                <label for="resizeHeight" class="block text-sm font-medium text-gray-700 mb-2">Height (px)</label>
+                <input id="resizeHeight" type="number" formControlName="resizeHeight" class="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" placeholder="Auto" />
+              </div>
+            </div>
+
             <!-- Keep Structure Option -->
             <div class="mb-4">
               <label class="flex items-center">
@@ -281,6 +300,22 @@
         </button>
       </div>
     </form>
+
+    
+      <!-- Progress Bar (shown when converting batch) -->
+      <div *ngIf="isConverting && isMultipleMode" class="mt-6">
+        <h4 class="font-medium text-gray-900 mb-2">Conversion Progress ({{ completedFiles }} / {{ totalBatchFiles }})</h4>
+        <div class="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+          <div class="bg-primary-600 h-2.5 rounded-full" [style.width]="(totalBatchFiles > 0 ? (completedFiles / totalBatchFiles * 100) : 0) + '%'"></div>
+        </div>
+        <div class="max-h-40 overflow-y-auto space-y-1">
+          <div *ngFor="let prog of progressEvents" class="text-xs p-1 rounded" [class.text-green-700]="prog.success" [class.text-red-700]="!prog.success">
+            <span *ngIf="prog.success">✓ {{ prog.outputPath || prog.inputPath }}</span>
+            <span *ngIf="!prog.success">✗ {{ prog.inputPath }} - {{ prog.message }}</span>
+          </div>
+        </div>
+      </div>
+
 
     <!-- Single File Result -->
     <div *ngIf="result && !isMultipleMode" class="mt-6">

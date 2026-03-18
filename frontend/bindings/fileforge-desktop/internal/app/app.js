@@ -42,8 +42,6 @@ export function GetSupportedFormats() {
 }
 
 /**
- * OpenDirectoryDialog opens a native directory dialog and returns the selected directory path
- * TODO: Implement proper directory selection when Wails 3 API is available
  * @returns {$CancellablePromise<string>}
  */
 export function OpenDirectoryDialog() {

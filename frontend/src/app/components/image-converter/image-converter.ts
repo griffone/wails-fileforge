@@ -1,5 +1,6 @@
-import { Component, OnInit, ElementRef, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, ElementRef, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Events } from '@wailsio/runtime';
 import {
   FormBuilder,
   FormGroup,
@@ -34,7 +35,7 @@ import {
   templateUrl: './image-converter.html',
   styleUrls: ['./image-converter.css'],
 })
-export class ImageConverter implements OnInit {
+export class ImageConverter implements OnInit, OnDestroy {
   @ViewChild('fileInput') fileInput!: ElementRef<HTMLInputElement>;
 
   readonly UploadIcon = Upload;
@@ -51,12 +52,19 @@ export class ImageConverter implements OnInit {
 
   // Multiple file mode
   isMultipleMode = false;
+  totalBatchFiles = 0;
+  completedFiles = 0;
+  progressEvents: any[] = [];
+  unsubscribeStart: (() => void) | null = null;
+  unsubscribeProgress: (() => void) | null = null;
+  unsubscribeComplete: (() => void) | null = null;
   selectedFiles: string[] = [];
   outputDirectory = '';
 
   constructor(
     private readonly fb: FormBuilder,
-    private readonly wailsService: Wails
+    private readonly wailsService: Wails,
+    private readonly cdr: ChangeDetectorRef
   ) {
     this.conversionForm = this.fb.group({
       inputPath: ['', Validators.required],
@@ -65,12 +73,35 @@ export class ImageConverter implements OnInit {
       outputDir: [''],
       keepStructure: [false],
       showAdvancedOptions: [false],
+      quality: [80, [Validators.min(1), Validators.max(100)]],
+      resizeWidth: [null, [Validators.min(1)]],
+      resizeHeight: [null, [Validators.min(1)]],
       workers: [4, [Validators.min(1), Validators.max(16)]],
     });
   }
 
   ngOnInit() {
-    // Component initialization
+    this.unsubscribeStart = Events.On('conversion:start', (ev) => {
+      this.totalBatchFiles = ev.data?.totalFiles || this.selectedFiles.length;
+      this.completedFiles = 0;
+      this.progressEvents = [];
+      this.cdr.detectChanges();
+    });
+    this.unsubscribeProgress = Events.On('conversion:progress', (ev) => {
+      this.progressEvents.push(ev.data);
+      this.completedFiles++;
+      this.cdr.detectChanges();
+    });
+    this.unsubscribeComplete = Events.On('conversion:complete', (ev) => {
+      // Complete logic if needed
+      this.cdr.detectChanges();
+    });
+  }
+
+  ngOnDestroy() {
+    if (this.unsubscribeStart) this.unsubscribeStart();
+    if (this.unsubscribeProgress) this.unsubscribeProgress();
+    if (this.unsubscribeComplete) this.unsubscribeComplete();
   }
 
   onDragOver(event: DragEvent) {
@@ -287,7 +318,11 @@ export class ImageConverter implements OnInit {
       outputPath: formValue.outputPath,
       format: formValue.format,
       category: 'img',
-      options: {},
+      options: {
+        quality: formValue.quality,
+        width: formValue.resizeWidth,
+        height: formValue.resizeHeight,
+      },
     };
 
     console.log('Conversion request:', request);
@@ -339,7 +374,11 @@ export class ImageConverter implements OnInit {
       outputDir: formValue.outputDir,
       format: formValue.format,
       category: 'img',
-      options: {},
+      options: {
+        quality: formValue.quality,
+        width: formValue.resizeWidth,
+        height: formValue.resizeHeight,
+      },
       keepStructure: formValue.keepStructure ?? false,
       workers: formValue.workers,
     };
@@ -369,7 +408,13 @@ export class ImageConverter implements OnInit {
       workers: 4,
       showAdvancedOptions: false,
       keepStructure: false,
+      quality: 80,
+      resizeWidth: null,
+      resizeHeight: null,
     });
+    this.totalBatchFiles = 0;
+    this.completedFiles = 0;
+    this.progressEvents = [];
     this.result = null;
     this.batchResult = null;
     this.selectedFiles = [];
