@@ -47,7 +47,7 @@ export class BatchConversionRequest {
         if (!("options" in $$source)) {
             /**
              * @member
-             * @type {{ [_: string]: any }}
+             * @type {{ [_ in string]?: any }}
              */
             this["options"] = {};
         }
@@ -193,7 +193,7 @@ export class ConversionRequest {
         if (!("options" in $$source)) {
             /**
              * @member
-             * @type {{ [_: string]: any }}
+             * @type {{ [_ in string]?: any }}
              */
             this["options"] = {};
         }
