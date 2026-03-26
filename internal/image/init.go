@@ -9,8 +9,11 @@ import (
 const Category = "img" // Export the category constant
 
 func init() {
+	adapter := NewImageToolAdapter(NewImageConverter())
+
 	// Use SafeRegister for init functions - errors are stored in the registry
-	registry.GetGlobalRegistry().SafeRegister(Category, NewImageConverter())
+	registry.GetGlobalRegistry().SafeRegister(Category, adapter.converter)
+	registry.GetGlobalRegistry().SafeRegisterToolV2(adapter)
 
 	// Optionally log any initialization errors (non-blocking)
 	go func() {

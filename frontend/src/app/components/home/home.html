@@ -1,38 +1,89 @@
-<div style="padding: 20px; font-family: Arial, sans-serif">
-  <h1 style="color: #333; margin-bottom: 20px">FileForge Desktop</h1>
-  <p style="color: #666; margin-bottom: 20px">
-    Cross-platform file conversion toolkit
-  </p>
+<div class="min-h-screen bg-gray-50 p-6">
+  <div class="mx-auto max-w-5xl space-y-6">
+    <header>
+      <h1 class="text-3xl font-bold text-gray-900">FileForge Desktop</h1>
+      <p class="mt-2 text-gray-600">Cross-platform file conversion toolkit</p>
+    </header>
 
-  <div
-    style="
-      background: #f5f5f5;
-      padding: 15px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-    "
-  >
-    <h3 style="margin-bottom: 10px">Debug Information:</h3>
-    <p>Runtime Available: {{ isRuntimeAvailable() ? "Yes" : "No" }}</p>
-    <p>Supported Formats Count: {{ supportedFormats.length }}</p>
-  </div>
+    <section class="card">
+      <h2 class="text-lg font-semibold text-gray-900">Platform status</h2>
+      <div class="mt-3 grid gap-3 text-sm text-gray-700 md:grid-cols-3">
+        <p>Runtime: <strong>{{ isRuntimeAvailable() ? 'available' : 'unavailable' }}</strong></p>
+        <p>Supported formats: <strong>{{ supportedFormats.length }}</strong></p>
+        <p>Catalog tools (V1): <strong>{{ catalogToolsCount }}</strong></p>
+      </div>
+    </section>
 
-  <div style="background: #e1f5fe; padding: 15px; border-radius: 8px">
-    <h3 style="margin-bottom: 10px">Image Converter</h3>
-    <p>Convert between PNG, JPG, WebP, GIF formats</p>
-    <button
-      style="
-        background: #2196f3;
-        color: white;
-        padding: 10px 20px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        margin-top: 10px;
-      "
-      (click)="navigateToConverter('img')"
-    >
-      Open Image Converter
-    </button>
+    <section class="grid gap-4 md:grid-cols-3">
+      <article class="card border border-blue-200 bg-blue-50/50">
+        <h3 class="text-lg font-semibold text-gray-900">Image Converter</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Convert between PNG, JPG, WebP and GIF formats.
+        </p>
+        <button class="btn btn-primary mt-4" (click)="navigateToConverter('img')">
+          Open Image Converter
+        </button>
+      </article>
+
+      <article class="card border border-gray-200">
+        <h3 class="text-lg font-semibold text-gray-900">Tool Catalog</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Inspect registered platform tools and runtime health.
+        </p>
+        <button class="btn btn-secondary mt-4" (click)="navigateToToolCatalog()">
+          Open Tool Catalog
+        </button>
+      </article>
+
+      <article class="card border border-red-200 bg-red-50/40">
+        <h3 class="text-lg font-semibold text-gray-900">PDF Merge</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Merge multiple PDF files in custom order using V1 jobs.
+        </p>
+        <button class="btn btn-secondary mt-4" (click)="navigateToPdfMerge()">
+          Open PDF Merge
+        </button>
+      </article>
+
+      <article class="card border border-purple-200 bg-purple-50/40">
+        <h3 class="text-lg font-semibold text-gray-900">PDF Split</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Split one PDF into individual page files with V1 tool orchestration.
+        </p>
+        <button class="btn btn-secondary mt-4" (click)="navigateToPdfSplit()">
+          Open PDF Split
+        </button>
+      </article>
+
+      <article class="card border border-indigo-200 bg-indigo-50/40">
+        <h3 class="text-lg font-semibold text-gray-900">PDF Crop</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Crop one PDF with presets or custom margins using V1 jobs.
+        </p>
+        <button class="btn btn-secondary mt-4" (click)="navigateToPdfCrop()">
+          Open PDF Crop
+        </button>
+      </article>
+
+      <article class="card border border-emerald-200 bg-emerald-50/40">
+        <h3 class="text-lg font-semibold text-gray-900">Video Convert</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Convert one video to mp4/webm with quality presets using V1 jobs.
+        </p>
+        <button class="btn btn-secondary mt-4" (click)="navigateToVideoConvert()">
+          Open Video Convert
+        </button>
+      </article>
+
+      <article class="card border border-teal-200 bg-teal-50/40">
+        <h3 class="text-lg font-semibold text-gray-900">Video Trim</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Trim one video by start/end time to mp4/webm with V1 jobs.
+        </p>
+        <button class="btn btn-secondary mt-4" (click)="navigateToVideoTrim()">
+          Open Video Trim
+        </button>
+      </article>
+    </section>
   </div>
 </div>

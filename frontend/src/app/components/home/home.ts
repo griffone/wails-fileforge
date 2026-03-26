@@ -11,6 +11,7 @@ import { Wails, SupportedFormat } from '../../services/wails';
 })
 export class Home implements OnInit {
   supportedFormats: SupportedFormat[] = [];
+  catalogToolsCount = 0;
 
   constructor(
     private readonly router: Router,
@@ -27,6 +28,10 @@ export class Home implements OnInit {
 
     try {
       this.supportedFormats = await this.wailsService.getSupportedFormats();
+      const catalogResponse = await this.wailsService.listToolsV1();
+      this.catalogToolsCount = catalogResponse.success
+        ? catalogResponse.tools.length
+        : 0;
       console.log('Supported formats loaded:', this.supportedFormats);
     } catch (error) {
       console.error('Failed to load supported formats:', error);
@@ -47,5 +52,29 @@ export class Home implements OnInit {
       this.router.navigate(['/image-converter']);
     }
     // Add more converters as they're implemented
+  }
+
+  navigateToToolCatalog(): void {
+    this.router.navigate(['/tool-catalog']);
+  }
+
+  navigateToPdfMerge(): void {
+    this.router.navigate(['/pdf-merge']);
+  }
+
+  navigateToPdfSplit(): void {
+    this.router.navigate(['/pdf-split']);
+  }
+
+  navigateToPdfCrop(): void {
+    this.router.navigate(['/pdf-crop']);
+  }
+
+  navigateToVideoConvert(): void {
+    this.router.navigate(['/video-convert']);
+  }
+
+  navigateToVideoTrim(): void {
+    this.router.navigate(['/video-trim']);
   }
 }

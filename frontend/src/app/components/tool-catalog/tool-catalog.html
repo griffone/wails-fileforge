@@ -1,0 +1,72 @@
+<div class="min-h-screen bg-gray-50 p-6">
+  <div class="max-w-5xl mx-auto">
+    <div class="mb-6 flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-900">Tool Catalog</h1>
+        <p class="text-gray-600 mt-1">Platform V1 tools and runtime status</p>
+      </div>
+
+      <div class="flex gap-2">
+        <a routerLink="/" class="btn btn-secondary">Home</a>
+        <a routerLink="/pdf-merge" class="btn btn-primary">Open PDF Merge</a>
+        <a routerLink="/pdf-split" class="btn btn-secondary">Open PDF Split</a>
+        <a routerLink="/pdf-crop" class="btn btn-secondary">Open PDF Crop</a>
+        <a routerLink="/video-convert" class="btn btn-secondary">Open Video Convert</a>
+        <a routerLink="/video-trim" class="btn btn-secondary">Open Video Trim</a>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="flex items-center justify-between">
+        <p class="text-sm text-gray-600">
+          Runtime: {{ wailsService.isRuntimeAvailable() ? 'connected' : 'not available' }}
+        </p>
+        <button type="button" class="btn btn-secondary" (click)="loadTools()" [disabled]="loading">
+          {{ loading ? 'Refreshing...' : 'Refresh' }}
+        </button>
+      </div>
+    </div>
+
+    <div *ngIf="errorMessage" class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+      {{ errorMessage }}
+    </div>
+
+    <div *ngIf="loading" class="card text-gray-600">Loading tools...</div>
+
+    <div *ngIf="!loading && tools.length === 0" class="card text-gray-600">
+      No tools found.
+    </div>
+
+    <div *ngIf="!loading && tools.length > 0" class="grid gap-4">
+      <article *ngFor="let tool of tools" class="card border border-gray-200">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold text-gray-900">{{ tool.manifest.name }}</h2>
+            <p class="text-sm text-gray-600">{{ tool.manifest.description }}</p>
+            <p class="mt-1 text-xs text-gray-500">
+              {{ tool.manifest.toolId }} · {{ tool.manifest.domain }} · {{ tool.manifest.capability }} · {{ tool.manifest.version }}
+            </p>
+          </div>
+
+          <span
+            class="inline-flex rounded-full px-2 py-1 text-xs font-medium"
+            [ngClass]="getStatusClass(tool.state.status)"
+          >
+            {{ tool.state.status }}
+          </span>
+        </div>
+
+        <div class="mt-4 grid gap-2 text-xs text-gray-700 md:grid-cols-2">
+          <p>Single: <strong>{{ tool.manifest.supportsSingle ? 'yes' : 'no' }}</strong></p>
+          <p>Batch: <strong>{{ tool.manifest.supportsBatch ? 'yes' : 'no' }}</strong></p>
+          <p>Input: <strong>{{ tool.manifest.inputExtensions.join(', ') || '-' }}</strong></p>
+          <p>Output: <strong>{{ tool.manifest.outputExtensions.join(', ') || '-' }}</strong></p>
+        </div>
+
+        <div class="mt-3" *ngIf="routeForTool(tool.manifest.toolId) as route">
+          <a [routerLink]="route" class="btn btn-secondary">Open Tool</a>
+        </div>
+      </article>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,378 @@
+package jobs
+
+import (
+	"context"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/registry"
+	"fileforge-desktop/internal/tools"
+)
+
+type testTool struct {
+	id             string
+	capability     string
+	supportSingle  bool
+	supportBatch   bool
+	validateErr    *models.JobErrorV1
+	singleErr      *models.JobErrorV1
+	batchErr       *models.JobErrorV1
+	batchDelay     time.Duration
+	maxActive      *atomic.Int32
+	active         *atomic.Int32
+	mu             sync.Mutex
+	progressEvents []models.JobProgressV1
+	singleProgress bool
+}
+
+func (t *testTool) ID() string { return t.id }
+
+func (t *testTool) Capability() string { return t.capability }
+
+func (t *testTool) Manifest() models.ToolManifestV1 {
+	return models.ToolManifestV1{
+		ToolID:         t.id,
+		Name:           "test tool",
+		Capability:     t.capability,
+		SupportsSingle: t.supportSingle,
+		SupportsBatch:  t.supportBatch,
+	}
+}
+
+func (t *testTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
+	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+}
+
+func (t *testTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+	return t.validateErr
+}
+
+func (t *testTool) ExecuteSingle(_ context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+	item := models.JobResultItemV1{
+		InputPath:  req.InputPaths[0],
+		OutputPath: req.OutputDir + "/out.txt",
+		Success:    t.singleErr == nil,
+		Message:    "single",
+	}
+	if t.singleErr != nil {
+		item.Success = false
+		item.Error = t.singleErr
+		return item, t.singleErr
+	}
+
+	return item, nil
+}
+
+func (t *testTool) ExecuteSingleWithProgress(_ context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+	if t.singleProgress && onProgress != nil {
+		onProgress(models.JobProgressV1{Current: 15, Total: 100, Stage: StatusRunning, Message: "trim.prepare"})
+		onProgress(models.JobProgressV1{Current: 70, Total: 100, Stage: StatusRunning, Message: "trim.reencode"})
+	}
+	return t.ExecuteSingle(context.Background(), req)
+}
+
+func (t *testTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	if t.active != nil && t.maxActive != nil {
+		current := t.active.Add(1)
+		for {
+			previous := t.maxActive.Load()
+			if current <= previous || t.maxActive.CompareAndSwap(previous, current) {
+				break
+			}
+		}
+		defer t.active.Add(-1)
+	}
+
+	items := make([]models.JobResultItemV1, 0, len(req.InputPaths))
+	for i, input := range req.InputPaths {
+		select {
+		case <-ctx.Done():
+			return items, &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
+		default:
+		}
+
+		if t.batchDelay > 0 {
+			time.Sleep(t.batchDelay)
+		}
+
+		progress := models.JobProgressV1{
+			Current: i + 1,
+			Total:   len(req.InputPaths),
+			Stage:   StatusRunning,
+			Message: "progress",
+		}
+		if onProgress != nil {
+			onProgress(progress)
+		}
+
+		t.mu.Lock()
+		t.progressEvents = append(t.progressEvents, progress)
+		t.mu.Unlock()
+
+		items = append(items, models.JobResultItemV1{
+			InputPath:  input,
+			OutputPath: req.OutputDir + "/" + input,
+			Success:    true,
+			Message:    "ok",
+		})
+	}
+
+	if t.batchErr != nil {
+		return items, t.batchErr
+	}
+
+	return items, nil
+}
+
+var _ tools.Tool = (*testTool)(nil)
+var _ tools.SingleExecutor = (*testTool)(nil)
+var _ tools.BatchExecutor = (*testTool)(nil)
+
+func newTestOrchestrator(t *testing.T, tool *testTool, maxConcurrent int) *Orchestrator {
+	t.Helper()
+
+	reg := registry.NewRegistry()
+	reg.SafeRegisterToolV2(tool)
+	orch := NewOrchestrator(reg, maxConcurrent)
+	return orch
+}
+
+func waitForTerminalStatus(t *testing.T, orch *Orchestrator, jobID string) models.JobResultV1 {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		res, found := orch.GetJob(jobID)
+		if found && (res.Status == StatusCompleted || res.Status == StatusFailed || res.Status == StatusCanceled) {
+			return res
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting terminal status for job %s", jobID)
+	return models.JobResultV1{}
+}
+
+func waitForStatus(t *testing.T, orch *Orchestrator, jobID string, wanted string) models.JobResultV1 {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		res, found := orch.GetJob(jobID)
+		if found && res.Status == wanted {
+			return res
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting status %s for job %s", wanted, jobID)
+	return models.JobResultV1{}
+}
+
+func TestOrchestratorSubmitAndCompleteSingle(t *testing.T) {
+	tool := &testTool{id: "tool.test.single", capability: "test", supportSingle: true, supportBatch: true}
+	orch := newTestOrchestrator(t, tool, 2)
+
+	response, err := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "single",
+		InputPaths: []string{"input.txt"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+	if !response.Success {
+		t.Fatalf("expected success response, got: %+v", response)
+	}
+
+	result := waitForTerminalStatus(t, orch, response.JobID)
+	if result.Status != StatusCompleted {
+		t.Fatalf("expected completed, got %s", result.Status)
+	}
+	if !result.Success {
+		t.Fatalf("expected job success")
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result.Items))
+	}
+	if result.Progress.Stage != StatusCompleted {
+		t.Fatalf("expected progress stage %s, got %s", StatusCompleted, result.Progress.Stage)
+	}
+	if result.Progress.Current != result.Progress.Total {
+		t.Fatalf("expected terminal progress current == total, got %d/%d", result.Progress.Current, result.Progress.Total)
+	}
+}
+
+func TestOrchestratorCancelBatchJob(t *testing.T) {
+	tool := &testTool{id: "tool.test.cancel", capability: "test", supportSingle: true, supportBatch: true, batchDelay: 50 * time.Millisecond}
+	orch := newTestOrchestrator(t, tool, 2)
+
+	response, err := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "batch",
+		InputPaths: []string{"a", "b", "c", "d"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+
+	time.Sleep(70 * time.Millisecond)
+	if cancelErr := orch.Cancel(response.JobID); cancelErr != nil {
+		t.Fatalf("unexpected cancel error: %v", cancelErr)
+	}
+
+	result := waitForTerminalStatus(t, orch, response.JobID)
+	if result.Status != StatusCanceled {
+		t.Fatalf("expected canceled status, got %s", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "CANCELED" {
+		t.Fatalf("expected canceled error, got %+v", result.Error)
+	}
+}
+
+func TestOrchestratorTransitionsToRunningAndCompleted(t *testing.T) {
+	tool := &testTool{id: "tool.test.running", capability: "test", supportSingle: true, supportBatch: true, batchDelay: 30 * time.Millisecond}
+	orch := newTestOrchestrator(t, tool, 2)
+
+	response, err := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "batch",
+		InputPaths: []string{"a", "b", "c"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+
+	running := waitForStatus(t, orch, response.JobID, StatusRunning)
+	if running.Progress.Stage != StatusRunning {
+		t.Fatalf("expected running progress stage, got %s", running.Progress.Stage)
+	}
+
+	completed := waitForTerminalStatus(t, orch, response.JobID)
+	if completed.Status != StatusCompleted {
+		t.Fatalf("expected completed status, got %s", completed.Status)
+	}
+}
+
+func TestOrchestratorSingleExecutorWithProgressUpdatesJobProgress(t *testing.T) {
+	tool := &testTool{id: "tool.test.single-progress", capability: "test", supportSingle: true, supportBatch: false, singleProgress: true}
+	orch := newTestOrchestrator(t, tool, 2)
+
+	response, err := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "single",
+		InputPaths: []string{"input.txt"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+
+	result := waitForTerminalStatus(t, orch, response.JobID)
+	if result.Status != StatusCompleted {
+		t.Fatalf("expected completed, got %s", result.Status)
+	}
+	if result.Progress.Total != 100 || result.Progress.Current != 100 {
+		t.Fatalf("expected terminal progress 100/100, got %d/%d", result.Progress.Current, result.Progress.Total)
+	}
+}
+
+func TestOrchestratorValidationAndErrorPath(t *testing.T) {
+	validationErr := &models.JobErrorV1{Code: "VALIDATION_ERROR", Message: "bad request"}
+	tool := &testTool{
+		id:            "tool.test.error",
+		capability:    "test",
+		supportSingle: true,
+		supportBatch:  true,
+		validateErr:   validationErr,
+	}
+	orch := newTestOrchestrator(t, tool, 2)
+
+	response, err := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "single",
+		InputPaths: []string{"input.txt"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+	if response.Success {
+		t.Fatalf("expected submit response failure on validation")
+	}
+	if response.Status != StatusFailed {
+		t.Fatalf("expected failed status, got %s", response.Status)
+	}
+
+	tool.validateErr = nil
+	tool.singleErr = &models.JobErrorV1{Code: "EXEC_ERROR", Message: "boom"}
+
+	response2, err2 := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "single",
+		InputPaths: []string{"input.txt"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err2 != nil {
+		t.Fatalf("unexpected submit error: %v", err2)
+	}
+
+	result := waitForTerminalStatus(t, orch, response2.JobID)
+	if result.Status != StatusFailed {
+		t.Fatalf("expected failed status, got %s", result.Status)
+	}
+	if result.Error == nil || result.Error.Message != "boom" {
+		t.Fatalf("expected error message boom, got %+v", result.Error)
+	}
+}
+
+func TestOrchestratorConcurrencyLimit(t *testing.T) {
+	active := &atomic.Int32{}
+	maxActive := &atomic.Int32{}
+	tool := &testTool{
+		id:            "tool.test.concurrent",
+		capability:    "test",
+		supportSingle: true,
+		supportBatch:  true,
+		batchDelay:    60 * time.Millisecond,
+		active:        active,
+		maxActive:     maxActive,
+	}
+	orch := newTestOrchestrator(t, tool, 1)
+
+	submit := func() string {
+		res, err := orch.Submit(context.Background(), models.JobRequestV1{
+			ToolID:     tool.ID(),
+			Mode:       "batch",
+			InputPaths: []string{"a", "b"},
+			OutputDir:  "/tmp",
+			Options:    map[string]any{},
+		})
+		if err != nil {
+			t.Fatalf("submit failed: %v", err)
+		}
+		return res.JobID
+	}
+
+	job1 := submit()
+	job2 := submit()
+
+	_ = waitForTerminalStatus(t, orch, job1)
+	_ = waitForTerminalStatus(t, orch, job2)
+
+	if maxActive.Load() > 1 {
+		t.Fatalf("expected max active <= 1, got %d", maxActive.Load())
+	}
+}

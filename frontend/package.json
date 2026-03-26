@@ -32,6 +32,7 @@
     "@tauri-apps/api": "^2.6.0",
     "@wailsio/runtime": "^3.0.0-alpha.79",
     "lucide-angular": "^0.577.0",
+    "pdfjs-dist": "^4.10.38",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.16.1"
@@ -47,6 +48,7 @@
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.2.0",
+    "puppeteer": "^24.7.1",
     "typescript": "~5.9.3"
   }
 }

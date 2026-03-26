@@ -5,7 +5,21 @@
 export {
     BatchConversionRequest,
     BatchConversionResult,
+    CancelJobResponseV1,
     ConversionRequest,
     ConversionResult,
-    SupportedFormat
+    JobErrorV1,
+    JobProgressV1,
+    JobRequestV1,
+    JobResultItemV1,
+    JobResultV1,
+    JobStatusResponseV1,
+    ListToolsResponseV1,
+    PDFPreviewSourceResponseV1,
+    RunJobResponseV1,
+    SupportedFormat,
+    ToolCatalogEntryV1,
+    ToolManifestV1,
+    ToolRuntimeStateV1,
+    ValidateJobResponseV1
 } from "./models.js";

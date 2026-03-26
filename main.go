@@ -1,16 +1,12 @@
 package main
 
 import (
-	"embed"
 	"log"
 
 	myapp "fileforge-desktop/internal/app"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
-
-//go:embed all:frontend/dist/frontend/browser
-var assets embed.FS
 
 func main() {
 	app := application.New(application.Options{

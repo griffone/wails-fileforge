@@ -1,0 +1,35 @@
+:host {
+  display: block;
+}
+
+.drop-zone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  color: #475569;
+  background: #f8fafc;
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.drop-zone.drag-over {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  padding: 0.75rem;
+}
+
+.btn-mini {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}

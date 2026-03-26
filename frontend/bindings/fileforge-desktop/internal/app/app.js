@@ -11,13 +11,23 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as models$0 from "../models/models.js";
 
 /**
+ * @param {string} jobID
+ * @returns {$CancellablePromise<models$0.CancelJobResponseV1>}
+ */
+export function CancelJobV1(jobID) {
+    return $Call.ByID(3378080914, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * ConvertBatch converts multiple files in batch
  * @param {models$0.BatchConversionRequest} req
  * @returns {$CancellablePromise<models$0.BatchConversionResult>}
  */
 export function ConvertBatch(req) {
     return $Call.ByID(2484487663, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -28,7 +38,27 @@ export function ConvertBatch(req) {
  */
 export function ConvertFile(req) {
     return $Call.ByID(3302357039, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType2($result);
+    }));
+}
+
+/**
+ * @param {string} jobID
+ * @returns {$CancellablePromise<models$0.JobStatusResponseV1>}
+ */
+export function GetJobStatusV1(jobID) {
+    return $Call.ByID(1961277890, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
+ * @param {string} inputPath
+ * @returns {$CancellablePromise<models$0.PDFPreviewSourceResponseV1>}
+ */
+export function GetPDFPreviewSourceV1(inputPath) {
+    return $Call.ByID(632882064, inputPath).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType4($result);
     }));
 }
 
@@ -37,7 +67,16 @@ export function ConvertFile(req) {
  */
 export function GetSupportedFormats() {
     return $Call.ByID(742994356).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType6($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<models$0.ListToolsResponseV1>}
+ */
+export function ListToolsV1() {
+    return $Call.ByID(517184612).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType7($result);
     }));
 }
 
@@ -62,7 +101,17 @@ export function OpenFileDialog() {
  */
 export function OpenMultipleFilesDialog() {
     return $Call.ByID(3029276213).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType8($result);
+    }));
+}
+
+/**
+ * @param {models$0.JobRequestV1} req
+ * @returns {$CancellablePromise<models$0.RunJobResponseV1>}
+ */
+export function RunJobV1(req) {
+    return $Call.ByID(162380599, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType9($result);
     }));
 }
 
@@ -73,9 +122,25 @@ export function SetContext() {
     return $Call.ByID(1814288085);
 }
 
+/**
+ * @param {models$0.JobRequestV1} req
+ * @returns {$CancellablePromise<models$0.ValidateJobResponseV1>}
+ */
+export function ValidateJobV1(req) {
+    return $Call.ByID(1505194326, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType10($result);
+    }));
+}
+
 // Private type creation functions
-const $$createType0 = models$0.BatchConversionResult.createFrom;
-const $$createType1 = models$0.ConversionResult.createFrom;
-const $$createType2 = models$0.SupportedFormat.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = $Create.Array($Create.Any);
+const $$createType0 = models$0.CancelJobResponseV1.createFrom;
+const $$createType1 = models$0.BatchConversionResult.createFrom;
+const $$createType2 = models$0.ConversionResult.createFrom;
+const $$createType3 = models$0.JobStatusResponseV1.createFrom;
+const $$createType4 = models$0.PDFPreviewSourceResponseV1.createFrom;
+const $$createType5 = models$0.SupportedFormat.createFrom;
+const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = models$0.ListToolsResponseV1.createFrom;
+const $$createType8 = $Create.Array($Create.Any);
+const $$createType9 = models$0.RunJobResponseV1.createFrom;
+const $$createType10 = models$0.ValidateJobResponseV1.createFrom;
