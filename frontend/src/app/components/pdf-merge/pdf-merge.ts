@@ -356,9 +356,11 @@ export class PdfMerge implements OnDestroy {
     }
 
     if (
-      response.result.status === 'completed' ||
+      response.result.status === 'success' ||
       response.result.status === 'failed' ||
-      response.result.status === 'canceled'
+      response.result.status === 'partial_success' ||
+      response.result.status === 'cancelled' ||
+      response.result.status === 'interrupted'
     ) {
       this.stopPolling();
       this.activeJobId = '';
@@ -376,30 +378,20 @@ export class PdfMerge implements OnDestroy {
     }
 
     switch (error.code) {
-      case 'VALIDATION_ERROR':
+      case 'VALIDATION_INVALID_INPUT':
         return `Validación: ${error.message}`;
-      case 'PDF_INVALID_INPUT':
-        return `Uno de los PDFs es inválido o está corrupto: ${error.message}`;
-      case 'PDF_MERGE_FAILED':
-        return `No se pudo completar el merge: ${error.message}`;
-      case 'PDF_DUPLICATE_INPUT':
-        return `Hay archivos duplicados en la cola: ${error.message}`;
-      case 'PDF_OUTPUT_COLLIDES_INPUT':
-        return `El archivo de salida no puede ser uno de los inputs: ${error.message}`;
-      case 'PDF_OUTPUT_DIR_NOT_FOUND':
-        return `La carpeta de salida no existe. Verificá la ruta elegida: ${error.message}`;
-      case 'PDF_OUTPUT_DIR_NOT_DIRECTORY':
-        return `La ruta de salida es inválida (el parent no es carpeta): ${error.message}`;
-      case 'PDF_OUTPUT_DIR_NOT_WRITABLE':
-        return `No hay permisos de escritura en la carpeta de salida. Elegí otra carpeta: ${error.message}`;
-      case 'CANCELED':
+      case 'RUNTIME_DEP_MISSING':
+        return `Falta dependencia de runtime.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+      case 'EXEC_IO_TRANSIENT':
+        return `No se pudo completar el merge por un error de ejecución.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+      case 'EXEC_TIMEOUT_TRANSIENT':
+        return `La ejecución agotó tiempo.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+      case 'UNSUPPORTED_FORMAT':
+        return `Formato no soportado.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+      case 'CANCELLED_BY_USER':
         return 'El job fue cancelado.';
-      case 'TOOL_NOT_FOUND':
-        return 'La tool de PDF Merge no está disponible en el backend.';
-      case 'NOT_FOUND':
-        return 'El job no existe o ya expiró en runtime.';
       default:
-        return `${error.code}: ${error.message}`;
+        return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
     }
   }
 

@@ -5,4 +5,5 @@ import "fileforge-desktop/internal/registry"
 func init() {
 	registry.GetGlobalRegistry().SafeRegisterToolV2(NewConvertTool())
 	registry.GetGlobalRegistry().SafeRegisterToolV2(NewTrimTool())
+	registry.GetGlobalRegistry().SafeRegisterToolV2(NewMergeTool())
 }

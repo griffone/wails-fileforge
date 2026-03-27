@@ -146,7 +146,7 @@ func waitForTerminalStatus(t *testing.T, orch *Orchestrator, jobID string) model
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		res, found := orch.GetJob(jobID)
-		if found && (res.Status == StatusCompleted || res.Status == StatusFailed || res.Status == StatusCanceled) {
+		if found && (res.Status == StatusSuccess || res.Status == StatusFailed || res.Status == StatusPartialSuccess || res.Status == StatusCancelled || res.Status == StatusInterrupted) {
 			return res
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -191,8 +191,8 @@ func TestOrchestratorSubmitAndCompleteSingle(t *testing.T) {
 	}
 
 	result := waitForTerminalStatus(t, orch, response.JobID)
-	if result.Status != StatusCompleted {
-		t.Fatalf("expected completed, got %s", result.Status)
+	if result.Status != StatusSuccess {
+		t.Fatalf("expected success, got %s", result.Status)
 	}
 	if !result.Success {
 		t.Fatalf("expected job success")
@@ -200,8 +200,8 @@ func TestOrchestratorSubmitAndCompleteSingle(t *testing.T) {
 	if len(result.Items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(result.Items))
 	}
-	if result.Progress.Stage != StatusCompleted {
-		t.Fatalf("expected progress stage %s, got %s", StatusCompleted, result.Progress.Stage)
+	if result.Progress.Stage != StatusSuccess {
+		t.Fatalf("expected progress stage %s, got %s", StatusSuccess, result.Progress.Stage)
 	}
 	if result.Progress.Current != result.Progress.Total {
 		t.Fatalf("expected terminal progress current == total, got %d/%d", result.Progress.Current, result.Progress.Total)
@@ -229,11 +229,11 @@ func TestOrchestratorCancelBatchJob(t *testing.T) {
 	}
 
 	result := waitForTerminalStatus(t, orch, response.JobID)
-	if result.Status != StatusCanceled {
-		t.Fatalf("expected canceled status, got %s", result.Status)
+	if result.Status != StatusCancelled {
+		t.Fatalf("expected cancelled status, got %s", result.Status)
 	}
-	if result.Error == nil || result.Error.Code != "CANCELED" {
-		t.Fatalf("expected canceled error, got %+v", result.Error)
+	if result.Error == nil || result.Error.Code != models.ErrorCodeCancelledByUser {
+		t.Fatalf("expected cancelled error code, got %+v", result.Error)
 	}
 }
 
@@ -258,8 +258,8 @@ func TestOrchestratorTransitionsToRunningAndCompleted(t *testing.T) {
 	}
 
 	completed := waitForTerminalStatus(t, orch, response.JobID)
-	if completed.Status != StatusCompleted {
-		t.Fatalf("expected completed status, got %s", completed.Status)
+	if completed.Status != StatusSuccess {
+		t.Fatalf("expected success status, got %s", completed.Status)
 	}
 }
 
@@ -279,8 +279,8 @@ func TestOrchestratorSingleExecutorWithProgressUpdatesJobProgress(t *testing.T) 
 	}
 
 	result := waitForTerminalStatus(t, orch, response.JobID)
-	if result.Status != StatusCompleted {
-		t.Fatalf("expected completed, got %s", result.Status)
+	if result.Status != StatusSuccess {
+		t.Fatalf("expected success, got %s", result.Status)
 	}
 	if result.Progress.Total != 100 || result.Progress.Current != 100 {
 		t.Fatalf("expected terminal progress 100/100, got %d/%d", result.Progress.Current, result.Progress.Total)
@@ -314,6 +314,9 @@ func TestOrchestratorValidationAndErrorPath(t *testing.T) {
 	if response.Status != StatusFailed {
 		t.Fatalf("expected failed status, got %s", response.Status)
 	}
+	if response.Error == nil || response.Error.Code != models.ErrorCodeValidationInvalidInput {
+		t.Fatalf("expected canonical validation code, got %+v", response.Error)
+	}
 
 	tool.validateErr = nil
 	tool.singleErr = &models.JobErrorV1{Code: "EXEC_ERROR", Message: "boom"}
@@ -335,6 +338,9 @@ func TestOrchestratorValidationAndErrorPath(t *testing.T) {
 	}
 	if result.Error == nil || result.Error.Message != "boom" {
 		t.Fatalf("expected error message boom, got %+v", result.Error)
+	}
+	if result.Error.Code != models.ErrorCodeExecIOTransient {
+		t.Fatalf("expected canonical execution code, got %+v", result.Error)
 	}
 }
 
@@ -374,5 +380,36 @@ func TestOrchestratorConcurrencyLimit(t *testing.T) {
 
 	if maxActive.Load() > 1 {
 		t.Fatalf("expected max active <= 1, got %d", maxActive.Load())
+	}
+}
+
+func TestOrchestratorBatchReturnsPartialSuccess(t *testing.T) {
+	tool := &testTool{id: "tool.test.partial", capability: "test", supportSingle: true, supportBatch: true}
+	orch := newTestOrchestrator(t, tool, 2)
+
+	response, err := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "batch",
+		InputPaths: []string{"a", "b", "c"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+
+	result := waitForTerminalStatus(t, orch, response.JobID)
+	if result.Status != StatusSuccess {
+		t.Fatalf("expected initial success, got %s", result.Status)
+	}
+
+	result.Items[1].Success = false
+	result.Items[1].Error = models.NewCanonicalJobError("ITEM_FAIL", "item failed", nil)
+	status, msg := deriveBatchFinalState(result.Items)
+	if status != StatusPartialSuccess {
+		t.Fatalf("expected partial_success, got %s", status)
+	}
+	if msg != "job partial success" {
+		t.Fatalf("unexpected message: %s", msg)
 	}
 }

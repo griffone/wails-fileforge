@@ -53,6 +53,10 @@ export class ToolCatalog implements OnInit {
   }
 
   routeForTool(toolId: string): string | null {
+    if (toolId === 'tool.image.crop') {
+      return '/image-crop';
+    }
+
     if (toolId === 'tool.pdf.merge') {
       return '/pdf-merge';
     }
@@ -71,6 +75,10 @@ export class ToolCatalog implements OnInit {
 
     if (toolId === 'tool.video.trim') {
       return '/video-trim';
+    }
+
+    if (toolId === 'tool.video.merge') {
+      return '/video-merge';
     }
 
     return null;

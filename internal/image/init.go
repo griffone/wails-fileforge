@@ -1,19 +1,16 @@
 package image
 
 import (
-	"fileforge-desktop/internal/interfaces"
 	"fileforge-desktop/internal/registry"
 	"log"
 )
 
-const Category = "img" // Export the category constant
-
 func init() {
 	adapter := NewImageToolAdapter(NewImageConverter())
+	cropTool := NewCropTool()
 
-	// Use SafeRegister for init functions - errors are stored in the registry
-	registry.GetGlobalRegistry().SafeRegister(Category, adapter.converter)
 	registry.GetGlobalRegistry().SafeRegisterToolV2(adapter)
+	registry.GetGlobalRegistry().SafeRegisterToolV2(cropTool)
 
 	// Optionally log any initialization errors (non-blocking)
 	go func() {
@@ -25,16 +22,6 @@ func init() {
 			}
 		}
 	}()
-}
-
-// GetConverter returns a new image converter instance
-func GetConverter() interfaces.Converter {
-	return NewImageConverter()
-}
-
-// IsRegistered checks if the image converter is registered in the global registry
-func IsRegistered() bool {
-	return registry.GetGlobalRegistry().Exists(Category)
 }
 
 // Add validation method to your converter

@@ -24,7 +24,7 @@ describe('Wails', () => {
     expect(result.message).toContain('ipc unavailable');
   });
 
-  it('should return safe fallback when runJobV1 fails', async () => {
+  it('should return canonical coded fallback when runJobV1 fails', async () => {
     spyOn<any>(service, 'callByID').and.rejectWith(new Error('timeout'));
 
     const result = await service.runJobV1({
@@ -38,15 +38,18 @@ describe('Wails', () => {
     expect(result.success).toBeFalse();
     expect(result.status).toBe('failed');
     expect(result.message).toContain('timeout');
+    expect(result.error?.code).toBe('EXEC_IO_TRANSIENT');
+    expect(result.error?.detail_code).toBe('IPC_RUN_FAILED');
   });
 
-  it('should return coded fallback when getPdfPreviewSource fails', async () => {
+  it('should return canonical coded fallback when getPdfPreviewSource fails', async () => {
     spyOn<any>(service, 'callByID').and.rejectWith(new Error('ipc down'));
 
     const result = await service.getPdfPreviewSource('/tmp/in.pdf');
 
     expect(result.success).toBeFalse();
-    expect(result.error?.code).toBe('PDF_PREVIEW_READ_FAILED');
+    expect(result.error?.code).toBe('EXEC_IO_TRANSIENT');
+    expect(result.error?.detail_code).toBe('PDF_PREVIEW_READ_FAILED');
     expect(result.error?.message).toContain('ipc down');
   });
 });

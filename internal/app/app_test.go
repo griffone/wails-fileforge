@@ -46,8 +46,11 @@ func TestGetPDFPreviewSourceV1_ValidationErrors(t *testing.T) {
 		if res.Success {
 			t.Fatalf("expected validation error")
 		}
-		if res.Error == nil || res.Error.Code != "PDF_PREVIEW_INVALID_PATH" {
-			t.Fatalf("expected PDF_PREVIEW_INVALID_PATH, got %+v", res.Error)
+		if res.Error == nil || res.Error.Code != "VALIDATION_INVALID_INPUT" {
+			t.Fatalf("expected VALIDATION_INVALID_INPUT, got %+v", res.Error)
+		}
+		if res.Error.DetailCode != "PDF_PREVIEW_INVALID_PATH" {
+			t.Fatalf("expected detail_code PDF_PREVIEW_INVALID_PATH, got %+v", res.Error)
 		}
 	})
 
@@ -62,8 +65,11 @@ func TestGetPDFPreviewSourceV1_ValidationErrors(t *testing.T) {
 		if res.Success {
 			t.Fatalf("expected validation error")
 		}
-		if res.Error == nil || res.Error.Code != "PDF_PREVIEW_NOT_PDF" {
-			t.Fatalf("expected PDF_PREVIEW_NOT_PDF, got %+v", res.Error)
+		if res.Error == nil || res.Error.Code != "VALIDATION_INVALID_INPUT" {
+			t.Fatalf("expected VALIDATION_INVALID_INPUT, got %+v", res.Error)
+		}
+		if res.Error.DetailCode != "PDF_PREVIEW_NOT_PDF" {
+			t.Fatalf("expected detail_code PDF_PREVIEW_NOT_PDF, got %+v", res.Error)
 		}
 	})
 
@@ -78,8 +84,11 @@ func TestGetPDFPreviewSourceV1_ValidationErrors(t *testing.T) {
 		if res.Success {
 			t.Fatalf("expected read/validation error")
 		}
-		if res.Error == nil || res.Error.Code != "PDF_PREVIEW_INVALID_PATH" {
-			t.Fatalf("expected PDF_PREVIEW_INVALID_PATH, got %+v", res.Error)
+		if res.Error == nil || res.Error.Code != "VALIDATION_INVALID_INPUT" {
+			t.Fatalf("expected VALIDATION_INVALID_INPUT, got %+v", res.Error)
+		}
+		if res.Error.DetailCode != "PDF_PREVIEW_INVALID_PATH" {
+			t.Fatalf("expected detail_code PDF_PREVIEW_INVALID_PATH, got %+v", res.Error)
 		}
 	})
 
@@ -98,8 +107,11 @@ func TestGetPDFPreviewSourceV1_ValidationErrors(t *testing.T) {
 		if res.Success {
 			t.Fatalf("expected size validation error")
 		}
-		if res.Error == nil || res.Error.Code != "PDF_PREVIEW_TOO_LARGE" {
-			t.Fatalf("expected PDF_PREVIEW_TOO_LARGE, got %+v", res.Error)
+		if res.Error == nil || res.Error.Code != "VALIDATION_INVALID_INPUT" {
+			t.Fatalf("expected VALIDATION_INVALID_INPUT, got %+v", res.Error)
+		}
+		if res.Error.DetailCode != "PDF_PREVIEW_TOO_LARGE" {
+			t.Fatalf("expected detail_code PDF_PREVIEW_TOO_LARGE, got %+v", res.Error)
 		}
 	})
 
@@ -111,8 +123,25 @@ func TestGetPDFPreviewSourceV1_ValidationErrors(t *testing.T) {
 		if res.Success {
 			t.Fatalf("expected read failure")
 		}
-		if res.Error == nil || res.Error.Code != "PDF_PREVIEW_READ_FAILED" {
-			t.Fatalf("expected PDF_PREVIEW_READ_FAILED, got %+v", res.Error)
+		if res.Error == nil || res.Error.Code != "VALIDATION_INVALID_INPUT" {
+			t.Fatalf("expected VALIDATION_INVALID_INPUT, got %+v", res.Error)
+		}
+		if res.Error.DetailCode != "PDF_PREVIEW_READ_FAILED" {
+			t.Fatalf("expected detail_code PDF_PREVIEW_READ_FAILED, got %+v", res.Error)
 		}
 	})
+}
+
+func TestGetImagePreviewSourceV1_ValidationError(t *testing.T) {
+	app := New()
+	res := app.GetImagePreviewSourceV1("  ")
+	if res.Success {
+		t.Fatalf("expected failure on invalid path")
+	}
+	if res.Error == nil {
+		t.Fatalf("expected error")
+	}
+	if res.Error.DetailCode != "IMAGE_PREVIEW_INVALID_PATH" {
+		t.Fatalf("expected IMAGE_PREVIEW_INVALID_PATH detail, got %+v", res.Error)
+	}
 }

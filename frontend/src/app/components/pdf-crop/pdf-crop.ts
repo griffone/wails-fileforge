@@ -1017,9 +1017,11 @@ export class PdfCrop implements OnInit, OnDestroy {
     }`;
 
     if (
-      response.result.status === 'completed' ||
+      response.result.status === 'success' ||
       response.result.status === 'failed' ||
-      response.result.status === 'canceled'
+      response.result.status === 'partial_success' ||
+      response.result.status === 'cancelled' ||
+      response.result.status === 'interrupted'
     ) {
       this.stopPolling();
       this.activeJobId = '';
@@ -1037,42 +1039,20 @@ export class PdfCrop implements OnInit, OnDestroy {
     }
 
     switch (error.code) {
-      case 'VALIDATION_ERROR':
+      case 'VALIDATION_INVALID_INPUT':
         return `Validation: ${error.message}`;
-      case 'PDF_INVALID_INPUT':
-        return `Input PDF is invalid/corrupt: ${error.message}`;
-      case 'PDF_CROP_PRESET_INVALID':
-        return `cropPreset is invalid: ${error.message}`;
-      case 'PDF_CROP_MARGINS_REQUIRED':
-        return `Custom crop requires margins: ${error.message}`;
-      case 'PDF_CROP_MARGINS_INVALID':
-        return `Crop margins are invalid: ${error.message}`;
-      case 'PDF_CROP_PAGE_SELECTION_INVALID':
-        return `Page selection format is invalid: ${error.message}`;
-      case 'PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS':
-        return `Page selection exceeds document page count: ${error.message}`;
-      case 'PDF_CROP_OUTPUT_ALREADY_EXISTS':
-        return `Output file already exists. Choose another output path: ${error.message}`;
-      case 'PDF_CROP_BATCH_OUTPUT_COLLISION':
-        return `Batch output collision detected between planned cropped files. Rename colliding inputs or choose another output directory: ${error.message}`;
-      case 'PDF_OUTPUT_COLLIDES_INPUT':
-        return `Output path collides with input path: ${error.message}`;
-      case 'PDF_OUTPUT_DIR_NOT_FOUND':
-        return `Output directory not found: ${error.message}`;
-      case 'PDF_OUTPUT_DIR_NOT_DIRECTORY':
-        return `Output directory path is invalid: ${error.message}`;
-      case 'PDF_OUTPUT_DIR_NOT_WRITABLE':
-        return `Output directory is not writable: ${error.message}`;
-      case 'PDF_CROP_FAILED':
-        return `Crop execution failed: ${error.message}`;
-      case 'CANCELED':
+      case 'RUNTIME_DEP_MISSING':
+        return `Runtime dependency missing.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+      case 'EXEC_IO_TRANSIENT':
+        return `Crop execution failed.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+      case 'EXEC_TIMEOUT_TRANSIENT':
+        return `Crop execution timeout.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+      case 'UNSUPPORTED_FORMAT':
+        return `Unsupported format.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+      case 'CANCELLED_BY_USER':
         return 'Job was canceled.';
-      case 'TOOL_NOT_FOUND':
-        return 'PDF Crop tool is not available in backend.';
-      case 'NOT_FOUND':
-        return 'Job not found in runtime.';
       default:
-        return `${error.code}: ${error.message}`;
+        return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
     }
   }
 

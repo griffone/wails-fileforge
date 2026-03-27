@@ -410,7 +410,7 @@ func TestVideoTrimToolAppearsInRegistryCatalog(t *testing.T) {
 	for _, entry := range entries {
 		if entry.Manifest.ToolID == ToolIDVideoTrimV1 {
 			found = true
-			if !entry.Manifest.SupportsSingle || entry.Manifest.SupportsBatch {
+			if !entry.Manifest.SupportsSingle || !entry.Manifest.SupportsBatch {
 				t.Fatalf("unexpected manifest capabilities: %+v", entry.Manifest)
 			}
 		}
@@ -418,5 +418,127 @@ func TestVideoTrimToolAppearsInRegistryCatalog(t *testing.T) {
 
 	if !found {
 		t.Fatalf("expected tool %s in catalog", ToolIDVideoTrimV1)
+	}
+}
+
+func TestTrimToolBatchHappy(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputA := filepath.Join(tmpDir, "a.mov")
+	inputB := filepath.Join(tmpDir, "b.mkv")
+	if err := os.WriteFile(inputA, []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write inputA: %v", err)
+	}
+	if err := os.WriteFile(inputB, []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write inputB: %v", err)
+	}
+
+	tool := NewTrimToolWithDeps(fakeProbe{}, &fakeRunner{})
+	req := models.JobRequestV1{
+		ToolID:     ToolIDVideoTrimV1,
+		Mode:       "batch",
+		InputPaths: []string{inputA, inputB},
+		OutputDir:  tmpDir,
+		Options: map[string]any{
+			"startTime":     1.0,
+			"endTime":       3.5,
+			"targetFormat":  "mp4",
+			"qualityPreset": "medium",
+			"trimMode":      "auto",
+		},
+	}
+
+	if err := tool.Validate(context.Background(), req); err != nil {
+		t.Fatalf("expected validate success, got %v", err)
+	}
+
+	items, execErr := tool.ExecuteBatch(context.Background(), req, nil)
+	if execErr != nil {
+		t.Fatalf("expected execute success, got %v", execErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	for _, item := range items {
+		if !item.Success {
+			t.Fatalf("expected successful item, got %+v", item)
+		}
+		if item.OutputCount != 1 || len(item.Outputs) != 1 {
+			t.Fatalf("expected explicit single output, got %+v", item)
+		}
+	}
+}
+
+func TestTrimToolBatchInvalidMissingOutputDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input.mp4")
+	if err := os.WriteFile(inputPath, []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	tool := NewTrimToolWithDeps(fakeProbe{}, &fakeRunner{})
+	err := tool.Validate(context.Background(), models.JobRequestV1{
+		ToolID:     ToolIDVideoTrimV1,
+		Mode:       "batch",
+		InputPaths: []string{inputPath},
+		OutputDir:  "",
+		Options: map[string]any{
+			"startTime":     0.0,
+			"endTime":       2.0,
+			"targetFormat":  "mp4",
+			"qualityPreset": "medium",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+	if err.Code != engine.ErrorCodeVideoTrimValidation {
+		t.Fatalf("expected %s, got %s", engine.ErrorCodeVideoTrimValidation, err.Code)
+	}
+}
+
+func TestTrimToolBatchValidateExecuteParity(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input.mkv")
+	if err := os.WriteFile(inputPath, []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	conflictingOutput := filepath.Join(tmpDir, "input_trimmed.mp4")
+	if err := os.WriteFile(conflictingOutput, []byte("exists"), 0o644); err != nil {
+		t.Fatalf("write conflicting output: %v", err)
+	}
+
+	req := models.JobRequestV1{
+		ToolID:     ToolIDVideoTrimV1,
+		Mode:       "batch",
+		InputPaths: []string{inputPath},
+		OutputDir:  tmpDir,
+		Options: map[string]any{
+			"startTime":     0.0,
+			"endTime":       2.0,
+			"targetFormat":  "mp4",
+			"qualityPreset": "low",
+			"trimMode":      "reencode",
+		},
+	}
+
+	tool := NewTrimToolWithDeps(fakeProbe{}, &fakeRunner{})
+	validateErr := tool.Validate(context.Background(), req)
+	if validateErr == nil {
+		t.Fatalf("expected validate error")
+	}
+
+	items, executeErr := tool.ExecuteBatch(context.Background(), req, nil)
+	if executeErr == nil {
+		t.Fatalf("expected execute error")
+	}
+	if executeErr.Code != validateErr.Code {
+		t.Fatalf("expected parity code %s, got %s", validateErr.Code, executeErr.Code)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one result item, got %d", len(items))
+	}
+	if items[0].Error == nil || items[0].Error.Code != validateErr.Code {
+		t.Fatalf("expected item error code %s, got %+v", validateErr.Code, items[0].Error)
 	}
 }

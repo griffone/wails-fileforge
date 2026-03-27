@@ -69,11 +69,6 @@ export class ToolExecutionPanel {
     if (item.outputs && item.outputs.length > 0) {
       return item.outputs;
     }
-
-    if (item.outputPath) {
-      return [item.outputPath];
-    }
-
     return [];
   }
 }

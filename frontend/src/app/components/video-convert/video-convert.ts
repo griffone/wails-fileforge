@@ -16,7 +16,11 @@ import {
 } from '../../services/wails';
 
 const VIDEO_CONVERT_TOOL_ID = 'tool.video.convert';
+const VIDEO_MERGE_TOOL_ID = 'tool.video.merge';
 const POLLING_INTERVAL_MS = 1000;
+
+type JobMode = 'single' | 'batch';
+type ActiveJobKind = 'convert' | 'merge';
 
 @Component({
   selector: 'app-video-convert',
@@ -31,11 +35,29 @@ export class VideoConvert implements OnDestroy {
   readonly form;
   readonly panelFields: ExecutionPanelField[] = [
     {
+      controlName: 'jobMode',
+      label: 'Mode',
+      type: 'select',
+      options: [
+        { value: 'single', label: 'single' },
+        { value: 'batch', label: 'batch' },
+      ],
+    },
+    {
       controlName: 'outputPath',
       label: 'Output path',
       type: 'text',
       placeholder: '/path/to/output.mp4',
-      helpText: 'Required. Must match selected target format extension.',
+      helpText: 'Required in single mode.',
+      visibleModes: ['single'],
+    },
+    {
+      controlName: 'outputDir',
+      label: 'Output directory',
+      type: 'text',
+      placeholder: '/path/to/output',
+      helpText: 'Required in batch mode.',
+      visibleModes: ['batch'],
     },
     {
       controlName: 'targetFormat',
@@ -56,19 +78,50 @@ export class VideoConvert implements OnDestroy {
         { value: 'low', label: 'low' },
       ],
     },
+    {
+      controlName: 'mergeOutputs',
+      label: 'Merge outputs when batch completes',
+      type: 'select',
+      options: [
+        { value: 'no', label: 'no' },
+        { value: 'yes', label: 'yes' },
+      ],
+      visibleModes: ['batch'],
+    },
+    {
+      controlName: 'mergeOutputPath',
+      label: 'Merge output path',
+      type: 'text',
+      placeholder: '/path/to/merged.mp4',
+      visibleModes: ['batch'],
+    },
+    {
+      controlName: 'mergeMode',
+      label: 'Merge mode',
+      type: 'select',
+      options: [
+        { value: 'auto', label: 'auto (copy then fallback reencode)' },
+        { value: 'copy', label: 'copy (no fallback)' },
+        { value: 'reencode', label: 'reencode (direct)' },
+      ],
+      visibleModes: ['batch'],
+    },
   ];
 
-  selectedInputPath = '';
+  selectedInputPaths: string[] = [];
   validationMessage = '';
   submitMessage = '';
   statusMessage = '';
+  mergeChainMessage = '';
   jobResult: JobResultV1 | null = null;
+  mergeJobResult: JobResultV1 | null = null;
   isSubmitting = false;
   isPolling = false;
   activeJobId = '';
   progressStageLabel = '';
   progressPercentLabel = '0%';
 
+  private activeJobKind: ActiveJobKind = 'convert';
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private pollInFlight = false;
   private terminalStatusSeen = false;
@@ -78,9 +131,14 @@ export class VideoConvert implements OnDestroy {
     private readonly wailsService: Wails
   ) {
     this.form = this.fb.nonNullable.group({
+      jobMode: ['single', Validators.required],
       outputPath: ['', Validators.required],
+      outputDir: [''],
       targetFormat: ['mp4', Validators.required],
       qualityPreset: ['medium', Validators.required],
+      mergeOutputs: ['no', Validators.required],
+      mergeOutputPath: [''],
+      mergeMode: ['auto', Validators.required],
     });
   }
 
@@ -95,8 +153,30 @@ export class VideoConvert implements OnDestroy {
       return;
     }
 
-    this.selectedInputPath = selected;
+    if (this.currentMode() === 'single') {
+      this.selectedInputPaths = [selected];
+    } else {
+      this.addInputPath(selected);
+    }
     this.validationMessage = 'Video input selected.';
+  }
+
+  async selectMultipleVideosFromDialog(): Promise<void> {
+    this.clearMessages();
+    const selected = await this.wailsService.openMultipleFilesDialog();
+    if (!selected || selected.length === 0) {
+      return;
+    }
+
+    if (this.currentMode() === 'single') {
+      this.selectedInputPaths = [selected[0].trim()];
+    } else {
+      for (const path of selected) {
+        this.addInputPath(path);
+      }
+    }
+
+    this.validationMessage = `Selected ${this.selectedInputPaths.length} video input(s).`;
   }
 
   triggerFileInput(): void {
@@ -110,21 +190,46 @@ export class VideoConvert implements OnDestroy {
       return;
     }
 
-    const file = files.item(0);
-    if (!file) {
-      return;
+    if (this.currentMode() === 'single') {
+      const file = files.item(0);
+      if (!file) {
+        return;
+      }
+      const filePath = (file as File & { path?: string }).path ?? file.name;
+      this.selectedInputPaths = [filePath.trim()];
+    } else {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files.item(index);
+        if (!file) {
+          continue;
+        }
+        const filePath = (file as File & { path?: string }).path ?? file.name;
+        this.addInputPath(filePath);
+      }
     }
 
-    const filePath = (file as File & { path?: string }).path ?? file.name;
-    this.selectedInputPath = filePath.trim();
-    this.validationMessage = 'Video input selected.';
+    this.validationMessage = `Selected ${this.selectedInputPaths.length} video input(s).`;
     if (target) {
       target.value = '';
     }
   }
 
+  removeInput(index: number): void {
+    if (index < 0 || index >= this.selectedInputPaths.length) {
+      return;
+    }
+
+    this.selectedInputPaths = this.selectedInputPaths.filter((_, i) => i !== index);
+  }
+
   clearSelectedInput(): void {
-    this.selectedInputPath = '';
+    this.selectedInputPaths = [];
+  }
+
+  onModeChanged(): void {
+    if (this.currentMode() === 'single' && this.selectedInputPaths.length > 1) {
+      this.selectedInputPaths = [this.selectedInputPaths[0]];
+    }
   }
 
   async validate(): Promise<void> {
@@ -136,7 +241,7 @@ export class VideoConvert implements OnDestroy {
       return;
     }
 
-    const response = await this.wailsService.validateJobV1(this.buildRequest());
+    const response = await this.wailsService.validateJobV1(this.buildConvertRequest());
     this.validationMessage = response.valid
       ? 'Validation OK. Ready to run convert.'
       : this.mapJobError(response.error, response.message);
@@ -151,11 +256,13 @@ export class VideoConvert implements OnDestroy {
       return;
     }
 
-    const request = this.buildRequest();
+    const request = this.buildConvertRequest();
     this.isSubmitting = true;
     this.statusMessage = '';
     this.jobResult = null;
+    this.mergeJobResult = null;
     this.terminalStatusSeen = false;
+    this.activeJobKind = 'convert';
 
     const validation = await this.wailsService.validateJobV1(request);
     if (!validation.valid) {
@@ -172,7 +279,7 @@ export class VideoConvert implements OnDestroy {
     }
 
     this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
+    this.submitMessage = `Convert job submitted: ${runResponse.jobId}`;
     this.startPolling();
     this.isSubmitting = false;
   }
@@ -184,59 +291,107 @@ export class VideoConvert implements OnDestroy {
 
     const response = await this.wailsService.cancelJobV1(this.activeJobId);
     this.statusMessage = response.success
-      ? 'Cancel requested.'
+      ? `Cancel requested for ${this.activeJobKind} job.`
       : this.mapJobError(response.error, response.message);
   }
 
   private localValidationError(): string {
-    const inputPath = this.selectedInputPath.trim();
+    const mode = this.currentMode();
     const outputPath = this.form.controls.outputPath.value.trim();
+    const outputDir = this.form.controls.outputDir.value.trim();
     const targetFormat = this.form.controls.targetFormat.value.trim();
     const qualityPreset = this.form.controls.qualityPreset.value.trim();
 
-    if (!inputPath) {
+    if (mode === 'single' && this.selectedInputPaths.length !== 1) {
       return 'Select one input video file.';
     }
-    if (!this.isSupportedVideoInput(inputPath)) {
-      return `Input video must be .mp4, .mov or .mkv: ${inputPath}`;
+    if (mode === 'batch' && this.selectedInputPaths.length < 1) {
+      return 'Select at least one input video file.';
     }
 
-    if (!outputPath) {
-      return 'Output path is required.';
+    for (const inputPath of this.selectedInputPaths) {
+      if (!this.isSupportedVideoInput(inputPath)) {
+        return `Input video must be .mp4, .mov or .mkv: ${inputPath}`;
+      }
     }
-    if (outputPath.endsWith('/') || outputPath.endsWith('\\')) {
-      return 'Output path must include a filename.';
+
+    if (mode === 'single') {
+      if (!outputPath) {
+        return 'Output path is required.';
+      }
+      if (outputPath.endsWith('/') || outputPath.endsWith('\\')) {
+        return 'Output path must include a filename.';
+      }
+      if (!outputPath.toLowerCase().endsWith(`.${targetFormat}`)) {
+        return `Output extension must match target format .${targetFormat}`;
+      }
+    }
+
+    if (mode === 'batch' && !outputDir) {
+      return 'Output directory is required in batch mode.';
     }
 
     if (targetFormat !== 'mp4' && targetFormat !== 'webm') {
       return `Unsupported targetFormat: ${targetFormat}`;
     }
 
-    if (!outputPath.toLowerCase().endsWith(`.${targetFormat}`)) {
-      return `Output extension must match target format .${targetFormat}`;
-    }
-
     if (qualityPreset !== 'high' && qualityPreset !== 'medium' && qualityPreset !== 'low') {
       return `Unsupported qualityPreset: ${qualityPreset}`;
+    }
+
+    if (mode === 'batch' && this.shouldMergeOutputs()) {
+      const mergeOutputPath = this.form.controls.mergeOutputPath.value.trim();
+      const mergeMode = this.form.controls.mergeMode.value.trim();
+      if (!mergeOutputPath) {
+        return 'Merge output path is required when merge chaining is enabled.';
+      }
+      if (!mergeOutputPath.toLowerCase().endsWith(`.${targetFormat}`)) {
+        return `Merge output extension must match target format .${targetFormat}`;
+      }
+      if (mergeMode !== 'auto' && mergeMode !== 'copy' && mergeMode !== 'reencode') {
+        return `Unsupported mergeMode: ${mergeMode}`;
+      }
     }
 
     return '';
   }
 
-  private buildRequest(): JobRequestV1 {
+  private buildConvertRequest(): JobRequestV1 {
+    const mode = this.currentMode();
     const outputPath = this.form.controls.outputPath.value.trim();
+    const outputDir = this.form.controls.outputDir.value.trim();
     const targetFormat = this.form.controls.targetFormat.value.trim();
     const qualityPreset = this.form.controls.qualityPreset.value.trim();
 
     return {
       toolId: VIDEO_CONVERT_TOOL_ID,
+      mode,
+      inputPaths: [...this.selectedInputPaths],
+      outputDir: mode === 'single' ? this.outputDirFromPath(outputPath) : outputDir,
+      options: {
+        ...(mode === 'single' ? { outputPath } : {}),
+        targetFormat,
+        qualityPreset,
+      },
+    };
+  }
+
+  private buildMergeRequest(mergeInputs: string[]): JobRequestV1 {
+    const targetFormat = this.form.controls.targetFormat.value.trim();
+    const qualityPreset = this.form.controls.qualityPreset.value.trim();
+    const mergeMode = this.form.controls.mergeMode.value.trim();
+    const outputPath = this.form.controls.mergeOutputPath.value.trim();
+
+    return {
+      toolId: VIDEO_MERGE_TOOL_ID,
       mode: 'single',
-      inputPaths: [this.selectedInputPath.trim()],
+      inputPaths: mergeInputs,
       outputDir: this.outputDirFromPath(outputPath),
       options: {
         outputPath,
         targetFormat,
         qualityPreset,
+        mergeMode,
       },
     };
   }
@@ -253,6 +408,10 @@ export class VideoConvert implements OnDestroy {
   private isSupportedVideoInput(path: string): boolean {
     const lower = path.toLowerCase();
     return lower.endsWith('.mp4') || lower.endsWith('.mov') || lower.endsWith('.mkv');
+  }
+
+  private shouldMergeOutputs(): boolean {
+    return this.form.controls.mergeOutputs.value === 'yes';
   }
 
   private startPolling(): void {
@@ -290,6 +449,12 @@ export class VideoConvert implements OnDestroy {
       const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(
         this.activeJobId
       );
+      if (!response) {
+        this.statusMessage = 'status polling failed: empty response';
+        this.stopPolling();
+        this.activeJobId = '';
+        return;
+      }
       if (!response.found || !response.result) {
         this.statusMessage = this.mapJobError(response.error, response.message);
         this.stopPolling();
@@ -297,31 +462,99 @@ export class VideoConvert implements OnDestroy {
         return;
       }
 
-      this.jobResult = response.result;
+      if (this.activeJobKind === 'convert') {
+        this.jobResult = response.result;
+      } else {
+        this.mergeJobResult = response.result;
+      }
+
       this.updateProgressLabels(response.result);
-      this.statusMessage = `${response.result.status}: ${
+      this.statusMessage = `${this.activeJobKind} ${response.result.status}: ${
         response.result.error
           ? this.mapJobError(response.result.error, response.result.message)
           : response.result.message
       }`;
 
       if (
-        response.result.status === 'completed' ||
+        response.result.status === 'success' ||
         response.result.status === 'failed' ||
-        response.result.status === 'canceled'
+        response.result.status === 'partial_success' ||
+        response.result.status === 'cancelled' ||
+        response.result.status === 'interrupted'
       ) {
         this.terminalStatusSeen = true;
         this.stopPolling();
         this.activeJobId = '';
+
+        if (this.activeJobKind === 'convert') {
+          await this.handleConvertTerminal(response.result);
+        }
       }
     } finally {
       this.pollInFlight = false;
     }
   }
 
+  private async handleConvertTerminal(result: JobResultV1): Promise<void> {
+    if (
+      this.currentMode() !== 'batch' ||
+      !this.shouldMergeOutputs() ||
+      result.status !== 'success' ||
+      !result.success
+    ) {
+      return;
+    }
+
+    const mergeInputs = this.extractSuccessfulOutputs(result);
+    if (mergeInputs.length < 2) {
+      this.mergeChainMessage =
+        'Merge chain skipped: batch completed but produced fewer than 2 successful outputs.';
+      return;
+    }
+
+    const mergeRequest = this.buildMergeRequest(mergeInputs);
+    const validation = await this.wailsService.validateJobV1(mergeRequest);
+    if (!validation.valid) {
+      this.mergeChainMessage = `Merge chain validation failed: ${this.mapJobError(
+        validation.error,
+        validation.message
+      )}`;
+      return;
+    }
+
+    const runResponse = await this.wailsService.runJobV1(mergeRequest);
+    if (!runResponse.success || !runResponse.jobId) {
+      this.mergeChainMessage = `Merge chain failed to submit: ${this.mapJobError(
+        runResponse.error,
+        runResponse.message
+      )}`;
+      return;
+    }
+
+    this.activeJobKind = 'merge';
+    this.activeJobId = runResponse.jobId;
+    this.terminalStatusSeen = false;
+    this.mergeChainMessage = `Merge chain started: ${runResponse.jobId}`;
+    this.startPolling();
+  }
+
+  private extractSuccessfulOutputs(result: JobResultV1): string[] {
+    const outputs: string[] = [];
+    for (const item of result.items) {
+      if (!item.success) {
+        continue;
+      }
+      if (item.outputs && item.outputs.length > 0) {
+        outputs.push(...item.outputs);
+      }
+    }
+    return outputs.filter((path) => !!path.trim());
+  }
+
   private clearMessages(): void {
     this.validationMessage = '';
     this.submitMessage = '';
+    this.mergeChainMessage = '';
     this.progressStageLabel = '';
     this.progressPercentLabel = '0%';
   }
@@ -341,41 +574,37 @@ export class VideoConvert implements OnDestroy {
     }
 
     switch (error.code) {
-      case 'VIDEO_RUNTIME_UNAVAILABLE':
-      case 'VIDEO_RUNTIME_FFMPEG_NOT_FOUND':
-      case 'VIDEO_RUNTIME_FFPROBE_NOT_FOUND':
+      case 'RUNTIME_DEP_MISSING':
         return 'FFmpeg runtime is unavailable. Install/configure FFmpeg and retry.';
-      case 'VIDEO_CONVERT_FORMAT_MISMATCH':
-        return `Output format mismatch: ${error.message}`;
-      case 'VIDEO_CONVERT_OUTPUT_EXISTS':
-        return `Output file already exists. Choose another output path: ${error.message}`;
-      case 'VIDEO_CONVERT_OUTPUT_COLLIDES_INPUT':
-        return 'Output path collides with input path. Use a different file name/location.';
-      case 'VIDEO_CONVERT_OUTPUT_DIR_NOT_FOUND':
-        return 'Output directory does not exist. Create it or choose an existing folder.';
-      case 'VIDEO_CONVERT_OUTPUT_DIR_NOT_DIRECTORY':
-        return 'Output parent path is not a directory. Choose a valid folder.';
-      case 'VIDEO_CONVERT_OUTPUT_DIR_NOT_WRITABLE':
-        return 'Output directory is not writable. Check permissions and retry.';
-      case 'VIDEO_CONVERT_VALIDATION_ERROR':
-      case 'VALIDATION_ERROR':
+      case 'VALIDATION_INVALID_INPUT':
         return `Validation: ${error.message}`;
-      case 'VIDEO_CONVERT_INPUT_OPEN_FAILED':
-        return 'FFmpeg could not read input file. Verify the file exists and is readable.';
-      case 'VIDEO_CONVERT_OUTPUT_WRITE_FAILED':
-        return 'FFmpeg could not write output file. Check output permissions and free disk space.';
-      case 'VIDEO_CONVERT_CODEC_UNAVAILABLE':
-        return 'Requested codec is unavailable in current FFmpeg build. Try another target format/preset.';
-      case 'VIDEO_CONVERT_EXECUTION_FAILED':
+      case 'EXEC_IO_TRANSIENT':
         return `Video convert execution failed: ${error.message}`;
-      case 'CANCELED':
+      case 'EXEC_TIMEOUT_TRANSIENT':
+        return `Video convert execution timeout: ${error.message}`;
+      case 'UNSUPPORTED_FORMAT':
+        return `Output format mismatch: ${error.message}`;
+      case 'CANCELLED_BY_USER':
         return 'Job was canceled.';
-      case 'TOOL_NOT_FOUND':
-        return 'Video Convert tool is not available in backend.';
-      case 'NOT_FOUND':
-        return 'Job not found in runtime.';
       default:
-        return `${error.code}: ${error.message}`;
+        return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
     }
+  }
+
+  private currentMode(): JobMode {
+    return this.form.controls.jobMode.value === 'batch' ? 'batch' : 'single';
+  }
+
+  private addInputPath(rawPath: string): void {
+    const inputPath = rawPath.trim();
+    if (!inputPath) {
+      return;
+    }
+
+    if (this.selectedInputPaths.includes(inputPath)) {
+      return;
+    }
+
+    this.selectedInputPaths = [...this.selectedInputPaths, inputPath];
   }
 }

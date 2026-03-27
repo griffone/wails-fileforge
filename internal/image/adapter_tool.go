@@ -3,6 +3,7 @@ package image
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -37,7 +38,7 @@ func (t *ImageToolAdapter) Manifest() models.ToolManifestV1 {
 	return models.ToolManifestV1{
 		ToolID:           t.ID(),
 		Name:             "Image Converter",
-		Description:      "Legacy image converter adapter exposed as Tool V1",
+		Description:      "Image conversion tool exposed as Tool V1 jobs",
 		Domain:           "image",
 		Capability:       t.Capability(),
 		Version:          "v1",
@@ -46,7 +47,7 @@ func (t *ImageToolAdapter) Manifest() models.ToolManifestV1 {
 		InputExtensions:  []string{"jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"},
 		OutputExtensions: t.converter.SupportedFormats(),
 		RuntimeDeps:      []string{"libvips"},
-		Tags:             []string{"legacy", "adapter", "image"},
+		Tags:             []string{"image", "convert"},
 	}
 }
 
@@ -56,24 +57,24 @@ func (t *ImageToolAdapter) RuntimeState(_ context.Context) models.ToolRuntimeSta
 
 func (t *ImageToolAdapter) Validate(_ context.Context, req models.JobRequestV1) *models.JobErrorV1 {
 	if len(req.InputPaths) == 0 {
-		return &models.JobErrorV1{Code: "VALIDATION_ERROR", Message: "inputPaths cannot be empty"}
+		return models.NewCanonicalJobError("IMAGE_INPUT_REQUIRED", "inputPaths cannot be empty", nil)
 	}
 
 	if req.Mode != "single" && req.Mode != "batch" {
-		return &models.JobErrorV1{Code: "VALIDATION_ERROR", Message: "mode must be single or batch"}
+		return models.NewCanonicalJobError("IMAGE_MODE_INVALID", "mode must be single or batch", nil)
 	}
 
 	format := t.resolveFormat(req.Options)
 	if err := t.converter.validateOutputFormat(format); err != nil {
-		return &models.JobErrorV1{Code: "VALIDATION_ERROR", Message: err.Error()}
+		return models.NewCanonicalJobError("IMAGE_FORMAT_INVALID", err.Error(), nil)
 	}
 
 	if req.Mode == "single" && len(req.InputPaths) != 1 {
-		return &models.JobErrorV1{Code: "VALIDATION_ERROR", Message: "single mode requires exactly one input path"}
+		return models.NewCanonicalJobError("IMAGE_SINGLE_INPUT_COUNT", "single mode requires exactly one input path", nil)
 	}
 
 	if req.Mode == "batch" && strings.TrimSpace(req.OutputDir) == "" {
-		return &models.JobErrorV1{Code: "VALIDATION_ERROR", Message: "outputDir is required in batch mode"}
+		return models.NewCanonicalJobError("IMAGE_BATCH_OUTPUT_DIR_REQUIRED", "outputDir is required in batch mode", nil)
 	}
 
 	return nil
@@ -86,12 +87,14 @@ func (t *ImageToolAdapter) ExecuteSingle(ctx context.Context, req models.JobRequ
 
 	err := t.converter.ConvertSingle(ctx, inputPath, outputPath, format, req.Options)
 	if err != nil {
+		jobErr := models.NewCanonicalJobError("IMAGE_SINGLE_EXECUTION", err.Error(), nil)
 		return models.JobResultItemV1{
 			InputPath:  inputPath,
 			OutputPath: outputPath,
 			Success:    false,
 			Message:    "conversion failed",
-		}, &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
+			Error:      jobErr,
+		}, jobErr
 	}
 
 	return models.JobResultItemV1{
@@ -104,45 +107,56 @@ func (t *ImageToolAdapter) ExecuteSingle(ctx context.Context, req models.JobRequ
 
 func (t *ImageToolAdapter) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
 	format := t.resolveFormat(req.Options)
-	workers := req.Workers
-	if workers <= 0 {
-		workers = 4
-	}
-
+	items := make([]models.JobResultItemV1, 0, len(req.InputPaths))
 	total := len(req.InputPaths)
-	current := 0
-	results, err := t.converter.ConvertBatch(ctx, req.InputPaths, req.OutputDir, format, false, workers, req.Options, func(item models.ConversionResult) {
-		current++
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{
-				Current: current,
-				Total:   total,
-				Stage:   "running",
-				Message: item.Message,
+	usedOutputs := make(map[string]struct{}, len(req.InputPaths))
+
+	for index, inputPath := range req.InputPaths {
+		select {
+		case <-ctx.Done():
+			return items, models.NewCanonicalJobError("IMAGE_BATCH_CANCELLED", ctx.Err().Error(), nil)
+		default:
+		}
+
+		outputPath := t.resolveBatchOutputPath(inputPath, req.OutputDir, format, usedOutputs)
+		err := t.converter.ConvertSingle(ctx, inputPath, outputPath, format, req.Options)
+		if err != nil {
+			itemErr := models.NewCanonicalJobError("IMAGE_BATCH_ITEM", err.Error(), map[string]any{"inputPath": inputPath})
+			items = append(items, models.JobResultItemV1{
+				InputPath:  inputPath,
+				OutputPath: outputPath,
+				Success:    false,
+				Message:    "conversion failed",
+				Error:      itemErr,
+			})
+		} else {
+			items = append(items, models.JobResultItemV1{
+				InputPath:  inputPath,
+				OutputPath: outputPath,
+				Success:    true,
+				Message:    "conversion successful",
 			})
 		}
-	})
-	if err != nil {
-		return nil, &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
-	}
 
-	items := make([]models.JobResultItemV1, 0, len(results))
-	for _, r := range results {
-		var itemErr *models.JobErrorV1
-		if !r.Success && r.Error != "" {
-			itemErr = &models.JobErrorV1{Code: "ITEM_ERROR", Message: r.Error}
+		if onProgress != nil {
+			onProgress(models.JobProgressV1{
+				Current: index + 1,
+				Total:   total,
+				Stage:   models.JobStatusRunning,
+				Message: fmt.Sprintf("processed %d/%d", index+1, total),
+			})
 		}
-
-		items = append(items, models.JobResultItemV1{
-			InputPath:  r.InputPath,
-			OutputPath: r.OutputPath,
-			Success:    r.Success,
-			Message:    r.Message,
-			Error:      itemErr,
-		})
 	}
 
-	return items, nil
+	var firstErr *models.JobErrorV1
+	for _, item := range items {
+		if !item.Success && item.Error != nil {
+			firstErr = item.Error
+			break
+		}
+	}
+
+	return items, firstErr
 }
 
 func (t *ImageToolAdapter) resolveFormat(options map[string]any) string {
@@ -171,4 +185,30 @@ func (t *ImageToolAdapter) resolveSingleOutputPath(inputPath, outputDir, format 
 
 	name := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
 	return filepath.Join(outputDir, fmt.Sprintf("%s.%s", name, format))
+}
+
+func (t *ImageToolAdapter) resolveBatchOutputPath(inputPath, outputDir, format string, used map[string]struct{}) string {
+	name := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	if strings.TrimSpace(name) == "" {
+		name = "image"
+	}
+
+	candidate := filepath.Join(outputDir, fmt.Sprintf("%s.%s", name, format))
+	if _, exists := used[candidate]; !exists {
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			used[candidate] = struct{}{}
+			return candidate
+		}
+	}
+
+	for suffix := 2; ; suffix++ {
+		next := filepath.Join(outputDir, fmt.Sprintf("%s-%d.%s", name, suffix, format))
+		if _, exists := used[next]; exists {
+			continue
+		}
+		if _, err := os.Stat(next); os.IsNotExist(err) {
+			used[next] = struct{}{}
+			return next
+		}
+	}
 }

@@ -33,9 +33,6 @@ describe('PdfCrop', () => {
       'getJobStatusV1',
       'cancelJobV1',
       'listToolsV1',
-      'convertFile',
-      'convertBatch',
-      'getSupportedFormats',
       'openFileDialog',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
@@ -167,6 +164,7 @@ describe('PdfCrop', () => {
       valid: false,
       error: {
         code: 'PDF_CROP_PAGE_SELECTION_INVALID',
+        detail_code: 'PDF_CROP_PAGE_SELECTION_INVALID',
         message: 'ranges contains empty token',
       },
     };
@@ -177,7 +175,7 @@ describe('PdfCrop', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('Page selection format is invalid');
+    expect(component.validationMessage).toContain('PDF_CROP_PAGE_SELECTION_INVALID');
   });
 
   it('runs and transitions basic state through polling', fakeAsync(() => {
@@ -209,15 +207,15 @@ describe('PdfCrop', () => {
     };
     const completed: JobStatusResponseV1 = {
       success: true,
-      message: 'completed',
+      message: 'success',
       found: true,
       result: {
         jobId: 'crop-job-1',
         success: true,
         message: 'done',
         toolId: 'tool.pdf.crop',
-        status: 'completed',
-        progress: { current: 1, total: 1, stage: 'completed', message: 'done' },
+        status: 'success',
+        progress: { current: 1, total: 1, stage: 'success', message: 'done' },
         items: [
           {
             inputPath: '/tmp/in.pdf',
@@ -252,7 +250,7 @@ describe('PdfCrop', () => {
     tick(1000);
     flushMicrotasks();
 
-    expect(component.jobResult?.status).toBe('completed');
+    expect(component.jobResult?.status).toBe('success');
     expect(component.jobResult?.items.length).toBe(1);
     expect(component.jobResult?.items[0].outputPath).toBe('/tmp/out/cropped.pdf');
     expect(component.isPolling).toBeFalse();
@@ -288,15 +286,15 @@ describe('PdfCrop', () => {
     };
     const completed: JobStatusResponseV1 = {
       success: true,
-      message: 'completed',
+      message: 'success',
       found: true,
       result: {
         jobId: 'crop-batch-job-1',
         success: true,
         message: 'done',
         toolId: 'tool.pdf.crop',
-        status: 'completed',
-        progress: { current: 2, total: 2, stage: 'completed', message: 'done' },
+        status: 'success',
+        progress: { current: 2, total: 2, stage: 'success', message: 'done' },
         items: [
           {
             inputPath: '/tmp/in-a.pdf',
@@ -339,7 +337,7 @@ describe('PdfCrop', () => {
     tick(1000);
     flushMicrotasks();
 
-    expect(component.jobResult?.status).toBe('completed');
+    expect(component.jobResult?.status).toBe('success');
     expect(component.jobResult?.items.length).toBe(2);
     expect(component.jobResult?.items[0].outputPath).toBe('/tmp/out/in-a_cropped.pdf');
     expect(component.jobResult?.items[1].outputPath).toBe('/tmp/out/in-b_cropped.pdf');
@@ -354,6 +352,7 @@ describe('PdfCrop', () => {
       valid: false,
       error: {
         code: 'PDF_CROP_BATCH_OUTPUT_COLLISION',
+        detail_code: 'PDF_CROP_BATCH_OUTPUT_COLLISION',
         message: 'batch planned outputs collide: /tmp/out/a_cropped.pdf and /tmp/out/A_cropped.pdf',
       },
     };
@@ -364,7 +363,7 @@ describe('PdfCrop', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('Batch output collision detected');
+    expect(component.validationMessage).toContain('PDF_CROP_BATCH_OUTPUT_COLLISION');
   });
 
   it('computes preview overlay rectangle from margins and scale', () => {

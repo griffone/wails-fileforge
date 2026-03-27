@@ -12,11 +12,13 @@ import (
 )
 
 const (
-	StatusQueued    = "queued"
-	StatusRunning   = "running"
-	StatusCompleted = "completed"
-	StatusFailed    = "failed"
-	StatusCanceled  = "canceled"
+	StatusQueued         = models.JobStatusQueued
+	StatusRunning        = models.JobStatusRunning
+	StatusSuccess        = models.JobStatusSuccess
+	StatusFailed         = models.JobStatusFailed
+	StatusPartialSuccess = models.JobStatusPartialSuccess
+	StatusCancelled      = models.JobStatusCancelled
+	StatusInterrupted    = models.JobStatusInterrupted
 )
 
 type Orchestrator struct {
@@ -53,7 +55,7 @@ func (o *Orchestrator) Submit(ctx context.Context, req models.JobRequestV1) (mod
 			Success: false,
 			Message: "job validation failed",
 			Status:  StatusFailed,
-			Error:   validationErr,
+			Error:   normalizeJobError(validationErr),
 		}, nil
 	}
 
@@ -102,7 +104,7 @@ func (o *Orchestrator) run(job *trackedJob, tool tools.Tool, req models.JobReque
 
 	select {
 	case <-job.ctx.Done():
-		job.complete(false, StatusCanceled, "job canceled", nil, &models.JobErrorV1{Code: "CANCELED", Message: job.ctx.Err().Error()}, time.Now().UnixMilli())
+		job.complete(StatusCancelled, "job cancelled", nil, models.NewJobError(models.ErrorCodeCancelledByUser, "JOB_CANCELLED", job.ctx.Err().Error(), nil), time.Now().UnixMilli())
 		return
 	default:
 	}
@@ -120,50 +122,55 @@ func (o *Orchestrator) runSingle(job *trackedJob, tool tools.Tool, req models.Jo
 		item, err := execWithProgress.ExecuteSingleWithProgress(job.ctx, req, func(progress models.JobProgressV1) {
 			job.updateProgress(progress)
 		})
+		item = normalizeItemError(item)
 		if err != nil {
-			job.complete(false, StatusFailed, "job failed", []models.JobResultItemV1{item}, err, time.Now().UnixMilli())
+			job.complete(StatusFailed, "job failed", []models.JobResultItemV1{item}, normalizeJobError(err), time.Now().UnixMilli())
 			return
 		}
 
-		job.complete(true, StatusCompleted, "job completed", []models.JobResultItemV1{item}, nil, time.Now().UnixMilli())
+		job.complete(StatusSuccess, "job success", []models.JobResultItemV1{item}, nil, time.Now().UnixMilli())
 		return
 	}
 
 	exec, ok := tool.(tools.SingleExecutor)
 	if !ok {
-		job.complete(false, StatusFailed, "tool does not support single execution", nil, &models.JobErrorV1{Code: "UNSUPPORTED_MODE", Message: "single execution not supported"}, time.Now().UnixMilli())
+		job.complete(StatusFailed, "tool does not support single execution", nil, models.NewCanonicalJobError("UNSUPPORTED_MODE", "single execution not supported", nil), time.Now().UnixMilli())
 		return
 	}
 
 	item, err := exec.ExecuteSingle(job.ctx, req)
+	item = normalizeItemError(item)
 	if err != nil {
-		job.complete(false, StatusFailed, "job failed", []models.JobResultItemV1{item}, err, time.Now().UnixMilli())
+		job.complete(StatusFailed, "job failed", []models.JobResultItemV1{item}, normalizeJobError(err), time.Now().UnixMilli())
 		return
 	}
 
-	job.complete(true, StatusCompleted, "job completed", []models.JobResultItemV1{item}, nil, time.Now().UnixMilli())
+	job.complete(StatusSuccess, "job success", []models.JobResultItemV1{item}, nil, time.Now().UnixMilli())
 }
 
 func (o *Orchestrator) runBatch(job *trackedJob, tool tools.Tool, req models.JobRequestV1) {
 	exec, ok := tool.(tools.BatchExecutor)
 	if !ok {
-		job.complete(false, StatusFailed, "tool does not support batch execution", nil, &models.JobErrorV1{Code: "UNSUPPORTED_MODE", Message: "batch execution not supported"}, time.Now().UnixMilli())
+		job.complete(StatusFailed, "tool does not support batch execution", nil, models.NewCanonicalJobError("UNSUPPORTED_MODE", "batch execution not supported", nil), time.Now().UnixMilli())
 		return
 	}
 
 	items, err := exec.ExecuteBatch(job.ctx, req, func(progress models.JobProgressV1) {
 		job.updateProgress(progress)
 	})
+	items = normalizeItemsErrors(items)
 	if err != nil {
 		if job.ctx.Err() != nil {
-			job.complete(false, StatusCanceled, "job canceled", items, &models.JobErrorV1{Code: "CANCELED", Message: job.ctx.Err().Error()}, time.Now().UnixMilli())
+			job.complete(StatusCancelled, "job cancelled", items, models.NewCanonicalJobError("JOB_CANCELLED", job.ctx.Err().Error(), nil), time.Now().UnixMilli())
 			return
 		}
-		job.complete(false, StatusFailed, "job failed", items, err, time.Now().UnixMilli())
+		status, message := deriveBatchFinalState(items)
+		job.complete(status, message, items, normalizeJobError(err), time.Now().UnixMilli())
 		return
 	}
 
-	job.complete(true, StatusCompleted, "job completed", items, nil, time.Now().UnixMilli())
+	status, message := deriveBatchFinalState(items)
+	job.complete(status, message, items, nil, time.Now().UnixMilli())
 }
 
 func (o *Orchestrator) GetJob(jobID string) (models.JobResultV1, bool) {
@@ -196,16 +203,16 @@ func (o *Orchestrator) Validate(ctx context.Context, req models.JobRequestV1) mo
 			Success: false,
 			Message: "tool not found",
 			Valid:   false,
-			Error:   &models.JobErrorV1{Code: "TOOL_NOT_FOUND", Message: err.Error()},
+			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", err.Error(), nil),
 		}
 	}
 
 	if validationErr := tool.Validate(ctx, req); validationErr != nil {
 		return models.ValidateJobResponseV1{
-			Success: true,
+			Success: false,
 			Message: "validation failed",
 			Valid:   false,
-			Error:   validationErr,
+			Error:   normalizeJobError(validationErr),
 		}
 	}
 
@@ -213,5 +220,64 @@ func (o *Orchestrator) Validate(ctx context.Context, req models.JobRequestV1) mo
 		Success: true,
 		Message: "job request is valid",
 		Valid:   true,
+	}
+}
+
+func normalizeJobError(jobErr *models.JobErrorV1) *models.JobErrorV1 {
+	if jobErr == nil {
+		return nil
+	}
+
+	details := jobErr.Details
+	if len(details) > 0 {
+		copied := make(map[string]any, len(details))
+		for k, v := range details {
+			copied[k] = v
+		}
+		details = copied
+	}
+
+	detailCode := jobErr.DetailCode
+	if detailCode == "" {
+		detailCode = jobErr.Code
+	}
+
+	return models.NewCanonicalJobError(detailCode, jobErr.Message, details)
+}
+
+func normalizeItemError(item models.JobResultItemV1) models.JobResultItemV1 {
+	if item.Error != nil {
+		item.Error = normalizeJobError(item.Error)
+	}
+	return item
+}
+
+func normalizeItemsErrors(items []models.JobResultItemV1) []models.JobResultItemV1 {
+	normalized := make([]models.JobResultItemV1, len(items))
+	for i := range items {
+		normalized[i] = normalizeItemError(items[i])
+	}
+	return normalized
+}
+
+func deriveBatchFinalState(items []models.JobResultItemV1) (string, string) {
+	if len(items) == 0 {
+		return StatusFailed, "job failed"
+	}
+
+	successCount := 0
+	for _, item := range items {
+		if item.Success {
+			successCount++
+		}
+	}
+
+	switch {
+	case successCount == len(items):
+		return StatusSuccess, "job success"
+	case successCount == 0:
+		return StatusFailed, "job failed"
+	default:
+		return StatusPartialSuccess, "job partial success"
 	}
 }

@@ -29,10 +29,10 @@ func (j *trackedJob) updateProgress(progress models.JobProgressV1) {
 	}
 }
 
-func (j *trackedJob) complete(success bool, status string, message string, items []models.JobResultItemV1, jobErr *models.JobErrorV1, endedAt int64) {
+func (j *trackedJob) complete(status string, message string, items []models.JobResultItemV1, jobErr *models.JobErrorV1, endedAt int64) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	j.result.Success = success
+	j.result.Success = status == models.JobStatusSuccess
 	j.result.Status = status
 	j.result.Message = message
 	j.result.Items = items

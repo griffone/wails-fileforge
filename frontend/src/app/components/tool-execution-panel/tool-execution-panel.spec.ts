@@ -135,7 +135,7 @@ describe('ToolExecutionPanel', () => {
       success: true,
       message: 'done',
       toolId: 'tool.pdf.merge',
-      status: 'completed',
+      status: 'success',
       progress: {
         current: 0,
         total: 0,
@@ -152,7 +152,7 @@ describe('ToolExecutionPanel', () => {
   it('returns explicit outputs when present', () => {
     const outputs = component.itemOutputs({
       inputPath: '/tmp/in.pdf',
-      outputPath: '/tmp/out-legacy.pdf',
+      outputPath: '/tmp/out-unused.pdf',
       outputs: ['/tmp/out-1.pdf', '/tmp/out-2.pdf'],
       outputCount: 2,
       success: true,
@@ -162,7 +162,7 @@ describe('ToolExecutionPanel', () => {
     expect(outputs).toEqual(['/tmp/out-1.pdf', '/tmp/out-2.pdf']);
   });
 
-  it('falls back to legacy outputPath when outputs are absent', () => {
+  it('returns empty array when outputs are absent', () => {
     const outputs = component.itemOutputs({
       inputPath: '/tmp/in.pdf',
       outputPath: '/tmp/out-legacy.pdf',
@@ -170,6 +170,6 @@ describe('ToolExecutionPanel', () => {
       message: 'ok',
     });
 
-    expect(outputs).toEqual(['/tmp/out-legacy.pdf']);
+    expect(outputs).toEqual([]);
   });
 });

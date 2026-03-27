@@ -1,452 +1,66 @@
 <div class="min-h-screen bg-gray-50 p-6">
-  <div class="max-w-4xl mx-auto">
-    <!-- Header -->
-    <div class="mb-8">
-      <button class="btn btn-secondary mb-4" routerLink="/">
-        ← Back to Home
-      </button>
-      <h1 class="text-3xl font-bold text-gray-900 mb-2">Image Converter</h1>
-      <p class="text-gray-600 mb-4">Convert images between different formats</p>
+  <div class="mx-auto max-w-5xl space-y-6">
+    <header>
+      <a routerLink="/" class="btn btn-secondary">← Back to Home</a>
+      <h1 class="mt-4 text-3xl font-bold text-gray-900">Image Converter</h1>
+      <p class="mt-2 text-gray-600">V1 jobs flow: validate → run → poll → cancel.</p>
+    </header>
 
-      <!-- Mode Toggle -->
-      <div class="flex items-center space-x-4">
-        <label class="flex items-center">
-          <input
-            type="checkbox"
-            [checked]="isMultipleMode"
-            (change)="toggleMode()"
-            class="mr-2 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-          />
-          <span class="text-sm font-medium text-gray-700">
-            Batch Mode (Multiple Files)
-          </span>
-        </label>
-      </div>
-    </div>
-
-    <!-- Conversion Form -->
-    <form [formGroup]="conversionForm" (ngSubmit)="convertImage()" class="card">
-      <!-- File Drop Zone -->
-      <div
-        class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-6 transition-colors"
-        [class.border-primary-500]="dragOver"
-        [class.bg-primary-50]="dragOver"
-        (dragover)="onDragOver($event)"
-        (dragleave)="onDragLeave($event)"
-        (drop)="onDrop($event)"
-      >
-        <lucide-icon
-          [img]="UploadIcon"
-          class="w-12 h-12 text-gray-400 mx-auto mb-4"
-        ></lucide-icon>
-        <h3 class="text-lg font-medium text-gray-900 mb-2">
-          {{
-            isMultipleMode
-              ? "Click to select image files or drag and drop multiple files"
-              : "Click to select an image file or drag and drop"
-          }}
-        </h3>
-        <p class="text-gray-600 mb-4">
-          Supports PNG, JPG, WebP, GIF
-          {{ isMultipleMode ? "(Multiple files)" : "(Single file)" }}
-        </p>
-        <input
-          type="file"
-          [attr.accept]="'image/*'"
-          [attr.multiple]="isMultipleMode ? true : null"
-          (change)="
-            isMultipleMode
-              ? onMultipleFilesSelected($event)
-              : onFileSelected($event)
-          "
-          class="hidden"
-          #fileInput
-        />
-        <div class="flex justify-center gap-4">
-          <button
-            type="button"
-            class="btn btn-primary"
-            (click)="isMultipleMode ? selectMultipleFiles() : selectFile()"
-          >
-            {{ isMultipleMode ? "Select Files" : "Select File" }}
-          </button>
-          
-          <button
-            *ngIf="isMultipleMode"
-            type="button"
-            class="btn btn-secondary"
-            (click)="selectInputFolder()"
-          >
-            Select Folder
-          </button>
-        </div>
-      </div>
-
-      <!-- Single File Mode -->
-      <div *ngIf="!isMultipleMode">
-        <!-- Input Path -->
-        <div class="mb-6">
-          <label
-            for="inputPath"
-            class="block text-sm font-medium text-gray-700 mb-2"
-          >
-            Input File Path
-          </label>
-          <input
-            id="inputPath"
-            type="text"
-            formControlName="inputPath"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            placeholder="/path/to/your/image.jpg"
-          />
-          <p class="text-sm text-gray-500 mt-1">
-            Use the "Select File" button above for best results, or enter the
-            complete file path manually
-          </p>
-        </div>
-
-        <!-- Output Path (Optional) -->
-        <div class="mb-6">
-          <label
-            for="outputPath"
-            class="block text-sm font-medium text-gray-700 mb-2"
-          >
-            Output Path (Optional)
-          </label>
-          <input
-            id="outputPath"
-            type="text"
-            formControlName="outputPath"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            placeholder="Leave empty to use same directory"
-          />
-        </div>
-      </div>
-
-      <!-- Multiple Files Mode -->
-      <div *ngIf="isMultipleMode">
-        <!-- Selected Files Display -->
-        <div class="mb-6">
-          <div class="block text-sm font-medium text-gray-700 mb-2">
-            Selected Files ({{ selectedFiles.length }})
-          </div>
-          <div *ngIf="selectedFiles.length === 0" class="text-gray-500 text-sm">
-            No files selected. Use the file picker above to select multiple
-            images.
-          </div>
-          <div
-            *ngIf="selectedFiles.length > 0"
-            class="space-y-2 max-h-40 overflow-y-auto"
-          >
-            <div
-              *ngFor="let file of selectedFiles; let i = index"
-              class="flex items-center justify-between bg-gray-50 p-2 rounded"
-            >
-              <span class="text-sm truncate flex-1">{{ file }}</span>
-              <button
-                type="button"
-                (click)="removeFile(i)"
-                class="ml-2 text-red-600 hover:text-red-800"
-              >
-                <lucide-icon [img]="XCircleIcon" class="w-4 h-4"></lucide-icon>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Output Directory -->
-        <div class="mb-6">
-          <label
-            for="outputDir"
-            class="block text-sm font-medium text-gray-700 mb-2"
-          >
-            Output Directory
-          </label>
-          <div class="flex space-x-2">
-            <input
-              id="outputDir"
-              type="text"
-              formControlName="outputDir"
-              class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              placeholder="/path/to/output/directory"
-            />
-            <button
-              type="button"
-              (click)="selectOutputDirectory()"
-              class="btn btn-secondary"
-            >
-              Browse
-            </button>
-          </div>
-        </div>
-
-        <!-- Advanced Options -->
-        <div class="mb-6">
-          <div class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <label class="flex items-center">
-              <input
-                type="checkbox"
-                formControlName="keepStructure"
-                class="mr-2 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-              />
-              <span class="text-sm font-medium text-gray-800">
-                Keep directory structure (recommended for folder inputs)
-              </span>
-            </label>
-            <p class="text-xs text-amber-800 mt-2">
-              Folder conversions can contain duplicate filenames. Enabling this preserves tree paths and avoids accidental flattening.
-            </p>
-            <p *ngIf="keepStructureHint" class="text-xs text-amber-900 mt-1">
-              {{ keepStructureHint }}
-            </p>
-          </div>
-
-          <label class="flex items-center mb-4">
-            <input
-              type="checkbox"
-              formControlName="showAdvancedOptions"
-              class="mr-2 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-            />
-            <span class="text-sm font-medium text-gray-700">
-              Advanced Options
-            </span>
-          </label>
-
-          <!-- Advanced Options Panel -->
-          <div
-            *ngIf="conversionForm.get('showAdvancedOptions')?.value"
-            class="ml-6 p-4 bg-gray-50 rounded-lg border border-gray-200"
-          >
-            
-            <!-- Quality Option -->
-            <div class="mb-4">
-              <label for="quality" class="block text-sm font-medium text-gray-700 mb-2">Quality (1-100)</label>
-              <input id="quality" type="number" formControlName="quality" min="1" max="100" class="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
-            </div>
-
-            <!-- Resize Options -->
-            <div class="mb-4 flex space-x-4">
-              <div>
-                <label for="resizeWidth" class="block text-sm font-medium text-gray-700 mb-2">Width (px)</label>
-                <input id="resizeWidth" type="number" formControlName="resizeWidth" class="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" placeholder="Auto" />
-              </div>
-              <div>
-                <label for="resizeHeight" class="block text-sm font-medium text-gray-700 mb-2">Height (px)</label>
-                <input id="resizeHeight" type="number" formControlName="resizeHeight" class="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent" placeholder="Auto" />
-              </div>
-            </div>
-
-            <div class="mb-4">
-              <label
-                for="workers"
-                class="block text-sm font-medium text-gray-700 mb-2"
-              >
-                Number of Workers
-              </label>
-              <input
-                id="workers"
-                type="number"
-                formControlName="workers"
-                min="1"
-                max="16"
-                class="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-              <p class="text-xs text-gray-500 mt-1">
-                Controls how many files are processed simultaneously (1-16).
-                Higher values may improve performance but use more system
-                resources.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Output Format -->
-      <div class="mb-6">
-        <label
-          for="format"
-          class="block text-sm font-medium text-gray-700 mb-2"
-        >
-          Output Format
-        </label>
-        <select
-          id="format"
-          formControlName="format"
-          class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        >
-          <option *ngFor="let format of supportedFormats" [value]="format">
-            {{ format.toUpperCase() }}
-          </option>
-        </select>
-      </div>
-
-      <!-- Convert Button -->
-      <div class="flex gap-4">
+    <section class="card space-y-3">
+      <h2 class="text-lg font-semibold text-gray-900">Input files</h2>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" class="btn btn-primary" (click)="selectImageFromDialog()">
+          Select image
+        </button>
         <button
-          type="submit"
-          class="btn btn-primary flex items-center"
-          [disabled]="
-            (isMultipleMode && selectedFiles.length === 0) ||
-            (!isMultipleMode && conversionForm.invalid) ||
-            isConverting
-          "
+          type="button"
+          class="btn btn-secondary"
+          (click)="selectMultipleImagesFromDialog()"
         >
-          <lucide-icon
-            *ngIf="!isConverting"
-            [img]="DownloadIcon"
-            class="w-4 h-4 mr-2"
-          ></lucide-icon>
-          <div
-            *ngIf="isConverting"
-            class="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin"
-          ></div>
-          {{
-            isConverting
-              ? isMultipleMode
-                ? "Converting..."
-                : "Converting..."
-              : isMultipleMode
-              ? "Convert Files"
-              : "Convert Image"
-          }}
+          Select multiple images
         </button>
-
-        <button type="button" class="btn btn-secondary" (click)="resetForm()">
-          Reset
+        <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">
+          Select output directory
+        </button>
+        <button type="button" class="btn btn-secondary" (click)="clearInputs()">
+          Clear inputs
         </button>
       </div>
-    </form>
 
-    
-      <!-- Progress Bar (shown when converting batch) -->
-      <div *ngIf="isConverting && isMultipleMode" class="mt-6">
-        <h4 class="font-medium text-gray-900 mb-2">Conversion Progress ({{ completedFiles }} / {{ totalBatchFiles }})</h4>
-        <div class="w-full bg-gray-200 rounded-full h-2.5 mb-4">
-          <div class="bg-primary-600 h-2.5 rounded-full" [style.width]="(totalBatchFiles > 0 ? (completedFiles / totalBatchFiles * 100) : 0) + '%'"></div>
-        </div>
-        <div class="max-h-40 overflow-y-auto space-y-1">
-          <div *ngFor="let prog of progressEvents" class="text-xs p-1 rounded" [class.text-green-700]="prog.success" [class.text-red-700]="!prog.success">
-            <span *ngIf="prog.success">✓ {{ prog.outputPath || prog.inputPath }}</span>
-            <span *ngIf="!prog.success">✗ {{ prog.inputPath }} - {{ prog.message }}</span>
-          </div>
-        </div>
-      </div>
-
-
-    <!-- Single File Result -->
-    <div *ngIf="result && !isMultipleMode" class="mt-6">
-      <div
-        class="p-4 rounded-lg border"
-        [class.bg-green-50]="result.success"
-        [class.border-green-200]="result.success"
-        [class.bg-red-50]="!result.success"
-        [class.border-red-200]="!result.success"
-      >
-        <div class="flex items-center">
-          <lucide-icon
-            [img]="result.success ? CheckCircleIcon : XCircleIcon"
-            [class.text-green-600]="result.success"
-            [class.text-red-600]="!result.success"
-            class="w-5 h-5 mr-2"
-          ></lucide-icon>
-          <p
-            class="font-medium"
-            [class.text-green-800]="result.success"
-            [class.text-red-800]="!result.success"
-          >
-            {{ result.message }}
-          </p>
-        </div>
-        <p
-          *ngIf="result.success && result.outputPath"
-          class="text-green-700 mt-2 text-sm"
+      <ul class="max-h-56 space-y-2 overflow-auto rounded-lg border border-gray-200 bg-white p-3">
+        <li
+          *ngFor="let path of selectedInputPaths; let i = index"
+          class="flex items-center justify-between gap-2 rounded border border-gray-100 p-2"
         >
-          Output: {{ result.outputPath }}
-        </p>
-      </div>
-    </div>
+          <span class="truncate text-xs text-gray-700">{{ path }}</span>
+          <button type="button" class="btn btn-secondary" (click)="removeInput(i)">
+            Remove
+          </button>
+        </li>
+        <li *ngIf="selectedInputPaths.length === 0" class="text-sm text-gray-500">
+          No input files selected.
+        </li>
+      </ul>
+    </section>
 
-    <!-- Batch Results -->
-    <div *ngIf="batchResult && isMultipleMode" class="mt-6">
-      <div
-        class="p-4 rounded-lg border"
-        [class.bg-green-50]="batchResult.success"
-        [class.border-green-200]="batchResult.success"
-        [class.bg-red-50]="!batchResult.success"
-        [class.border-red-200]="!batchResult.success"
-      >
-        <div class="flex items-center mb-3">
-          <lucide-icon
-            [img]="batchResult.success ? CheckCircleIcon : XCircleIcon"
-            [class.text-green-600]="batchResult.success"
-            [class.text-red-600]="!batchResult.success"
-            class="w-5 h-5 mr-2"
-          ></lucide-icon>
-          <p
-            class="font-medium"
-            [class.text-green-800]="batchResult.success"
-            [class.text-red-800]="!batchResult.success"
-          >
-            {{ batchResult.message }}
-          </p>
-        </div>
-
-        <!-- Batch Summary -->
-        <div class="grid grid-cols-3 gap-4 mb-4 text-sm">
-          <div class="text-center">
-            <div class="font-medium text-blue-600">
-              {{ batchResult.totalFiles }}
-            </div>
-            <div class="text-gray-600">Total</div>
-          </div>
-          <div class="text-center">
-            <div class="font-medium text-green-600">
-              {{ batchResult.successCount }}
-            </div>
-            <div class="text-gray-600">Success</div>
-          </div>
-          <div class="text-center">
-            <div class="font-medium text-red-600">
-              {{ batchResult.failureCount }}
-            </div>
-            <div class="text-gray-600">Failed</div>
-          </div>
-        </div>
-
-        <!-- Individual Results -->
-        <div
-          *ngIf="batchResult.results && batchResult.results.length > 0"
-          class="space-y-2"
-        >
-          <h4 class="font-medium text-gray-900 mb-2">Individual Results:</h4>
-          <div class="max-h-60 overflow-y-auto space-y-1">
-            <div
-              *ngFor="let fileResult of batchResult.results"
-              class="flex items-center justify-between p-2 rounded text-sm"
-              [class.bg-green-100]="fileResult.success"
-              [class.bg-red-100]="!fileResult.success"
-            >
-              <div class="flex-1 min-w-0">
-                <div class="truncate font-medium">
-                  {{ fileResult.inputPath | slice : -50 }}
-                </div>
-                <div *ngIf="fileResult.success" class="truncate text-green-700">
-                  → {{ fileResult.outputPath | slice : -50 }}
-                </div>
-                <div *ngIf="!fileResult.success" class="text-red-700">
-                  {{ fileResult.message }}
-                </div>
-              </div>
-              <lucide-icon
-                [img]="fileResult.success ? CheckCircleIcon : XCircleIcon"
-                [class.text-green-600]="fileResult.success"
-                [class.text-red-600]="!fileResult.success"
-                class="w-4 h-4 ml-2 flex-shrink-0"
-              ></lucide-icon>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <app-tool-execution-panel
+      [title]="'Image Convert Job V1'"
+      [subtitle]="'Source: tool.image.convert'"
+      [form]="form"
+      [fields]="panelFields"
+      [currentMode]="form.controls.jobMode.value"
+      [validationMessage]="validationMessage"
+      [submitMessage]="submitMessage"
+      [statusMessage]="statusMessage"
+      [isSubmitting]="isSubmitting"
+      [isPolling]="isPolling"
+      [canCancel]="!!activeJobId"
+      [jobResult]="jobResult"
+      [runButtonText]="'Run convert job'"
+      [submittingButtonText]="'Submitting image job...'"
+      (validate)="validate()"
+      (run)="run()"
+      (cancel)="cancel()"
+    ></app-tool-execution-panel>
   </div>
 </div>

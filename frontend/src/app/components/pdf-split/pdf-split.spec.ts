@@ -27,9 +27,6 @@ describe('PdfSplit', () => {
       'getJobStatusV1',
       'cancelJobV1',
       'listToolsV1',
-      'convertFile',
-      'convertBatch',
-      'getSupportedFormats',
       'openFileDialog',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
@@ -131,15 +128,15 @@ describe('PdfSplit', () => {
     };
     const completed: JobStatusResponseV1 = {
       success: true,
-      message: 'completed',
+      message: 'success',
       found: true,
       result: {
         jobId: 'split-batch-job-1',
         success: true,
         message: 'done',
         toolId: 'tool.pdf.split',
-        status: 'completed',
-        progress: { current: 2, total: 2, stage: 'completed', message: 'done' },
+        status: 'success',
+        progress: { current: 2, total: 2, stage: 'success', message: 'done' },
         items: [
           {
             inputPath: '/tmp/in-a.pdf',
@@ -182,7 +179,7 @@ describe('PdfSplit', () => {
     tick(1000);
     flushMicrotasks();
 
-    expect(component.jobResult?.status).toBe('completed');
+    expect(component.jobResult?.status).toBe('success');
     expect(component.jobResult?.items.length).toBe(2);
     expect(component.jobResult?.items[0].outputPath).toBe('/tmp/out/in-a');
     expect(component.jobResult?.items[0].outputCount).toBe(2);
@@ -197,7 +194,7 @@ describe('PdfSplit', () => {
       message: 'invalid',
       valid: false,
       error: {
-        code: 'PDF_SPLIT_BATCH_OUTPUT_COLLISION',
+        code: 'VALIDATION_INVALID_INPUT',
         message: 'batch planned outputs collide: /tmp/out/a and /tmp/out/A',
       },
     };
@@ -208,6 +205,6 @@ describe('PdfSplit', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('Batch output collision detected');
+    expect(component.validationMessage).toContain('Validation');
   });
 });

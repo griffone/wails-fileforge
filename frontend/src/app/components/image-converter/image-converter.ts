@@ -1,465 +1,438 @@
-import { Component, OnInit, OnDestroy, ElementRef, ViewChild, ChangeDetectorRef } from '@angular/core';
+import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Events } from '@wailsio/runtime';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { RouterLink } from '@angular/router';
+
 import {
-  FormBuilder,
-  FormGroup,
-  Validators,
-  ReactiveFormsModule,
-} from '@angular/forms';
-import { RouterModule } from '@angular/router';
+  ExecutionPanelField,
+  ToolExecutionPanel,
+} from '../tool-execution-panel/tool-execution-panel';
 import {
-  LucideAngularModule,
-  Upload,
-  Download,
-  CheckCircle,
-  XCircle,
-} from 'lucide-angular';
-import {
+  JobErrorV1,
+  JobRequestV1,
+  JobResultV1,
+  JobStatusResponseV1,
   Wails,
-  ConversionRequest,
-  ConversionResult,
-  BatchConversionRequest,
-  BatchConversionResult,
 } from '../../services/wails';
+
+const IMAGE_TOOL_ID = 'tool.image.convert';
+const POLLING_INTERVAL_MS = 1000;
 
 @Component({
   selector: 'app-image-converter',
   standalone: true,
-  imports: [
-    CommonModule,
-    ReactiveFormsModule,
-    RouterModule,
-    LucideAngularModule,
-  ],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
   templateUrl: './image-converter.html',
-  styleUrls: ['./image-converter.css'],
+  styleUrl: './image-converter.css',
 })
-export class ImageConverter implements OnInit, OnDestroy {
-  @ViewChild('fileInput') fileInput!: ElementRef<HTMLInputElement>;
+export class ImageConverter implements OnDestroy {
+  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
 
-  readonly UploadIcon = Upload;
-  readonly DownloadIcon = Download;
-  readonly CheckCircleIcon = CheckCircle;
-  readonly XCircleIcon = XCircle;
+  readonly form;
+  readonly panelFields: ExecutionPanelField[] = [
+    {
+      controlName: 'jobMode',
+      label: 'Mode',
+      type: 'select',
+      options: [
+        { value: 'single', label: 'single' },
+        { value: 'batch', label: 'batch' },
+      ],
+    },
+    {
+      controlName: 'outputPath',
+      label: 'Output path',
+      type: 'text',
+      placeholder: '/path/to/output.webp',
+      visibleModes: ['single'],
+    },
+    {
+      controlName: 'outputDir',
+      label: 'Output directory',
+      type: 'text',
+      placeholder: '/path/to/output',
+      visibleModes: ['batch'],
+    },
+    {
+      controlName: 'format',
+      label: 'Target format',
+      type: 'select',
+      options: [
+        { value: 'webp', label: 'webp' },
+        { value: 'jpeg', label: 'jpeg' },
+        { value: 'png', label: 'png' },
+        { value: 'gif', label: 'gif' },
+      ],
+    },
+    {
+      controlName: 'quality',
+      label: 'Quality (1-100)',
+      type: 'text',
+      placeholder: '80',
+    },
+    {
+      controlName: 'resizeWidth',
+      label: 'Resize width (optional)',
+      type: 'text',
+      placeholder: '1024',
+    },
+    {
+      controlName: 'resizeHeight',
+      label: 'Resize height (optional)',
+      type: 'text',
+      placeholder: '768',
+    },
+  ];
 
-  conversionForm: FormGroup;
-  isConverting = false;
-  result: ConversionResult | null = null;
-  batchResult: BatchConversionResult | null = null;
-  supportedFormats = ['webp', 'jpeg', 'png', 'gif'];
-  dragOver = false;
+  selectedInputPaths: string[] = [];
+  validationMessage = '';
+  submitMessage = '';
+  statusMessage = '';
+  jobResult: JobResultV1 | null = null;
+  isSubmitting = false;
+  isPolling = false;
+  activeJobId = '';
 
-  // Multiple file mode
-  isMultipleMode = false;
-  totalBatchFiles = 0;
-  completedFiles = 0;
-  progressEvents: any[] = [];
-  unsubscribeStart: (() => void) | null = null;
-  unsubscribeProgress: (() => void) | null = null;
-  unsubscribeComplete: (() => void) | null = null;
-  selectedFiles: string[] = [];
-  selectedFolderInputs = new Set<string>();
-  outputDirectory = '';
-  keepStructureHint = '';
+  private pollingTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly fb: FormBuilder,
-    private readonly wailsService: Wails,
-    private readonly cdr: ChangeDetectorRef
+    private readonly wailsService: Wails
   ) {
-    this.conversionForm = this.fb.group({
-      inputPath: ['', Validators.required],
+    this.form = this.fb.nonNullable.group({
+      jobMode: ['single', Validators.required],
       outputPath: [''],
-      format: ['webp', Validators.required],
       outputDir: [''],
-      keepStructure: [false],
-      showAdvancedOptions: [false],
-      quality: [80, [Validators.min(1), Validators.max(100)]],
-      resizeWidth: [null, [Validators.min(1)]],
-      resizeHeight: [null, [Validators.min(1)]],
-      workers: [4, [Validators.min(1), Validators.max(16)]],
+      format: ['webp', Validators.required],
+      quality: ['80', Validators.required],
+      resizeWidth: [''],
+      resizeHeight: [''],
     });
   }
 
-  ngOnInit() {
-    this.unsubscribeStart = Events.On('conversion:start', (ev) => {
-      this.totalBatchFiles = ev.data?.totalFiles || this.selectedFiles.length;
-      this.completedFiles = 0;
-      this.progressEvents = [];
-      this.cdr.detectChanges();
-    });
-    this.unsubscribeProgress = Events.On('conversion:progress', (ev) => {
-      this.progressEvents.push(ev.data);
-      this.completedFiles++;
-      this.cdr.detectChanges();
-    });
-    this.unsubscribeComplete = Events.On('conversion:complete', (ev) => {
-      // Complete logic if needed
-      this.cdr.detectChanges();
-    });
+  ngOnDestroy(): void {
+    this.stopPolling();
   }
 
-  ngOnDestroy() {
-    if (this.unsubscribeStart) this.unsubscribeStart();
-    if (this.unsubscribeProgress) this.unsubscribeProgress();
-    if (this.unsubscribeComplete) this.unsubscribeComplete();
+  async selectImageFromDialog(): Promise<void> {
+    this.clearMessages();
+    const path = (await this.wailsService.openFileDialog()).trim();
+    if (!path) {
+      return;
+    }
+
+    if (this.currentMode() === 'single') {
+      this.selectedInputPaths = [path];
+      return;
+    }
+
+    this.addInput(path);
   }
 
-  onDragOver(event: DragEvent) {
-    event.preventDefault();
-    this.dragOver = true;
+  async selectMultipleImagesFromDialog(): Promise<void> {
+    this.clearMessages();
+    const selected = await this.wailsService.openMultipleFilesDialog();
+    if (!selected || selected.length === 0) {
+      return;
+    }
+
+    if (this.currentMode() === 'single') {
+      this.selectedInputPaths = [selected[0].trim()];
+      return;
+    }
+
+    for (const path of selected) {
+      this.addInput(path);
+    }
   }
 
-  onDragLeave(event: DragEvent) {
-    event.preventDefault();
-    this.dragOver = false;
+  async selectOutputDirectory(): Promise<void> {
+    const selected = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!selected) {
+      return;
+    }
+
+    this.form.patchValue({ outputDir: selected });
   }
 
-  onDrop(event: DragEvent) {
-    event.preventDefault();
-    this.dragOver = false;
+  removeInput(index: number): void {
+    if (index < 0 || index >= this.selectedInputPaths.length) {
+      return;
+    }
+    this.selectedInputPaths = this.selectedInputPaths.filter((_, i) => i !== index);
+  }
 
-    const files = event.dataTransfer?.files;
-    if (files && files.length > 0) {
-      if (this.isMultipleMode) {
-        this.handleMultipleFilesDrop(files);
-      } else {
-        this.handleSingleFileDrop(files[0]);
+  clearInputs(): void {
+    this.selectedInputPaths = [];
+  }
+
+  async validate(): Promise<void> {
+    this.clearMessages();
+
+    const localError = this.localValidationError();
+    if (localError) {
+      this.validationMessage = localError;
+      return;
+    }
+
+    const response = await this.wailsService.validateJobV1(this.buildRequest());
+    this.validationMessage = response.valid
+      ? 'Validation OK. Ready to run image job.'
+      : this.mapJobError(response.error, response.message);
+  }
+
+  async run(): Promise<void> {
+    this.clearMessages();
+
+    const localError = this.localValidationError();
+    if (localError) {
+      this.submitMessage = localError;
+      return;
+    }
+
+    const request = this.buildRequest();
+    this.isSubmitting = true;
+    this.jobResult = null;
+
+    const validation = await this.wailsService.validateJobV1(request);
+    if (!validation.valid) {
+      this.submitMessage = this.mapJobError(validation.error, validation.message);
+      this.isSubmitting = false;
+      return;
+    }
+
+    const runResponse = await this.wailsService.runJobV1(request);
+    if (!runResponse.success || !runResponse.jobId) {
+      this.submitMessage = this.mapJobError(runResponse.error, runResponse.message);
+      this.isSubmitting = false;
+      return;
+    }
+
+    this.activeJobId = runResponse.jobId;
+    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
+    this.startPolling();
+    this.isSubmitting = false;
+  }
+
+  async cancel(): Promise<void> {
+    if (!this.activeJobId) {
+      return;
+    }
+
+    const response = await this.wailsService.cancelJobV1(this.activeJobId);
+    this.statusMessage = response.success
+      ? 'Cancel requested.'
+      : this.mapJobError(response.error, response.message);
+  }
+
+  private localValidationError(): string {
+    const mode = this.currentMode();
+    const format = this.form.controls.format.value.trim();
+    const outputPath = this.form.controls.outputPath.value.trim();
+    const outputDir = this.form.controls.outputDir.value.trim();
+    const quality = this.form.controls.quality.value.trim();
+
+    if (mode !== 'single' && mode !== 'batch') {
+      return `Unsupported mode: ${mode}`;
+    }
+
+    if (mode === 'single' && this.selectedInputPaths.length !== 1) {
+      return 'Select exactly one input image for single mode.';
+    }
+    if (mode === 'batch' && this.selectedInputPaths.length < 1) {
+      return 'Select at least one input image for batch mode.';
+    }
+
+    for (const inputPath of this.selectedInputPaths) {
+      if (!this.isImagePath(inputPath)) {
+        return `Input image extension is not supported: ${inputPath}`;
       }
     }
-  }
 
-  private handleMultipleFilesDrop(files: FileList) {
-    const imagePaths: string[] = [];
-    for (const file of Array.from(files)) {
-      if (this.isImageFile(file)) {
-        imagePaths.push(this.getFilePath(file));
+    if (mode === 'single') {
+      if (!outputPath) {
+        return 'Output path is required in single mode.';
+      }
+      if (outputPath.endsWith('/') || outputPath.endsWith('\\')) {
+        return 'Output path must include filename.';
+      }
+      if (!outputPath.toLowerCase().endsWith(`.${format}`)) {
+        return `Output path must end with .${format}`;
       }
     }
-    this.selectedFiles = imagePaths;
+
+    if (mode === 'batch' && !outputDir) {
+      return 'Output directory is required in batch mode.';
+    }
+
+    const parsedQuality = Number.parseInt(quality, 10);
+    if (!Number.isFinite(parsedQuality) || parsedQuality < 1 || parsedQuality > 100) {
+      return 'Quality must be an integer between 1 and 100.';
+    }
+
+    return '';
   }
 
-  private handleSingleFileDrop(file: File) {
-    if (this.isImageFile(file)) {
-      const filePath = this.getFilePath(file);
-      this.conversionForm.patchValue({
-        inputPath: filePath,
-      });
+  private buildRequest(): JobRequestV1 {
+    const mode = this.currentMode();
+    const outputPath = this.form.controls.outputPath.value.trim();
+    const outputDir = this.form.controls.outputDir.value.trim();
+    const format = this.form.controls.format.value.trim();
+    const quality = Number.parseInt(this.form.controls.quality.value.trim(), 10);
 
-      // If we only get the filename, show a warning
-      if (!this.isFullPath(filePath)) {
-        console.warn(
-          'Drag and drop may not provide full file path. Consider using the file picker button.'
-        );
-      }
+    const options: Record<string, unknown> = {
+      format,
+      quality,
+    };
+
+    const resizeWidth = this.parseOptionalInt(this.form.controls.resizeWidth.value);
+    const resizeHeight = this.parseOptionalInt(this.form.controls.resizeHeight.value);
+    if (resizeWidth !== null) {
+      options['width'] = resizeWidth;
+    }
+    if (resizeHeight !== null) {
+      options['height'] = resizeHeight;
+    }
+    if (mode === 'single') {
+      options['outputPath'] = outputPath;
+    }
+
+    return {
+      toolId: IMAGE_TOOL_ID,
+      mode,
+      inputPaths: [...this.selectedInputPaths],
+      outputDir: mode === 'single' ? this.outputDirFromPath(outputPath) : outputDir,
+      options,
+    };
+  }
+
+  private startPolling(): void {
+    this.stopPolling();
+    this.isPolling = true;
+    this.pollingTimer = setInterval(() => {
+      void this.pollJobStatus();
+    }, POLLING_INTERVAL_MS);
+    void this.pollJobStatus();
+  }
+
+  private stopPolling(): void {
+    if (this.pollingTimer) {
+      clearInterval(this.pollingTimer);
+      this.pollingTimer = null;
+    }
+    this.isPolling = false;
+  }
+
+  private async pollJobStatus(): Promise<void> {
+    if (!this.activeJobId) {
+      this.stopPolling();
+      return;
+    }
+
+    const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(this.activeJobId);
+    if (!response.found || !response.result) {
+      this.statusMessage = this.mapJobError(response.error, response.message);
+      this.stopPolling();
+      return;
+    }
+
+    this.jobResult = response.result;
+    this.statusMessage = `${response.result.status}: ${
+      response.result.error
+        ? this.mapJobError(response.result.error, response.result.message)
+        : response.result.message
+    }`;
+
+    if (this.isTerminalStatus(response.result.status)) {
+      this.stopPolling();
+      this.activeJobId = '';
     }
   }
 
-  isImageFile(file: File): boolean {
-    return file.type.startsWith('image/');
-  }
-
-  /**
-   * Extract the full file path from a File object in Wails context
-   */
-  private getFilePath(file: File): string {
-    // In Wails, File objects have a path property with the full file path
-    const fullPath = (file as any).path ?? file.name;
-    console.log('File selected:', { name: file.name, fullPath });
-    return fullPath;
-  }
-
-  /**
-   * Check if the given path is a full path (not just a filename)
-   */
-  private isFullPath(path: string): boolean {
-    if (!path || path.trim() === '') {
-      return false;
+  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
+    if (!error) {
+      return fallback;
     }
 
-    // Check for common path patterns
-    // Windows: C:\path\to\file or \\server\share\file or D:\file.ext
-    // Unix-like: /path/to/file or ~/path/to/file or ./relative/path
-    const windowsDrivePattern = /^[A-Za-z]:[/\\]/; // C:\ or C:/
-    const windowsUNCPattern = /^\\\\[^\\]+\\/; // \\server\share
-    const unixAbsolutePattern = /^\/[^/]/; // /path (not just /)
-    const unixHomePattern = /^~[/\\]/; // ~/path
-    const relativePattern = /^\.{1,2}[/\\]/; // ./path or ../path
+    const tech = error.detail_code ? ` [${error.detail_code}]` : '';
 
+    switch (error.code) {
+      case 'VALIDATION_INVALID_INPUT':
+        return `Invalid input.${tech} ${error.message}`;
+      case 'RUNTIME_DEP_MISSING':
+        return `Runtime dependency missing.${tech} ${error.message}`;
+      case 'EXEC_IO_TRANSIENT':
+        return `Execution I/O issue.${tech} ${error.message}`;
+      case 'EXEC_TIMEOUT_TRANSIENT':
+        return `Execution timeout.${tech} ${error.message}`;
+      case 'UNSUPPORTED_FORMAT':
+        return `Unsupported format.${tech} ${error.message}`;
+      case 'CANCELLED_BY_USER':
+        return `Job cancelled by user.${tech}`;
+      default:
+        return `${error.code}${tech}: ${error.message}`;
+    }
+  }
+
+  private clearMessages(): void {
+    this.validationMessage = '';
+    this.submitMessage = '';
+  }
+
+  private currentMode(): 'single' | 'batch' {
+    return this.form.controls.jobMode.value === 'batch' ? 'batch' : 'single';
+  }
+
+  private addInput(rawPath: string): void {
+    const path = rawPath.trim();
+    if (!path || this.selectedInputPaths.includes(path)) {
+      return;
+    }
+
+    this.selectedInputPaths = [...this.selectedInputPaths, path];
+  }
+
+  private isImagePath(path: string): boolean {
+    const lower = path.toLowerCase();
     return (
-      windowsDrivePattern.test(path) || // Windows drive letter
-      windowsUNCPattern.test(path) || // Windows UNC path
-      unixAbsolutePattern.test(path) || // Unix absolute path
-      unixHomePattern.test(path) || // Home directory
-      relativePattern.test(path) || // Relative path with ./
-      (path.includes('/') && path.indexOf('/') > 0) || // Contains directory separator not at start
-      (path.includes('\\') && path.indexOf('\\') > 0) // Contains Windows separator not at start
+      lower.endsWith('.jpg') ||
+      lower.endsWith('.jpeg') ||
+      lower.endsWith('.png') ||
+      lower.endsWith('.gif') ||
+      lower.endsWith('.webp') ||
+      lower.endsWith('.bmp') ||
+      lower.endsWith('.tiff') ||
+      lower.endsWith('.tif')
     );
   }
 
-  async onFileSelected(event: any) {
-    const file = event.target.files[0];
-    if (file) {
-      this.conversionForm.patchValue({
-        inputPath: this.getFilePath(file),
-      });
+  private outputDirFromPath(outputPath: string): string {
+    const lastSlash = Math.max(outputPath.lastIndexOf('/'), outputPath.lastIndexOf('\\'));
+    if (lastSlash <= 0) {
+      return '';
     }
+    return outputPath.slice(0, lastSlash);
   }
 
-  async onMultipleFilesSelected(event: any) {
-    const files = event.target.files as FileList;
-    if (files && files.length > 0) {
-      const imagePaths: string[] = [];
-      Array.from(files).forEach((file) => {
-        if (this.isImageFile(file)) {
-          imagePaths.push(this.getFilePath(file));
-        }
-      });
-      this.selectedFiles = imagePaths;
+  private parseOptionalInt(raw: string): number | null {
+    const value = raw.trim();
+    if (!value) {
+      return null;
     }
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return null;
+    }
+    return parsed;
   }
 
-  async selectFile() {
-    // Use native file dialog to get the full file path
-    try {
-      const filePath = await this.wailsService.openFileDialog();
-      if (filePath) {
-        this.conversionForm.patchValue({
-          inputPath: filePath,
-        });
-      }
-    } catch (error) {
-      console.error('Error opening file dialog:', error);
-      // Fallback to browser file input
-      this.fileInput.nativeElement.click();
-    }
-  }
-
-  toggleMode() {
-    this.isMultipleMode = !this.isMultipleMode;
-    this.resetForm();
-  }
-
-  async selectMultipleFiles() {
-    try {
-      const filePaths = await this.wailsService.openMultipleFilesDialog();
-      if (filePaths && filePaths.length > 0) {
-        this.selectedFiles = filePaths;
-      }
-    } catch (error) {
-      console.error('Error opening multiple files dialog:', error);
-      // Fallback to browser file input
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.multiple = true;
-      input.accept = 'image/*';
-      input.onchange = (e) => {
-        const target = e.target as HTMLInputElement;
-        if (target.files) {
-          const paths = Array.from(target.files).map((file) =>
-            this.getFilePath(file)
-          );
-          this.selectedFiles = paths;
-        }
-      };
-      input.click();
-    }
-  }
-
-  async selectOutputDirectory() {
-    try {
-      const dirPath = await this.wailsService.openDirectoryDialog();
-      if (dirPath) {
-        this.outputDirectory = dirPath;
-        this.conversionForm.patchValue({
-          outputDir: dirPath,
-        });
-      }
-    } catch (error) {
-      console.error('Error opening directory dialog:', error);
-      // For now, let user enter manually
-    }
-  }
-
-  async selectInputFolder() {
-    try {
-      const dirPath = await this.wailsService.openDirectoryDialog();
-      if (dirPath) {
-        if (!this.selectedFiles.includes(dirPath)) {
-          this.selectedFiles.push(dirPath);
-        }
-
-        this.selectedFolderInputs.add(dirPath);
-
-        if (!this.conversionForm.get('keepStructure')?.value) {
-          this.conversionForm.patchValue({ keepStructure: true });
-        }
-
-        this.keepStructureHint =
-          'Folder input detected: Keep directory structure was enabled automatically to avoid filename collisions.';
-      }
-    } catch (error) {
-      console.error('Error opening directory dialog:', error);
-    }
-  }
-
-  removeFile(index: number) {
-    const removed = this.selectedFiles[index];
-    this.selectedFiles.splice(index, 1);
-
-    if (removed) {
-      this.selectedFolderInputs.delete(removed);
-    }
-
-    if (this.selectedFolderInputs.size === 0) {
-      this.keepStructureHint = '';
-    }
-  }
-
-  async convertImage() {
-    if (this.isMultipleMode) {
-      await this.convertBatch();
-    } else {
-      await this.convertSingle();
-    }
-  }
-
-  async convertSingle() {
-    if (this.conversionForm.invalid) {
-      return;
-    }
-
-    this.isConverting = true;
-    this.result = null;
-
-    const formValue = this.conversionForm.value;
-
-    // Validate that we have a full path, not just a filename
-    if (!this.isFullPath(formValue.inputPath)) {
-      this.result = {
-        success: false,
-        message:
-          'Please select a file using the file picker or enter the complete file path (not just filename)',
-      };
-      this.isConverting = false;
-      return;
-    }
-
-    const request: ConversionRequest = {
-      inputPath: formValue.inputPath,
-      outputPath: formValue.outputPath,
-      format: formValue.format,
-      category: 'img',
-      options: {
-        quality: formValue.quality,
-        width: formValue.resizeWidth,
-        height: formValue.resizeHeight,
-      },
-    };
-
-    console.log('Conversion request:', request);
-
-    try {
-      this.result = await this.wailsService.convertFile(request);
-    } catch (error) {
-      this.result = {
-        success: false,
-        message: `Conversion failed: ${error}`,
-      };
-    } finally {
-      this.isConverting = false;
-    }
-  }
-
-  async convertBatch() {
-    if (this.selectedFiles.length === 0) {
-      this.batchResult = {
-        success: false,
-        message: 'Please select at least one file to convert',
-        totalFiles: 0,
-        successCount: 0,
-        failureCount: 0,
-        results: [],
-      };
-      return;
-    }
-
-    const formValue = this.conversionForm.value;
-
-    if (this.selectedFolderInputs.size > 0 && !formValue.keepStructure) {
-      this.conversionForm.patchValue({ keepStructure: true });
-      this.keepStructureHint =
-        'Keep directory structure was re-enabled because folder inputs are selected.';
-      formValue.keepStructure = true;
-    }
-
-    if (!formValue.outputDir || formValue.outputDir.trim() === '') {
-      this.batchResult = {
-        success: false,
-        message: 'Please select an output directory for batch conversion',
-        totalFiles: 0,
-        successCount: 0,
-        failureCount: 0,
-        results: [],
-      };
-      return;
-    }
-
-    this.isConverting = true;
-    this.batchResult = null;
-
-    const request: BatchConversionRequest = {
-      inputPaths: this.selectedFiles,
-      outputDir: formValue.outputDir,
-      format: formValue.format,
-      category: 'img',
-      options: {
-        quality: formValue.quality,
-        width: formValue.resizeWidth,
-        height: formValue.resizeHeight,
-      },
-      keepStructure: formValue.keepStructure ?? false,
-      workers: formValue.workers,
-    };
-
-    console.log('Batch conversion request:', request);
-
-    try {
-      this.batchResult = await this.wailsService.convertBatch(request);
-    } catch (error) {
-      this.batchResult = {
-        success: false,
-        message: `Batch conversion failed: ${error}`,
-        totalFiles: 0,
-        successCount: 0,
-        failureCount: 0,
-        results: [],
-      };
-    } finally {
-      this.isConverting = false;
-    }
-  }
-
-  resetForm() {
-    this.conversionForm.reset();
-    this.conversionForm.patchValue({
-      format: 'webp',
-      workers: 4,
-      showAdvancedOptions: false,
-      keepStructure: false,
-      quality: 80,
-      resizeWidth: null,
-      resizeHeight: null,
-    });
-    this.totalBatchFiles = 0;
-    this.completedFiles = 0;
-    this.progressEvents = [];
-    this.result = null;
-    this.batchResult = null;
-    this.selectedFiles = [];
-    this.selectedFolderInputs.clear();
-    this.outputDirectory = '';
-    this.keepStructureHint = '';
+  private isTerminalStatus(status: string): boolean {
+    return (
+      status === 'success' ||
+      status === 'failed' ||
+      status === 'partial_success' ||
+      status === 'cancelled' ||
+      status === 'interrupted'
+    );
   }
 }

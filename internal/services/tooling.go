@@ -69,7 +69,7 @@ func (s *ToolingService) RunJobV1(req models.JobRequestV1) models.RunJobResponse
 			Success: false,
 			Message: "job submission failed",
 			Status:  jobs.StatusFailed,
-			Error:   &models.JobErrorV1{Code: "SUBMIT_ERROR", Message: err.Error()},
+			Error:   models.NewCanonicalJobError("SUBMIT_ERROR", err.Error(), nil),
 		}
 	}
 
@@ -93,7 +93,7 @@ func (s *ToolingService) CancelJobV1(jobID string) models.CancelJobResponseV1 {
 			Success: false,
 			Message: "cancel failed",
 			JobID:   jobID,
-			Error:   &models.JobErrorV1{Code: "NOT_FOUND", Message: err.Error()},
+			Error:   models.NewCanonicalJobError("NOT_FOUND", err.Error(), nil),
 		}
 	}
 
@@ -113,7 +113,7 @@ func (s *ToolingService) GetJobStatusV1(jobID string) models.JobStatusResponseV1
 			Success: false,
 			Message: "job not found",
 			Found:   false,
-			Error:   &models.JobErrorV1{Code: "NOT_FOUND", Message: fmt.Sprintf("job '%s' not found", jobID)},
+			Error:   models.NewCanonicalJobError("NOT_FOUND", fmt.Sprintf("job '%s' not found", jobID), nil),
 		}
 	}
 

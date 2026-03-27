@@ -27,9 +27,6 @@ describe('PdfMerge', () => {
       'getJobStatusV1',
       'cancelJobV1',
       'listToolsV1',
-      'convertFile',
-      'convertBatch',
-      'getSupportedFormats',
       'openFileDialog',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
@@ -196,15 +193,15 @@ describe('PdfMerge', () => {
     };
     const completedStatus: JobStatusResponseV1 = {
       success: true,
-      message: 'completed',
+      message: 'success',
       found: true,
       result: {
         jobId: 'pdf-job-123',
         success: true,
         message: 'done',
         toolId: 'tool.pdf.merge',
-        status: 'completed',
-        progress: { current: 2, total: 2, stage: 'done', message: 'completed' },
+        status: 'success',
+        progress: { current: 2, total: 2, stage: 'done', message: 'success' },
         items: [
           {
             inputPath: '/tmp/1.pdf,/tmp/2.pdf',
@@ -240,8 +237,8 @@ describe('PdfMerge', () => {
     tick(1000);
     flushMicrotasks();
 
-    expect(component.jobResult?.status).toBe('completed');
-    expect(component.statusMessage).toContain('completed');
+    expect(component.jobResult?.status).toBe('success');
+    expect(component.statusMessage).toContain('success');
     expect(component.isPolling).toBeFalse();
     expect(component.activeJobId).toBe('');
   }));
@@ -270,7 +267,7 @@ describe('PdfMerge', () => {
         status: 'failed',
         progress: { current: 1, total: 1, stage: 'run', message: 'failed' },
         items: [],
-        error: { code: 'PDF_MERGE_FAILED', message: 'io error' },
+        error: { code: 'EXEC_IO_TRANSIENT', detail_code: 'PDF_MERGE_FAILED', message: 'io error' },
         startedAt: Date.now(),
         endedAt: Date.now(),
       },
@@ -286,7 +283,7 @@ describe('PdfMerge', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(component.statusMessage).toContain('No se pudo completar el merge');
+    expect(component.statusMessage).toContain('error de ejecución');
     expect(component.isPolling).toBeFalse();
   }));
 
@@ -315,7 +312,7 @@ describe('PdfMerge', () => {
         progress: { current: 1, total: 1, stage: 'run', message: 'failed' },
         items: [],
         error: {
-          code: 'PDF_OUTPUT_DIR_NOT_FOUND',
+          code: 'VALIDATION_INVALID_INPUT',
           message: 'output directory does not exist: /missing',
         },
         startedAt: Date.now(),
@@ -333,7 +330,7 @@ describe('PdfMerge', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(component.statusMessage).toContain('La carpeta de salida no existe');
+    expect(component.statusMessage).toContain('Validación');
     expect(component.isPolling).toBeFalse();
   }));
 });

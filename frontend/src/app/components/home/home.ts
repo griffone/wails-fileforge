@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { Wails, SupportedFormat } from '../../services/wails';
+import { ToolCatalogEntryV1, Wails } from '../../services/wails';
 
 @Component({
   selector: 'app-home',
@@ -10,7 +10,7 @@ import { Wails, SupportedFormat } from '../../services/wails';
   styleUrl: './home.css',
 })
 export class Home implements OnInit {
-  supportedFormats: SupportedFormat[] = [];
+  catalogTools: ToolCatalogEntryV1[] = [];
   catalogToolsCount = 0;
 
   constructor(
@@ -23,22 +23,19 @@ export class Home implements OnInit {
   }
 
   private async loadData(): Promise<void> {
-    console.log('Home component initializing...');
-    console.log('Runtime available:', this.wailsService.isRuntimeAvailable());
-
     try {
-      this.supportedFormats = await this.wailsService.getSupportedFormats();
       const catalogResponse = await this.wailsService.listToolsV1();
-      this.catalogToolsCount = catalogResponse.success
-        ? catalogResponse.tools.length
-        : 0;
-      console.log('Supported formats loaded:', this.supportedFormats);
-    } catch (error) {
-      console.error('Failed to load supported formats:', error);
-      // Agregar formatos por defecto para prueba
-      this.supportedFormats = [
-        { category: 'img', formats: ['png', 'jpg', 'webp', 'gif'] },
-      ];
+      if (!catalogResponse.success) {
+        this.catalogTools = [];
+        this.catalogToolsCount = 0;
+        return;
+      }
+
+      this.catalogTools = catalogResponse.tools;
+      this.catalogToolsCount = catalogResponse.tools.length;
+    } catch {
+      this.catalogTools = [];
+      this.catalogToolsCount = 0;
     }
   }
 
@@ -62,6 +59,10 @@ export class Home implements OnInit {
     this.router.navigate(['/pdf-merge']);
   }
 
+  navigateToImageCrop(): void {
+    this.router.navigate(['/image-crop']);
+  }
+
   navigateToPdfSplit(): void {
     this.router.navigate(['/pdf-split']);
   }
@@ -76,5 +77,9 @@ export class Home implements OnInit {
 
   navigateToVideoTrim(): void {
     this.router.navigate(['/video-trim']);
+  }
+
+  navigateToVideoMerge(): void {
+    this.router.navigate(['/video-merge']);
   }
 }

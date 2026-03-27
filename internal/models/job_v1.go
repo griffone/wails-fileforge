@@ -1,9 +1,10 @@
 package models
 
 type JobErrorV1 struct {
-	Code    string         `json:"code"`
-	Message string         `json:"message"`
-	Details map[string]any `json:"details,omitempty"`
+	Code       string         `json:"code"`
+	DetailCode string         `json:"detail_code,omitempty"`
+	Message    string         `json:"message"`
+	Details    map[string]any `json:"details,omitempty"`
 }
 
 type JobRequestV1 struct {
@@ -80,5 +81,35 @@ type PDFPreviewSourceResponseV1 struct {
 	Message    string      `json:"message"`
 	DataBase64 string      `json:"dataBase64,omitempty"`
 	MimeType   string      `json:"mimeType,omitempty"`
+	Error      *JobErrorV1 `json:"error,omitempty"`
+}
+
+type ImagePreviewSourceResponseV1 struct {
+	Success    bool        `json:"success"`
+	Message    string      `json:"message"`
+	DataBase64 string      `json:"dataBase64,omitempty"`
+	MimeType   string      `json:"mimeType,omitempty"`
+	Width      int         `json:"width,omitempty"`
+	Height     int         `json:"height,omitempty"`
+	Error      *JobErrorV1 `json:"error,omitempty"`
+}
+
+type ImageCropPreviewRequestV1 struct {
+	InputPath   string `json:"inputPath"`
+	X           int    `json:"x"`
+	Y           int    `json:"y"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	RatioPreset string `json:"ratioPreset,omitempty"`
+	Format      string `json:"format,omitempty"`
+}
+
+type ImageCropPreviewResponseV1 struct {
+	Success    bool        `json:"success"`
+	Message    string      `json:"message"`
+	DataBase64 string      `json:"dataBase64,omitempty"`
+	MimeType   string      `json:"mimeType,omitempty"`
+	Width      int         `json:"width,omitempty"`
+	Height     int         `json:"height,omitempty"`
 	Error      *JobErrorV1 `json:"error,omitempty"`
 }

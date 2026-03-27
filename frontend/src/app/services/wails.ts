@@ -1,59 +1,24 @@
 import { Injectable } from '@angular/core';
 import { Call } from '@wailsio/runtime';
 
-export interface ConversionRequest {
-  inputPath: string;
-  outputPath?: string;
-  format: string;
-  options?: Record<string, unknown>;
-  category: string;
-}
-
-export interface ConversionResult {
-  success: boolean;
-  message: string;
-  outputPath?: string;
-}
-
-export interface BatchConversionRequest {
-  inputPaths: string[];
-  outputDir: string;
-  format: string;
-  options?: Record<string, unknown>;
-  category: string;
-  keepStructure: boolean;
-  workers?: number;
-}
-
-export interface FileConversionResult {
-  inputPath: string;
-  outputPath: string;
-  success: boolean;
-  message: string;
-}
-
-export interface BatchConversionResult {
-  success: boolean;
-  message: string;
-  totalFiles: number;
-  successCount: number;
-  failureCount: number;
-  results: FileConversionResult[];
-}
-
-export interface SupportedFormat {
-  category: string;
-  formats: string[];
-}
-
 export type ToolRuntimeStatusV1 = 'enabled' | 'disabled' | 'degraded';
 export type JobModeV1 = 'single' | 'batch';
 export type JobExecutionStatusV1 =
   | 'queued'
   | 'running'
-  | 'completed'
+  | 'success'
   | 'failed'
-  | 'canceled';
+  | 'partial_success'
+  | 'cancelled'
+  | 'interrupted';
+
+export type CanonicalErrorCodeV1 =
+  | 'VALIDATION_INVALID_INPUT'
+  | 'RUNTIME_DEP_MISSING'
+  | 'EXEC_IO_TRANSIENT'
+  | 'EXEC_TIMEOUT_TRANSIENT'
+  | 'UNSUPPORTED_FORMAT'
+  | 'CANCELLED_BY_USER';
 
 export interface ToolManifestV1 {
   toolId: string;
@@ -88,7 +53,8 @@ export interface ListToolsResponseV1 {
 }
 
 export interface JobErrorV1 {
-  code: string;
+  code: CanonicalErrorCodeV1 | string;
+  detail_code?: string;
   message: string;
   details?: Record<string, unknown>;
 }
@@ -124,7 +90,7 @@ export interface JobResultV1 {
   success: boolean;
   message: string;
   toolId: string;
-  status: string;
+  status: JobExecutionStatusV1;
   progress: JobProgressV1;
   items: JobResultItemV1[];
   error?: JobErrorV1;
@@ -143,7 +109,7 @@ export interface RunJobResponseV1 {
   success: boolean;
   message: string;
   jobId: string;
-  status: string;
+  status: JobExecutionStatusV1;
   error?: JobErrorV1;
 }
 
@@ -170,6 +136,36 @@ export interface PDFPreviewSourceResponseV1 {
   error?: JobErrorV1;
 }
 
+export interface ImagePreviewSourceResponseV1 {
+  success: boolean;
+  message: string;
+  dataBase64?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  error?: JobErrorV1;
+}
+
+export interface ImageCropPreviewRequestV1 {
+  inputPath: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  ratioPreset?: string;
+  format?: string;
+}
+
+export interface ImageCropPreviewResponseV1 {
+  success: boolean;
+  message: string;
+  dataBase64?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  error?: JobErrorV1;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -178,60 +174,13 @@ export class Wails {
     return Call.ByID(id, ...args);
   }
 
-  async convertFile(request: ConversionRequest): Promise<ConversionResult> {
-    try {
-      return await this.callByID(3302357039, request);
-    } catch (error) {
-      console.error('Error in convertFile:', error);
-      return {
-        success: false,
-        message: `Conversion failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
-        outputPath: '',
-      };
-    }
-  }
-
-  async convertBatch(
-    request: BatchConversionRequest
-  ): Promise<BatchConversionResult> {
-    try {
-      return await this.callByID(2484487663, request);
-    } catch (error) {
-      console.error('Error in convertBatch:', error);
-      return {
-        success: false,
-        message: `Batch conversion failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
-        totalFiles: 0,
-        successCount: 0,
-        failureCount: 0,
-        results: [],
-      };
-    }
-  }
-
-  async getSupportedFormats(): Promise<SupportedFormat[]> {
-    try {
-      return await this.callByID(742994356);
-    } catch (error) {
-      console.error('Error in getSupportedFormats:', error);
-      return [];
-    }
-  }
-
   async listToolsV1(): Promise<ListToolsResponseV1> {
     try {
       return await this.callByID(517184612);
     } catch (error) {
-      console.error('Error in listToolsV1:', error);
       return {
         success: false,
-        message: `Failed to list tools: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        message: this.formatMessage('Failed to list tools', error),
         tools: [],
       };
     }
@@ -241,13 +190,11 @@ export class Wails {
     try {
       return await this.callByID(1505194326, request);
     } catch (error) {
-      console.error('Error in validateJobV1:', error);
       return {
         success: false,
-        message: `Validation call failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        message: this.formatMessage('Validation call failed', error),
         valid: false,
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_VALIDATE_FAILED', error),
       };
     }
   }
@@ -256,14 +203,12 @@ export class Wails {
     try {
       return await this.callByID(162380599, request);
     } catch (error) {
-      console.error('Error in runJobV1:', error);
       return {
         success: false,
-        message: `Run job failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        message: this.formatMessage('Run job failed', error),
         jobId: '',
         status: 'failed',
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_RUN_FAILED', error),
       };
     }
   }
@@ -272,13 +217,11 @@ export class Wails {
     try {
       return await this.callByID(3378080914, jobId);
     } catch (error) {
-      console.error('Error in cancelJobV1:', error);
       return {
         success: false,
-        message: `Cancel job failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        message: this.formatMessage('Cancel job failed', error),
         jobId,
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_CANCEL_FAILED', error),
       };
     }
   }
@@ -287,13 +230,11 @@ export class Wails {
     try {
       return await this.callByID(1961277890, jobId);
     } catch (error) {
-      console.error('Error in getJobStatusV1:', error);
       return {
         success: false,
-        message: `Get job status failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        message: this.formatMessage('Get job status failed', error),
         found: false,
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_STATUS_FAILED', error),
       };
     }
   }
@@ -302,67 +243,85 @@ export class Wails {
     try {
       return await this.callByID(632882064, inputPath);
     } catch (error) {
-      console.error('Error in getPdfPreviewSource:', error);
       return {
         success: false,
-        message: `Get PDF preview source failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
-        error: {
-          code: 'PDF_PREVIEW_READ_FAILED',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        },
+        message: this.formatMessage('Get PDF preview source failed', error),
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'PDF_PREVIEW_READ_FAILED', error),
       };
     }
   }
 
-  /**
-   * Open a native file dialog and return the selected file path
-   */
+  async getImagePreviewSourceV1(inputPath: string): Promise<ImagePreviewSourceResponseV1> {
+    try {
+      return await this.callByID(2617279209, inputPath);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get image preview source failed', error),
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IMAGE_PREVIEW_READ_FAILED', error),
+      };
+    }
+  }
+
+  async getImageCropPreviewV1(
+    request: ImageCropPreviewRequestV1
+  ): Promise<ImageCropPreviewResponseV1> {
+    try {
+      return await this.callByID(4006508154, request);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get image crop preview failed', error),
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IMAGE_CROP_PREVIEW_EXECUTION', error),
+      };
+    }
+  }
+
   async openFileDialog(): Promise<string> {
     try {
-      const result = await this.callByID(2246342916);
-      return result ?? '';
-    } catch (error) {
-      console.error('Error in openFileDialog:', error);
+      return (await this.callByID(2246342916)) ?? '';
+    } catch {
       return '';
     }
   }
 
-  /**
-   * Open a native file dialog for multiple files and return the selected file paths
-   */
   async openMultipleFilesDialog(): Promise<string[]> {
     try {
-      const result = await this.callByID(3029276213);
-      return result ?? [];
-    } catch (error) {
-      console.error('Error in openMultipleFilesDialog:', error);
+      return (await this.callByID(3029276213)) ?? [];
+    } catch {
       return [];
     }
   }
 
-  /**
-   * Open a native directory dialog and return the selected directory path
-   */
   async openDirectoryDialog(): Promise<string> {
     try {
-      const result = await this.callByID(261105429);
-      return result ?? '';
-    } catch (error) {
-      console.error('Error in openDirectoryDialog:', error);
+      return (await this.callByID(261105429)) ?? '';
+    } catch {
       return '';
     }
   }
 
-  /**
-   * Check if the Wails runtime is available (without waiting)
-   */
   isRuntimeAvailable(): boolean {
     return (
       typeof window !== 'undefined' &&
       (window as any)._wails &&
       typeof Call?.ByID === 'function'
     );
+  }
+
+  private formatMessage(prefix: string, error: unknown): string {
+    return `${prefix}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+  }
+
+  private defaultError(
+    code: CanonicalErrorCodeV1,
+    detailCode: string,
+    error: unknown
+  ): JobErrorV1 {
+    return {
+      code,
+      detail_code: detailCode,
+      message: error instanceof Error ? error.message : 'Unknown error',
+    };
   }
 }

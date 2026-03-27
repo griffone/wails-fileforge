@@ -6,163 +6,6 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-/**
- * New models for batch conversion
- */
-export class BatchConversionRequest {
-    /**
-     * Creates a new BatchConversionRequest instance.
-     * @param {Partial<BatchConversionRequest>} [$$source = {}] - The source object to create the BatchConversionRequest.
-     */
-    constructor($$source = {}) {
-        if (!("inputPaths" in $$source)) {
-            /**
-             * @member
-             * @type {string[]}
-             */
-            this["inputPaths"] = [];
-        }
-        if (!("outputDir" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["outputDir"] = "";
-        }
-        if (!("format" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["format"] = "";
-        }
-        if (!("workers" in $$source)) {
-            /**
-             * Number of concurrent workers
-             * @member
-             * @type {number}
-             */
-            this["workers"] = 0;
-        }
-        if (!("options" in $$source)) {
-            /**
-             * @member
-             * @type {{ [_ in string]?: any }}
-             */
-            this["options"] = {};
-        }
-        if (!("category" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["category"] = "";
-        }
-        if (!("keepStructure" in $$source)) {
-            /**
-             * Whether to maintain directory structure
-             * @member
-             * @type {boolean}
-             */
-            this["keepStructure"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new BatchConversionRequest instance from a string or object.
-     * @param {any} [$$source = {}]
-     * @returns {BatchConversionRequest}
-     */
-    static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType0;
-        const $$createField4_0 = $$createType1;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("inputPaths" in $$parsedSource) {
-            $$parsedSource["inputPaths"] = $$createField0_0($$parsedSource["inputPaths"]);
-        }
-        if ("options" in $$parsedSource) {
-            $$parsedSource["options"] = $$createField4_0($$parsedSource["options"]);
-        }
-        return new BatchConversionRequest(/** @type {Partial<BatchConversionRequest>} */($$parsedSource));
-    }
-}
-
-export class BatchConversionResult {
-    /**
-     * Creates a new BatchConversionResult instance.
-     * @param {Partial<BatchConversionResult>} [$$source = {}] - The source object to create the BatchConversionResult.
-     */
-    constructor($$source = {}) {
-        if (!("success" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["success"] = false;
-        }
-        if (!("message" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["message"] = "";
-        }
-        if (!("totalFiles" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["totalFiles"] = 0;
-        }
-        if (!("successCount" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["successCount"] = 0;
-        }
-        if (!("failureCount" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["failureCount"] = 0;
-        }
-        if (!("results" in $$source)) {
-            /**
-             * @member
-             * @type {ConversionResult[]}
-             */
-            this["results"] = [];
-        }
-        if (!("error" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["error"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new BatchConversionResult instance from a string or object.
-     * @param {any} [$$source = {}]
-     * @returns {BatchConversionResult}
-     */
-    static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType3;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("results" in $$parsedSource) {
-            $$parsedSource["results"] = $$createField5_0($$parsedSource["results"]);
-        }
-        return new BatchConversionResult(/** @type {Partial<BatchConversionResult>} */($$parsedSource));
-    }
-}
-
 export class CancelJobResponseV1 {
     /**
      * Creates a new CancelJobResponseV1 instance.
@@ -207,7 +50,7 @@ export class CancelJobResponseV1 {
      * @returns {CancelJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType5;
+        const $$createField3_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField3_0($$parsedSource["error"]);
@@ -216,10 +59,10 @@ export class CancelJobResponseV1 {
     }
 }
 
-export class ConversionRequest {
+export class ImageCropPreviewRequestV1 {
     /**
-     * Creates a new ConversionRequest instance.
-     * @param {Partial<ConversionRequest>} [$$source = {}] - The source object to create the ConversionRequest.
+     * Creates a new ImageCropPreviewRequestV1 instance.
+     * @param {Partial<ImageCropPreviewRequestV1>} [$$source = {}] - The source object to create the ImageCropPreviewRequestV1.
      */
     constructor($$source = {}) {
         if (!("inputPath" in $$source)) {
@@ -229,73 +72,69 @@ export class ConversionRequest {
              */
             this["inputPath"] = "";
         }
-        if (!("outputPath" in $$source)) {
+        if (!("x" in $$source)) {
             /**
              * @member
-             * @type {string}
+             * @type {number}
              */
-            this["outputPath"] = "";
+            this["x"] = 0;
         }
-        if (!("format" in $$source)) {
+        if (!("y" in $$source)) {
             /**
              * @member
-             * @type {string}
+             * @type {number}
              */
-            this["format"] = "";
+            this["y"] = 0;
         }
-        if (!("options" in $$source)) {
+        if (!("width" in $$source)) {
             /**
              * @member
-             * @type {{ [_ in string]?: any }}
+             * @type {number}
              */
-            this["options"] = {};
+            this["width"] = 0;
         }
-        if (!("category" in $$source)) {
+        if (!("height" in $$source)) {
             /**
              * @member
-             * @type {string}
+             * @type {number}
              */
-            this["category"] = "";
+            this["height"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["ratioPreset"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["format"] = undefined;
         }
 
         Object.assign(this, $$source);
     }
 
     /**
-     * Creates a new ConversionRequest instance from a string or object.
+     * Creates a new ImageCropPreviewRequestV1 instance from a string or object.
      * @param {any} [$$source = {}]
-     * @returns {ConversionRequest}
+     * @returns {ImageCropPreviewRequestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("options" in $$parsedSource) {
-            $$parsedSource["options"] = $$createField3_0($$parsedSource["options"]);
-        }
-        return new ConversionRequest(/** @type {Partial<ConversionRequest>} */($$parsedSource));
+        return new ImageCropPreviewRequestV1(/** @type {Partial<ImageCropPreviewRequestV1>} */($$parsedSource));
     }
 }
 
-export class ConversionResult {
+export class ImageCropPreviewResponseV1 {
     /**
-     * Creates a new ConversionResult instance.
-     * @param {Partial<ConversionResult>} [$$source = {}] - The source object to create the ConversionResult.
+     * Creates a new ImageCropPreviewResponseV1 instance.
+     * @param {Partial<ImageCropPreviewResponseV1>} [$$source = {}] - The source object to create the ImageCropPreviewResponseV1.
      */
     constructor($$source = {}) {
-        if (!("inputPath" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["inputPath"] = "";
-        }
-        if (!("outputPath" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["outputPath"] = "";
-        }
         if (!("success" in $$source)) {
             /**
              * @member
@@ -310,25 +149,131 @@ export class ConversionResult {
              */
             this["message"] = "";
         }
-        if (!("error" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["error"] = "";
+            this["dataBase64"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["mimeType"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["width"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["height"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
         }
 
         Object.assign(this, $$source);
     }
 
     /**
-     * Creates a new ConversionResult instance from a string or object.
+     * Creates a new ImageCropPreviewResponseV1 instance from a string or object.
      * @param {any} [$$source = {}]
-     * @returns {ConversionResult}
+     * @returns {ImageCropPreviewResponseV1}
      */
     static createFrom($$source = {}) {
+        const $$createField6_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ConversionResult(/** @type {Partial<ConversionResult>} */($$parsedSource));
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField6_0($$parsedSource["error"]);
+        }
+        return new ImageCropPreviewResponseV1(/** @type {Partial<ImageCropPreviewResponseV1>} */($$parsedSource));
+    }
+}
+
+export class ImagePreviewSourceResponseV1 {
+    /**
+     * Creates a new ImagePreviewSourceResponseV1 instance.
+     * @param {Partial<ImagePreviewSourceResponseV1>} [$$source = {}] - The source object to create the ImagePreviewSourceResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["dataBase64"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["mimeType"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["width"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["height"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ImagePreviewSourceResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ImagePreviewSourceResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField6_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField6_0($$parsedSource["error"]);
+        }
+        return new ImagePreviewSourceResponseV1(/** @type {Partial<ImagePreviewSourceResponseV1>} */($$parsedSource));
     }
 }
 
@@ -344,6 +289,13 @@ export class JobErrorV1 {
              * @type {string}
              */
             this["code"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["detail_code"] = undefined;
         }
         if (!("message" in $$source)) {
             /**
@@ -369,10 +321,10 @@ export class JobErrorV1 {
      * @returns {JobErrorV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType1;
+        const $$createField3_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("details" in $$parsedSource) {
-            $$parsedSource["details"] = $$createField2_0($$parsedSource["details"]);
+            $$parsedSource["details"] = $$createField3_0($$parsedSource["details"]);
         }
         return new JobErrorV1(/** @type {Partial<JobErrorV1>} */($$parsedSource));
     }
@@ -486,8 +438,8 @@ export class JobRequestV1 {
      * @returns {JobRequestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType0;
-        const $$createField4_0 = $$createType1;
+        const $$createField2_0 = $$createType3;
+        const $$createField4_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputPaths" in $$parsedSource) {
             $$parsedSource["inputPaths"] = $$createField2_0($$parsedSource["inputPaths"]);
@@ -564,8 +516,8 @@ export class JobResultItemV1 {
      * @returns {JobResultItemV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType0;
-        const $$createField6_0 = $$createType5;
+        const $$createField2_0 = $$createType3;
+        const $$createField6_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
             $$parsedSource["outputs"] = $$createField2_0($$parsedSource["outputs"]);
@@ -663,9 +615,9 @@ export class JobResultV1 {
      * @returns {JobResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType6;
-        const $$createField6_0 = $$createType8;
-        const $$createField7_0 = $$createType5;
+        const $$createField5_0 = $$createType4;
+        const $$createField6_0 = $$createType6;
+        const $$createField7_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
             $$parsedSource["progress"] = $$createField5_0($$parsedSource["progress"]);
@@ -731,8 +683,8 @@ export class JobStatusResponseV1 {
      * @returns {JobStatusResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType10;
-        const $$createField4_0 = $$createType5;
+        const $$createField3_0 = $$createType8;
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
             $$parsedSource["result"] = $$createField3_0($$parsedSource["result"]);
@@ -781,7 +733,7 @@ export class ListToolsResponseV1 {
      * @returns {ListToolsResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType12;
+        const $$createField2_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tools" in $$parsedSource) {
             $$parsedSource["tools"] = $$createField2_0($$parsedSource["tools"]);
@@ -841,7 +793,7 @@ export class PDFPreviewSourceResponseV1 {
      * @returns {PDFPreviewSourceResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType5;
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
@@ -901,51 +853,12 @@ export class RunJobResponseV1 {
      * @returns {RunJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType5;
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
         }
         return new RunJobResponseV1(/** @type {Partial<RunJobResponseV1>} */($$parsedSource));
-    }
-}
-
-export class SupportedFormat {
-    /**
-     * Creates a new SupportedFormat instance.
-     * @param {Partial<SupportedFormat>} [$$source = {}] - The source object to create the SupportedFormat.
-     */
-    constructor($$source = {}) {
-        if (!("category" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["category"] = "";
-        }
-        if (!("formats" in $$source)) {
-            /**
-             * @member
-             * @type {string[]}
-             */
-            this["formats"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new SupportedFormat instance from a string or object.
-     * @param {any} [$$source = {}]
-     * @returns {SupportedFormat}
-     */
-    static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType0;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("formats" in $$parsedSource) {
-            $$parsedSource["formats"] = $$createField1_0($$parsedSource["formats"]);
-        }
-        return new SupportedFormat(/** @type {Partial<SupportedFormat>} */($$parsedSource));
     }
 }
 
@@ -979,8 +892,8 @@ export class ToolCatalogEntryV1 {
      * @returns {ToolCatalogEntryV1}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType13;
-        const $$createField1_0 = $$createType14;
+        const $$createField0_0 = $$createType11;
+        const $$createField1_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("manifest" in $$parsedSource) {
             $$parsedSource["manifest"] = $$createField0_0($$parsedSource["manifest"]);
@@ -1092,10 +1005,10 @@ export class ToolManifestV1 {
      * @returns {ToolManifestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField8_0 = $$createType0;
-        const $$createField9_0 = $$createType0;
-        const $$createField10_0 = $$createType0;
-        const $$createField11_0 = $$createType0;
+        const $$createField8_0 = $$createType3;
+        const $$createField9_0 = $$createType3;
+        const $$createField10_0 = $$createType3;
+        const $$createField11_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputExtensions" in $$parsedSource) {
             $$parsedSource["inputExtensions"] = $$createField8_0($$parsedSource["inputExtensions"]);
@@ -1200,7 +1113,7 @@ export class ValidateJobResponseV1 {
      * @returns {ValidateJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType5;
+        const $$createField3_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField3_0($$parsedSource["error"]);
@@ -1210,18 +1123,16 @@ export class ValidateJobResponseV1 {
 }
 
 // Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = $Create.Map($Create.Any, $Create.Any);
-const $$createType2 = ConversionResult.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = JobErrorV1.createFrom;
-const $$createType5 = $Create.Nullable($$createType4);
-const $$createType6 = JobProgressV1.createFrom;
-const $$createType7 = JobResultItemV1.createFrom;
-const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = JobResultV1.createFrom;
-const $$createType10 = $Create.Nullable($$createType9);
-const $$createType11 = ToolCatalogEntryV1.createFrom;
-const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = ToolManifestV1.createFrom;
-const $$createType14 = ToolRuntimeStateV1.createFrom;
+const $$createType0 = JobErrorV1.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);
+const $$createType2 = $Create.Map($Create.Any, $Create.Any);
+const $$createType3 = $Create.Array($Create.Any);
+const $$createType4 = JobProgressV1.createFrom;
+const $$createType5 = JobResultItemV1.createFrom;
+const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = JobResultV1.createFrom;
+const $$createType8 = $Create.Nullable($$createType7);
+const $$createType9 = ToolCatalogEntryV1.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = ToolManifestV1.createFrom;
+const $$createType12 = ToolRuntimeStateV1.createFrom;
