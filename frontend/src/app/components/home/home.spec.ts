@@ -78,6 +78,57 @@ describe('Home', () => {
             },
             state: { status: 'enabled', healthy: true },
           },
+          {
+            manifest: {
+              toolId: 'tool.image.annotate',
+              name: 'Image Annotate',
+              description: 'annotate images',
+              domain: 'image',
+              capability: 'annotate',
+              version: '1.0.0',
+              supportsSingle: true,
+              supportsBatch: true,
+              inputExtensions: ['png', 'jpg'],
+              outputExtensions: ['png', 'jpg'],
+              runtimeDependencies: [],
+              tags: ['image'],
+            },
+            state: { status: 'enabled', healthy: true },
+          },
+          {
+            manifest: {
+              toolId: 'tool.doc.md_to_pdf',
+              name: 'Markdown to PDF',
+              description: 'md to pdf',
+              domain: 'doc',
+              capability: 'tool.doc.md_to_pdf',
+              version: 'v1',
+              supportsSingle: true,
+              supportsBatch: false,
+              inputExtensions: ['md'],
+              outputExtensions: ['pdf'],
+              runtimeDependencies: [],
+              tags: ['doc'],
+            },
+            state: { status: 'enabled', healthy: true },
+          },
+          {
+            manifest: {
+              toolId: 'tool.doc.docx_to_pdf',
+              name: 'DOCX to PDF',
+              description: 'docx to pdf',
+              domain: 'doc',
+              capability: 'tool.doc.docx_to_pdf',
+              version: 'v1',
+              supportsSingle: true,
+              supportsBatch: true,
+              inputExtensions: ['docx'],
+              outputExtensions: ['pdf'],
+              runtimeDependencies: ['libreoffice', 'pandoc'],
+              tags: ['doc'],
+            },
+            state: { status: 'enabled', healthy: true },
+          },
         ],
       })
     );
@@ -85,8 +136,8 @@ describe('Home', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(component.catalogToolsCount).toBe(3);
-    expect(component.catalogTools.length).toBe(3);
+    expect(component.catalogToolsCount).toBe(6);
+    expect(component.catalogTools.length).toBe(6);
   });
 
   it('falls back to empty catalog when ListToolsV1 fails', async () => {

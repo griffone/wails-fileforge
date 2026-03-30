@@ -178,6 +178,22 @@ describe('PdfCrop', () => {
     expect(component.validationMessage).toContain('PDF_CROP_PAGE_SELECTION_INVALID');
   });
 
+  it('shows page selection validation immediately on input change', async () => {
+    component.form.controls.pageSelection.setValue('1,,3');
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.pageSelectionLiveMessage).toContain('empty token');
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Page selection format is invalid (empty token)');
+
+    component.form.controls.pageSelection.setValue('1-3,5');
+    await fixture.whenStable();
+
+    expect(component.pageSelectionLiveMessage).toBe('');
+  });
+
   it('runs and transitions basic state through polling', fakeAsync(() => {
     const validation: ValidateJobResponseV1 = {
       success: true,
@@ -242,6 +258,10 @@ describe('PdfCrop', () => {
     component.form.patchValue({ outputPath: '/tmp/out/cropped.pdf', cropPreset: 'small' });
 
     void component.run();
+    flushMicrotasks();
+
+    expect(component.showRunSummaryConfirmation).toBeTrue();
+    void component.confirmRunSummaryAndExecute();
     flushMicrotasks();
 
     expect(component.activeJobId).toBe('crop-job-1');
@@ -331,6 +351,10 @@ describe('PdfCrop', () => {
     void component.run();
     flushMicrotasks();
 
+    expect(component.showRunSummaryConfirmation).toBeTrue();
+    void component.confirmRunSummaryAndExecute();
+    flushMicrotasks();
+
     expect(component.activeJobId).toBe('crop-batch-job-1');
     expect(component.isPolling).toBeTrue();
 
@@ -345,16 +369,144 @@ describe('PdfCrop', () => {
     expect(component.activeJobId).toBe('');
   }));
 
-  it('maps crop batch collision error code to actionable message', async () => {
+  it('requires summary confirmation before submitting run', async () => {
+    component.selectedInputPath = '/tmp/in.pdf';
+    component.form.patchValue({ outputPath: '/tmp/out/cropped.pdf', cropPreset: 'small' });
+
+    await component.run();
+
+    expect(component.showRunSummaryConfirmation).toBeTrue();
+    expect(component.runSummarySnapshot?.range).toBe('all pages');
+    expect(component.runSummarySnapshot?.marginsSummary).toContain('preset=small');
+    expect(component.runSummarySnapshot?.fileCount).toBe(1);
+    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+  });
+
+  it('cancels summary confirmation without running', async () => {
+    component.selectedInputPath = '/tmp/in.pdf';
+    component.form.patchValue({ outputPath: '/tmp/out/cropped.pdf', cropPreset: 'small' });
+
+    await component.run();
+    component.cancelRunSummaryConfirmation();
+
+    expect(component.showRunSummaryConfirmation).toBeFalse();
+    expect(component.submitMessage).toContain('summary was not confirmed');
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+  });
+
+  it('captures summary for batch custom margins before confirmation', async () => {
+    component.selectedInputPaths = ['/tmp/in-a.pdf', '/tmp/in-b.pdf', '/tmp/in-c.pdf'];
+    component.form.patchValue({
+      jobMode: 'batch',
+      outputDir: '/tmp/out',
+      pageSelection: '1-3,5',
+      cropPreset: 'custom',
+      marginTop: '12',
+      marginRight: '8',
+      marginBottom: '6',
+      marginLeft: '4',
+    });
+
+    await component.run();
+
+    expect(component.showRunSummaryConfirmation).toBeTrue();
+    expect(component.runSummarySnapshot?.range).toBe('1-3,5');
+    expect(component.runSummarySnapshot?.fileCount).toBe(3);
+    expect(component.runSummarySnapshot?.outputTarget).toBe('/tmp/out');
+    expect(component.runSummarySnapshot?.marginsSummary).toContain('preset=custom');
+    expect(component.runSummarySnapshot?.marginsSummary).toContain('top=12');
+  });
+
+  it('handles partial_success status with item errors and aggregated fileErrors', fakeAsync(() => {
     const validation: ValidateJobResponseV1 = {
       success: true,
-      message: 'invalid',
-      valid: false,
-      error: {
-        code: 'PDF_CROP_BATCH_OUTPUT_COLLISION',
-        detail_code: 'PDF_CROP_BATCH_OUTPUT_COLLISION',
-        message: 'batch planned outputs collide: /tmp/out/a_cropped.pdf and /tmp/out/A_cropped.pdf',
+      message: 'ok',
+      valid: true,
+    };
+    const run: RunJobResponseV1 = {
+      success: true,
+      message: 'submitted',
+      jobId: 'crop-batch-partial-1',
+      status: 'queued',
+    };
+    const completed: JobStatusResponseV1 = {
+      success: true,
+      message: 'partial_success',
+      found: true,
+      result: {
+        jobId: 'crop-batch-partial-1',
+        success: false,
+        message: 'job partial success',
+        toolId: 'tool.pdf.crop',
+        status: 'partial_success',
+        progress: { current: 2, total: 2, stage: 'partial_success', message: 'job partial success' },
+        items: [
+          {
+            inputPath: '/tmp/short.pdf',
+            outputPath: '/tmp/out/short_cropped.pdf',
+            success: false,
+            message: 'range 3-4 exceeds PDF page count 2',
+            error: {
+              code: 'VALIDATION_INVALID_INPUT',
+              detail_code: 'PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS',
+              message: 'range 3-4 exceeds PDF page count 2',
+            },
+          },
+          {
+            inputPath: '/tmp/long.pdf',
+            outputPath: '/tmp/out/long_cropped.pdf',
+            outputs: ['/tmp/out/long_cropped.pdf'],
+            outputCount: 1,
+            success: true,
+            message: 'PDF crop successful',
+          },
+        ],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PDF_CROP_FAILED',
+          message: 'one or more files failed in batch crop',
+          details: {
+            fileErrors: [
+              {
+                path: '/tmp/short.pdf',
+                code: 'PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS',
+                message: 'range 3-4 exceeds PDF page count 2',
+              },
+            ],
+          },
+        },
+        startedAt: Date.now(),
+        endedAt: Date.now(),
       },
+    };
+
+    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
+    wailsSpy.runJobV1.and.returnValue(Promise.resolve(run));
+    wailsSpy.getJobStatusV1.and.returnValue(Promise.resolve(completed));
+
+    component.selectedInputPaths = ['/tmp/short.pdf', '/tmp/long.pdf'];
+    component.form.patchValue({ jobMode: 'batch', outputDir: '/tmp/out', cropPreset: 'small' });
+
+    void component.run();
+    flushMicrotasks();
+    void component.confirmRunSummaryAndExecute();
+    flushMicrotasks();
+
+    expect(component.jobResult?.status).toBe('partial_success');
+    expect(component.jobResult?.items.length).toBe(2);
+    expect(component.jobResult?.items[0].error?.detail_code).toBe('PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS');
+    expect(component.statusMessage).toContain('partial_success');
+    expect(component.statusMessage).toContain('PDF_CROP_FAILED');
+    expect(component.isPolling).toBeFalse();
+    expect(component.activeJobId).toBe('');
+  }));
+
+  it('accepts case-insensitive filename collisions in batch validation', async () => {
+    const validation: ValidateJobResponseV1 = {
+      success: true,
+      message: 'ok',
+      valid: true,
     };
     wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
 
@@ -363,7 +515,7 @@ describe('PdfCrop', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('PDF_CROP_BATCH_OUTPUT_COLLISION');
+    expect(component.validationMessage).toContain('Validation OK');
   });
 
   it('computes preview overlay rectangle from margins and scale', () => {

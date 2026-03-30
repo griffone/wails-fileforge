@@ -413,3 +413,71 @@ func TestOrchestratorBatchReturnsPartialSuccess(t *testing.T) {
 		t.Fatalf("unexpected message: %s", msg)
 	}
 }
+
+type mixedBatchTool struct{}
+
+func (m *mixedBatchTool) ID() string         { return "tool.test.partial-details" }
+func (m *mixedBatchTool) Capability() string { return "test" }
+func (m *mixedBatchTool) Manifest() models.ToolManifestV1 {
+	return models.ToolManifestV1{ToolID: m.ID(), Name: "mixed", Capability: m.Capability(), SupportsBatch: true, SupportsSingle: false}
+}
+func (m *mixedBatchTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
+	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+}
+func (m *mixedBatchTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+	return nil
+}
+func (m *mixedBatchTool) ExecuteBatch(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	return []models.JobResultItemV1{
+			{InputPath: req.InputPaths[0], OutputPath: "/tmp/a.pdf", Success: false, Message: "range out of bounds", Error: &models.JobErrorV1{Code: "PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS", Message: "range out of bounds"}},
+			{InputPath: req.InputPaths[1], OutputPath: "/tmp/b.pdf", Success: true, Message: "ok"},
+		}, &models.JobErrorV1{
+			Code:       "PDF_CROP_FAILED",
+			DetailCode: "PDF_CROP_FAILED",
+			Message:    "one or more files failed",
+			Details: map[string]any{
+				"fileErrors": []map[string]any{{
+					"path":    req.InputPaths[0],
+					"code":    "PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS",
+					"message": "range out of bounds",
+				}},
+			},
+		}
+}
+
+var _ tools.Tool = (*mixedBatchTool)(nil)
+var _ tools.BatchExecutor = (*mixedBatchTool)(nil)
+
+func TestOrchestratorBatchErrorKeepsItemErrorsAndAggregateDetails(t *testing.T) {
+	reg := registry.NewRegistry()
+	tool := &mixedBatchTool{}
+	reg.SafeRegisterToolV2(tool)
+	orch := NewOrchestrator(reg, 1)
+
+	response, err := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "batch",
+		InputPaths: []string{"/tmp/input-a.pdf", "/tmp/input-b.pdf"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+
+	result := waitForTerminalStatus(t, orch, response.JobID)
+	if result.Status != StatusPartialSuccess {
+		t.Fatalf("expected partial_success, got %s", result.Status)
+	}
+	if result.Error == nil || result.Error.DetailCode != "PDF_CROP_FAILED" {
+		t.Fatalf("expected aggregate crop error, got %+v", result.Error)
+	}
+	if result.Items[0].Error == nil || result.Items[0].Error.DetailCode != "PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS" {
+		t.Fatalf("expected item error preserved, got %+v", result.Items[0].Error)
+	}
+
+	raw := result.Error.Details["fileErrors"]
+	if raw == nil {
+		t.Fatalf("expected details.fileErrors in aggregate error, got %+v", result.Error.Details)
+	}
+}

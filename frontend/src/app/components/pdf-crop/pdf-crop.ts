@@ -193,10 +193,20 @@ export class PdfCrop implements OnInit, OnDestroy {
   validationMessage = '';
   submitMessage = '';
   statusMessage = '';
+  pageSelectionLiveMessage = '';
   jobResult: JobResultV1 | null = null;
   isSubmitting = false;
   isPolling = false;
   activeJobId = '';
+  showRunSummaryConfirmation = false;
+  runSummarySnapshot: {
+    mode: string;
+    range: string;
+    cropPreset: string;
+    marginsSummary: string;
+    fileCount: number;
+    outputTarget: string;
+  } | null = null;
 
   previewStatus: PDFPreviewStatus = 'empty';
   previewMessage = 'Select a PDF to render crop preview.';
@@ -240,6 +250,14 @@ export class PdfCrop implements OnInit, OnDestroy {
         this.updateOverlayFromCurrentForm();
       })
     );
+
+    this.formSubscriptions.add(
+      this.form.controls.pageSelection.valueChanges.subscribe((value) => {
+        this.updatePageSelectionLiveMessage(value);
+      })
+    );
+
+    this.updatePageSelectionLiveMessage(this.form.controls.pageSelection.value);
   }
 
   ngOnDestroy(): void {
@@ -545,6 +563,40 @@ export class PdfCrop implements OnInit, OnDestroy {
     }
 
     const request = this.buildRequest();
+
+    this.runSummarySnapshot = {
+      mode: request.mode,
+      range: (request.options['pageSelection'] as string | undefined)?.trim() || 'all pages',
+      cropPreset: String(request.options['cropPreset'] ?? ''),
+      marginsSummary: this.cropSummaryMarginsText(request),
+      fileCount: request.inputPaths.length,
+      outputTarget: request.mode === JOB_MODE_SINGLE
+        ? String(request.options['outputPath'] ?? '')
+        : String(request.options['outputDir'] ?? ''),
+    };
+    this.showRunSummaryConfirmation = true;
+  }
+
+  cancelRunSummaryConfirmation(): void {
+    this.showRunSummaryConfirmation = false;
+    this.submitMessage = 'Execution canceled: summary was not confirmed.';
+  }
+
+  async confirmRunSummaryAndExecute(): Promise<void> {
+    if (!this.showRunSummaryConfirmation) {
+      return;
+    }
+
+    const localError = this.localValidationError();
+    if (localError) {
+      this.showRunSummaryConfirmation = false;
+      this.submitMessage = localError;
+      return;
+    }
+
+    const request = this.buildRequest();
+    this.showRunSummaryConfirmation = false;
+
     this.isSubmitting = true;
     this.statusMessage = '';
     this.jobResult = null;
@@ -567,6 +619,21 @@ export class PdfCrop implements OnInit, OnDestroy {
     this.submitMessage = `Job submitted: ${runResponse.jobId}`;
     this.startPolling();
     this.isSubmitting = false;
+  }
+
+  private cropSummaryMarginsText(request: JobRequestV1): string {
+    const preset = String(request.options['cropPreset'] ?? '').trim();
+    if (preset !== 'custom') {
+      return `preset=${preset}`;
+    }
+
+    const margins = request.options['margins'];
+    if (!margins || typeof margins !== 'object') {
+      return 'preset=custom (margins missing)';
+    }
+
+    const m = margins as Record<string, unknown>;
+    return `preset=custom (top=${m['top']}, right=${m['right']}, bottom=${m['bottom']}, left=${m['left']})`;
   }
 
   async cancel(): Promise<void> {
@@ -971,6 +1038,11 @@ export class PdfCrop implements OnInit, OnDestroy {
     }
 
     return '';
+  }
+
+  private updatePageSelectionLiveMessage(rawPageSelection: string): void {
+    const pageSelection = rawPageSelection.trim();
+    this.pageSelectionLiveMessage = this.localPageSelectionError(pageSelection);
   }
 
   private isPDFPath(path: string): boolean {

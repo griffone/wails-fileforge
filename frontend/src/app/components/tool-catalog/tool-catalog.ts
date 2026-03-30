@@ -57,6 +57,10 @@ export class ToolCatalog implements OnInit {
       return '/image-crop';
     }
 
+    if (toolId === 'tool.image.annotate') {
+      return '/image-annotate';
+    }
+
     if (toolId === 'tool.pdf.merge') {
       return '/pdf-merge';
     }
@@ -67,6 +71,14 @@ export class ToolCatalog implements OnInit {
 
     if (toolId === 'tool.pdf.crop') {
       return '/pdf-crop';
+    }
+
+    if (toolId === 'tool.doc.md_to_pdf') {
+      return '/doc-md-to-pdf';
+    }
+
+    if (toolId === 'tool.doc.docx_to_pdf') {
+      return '/doc-docx-to-pdf';
     }
 
     if (toolId === 'tool.video.convert') {

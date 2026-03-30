@@ -21,12 +21,22 @@ export function CancelJobV1(jobID) {
 }
 
 /**
+ * @param {models$0.ImageAnnotatePreviewRequestV1} req
+ * @returns {$CancellablePromise<models$0.ImageAnnotatePreviewResponseV1>}
+ */
+export function GetImageAnnotatePreviewV1(req) {
+    return $Call.ByID(372302096, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * @param {models$0.ImageCropPreviewRequestV1} req
  * @returns {$CancellablePromise<models$0.ImageCropPreviewResponseV1>}
  */
 export function GetImageCropPreviewV1(req) {
     return $Call.ByID(4006508154, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType2($result);
     }));
 }
 
@@ -36,7 +46,7 @@ export function GetImageCropPreviewV1(req) {
  */
 export function GetImagePreviewSourceV1(inputPath) {
     return $Call.ByID(2617279209, inputPath).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType3($result);
     }));
 }
 
@@ -46,7 +56,7 @@ export function GetImagePreviewSourceV1(inputPath) {
  */
 export function GetJobStatusV1(jobID) {
     return $Call.ByID(1961277890, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType4($result);
     }));
 }
 
@@ -56,7 +66,7 @@ export function GetJobStatusV1(jobID) {
  */
 export function GetPDFPreviewSourceV1(inputPath) {
     return $Call.ByID(632882064, inputPath).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType5($result);
     }));
 }
 
@@ -65,7 +75,7 @@ export function GetPDFPreviewSourceV1(inputPath) {
  */
 export function ListToolsV1() {
     return $Call.ByID(517184612).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType6($result);
     }));
 }
 
@@ -90,7 +100,7 @@ export function OpenFileDialog() {
  */
 export function OpenMultipleFilesDialog() {
     return $Call.ByID(3029276213).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType7($result);
     }));
 }
 
@@ -100,7 +110,7 @@ export function OpenMultipleFilesDialog() {
  */
 export function RunJobV1(req) {
     return $Call.ByID(162380599, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType8($result);
     }));
 }
 
@@ -117,17 +127,18 @@ export function SetContext() {
  */
 export function ValidateJobV1(req) {
     return $Call.ByID(1505194326, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType9($result);
     }));
 }
 
 // Private type creation functions
 const $$createType0 = models$0.CancelJobResponseV1.createFrom;
-const $$createType1 = models$0.ImageCropPreviewResponseV1.createFrom;
-const $$createType2 = models$0.ImagePreviewSourceResponseV1.createFrom;
-const $$createType3 = models$0.JobStatusResponseV1.createFrom;
-const $$createType4 = models$0.PDFPreviewSourceResponseV1.createFrom;
-const $$createType5 = models$0.ListToolsResponseV1.createFrom;
-const $$createType6 = $Create.Array($Create.Any);
-const $$createType7 = models$0.RunJobResponseV1.createFrom;
-const $$createType8 = models$0.ValidateJobResponseV1.createFrom;
+const $$createType1 = models$0.ImageAnnotatePreviewResponseV1.createFrom;
+const $$createType2 = models$0.ImageCropPreviewResponseV1.createFrom;
+const $$createType3 = models$0.ImagePreviewSourceResponseV1.createFrom;
+const $$createType4 = models$0.JobStatusResponseV1.createFrom;
+const $$createType5 = models$0.PDFPreviewSourceResponseV1.createFrom;
+const $$createType6 = models$0.ListToolsResponseV1.createFrom;
+const $$createType7 = $Create.Array($Create.Any);
+const $$createType8 = models$0.RunJobResponseV1.createFrom;
+const $$createType9 = models$0.ValidateJobResponseV1.createFrom;

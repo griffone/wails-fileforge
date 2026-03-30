@@ -63,12 +63,24 @@ export class Home implements OnInit {
     this.router.navigate(['/image-crop']);
   }
 
+  navigateToImageAnnotate(): void {
+    this.router.navigate(['/image-annotate']);
+  }
+
   navigateToPdfSplit(): void {
     this.router.navigate(['/pdf-split']);
   }
 
   navigateToPdfCrop(): void {
     this.router.navigate(['/pdf-crop']);
+  }
+
+  navigateToDocMdToPdf(): void {
+    this.router.navigate(['/doc-md-to-pdf']);
+  }
+
+  navigateToDocDocxToPdf(): void {
+    this.router.navigate(['/doc-docx-to-pdf']);
   }
 
   navigateToVideoConvert(): void {

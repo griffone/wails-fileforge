@@ -113,3 +113,36 @@ type ImageCropPreviewResponseV1 struct {
 	Height     int         `json:"height,omitempty"`
 	Error      *JobErrorV1 `json:"error,omitempty"`
 }
+
+type ImageAnnotateOperationV1 struct {
+	Type          string  `json:"type"`
+	X             int     `json:"x,omitempty"`
+	Y             int     `json:"y,omitempty"`
+	Width         int     `json:"width,omitempty"`
+	Height        int     `json:"height,omitempty"`
+	X2            int     `json:"x2,omitempty"`
+	Y2            int     `json:"y2,omitempty"`
+	Text          string  `json:"text,omitempty"`
+	Color         string  `json:"color,omitempty"`
+	Opacity       float64 `json:"opacity,omitempty"`
+	StrokeWidth   int     `json:"strokeWidth,omitempty"`
+	FontSize      int     `json:"fontSize,omitempty"`
+	BlurIntensity int     `json:"blurIntensity,omitempty"`
+}
+
+type ImageAnnotatePreviewRequestV1 struct {
+	InputPath   string                     `json:"inputPath"`
+	Operations  []ImageAnnotateOperationV1 `json:"operations"`
+	Format      string                     `json:"format,omitempty"`
+	OutputColor string                     `json:"outputColor,omitempty"`
+}
+
+type ImageAnnotatePreviewResponseV1 struct {
+	Success    bool        `json:"success"`
+	Message    string      `json:"message"`
+	DataBase64 string      `json:"dataBase64,omitempty"`
+	MimeType   string      `json:"mimeType,omitempty"`
+	Width      int         `json:"width,omitempty"`
+	Height     int         `json:"height,omitempty"`
+	Error      *JobErrorV1 `json:"error,omitempty"`
+}

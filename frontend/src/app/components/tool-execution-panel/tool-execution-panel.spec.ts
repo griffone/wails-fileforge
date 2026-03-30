@@ -172,4 +172,65 @@ describe('ToolExecutionPanel', () => {
 
     expect(outputs).toEqual([]);
   });
+
+  it('renders failed item details and aggregated file errors', () => {
+    component.jobResult = {
+      jobId: 'job-3',
+      success: false,
+      message: 'job partial success',
+      toolId: 'tool.pdf.crop',
+      status: 'partial_success',
+      progress: {
+        current: 2,
+        total: 2,
+        stage: 'partial_success',
+        message: 'job partial success',
+      },
+      items: [
+        {
+          inputPath: '/tmp/a.pdf',
+          outputPath: '/tmp/out/a_cropped.pdf',
+          success: false,
+          message: 'range exceeds page count',
+          error: {
+            code: 'VALIDATION_INVALID_INPUT',
+            detail_code: 'PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS',
+            message: 'range exceeds page count',
+          },
+        },
+        {
+          inputPath: '/tmp/b.pdf',
+          outputPath: '/tmp/out/b_cropped.pdf',
+          outputs: ['/tmp/out/b_cropped.pdf'],
+          outputCount: 1,
+          success: true,
+          message: 'ok',
+        },
+      ],
+      error: {
+        code: 'EXEC_IO_TRANSIENT',
+        detail_code: 'PDF_CROP_FAILED',
+        message: 'one or more files failed in batch crop',
+        details: {
+          fileErrors: [
+            {
+              path: '/tmp/a.pdf',
+              code: 'PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS',
+              message: 'range exceeds page count',
+            },
+          ],
+        },
+      },
+      startedAt: Date.now(),
+      endedAt: Date.now(),
+    };
+
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Item status: failed');
+    expect(text).toContain('VALIDATION_INVALID_INPUT [PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS]');
+    expect(text).toContain('Batch file errors (aggregated)');
+    expect(text).toContain('/tmp/a.pdf');
+  });
 });

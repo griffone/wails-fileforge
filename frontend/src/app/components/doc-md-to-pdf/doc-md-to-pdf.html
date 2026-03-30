@@ -1,0 +1,136 @@
+<div class="min-h-screen bg-gray-50 p-6">
+  <div class="max-w-5xl mx-auto space-y-6">
+    <header class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-900">Markdown → PDF</h1>
+        <p class="text-gray-600 mt-1">Tool V1: single mode only, A4 portrait output.</p>
+      </div>
+      <div class="flex gap-2">
+        <a routerLink="/" class="btn btn-secondary">Home</a>
+        <a routerLink="/tool-catalog" class="btn btn-secondary">Catalog</a>
+      </div>
+    </header>
+
+    <section class="card space-y-4">
+      <h2 class="text-xl font-semibold text-gray-900">Execution</h2>
+
+      <div class="grid gap-4 md:grid-cols-2">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Input Markdown path</label>
+          <div class="flex gap-2">
+            <input class="w-full rounded-lg border border-gray-300 px-3 py-2" [value]="form.controls.inputPath.value" (input)="form.patchValue({inputPath: $any($event.target).value})" placeholder="/path/file.md" />
+            <button type="button" class="btn btn-secondary" (click)="selectMarkdownFromDialog()">Browse</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Output directory (optional)</label>
+          <div class="flex gap-2">
+            <input class="w-full rounded-lg border border-gray-300 px-3 py-2" [value]="form.controls.outputDir.value" (input)="form.patchValue({outputDir: $any($event.target).value})" placeholder="/path/out" />
+            <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">Browse</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-sm font-medium text-gray-700">Output path (optional)</label>
+        <input class="w-full rounded-lg border border-gray-300 px-3 py-2" [value]="form.controls.outputPath.value" (input)="form.patchValue({outputPath: $any($event.target).value})" placeholder="/path/out/file.pdf" />
+        <p class="mt-1 text-xs text-gray-500">If empty, backend uses non-destructive naming: *_md2pdf, with -2/-3 collisions.</p>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-2">
+        <fieldset class="rounded-lg border border-gray-200 p-3 space-y-2">
+          <legend class="px-1 text-sm font-semibold text-gray-700">Header</legend>
+
+          <label class="inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" [checked]="form.controls.header.controls.enabled.value" (change)="form.controls.header.controls.enabled.setValue($any($event.target).checked)" />
+            Enabled
+          </label>
+
+          <input class="w-full rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.header.controls.text.value" (input)="form.controls.header.controls.text.setValue($any($event.target).value)" placeholder="Header text with {page}" />
+
+          <div class="grid grid-cols-2 gap-2">
+            <select class="rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.header.controls.align.value" (change)="form.controls.header.controls.align.setValue($any($event.target).value)">
+              <option value="left">left</option>
+              <option value="center">center</option>
+              <option value="right">right</option>
+            </select>
+            <select class="rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.header.controls.font.value" (change)="form.controls.header.controls.font.setValue($any($event.target).value)">
+              <option value="helvetica">helvetica</option>
+              <option value="times">times</option>
+              <option value="courier">courier</option>
+            </select>
+            <input type="number" class="rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.header.controls.marginTop.value" (input)="form.controls.header.controls.marginTop.setValue(+$any($event.target).value)" placeholder="marginTop" />
+            <input type="number" class="rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.header.controls.marginBottom.value" (input)="form.controls.header.controls.marginBottom.setValue(+$any($event.target).value)" placeholder="marginBottom" />
+          </div>
+
+          <input class="w-full rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.header.controls.color.value" (input)="form.controls.header.controls.color.setValue($any($event.target).value)" placeholder="#RRGGBB" />
+        </fieldset>
+
+        <fieldset class="rounded-lg border border-gray-200 p-3 space-y-2">
+          <legend class="px-1 text-sm font-semibold text-gray-700">Footer</legend>
+
+          <label class="inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" [checked]="form.controls.footer.controls.enabled.value" (change)="form.controls.footer.controls.enabled.setValue($any($event.target).checked)" />
+            Enabled
+          </label>
+
+          <input class="w-full rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.footer.controls.text.value" (input)="form.controls.footer.controls.text.setValue($any($event.target).value)" placeholder="Footer text with {totalPages}" />
+
+          <div class="grid grid-cols-2 gap-2">
+            <select class="rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.footer.controls.align.value" (change)="form.controls.footer.controls.align.setValue($any($event.target).value)">
+              <option value="left">left</option>
+              <option value="center">center</option>
+              <option value="right">right</option>
+            </select>
+            <select class="rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.footer.controls.font.value" (change)="form.controls.footer.controls.font.setValue($any($event.target).value)">
+              <option value="helvetica">helvetica</option>
+              <option value="times">times</option>
+              <option value="courier">courier</option>
+            </select>
+            <input type="number" class="rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.footer.controls.marginTop.value" (input)="form.controls.footer.controls.marginTop.setValue(+$any($event.target).value)" placeholder="marginTop" />
+            <input type="number" class="rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.footer.controls.marginBottom.value" (input)="form.controls.footer.controls.marginBottom.setValue(+$any($event.target).value)" placeholder="marginBottom" />
+          </div>
+
+          <input class="w-full rounded border border-gray-300 px-2 py-1 text-sm" [value]="form.controls.footer.controls.color.value" (input)="form.controls.footer.controls.color.setValue($any($event.target).value)" placeholder="#RRGGBB" />
+        </fieldset>
+      </div>
+
+      <div class="flex gap-2">
+        <button type="button" class="btn btn-secondary" (click)="validate()">Validate</button>
+        <button type="button" class="btn btn-primary" [disabled]="isSubmitting" (click)="run()">{{ isSubmitting ? 'Submitting...' : 'Run Markdown → PDF' }}</button>
+        <button type="button" class="btn btn-secondary" [disabled]="!activeJobId || !isPolling" (click)="cancel()">Cancel</button>
+      </div>
+
+      <div *ngIf="validationMessage" class="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">{{ validationMessage }}</div>
+      <div *ngIf="submitMessage" class="rounded border border-gray-200 bg-white p-3 text-sm text-gray-700">{{ submitMessage }}</div>
+      <div *ngIf="statusMessage" class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{{ statusMessage }}</div>
+    </section>
+
+    <section class="card space-y-3">
+      <h2 class="text-xl font-semibold text-gray-900">Approx Preview (not final PDF)</h2>
+      <p class="text-sm text-gray-600">{{ previewNotice }}</p>
+
+      <div class="approx-sheet">
+        <div class="approx-header" [ngStyle]="previewStyle('header')">
+          <ng-container *ngIf="form.controls.header.controls.enabled.value; else headerOff">
+            {{ previewHeaderText() }}
+          </ng-container>
+          <ng-template #headerOff>Header disabled</ng-template>
+        </div>
+
+        <div class="approx-body">
+          <p class="text-sm text-gray-600">A4 portrait canvas simulation for quick feedback.</p>
+          <p class="text-xs text-gray-500 mt-2">Placeholders: {{ '{page}' }}, {{ '{totalPages}' }}, {{ '{date}' }}, {{ '{fileName}' }}</p>
+        </div>
+
+        <div class="approx-footer" [ngStyle]="previewStyle('footer')">
+          <ng-container *ngIf="form.controls.footer.controls.enabled.value; else footerOff">
+            {{ previewFooterText() }}
+          </ng-container>
+          <ng-template #footerOff>Footer disabled</ng-template>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>

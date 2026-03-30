@@ -100,7 +100,9 @@ func mapMergeError(err error) *models.JobErrorV1 {
 	}
 
 	return &models.JobErrorV1{
-		Code:    mergeErr.Code,
-		Message: mergeErr.Message,
+		Code:       mergeErr.Code,
+		DetailCode: mergeErr.Code,
+		Message:    mergeErr.Message,
+		Details:    mergeErr.Details,
 	}
 }

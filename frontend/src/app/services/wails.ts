@@ -166,6 +166,56 @@ export interface ImageCropPreviewResponseV1 {
   error?: JobErrorV1;
 }
 
+export type ImageAnnotateOperationTypeV1 = 'text' | 'arrow' | 'rect' | 'blur' | 'redact';
+
+export interface ImageAnnotateOperationV1 {
+  type: ImageAnnotateOperationTypeV1;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  x2?: number;
+  y2?: number;
+  text?: string;
+  color?: string;
+  opacity?: number;
+  strokeWidth?: number;
+  fontSize?: number;
+  blurIntensity?: number;
+}
+
+export interface ImageAnnotatePreviewRequestV1 {
+  inputPath: string;
+  operations: ImageAnnotateOperationV1[];
+  format?: string;
+}
+
+export interface ImageAnnotatePreviewResponseV1 {
+  success: boolean;
+  message: string;
+  dataBase64?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  error?: JobErrorV1;
+}
+
+export interface HeaderFooterConfigV1 {
+  enabled: boolean;
+  text: string;
+  align: 'left' | 'center' | 'right';
+  font: 'helvetica' | 'times' | 'courier';
+  marginTop: number;
+  marginBottom: number;
+  color: string;
+}
+
+export interface MarkdownToPdfOptionsV1 {
+  outputPath?: string;
+  header: HeaderFooterConfigV1;
+  footer: HeaderFooterConfigV1;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -273,6 +323,20 @@ export class Wails {
         success: false,
         message: this.formatMessage('Get image crop preview failed', error),
         error: this.defaultError('EXEC_IO_TRANSIENT', 'IMAGE_CROP_PREVIEW_EXECUTION', error),
+      };
+    }
+  }
+
+  async getImageAnnotatePreviewV1(
+    request: ImageAnnotatePreviewRequestV1
+  ): Promise<ImageAnnotatePreviewResponseV1> {
+    try {
+      return await this.callByID(372302096, request);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get image annotate preview failed', error),
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IMAGE_ANNOTATE_PREVIEW_EXECUTION', error),
       };
     }
   }

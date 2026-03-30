@@ -8,10 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 )
 
 func TestMergeSuccessWithMultiplePDFs(t *testing.T) {
@@ -33,6 +36,36 @@ func TestMergeSuccessWithMultiplePDFs(t *testing.T) {
 	if validateErr := api.ValidateFile(out, nil); validateErr != nil {
 		t.Fatalf("expected valid merged PDF, got: %v", validateErr)
 	}
+}
+
+func TestMergePreservesInputOrderInMergedOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputA := filepath.Join(tmpDir, "a.pdf")
+	inputB := filepath.Join(tmpDir, "b.pdf")
+	inputC := filepath.Join(tmpDir, "c.pdf")
+	out := filepath.Join(tmpDir, "merged.pdf")
+
+	writeMinimalPDFWithMediaBox(t, inputA, "A", 200, 400)
+	writeMinimalPDFWithMediaBox(t, inputB, "B", 300, 500)
+	writeMinimalPDFWithMediaBox(t, inputC, "C", 400, 600)
+
+	err := Merge(context.Background(), []string{inputB, inputC, inputA}, out)
+	if err != nil {
+		t.Fatalf("expected merge success, got error: %v", err)
+	}
+
+	dims, err := api.PageDimsFile(out)
+	if err != nil {
+		t.Fatalf("read page dims from merged pdf: %v", err)
+	}
+
+	if len(dims) != 3 {
+		t.Fatalf("expected 3 pages, got %d", len(dims))
+	}
+
+	assertPageDim(t, dims[0], 300, 500)
+	assertPageDim(t, dims[1], 400, 600)
+	assertPageDim(t, dims[2], 200, 400)
 }
 
 func TestMergeValidationErrors(t *testing.T) {
@@ -260,7 +293,102 @@ func TestMergeRejectsCorruptPDFInput(t *testing.T) {
 	}
 }
 
+func TestMergeRejectsProtectedPDFInputWithSpecificCode(t *testing.T) {
+	tmpDir := t.TempDir()
+	validPDF := filepath.Join(tmpDir, "valid.pdf")
+	protectedSource := filepath.Join(tmpDir, "protected-source.pdf")
+	protectedPDF := filepath.Join(tmpDir, "protected.pdf")
+	out := filepath.Join(tmpDir, "merged.pdf")
+
+	writeMinimalPDF(t, validPDF, "Valid")
+	writeMinimalPDF(t, protectedSource, "Secret")
+
+	encConf := model.NewAESConfiguration("user-pass", "owner-pass", 256)
+	if err := api.EncryptFile(protectedSource, protectedPDF, encConf); err != nil {
+		t.Fatalf("encrypt protected fixture: %v", err)
+	}
+
+	err := Merge(context.Background(), []string{validPDF, protectedPDF}, out)
+	if err == nil {
+		t.Fatal("expected protected input merge error, got nil")
+	}
+
+	var mergeErr *MergeError
+	if !errors.As(err, &mergeErr) {
+		t.Fatalf("expected MergeError, got %T", err)
+	}
+
+	if mergeErr.Code != ErrorCodeProtectedInputPDF {
+		t.Fatalf("expected code %s, got %s", ErrorCodeProtectedInputPDF, mergeErr.Code)
+	}
+
+	fileErrors := extractMergeFileErrors(t, mergeErr)
+	if len(fileErrors) != 1 {
+		t.Fatalf("expected 1 file error, got %d", len(fileErrors))
+	}
+	if code := fileErrors[0]["code"]; code != ErrorCodeProtectedInputPDF {
+		t.Fatalf("expected file error code %s, got %v", ErrorCodeProtectedInputPDF, code)
+	}
+}
+
+func TestMergeAggregatesInvalidAndProtectedPerFileErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+	validPDF := filepath.Join(tmpDir, "valid.pdf")
+	corruptPDF := filepath.Join(tmpDir, "corrupt.pdf")
+	protectedSource := filepath.Join(tmpDir, "protected-source.pdf")
+	protectedPDF := filepath.Join(tmpDir, "protected.pdf")
+	out := filepath.Join(tmpDir, "merged.pdf")
+
+	writeMinimalPDF(t, validPDF, "Valid")
+	if err := os.WriteFile(corruptPDF, []byte("not a real pdf"), 0o644); err != nil {
+		t.Fatalf("failed writing corrupt file: %v", err)
+	}
+	writeMinimalPDF(t, protectedSource, "Secret")
+
+	encConf := model.NewAESConfiguration("user-pass", "owner-pass", 256)
+	if err := api.EncryptFile(protectedSource, protectedPDF, encConf); err != nil {
+		t.Fatalf("encrypt protected fixture: %v", err)
+	}
+
+	err := Merge(context.Background(), []string{validPDF, corruptPDF, protectedPDF}, out)
+	if err == nil {
+		t.Fatal("expected aggregated merge error, got nil")
+	}
+
+	var mergeErr *MergeError
+	if !errors.As(err, &mergeErr) {
+		t.Fatalf("expected MergeError, got %T", err)
+	}
+
+	if mergeErr.Code != ErrorCodeInvalidInputsPDF {
+		t.Fatalf("expected code %s, got %s", ErrorCodeInvalidInputsPDF, mergeErr.Code)
+	}
+
+	fileErrors := extractMergeFileErrors(t, mergeErr)
+	if len(fileErrors) != 2 {
+		t.Fatalf("expected 2 file errors, got %d", len(fileErrors))
+	}
+
+	codes := make([]string, 0, len(fileErrors))
+	for _, fileErr := range fileErrors {
+		code, _ := fileErr["code"].(string)
+		codes = append(codes, code)
+	}
+
+	if !slices.Contains(codes, ErrorCodeInvalidInputPDF) {
+		t.Fatalf("expected file error code %s in %v", ErrorCodeInvalidInputPDF, codes)
+	}
+	if !slices.Contains(codes, ErrorCodeProtectedInputPDF) {
+		t.Fatalf("expected file error code %s in %v", ErrorCodeProtectedInputPDF, codes)
+	}
+}
+
 func writeMinimalPDF(t *testing.T, path, label string) {
+	t.Helper()
+	writeMinimalPDFWithMediaBox(t, path, label, 200, 200)
+}
+
+func writeMinimalPDFWithMediaBox(t *testing.T, path, label string, width, height int) {
 	t.Helper()
 
 	content := fmt.Sprintf("BT /F1 24 Tf 40 100 Td (%s) Tj ET", label)
@@ -276,7 +404,7 @@ func writeMinimalPDF(t *testing.T, path, label string) {
 
 	writeObj(1, "<< /Type /Catalog /Pages 2 0 R >>")
 	writeObj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-	writeObj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>")
+	writeObj(3, fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d %d] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>", width, height))
 	writeObj(4, fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content))
 	writeObj(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
 
@@ -292,4 +420,44 @@ func writeMinimalPDF(t *testing.T, path, label string) {
 	if err := os.WriteFile(path, b.Bytes(), 0o644); err != nil {
 		t.Fatalf("failed writing minimal pdf: %v", err)
 	}
+}
+
+func assertPageDim(t *testing.T, dim types.Dim, width, height float64) {
+	t.Helper()
+	if dim.Width != width || dim.Height != height {
+		t.Fatalf("expected page dim %.0fx%.0f, got %.0fx%.0f", width, height, dim.Width, dim.Height)
+	}
+}
+
+func extractMergeFileErrors(t *testing.T, mergeErr *MergeError) []map[string]any {
+	t.Helper()
+	if mergeErr.Details == nil {
+		t.Fatalf("expected merge error details")
+	}
+
+	raw, ok := mergeErr.Details["fileErrors"]
+	if !ok {
+		t.Fatalf("expected details.fileErrors key")
+	}
+
+	slice, ok := raw.([]map[string]any)
+	if ok {
+		return slice
+	}
+
+	anySlice, ok := raw.([]any)
+	if !ok {
+		t.Fatalf("expected fileErrors to be []any or []map[string]any, got %T", raw)
+	}
+
+	result := make([]map[string]any, 0, len(anySlice))
+	for _, item := range anySlice {
+		m, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("expected file error map entry, got %T", item)
+		}
+		result = append(result, m)
+	}
+
+	return result
 }

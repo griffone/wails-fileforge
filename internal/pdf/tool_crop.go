@@ -105,25 +105,35 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 		return nil, &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "mode must be batch"}
 	}
 
-	if cropErr := engine.ValidateCropBatchRequest(parsed.InputPaths, parsed.OutputDir, parsed.PageSelection, parsed.CropPreset, parsed.Margins); cropErr != nil {
-		return nil, mapCropError(cropErr)
-	}
-
 	results, err := engine.CropBatch(ctx, parsed.InputPaths, parsed.OutputDir, parsed.PageSelection, parsed.CropPreset, parsed.Margins)
 	if err != nil {
 		return nil, mapCropError(err)
 	}
 
+	fileErrors := make([]map[string]any, 0)
 	items := make([]models.JobResultItemV1, 0, len(results))
 	for i, result := range results {
-		items = append(items, models.JobResultItemV1{
-			InputPath:   result.InputPath,
-			OutputPath:  result.OutputPath,
-			Outputs:     []string{result.OutputPath},
-			OutputCount: 1,
-			Success:     true,
-			Message:     "PDF crop successful",
-		})
+		item := models.JobResultItemV1{
+			InputPath:  result.InputPath,
+			OutputPath: result.OutputPath,
+			Success:    result.Success,
+		}
+		if result.Success {
+			item.Message = "PDF crop successful"
+			item.Outputs = []string{result.OutputPath}
+			item.OutputCount = 1
+		} else {
+			jobErr := mapCropError(result.Error)
+			item.Message = jobErr.Message
+			item.Error = jobErr
+			fileErrors = append(fileErrors, map[string]any{
+				"path":    result.InputPath,
+				"code":    jobErr.DetailCode,
+				"message": jobErr.Message,
+			})
+		}
+
+		items = append(items, item)
 
 		if onProgress != nil {
 			onProgress(models.JobProgressV1{
@@ -133,6 +143,12 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 				Message: fmt.Sprintf("processed %d/%d", i+1, len(results)),
 			})
 		}
+	}
+
+	if len(fileErrors) > 0 {
+		return items, models.NewCanonicalJobError(engine.ErrorCodeCropFailed, "one or more files failed in batch crop", map[string]any{
+			"fileErrors": fileErrors,
+		})
 	}
 
 	return items, nil
@@ -271,5 +287,5 @@ func mapCropError(err error) *models.JobErrorV1 {
 		return &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
 	}
 
-	return &models.JobErrorV1{Code: cropErr.Code, Message: cropErr.Message}
+	return &models.JobErrorV1{Code: cropErr.Code, DetailCode: cropErr.Code, Message: cropErr.Message, Details: cropErr.Details}
 }

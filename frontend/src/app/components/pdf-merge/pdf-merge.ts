@@ -35,6 +35,9 @@ export class PdfMerge implements OnDestroy {
   activeJobId = '';
   dragOver = false;
   draggedIndex: number | null = null;
+  showRunOrderConfirmation = false;
+  confirmedOrderSnapshot: string[] = [];
+  confirmedOutputPath = '';
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -79,7 +82,36 @@ export class PdfMerge implements OnDestroy {
       return;
     }
 
-    const request = this.buildRequest();
+    this.confirmedOrderSnapshot = [...this.selectedInputPaths];
+    this.confirmedOutputPath = this.form.controls.outputPath.value.trim();
+    this.showRunOrderConfirmation = true;
+  }
+
+  cancelRunOrderConfirmation(): void {
+    this.showRunOrderConfirmation = false;
+    this.submitMessage = 'Ejecución cancelada: no se confirmó el orden final.';
+  }
+
+  async confirmRunOrderAndExecute(): Promise<void> {
+    if (!this.showRunOrderConfirmation) {
+      return;
+    }
+
+    const localError = this.localValidationError();
+    if (localError) {
+      this.showRunOrderConfirmation = false;
+      this.submitMessage = localError;
+      return;
+    }
+
+    const request = this.buildRequestWithInputs(this.confirmedOrderSnapshot, this.confirmedOutputPath);
+    this.showRunOrderConfirmation = false;
+
+    await this.executeRunRequest(request);
+  }
+
+  private async executeRunRequest(request: JobRequestV1): Promise<void> {
+    this.clearMessages();
 
     this.isSubmitting = true;
     this.submitMessage = '';
@@ -293,10 +325,16 @@ export class PdfMerge implements OnDestroy {
   private buildRequest(): JobRequestV1 {
     const outputPath = this.form.controls.outputPath.value.trim();
 
+    return this.buildRequestWithInputs(this.selectedInputPaths, outputPath);
+  }
+
+  private buildRequestWithInputs(inputPaths: string[], outputPath: string): JobRequestV1 {
+    const normalizedInputPaths = inputPaths.map((path) => path.trim());
+
     return {
       toolId: PDF_MERGE_TOOL_ID,
       mode: 'single',
-      inputPaths: this.selectedInputPaths.map((path) => path.trim()),
+      inputPaths: normalizedInputPaths,
       outputDir: this.outputDirFromPath(outputPath),
       options: {
         outputPath,
@@ -379,7 +417,7 @@ export class PdfMerge implements OnDestroy {
 
     switch (error.code) {
       case 'VALIDATION_INVALID_INPUT':
-        return `Validación: ${error.message}`;
+        return `Validación${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
       case 'RUNTIME_DEP_MISSING':
         return `Falta dependencia de runtime.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
       case 'EXEC_IO_TRANSIENT':

@@ -33,3 +33,23 @@
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
 }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 40;
+}
+
+.modal-card {
+  width: min(42rem, 100%);
+  background: #ffffff;
+  border-radius: 0.75rem;
+  border: 1px solid #e5e7eb;
+  padding: 1rem;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.25);
+}

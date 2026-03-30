@@ -59,6 +59,245 @@ export class CancelJobResponseV1 {
     }
 }
 
+export class ImageAnnotateOperationV1 {
+    /**
+     * Creates a new ImageAnnotateOperationV1 instance.
+     * @param {Partial<ImageAnnotateOperationV1>} [$$source = {}] - The source object to create the ImageAnnotateOperationV1.
+     */
+    constructor($$source = {}) {
+        if (!("type" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["type"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["x"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["y"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["width"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["height"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["x2"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["y2"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["text"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["color"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["opacity"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["strokeWidth"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["fontSize"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["blurIntensity"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ImageAnnotateOperationV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ImageAnnotateOperationV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ImageAnnotateOperationV1(/** @type {Partial<ImageAnnotateOperationV1>} */($$parsedSource));
+    }
+}
+
+export class ImageAnnotatePreviewRequestV1 {
+    /**
+     * Creates a new ImageAnnotatePreviewRequestV1 instance.
+     * @param {Partial<ImageAnnotatePreviewRequestV1>} [$$source = {}] - The source object to create the ImageAnnotatePreviewRequestV1.
+     */
+    constructor($$source = {}) {
+        if (!("inputPath" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["inputPath"] = "";
+        }
+        if (!("operations" in $$source)) {
+            /**
+             * @member
+             * @type {ImageAnnotateOperationV1[]}
+             */
+            this["operations"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["format"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["outputColor"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ImageAnnotatePreviewRequestV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ImageAnnotatePreviewRequestV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("operations" in $$parsedSource) {
+            $$parsedSource["operations"] = $$createField1_0($$parsedSource["operations"]);
+        }
+        return new ImageAnnotatePreviewRequestV1(/** @type {Partial<ImageAnnotatePreviewRequestV1>} */($$parsedSource));
+    }
+}
+
+export class ImageAnnotatePreviewResponseV1 {
+    /**
+     * Creates a new ImageAnnotatePreviewResponseV1 instance.
+     * @param {Partial<ImageAnnotatePreviewResponseV1>} [$$source = {}] - The source object to create the ImageAnnotatePreviewResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["dataBase64"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["mimeType"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["width"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["height"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ImageAnnotatePreviewResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ImageAnnotatePreviewResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField6_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField6_0($$parsedSource["error"]);
+        }
+        return new ImageAnnotatePreviewResponseV1(/** @type {Partial<ImageAnnotatePreviewResponseV1>} */($$parsedSource));
+    }
+}
+
 export class ImageCropPreviewRequestV1 {
     /**
      * Creates a new ImageCropPreviewRequestV1 instance.
@@ -321,7 +560,7 @@ export class JobErrorV1 {
      * @returns {JobErrorV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType2;
+        const $$createField3_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("details" in $$parsedSource) {
             $$parsedSource["details"] = $$createField3_0($$parsedSource["details"]);
@@ -438,8 +677,8 @@ export class JobRequestV1 {
      * @returns {JobRequestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType3;
-        const $$createField4_0 = $$createType2;
+        const $$createField2_0 = $$createType5;
+        const $$createField4_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputPaths" in $$parsedSource) {
             $$parsedSource["inputPaths"] = $$createField2_0($$parsedSource["inputPaths"]);
@@ -516,7 +755,7 @@ export class JobResultItemV1 {
      * @returns {JobResultItemV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType3;
+        const $$createField2_0 = $$createType5;
         const $$createField6_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
@@ -615,8 +854,8 @@ export class JobResultV1 {
      * @returns {JobResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType4;
-        const $$createField6_0 = $$createType6;
+        const $$createField5_0 = $$createType6;
+        const $$createField6_0 = $$createType8;
         const $$createField7_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
@@ -683,7 +922,7 @@ export class JobStatusResponseV1 {
      * @returns {JobStatusResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType8;
+        const $$createField3_0 = $$createType10;
         const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
@@ -733,7 +972,7 @@ export class ListToolsResponseV1 {
      * @returns {ListToolsResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType10;
+        const $$createField2_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tools" in $$parsedSource) {
             $$parsedSource["tools"] = $$createField2_0($$parsedSource["tools"]);
@@ -892,8 +1131,8 @@ export class ToolCatalogEntryV1 {
      * @returns {ToolCatalogEntryV1}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType11;
-        const $$createField1_0 = $$createType12;
+        const $$createField0_0 = $$createType13;
+        const $$createField1_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("manifest" in $$parsedSource) {
             $$parsedSource["manifest"] = $$createField0_0($$parsedSource["manifest"]);
@@ -1005,10 +1244,10 @@ export class ToolManifestV1 {
      * @returns {ToolManifestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField8_0 = $$createType3;
-        const $$createField9_0 = $$createType3;
-        const $$createField10_0 = $$createType3;
-        const $$createField11_0 = $$createType3;
+        const $$createField8_0 = $$createType5;
+        const $$createField9_0 = $$createType5;
+        const $$createField10_0 = $$createType5;
+        const $$createField11_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputExtensions" in $$parsedSource) {
             $$parsedSource["inputExtensions"] = $$createField8_0($$parsedSource["inputExtensions"]);
@@ -1125,14 +1364,16 @@ export class ValidateJobResponseV1 {
 // Private type creation functions
 const $$createType0 = JobErrorV1.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = $Create.Map($Create.Any, $Create.Any);
-const $$createType3 = $Create.Array($Create.Any);
-const $$createType4 = JobProgressV1.createFrom;
-const $$createType5 = JobResultItemV1.createFrom;
-const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = JobResultV1.createFrom;
-const $$createType8 = $Create.Nullable($$createType7);
-const $$createType9 = ToolCatalogEntryV1.createFrom;
-const $$createType10 = $Create.Array($$createType9);
-const $$createType11 = ToolManifestV1.createFrom;
-const $$createType12 = ToolRuntimeStateV1.createFrom;
+const $$createType2 = ImageAnnotateOperationV1.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $Create.Map($Create.Any, $Create.Any);
+const $$createType5 = $Create.Array($Create.Any);
+const $$createType6 = JobProgressV1.createFrom;
+const $$createType7 = JobResultItemV1.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = JobResultV1.createFrom;
+const $$createType10 = $Create.Nullable($$createType9);
+const $$createType11 = ToolCatalogEntryV1.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = ToolManifestV1.createFrom;
+const $$createType14 = ToolRuntimeStateV1.createFrom;

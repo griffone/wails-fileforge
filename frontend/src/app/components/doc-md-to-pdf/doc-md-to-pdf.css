@@ -1,0 +1,29 @@
+.approx-sheet {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 10px 14px;
+  width: 100%;
+  min-height: 480px;
+  display: flex;
+  flex-direction: column;
+}
+
+.approx-header,
+.approx-footer {
+  min-height: 24px;
+  border-bottom: 1px dashed #d1d5db;
+  padding-bottom: 6px;
+}
+
+.approx-footer {
+  border-top: 1px dashed #d1d5db;
+  border-bottom: none;
+  padding-top: 6px;
+  margin-top: auto;
+}
+
+.approx-body {
+  flex: 1;
+  padding: 22px 6px;
+}

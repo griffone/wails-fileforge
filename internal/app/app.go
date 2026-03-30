@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	// Import for auto-registration
+	_ "fileforge-desktop/internal/doc"
 	_ "fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/models"
 	_ "fileforge-desktop/internal/pdf"

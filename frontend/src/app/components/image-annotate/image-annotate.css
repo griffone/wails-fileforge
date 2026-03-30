@@ -1,0 +1,94 @@
+:host {
+  display: block;
+}
+
+.tool-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.preview-stage {
+  position: relative;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #f8fafc;
+  min-height: 220px;
+}
+
+.preview-shell {
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #f8fafc;
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+}
+
+.preview-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+}
+
+.annotate-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.shape {
+  vector-effect: non-scaling-stroke;
+}
+
+.shape-rect {
+  fill: rgba(37, 99, 235, 0.12);
+  stroke: #1d4ed8;
+}
+
+.shape-blur {
+  fill: rgba(234, 179, 8, 0.16);
+  stroke: #ca8a04;
+  stroke-dasharray: 4 3;
+}
+
+.shape-redact {
+  fill: rgba(17, 24, 39, 0.35);
+  stroke: #111827;
+}
+
+.shape-arrow {
+  fill: none;
+  stroke: #7c3aed;
+}
+
+.shape-text {
+  fill: #dc2626;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 0.6;
+}
+
+.shape-selected {
+  stroke: #22c55e !important;
+  filter: drop-shadow(0 0 2px rgba(34, 197, 94, 0.8));
+}
+
+.shape-draft {
+  fill: rgba(14, 165, 233, 0.12);
+  stroke: #0284c7;
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.selected-row {
+  border-color: #22c55e;
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.2);
+}

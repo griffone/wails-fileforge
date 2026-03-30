@@ -164,6 +164,110 @@ describe('PdfMerge', () => {
     ]);
   });
 
+  it('requires explicit modal confirmation before execute', async () => {
+    component.selectedInputPaths = ['/tmp/2.pdf', '/tmp/1.pdf'];
+    component.form.patchValue({ outputPath: '/tmp/out/merged.pdf' });
+
+    await component.run();
+
+    expect(component.showRunOrderConfirmation).toBeTrue();
+    expect(component.confirmedOrderSnapshot).toEqual(['/tmp/2.pdf', '/tmp/1.pdf']);
+    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+  });
+
+  it('cancels modal confirmation without submitting job', async () => {
+    component.selectedInputPaths = ['/tmp/2.pdf', '/tmp/1.pdf'];
+    component.form.patchValue({ outputPath: '/tmp/out/merged.pdf' });
+
+    await component.run();
+    component.cancelRunOrderConfirmation();
+
+    expect(component.showRunOrderConfirmation).toBeFalse();
+    expect(component.submitMessage).toContain('no se confirmó el orden final');
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+  });
+
+  it('submits using confirmed order snapshot after modal approval', fakeAsync(() => {
+    const validation: ValidateJobResponseV1 = {
+      success: true,
+      message: 'ok',
+      valid: true,
+    };
+    const run: RunJobResponseV1 = {
+      success: true,
+      message: 'submitted',
+      jobId: 'pdf-job-confirm-order',
+      status: 'queued',
+    };
+    const completedStatus: JobStatusResponseV1 = {
+      success: true,
+      message: 'success',
+      found: true,
+      result: {
+        jobId: 'pdf-job-confirm-order',
+        success: true,
+        message: 'done',
+        toolId: 'tool.pdf.merge',
+        status: 'success',
+        progress: { current: 2, total: 2, stage: 'done', message: 'success' },
+        items: [],
+        startedAt: Date.now(),
+        endedAt: Date.now(),
+      },
+    };
+    const finishedStatus: JobStatusResponseV1 = {
+      success: true,
+      message: 'success',
+      found: true,
+      result: {
+        jobId: 'pdf-job-confirm-order',
+        success: true,
+        message: 'done',
+        toolId: 'tool.pdf.merge',
+        status: 'success',
+        progress: { current: 2, total: 2, stage: 'done', message: 'success' },
+        items: [],
+        startedAt: Date.now(),
+        endedAt: Date.now(),
+      },
+    };
+
+    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
+    wailsSpy.runJobV1.and.returnValue(Promise.resolve(run));
+    wailsSpy.getJobStatusV1.and.returnValues(
+      Promise.resolve(completedStatus),
+      Promise.resolve(finishedStatus)
+    );
+
+    component.selectedInputPaths = ['/tmp/b.pdf', '/tmp/a.pdf'];
+    component.form.patchValue({ outputPath: '/tmp/out/merged.pdf' });
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(component.showRunOrderConfirmation).toBeTrue();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+
+    component.selectedInputPaths = ['/tmp/a.pdf', '/tmp/b.pdf'];
+
+    void component.confirmRunOrderAndExecute();
+    flushMicrotasks();
+
+    const validateRequest = wailsSpy.validateJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(validateRequest.inputPaths).toEqual(['/tmp/b.pdf', '/tmp/a.pdf']);
+
+    const runRequest = wailsSpy.runJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(runRequest.inputPaths).toEqual(['/tmp/b.pdf', '/tmp/a.pdf']);
+    expect(component.showRunOrderConfirmation).toBeFalse();
+    expect(component.activeJobId).toBe('');
+
+    tick(1000);
+    flushMicrotasks();
+    expect(component.activeJobId).toBe('');
+  }));
+
   it('runs and transitions basic state through polling', fakeAsync(() => {
     const validation: ValidateJobResponseV1 = {
       success: true,
@@ -229,6 +333,8 @@ describe('PdfMerge', () => {
 
     void component.run();
     flushMicrotasks();
+    void component.confirmRunOrderAndExecute();
+    flushMicrotasks();
 
     expect(component.activeJobId).toBe('pdf-job-123');
     expect(component.isPolling).toBeTrue();
@@ -282,6 +388,8 @@ describe('PdfMerge', () => {
 
     void component.run();
     flushMicrotasks();
+    void component.confirmRunOrderAndExecute();
+    flushMicrotasks();
 
     expect(component.statusMessage).toContain('error de ejecución');
     expect(component.isPolling).toBeFalse();
@@ -329,8 +437,60 @@ describe('PdfMerge', () => {
 
     void component.run();
     flushMicrotasks();
+    void component.confirmRunOrderAndExecute();
+    flushMicrotasks();
 
     expect(component.statusMessage).toContain('Validación');
     expect(component.isPolling).toBeFalse();
+  }));
+
+  it('renders protected pdf errors with detail code in status', fakeAsync(() => {
+    const validation: ValidateJobResponseV1 = {
+      success: true,
+      message: 'ok',
+      valid: true,
+    };
+    const run: RunJobResponseV1 = {
+      success: true,
+      message: 'submitted',
+      jobId: 'pdf-job-protected',
+      status: 'queued',
+    };
+    const failedStatus: JobStatusResponseV1 = {
+      success: true,
+      message: 'failed',
+      found: true,
+      result: {
+        jobId: 'pdf-job-protected',
+        success: false,
+        message: 'failed',
+        toolId: 'tool.pdf.merge',
+        status: 'failed',
+        progress: { current: 1, total: 1, stage: 'run', message: 'failed' },
+        items: [],
+        error: {
+          code: 'VALIDATION_INVALID_INPUT',
+          detail_code: 'PDF_PROTECTED_INPUT',
+          message: 'password-protected PDF input: secret.pdf',
+        },
+        startedAt: Date.now(),
+        endedAt: Date.now(),
+      },
+    };
+
+    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
+    wailsSpy.runJobV1.and.returnValue(Promise.resolve(run));
+    wailsSpy.getJobStatusV1.and.returnValue(Promise.resolve(failedStatus));
+
+    component.selectedInputPaths = ['/tmp/1.pdf', '/tmp/secret.pdf'];
+    component.form.patchValue({ outputPath: '/tmp/out/merged.pdf' });
+
+    void component.run();
+    flushMicrotasks();
+    void component.confirmRunOrderAndExecute();
+    flushMicrotasks();
+
+    expect(component.statusMessage).toContain('[PDF_PROTECTED_INPUT]');
+    expect(component.statusMessage).toContain('password-protected PDF input');
   }));
 });

@@ -35,6 +35,7 @@ export class ToolExecutionPanel {
   @Input() currentMode = 'single';
 
   @Input() validationMessage = '';
+  @Input() inlineFieldErrors: Record<string, string> = {};
   @Input() submitMessage = '';
   @Input() statusMessage = '';
   @Input() isSubmitting = false;
@@ -57,6 +58,10 @@ export class ToolExecutionPanel {
     return field.visibleModes.includes(this.currentMode);
   }
 
+  fieldError(controlName: string): string {
+    return this.inlineFieldErrors[controlName] ?? '';
+  }
+
   progressPercent(): number {
     if (!this.jobResult || this.jobResult.progress.total <= 0) {
       return 0;
@@ -70,5 +75,44 @@ export class ToolExecutionPanel {
       return item.outputs;
     }
     return [];
+  }
+
+  itemStatusLabel(item: JobResultItemV1): string {
+    return item.success ? 'success' : 'failed';
+  }
+
+  itemErrorText(item: JobResultItemV1): string {
+    if (!item.error) {
+      return item.message;
+    }
+
+    const detail = item.error.detail_code ? ` [${item.error.detail_code}]` : '';
+    return `${item.error.code}${detail}: ${item.error.message}`;
+  }
+
+  aggregateFileErrors(): Array<{ path: string; code: string; message: string }> {
+    const raw = this.jobResult?.error?.details?.['fileErrors'];
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+
+    const normalized: Array<{ path: string; code: string; message: string }> = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+
+      const candidate = entry as Record<string, unknown>;
+      const path = typeof candidate['path'] === 'string' ? candidate['path'] : '';
+      const code = typeof candidate['code'] === 'string' ? candidate['code'] : '';
+      const message = typeof candidate['message'] === 'string' ? candidate['message'] : '';
+      if (!path && !code && !message) {
+        continue;
+      }
+
+      normalized.push({ path, code, message });
+    }
+
+    return normalized;
   }
 }

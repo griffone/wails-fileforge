@@ -4,6 +4,9 @@
 
 export {
     CancelJobResponseV1,
+    ImageAnnotateOperationV1,
+    ImageAnnotatePreviewRequestV1,
+    ImageAnnotatePreviewResponseV1,
     ImageCropPreviewRequestV1,
     ImageCropPreviewResponseV1,
     ImagePreviewSourceResponseV1,

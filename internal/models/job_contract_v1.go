@@ -50,13 +50,25 @@ func CanonicalErrorCode(detailCode string) string {
 		return ErrorCodeCancelledByUser
 	case strings.Contains(code, "TIMEOUT"):
 		return ErrorCodeExecTimeoutTransient
+	case strings.Contains(code, "DOC_DOCX_TO_PDF_RUNTIME"):
+		return ErrorCodeRuntimeDepMissing
+	case strings.Contains(code, "DOC_DOCX_TO_PDF_INPUT"), strings.Contains(code, "DOC_DOCX_TO_PDF_MODE"), strings.Contains(code, "DOC_DOCX_TO_PDF_OUTPUT"):
+		return ErrorCodeValidationInvalidInput
+	case strings.Contains(code, "DOC_DOCX_TO_PDF_FONTS"):
+		return ErrorCodeExecIOTransient
+	case strings.Contains(code, "DOC_DOCX_TO_PDF_PRIMARY_EXECUTION"), strings.Contains(code, "DOC_DOCX_TO_PDF_FALLBACK_EXECUTION"), strings.Contains(code, "DOC_DOCX_TO_PDF_EXECUTION"):
+		return ErrorCodeExecIOTransient
 	case strings.Contains(code, "UNSUPPORTED"), strings.Contains(code, "FORMAT_MISMATCH"):
 		return ErrorCodeUnsupportedFormat
+	case strings.Contains(code, "DOC_MD_TO_PDF_INPUT"), strings.Contains(code, "DOC_MD_TO_PDF_CONFIG"), strings.Contains(code, "DOC_MD_TO_PDF_ALIGN"), strings.Contains(code, "DOC_MD_TO_PDF_FONT"), strings.Contains(code, "DOC_MD_TO_PDF_COLOR"), strings.Contains(code, "DOC_MD_TO_PDF_MARGIN"), strings.Contains(code, "DOC_MD_TO_PDF_PLACEHOLDER"), strings.Contains(code, "DOC_MD_TO_PDF_MODE"), strings.Contains(code, "DOC_MD_TO_PDF_OUTPUT"):
+		return ErrorCodeValidationInvalidInput
+	case strings.Contains(code, "DOC_MD_TO_PDF_RENDER"):
+		return ErrorCodeExecIOTransient
 	case strings.Contains(code, "PDF_PREVIEW"):
 		return ErrorCodeValidationInvalidInput
 	case strings.Contains(code, "RUNTIME"), strings.Contains(code, "DEPENDENCY"), strings.Contains(code, "DEP_MISSING"):
 		return ErrorCodeRuntimeDepMissing
-	case strings.Contains(code, "VALIDATION"), strings.Contains(code, "INVALID"), strings.Contains(code, "NOT_FOUND"), strings.Contains(code, "MISSING"):
+	case strings.Contains(code, "VALIDATION"), strings.Contains(code, "INVALID"), strings.Contains(code, "NOT_FOUND"), strings.Contains(code, "MISSING"), strings.Contains(code, "PROTECTED"):
 		return ErrorCodeValidationInvalidInput
 	default:
 		return ErrorCodeExecIOTransient

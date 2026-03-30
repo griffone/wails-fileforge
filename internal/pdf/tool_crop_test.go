@@ -228,7 +228,7 @@ func TestCropToolExecuteBatchHappyPath(t *testing.T) {
 	}
 }
 
-func TestCropToolValidateAndExecuteBatchParityPreexistingOutput(t *testing.T) {
+func TestCropToolValidateAndExecuteBatchPreexistingOutputUsesAutoincrement(t *testing.T) {
 	tmpDir := t.TempDir()
 	input := filepath.Join(tmpDir, "input.pdf")
 	writeMultiPagePDFForSplitTool(t, input, []string{"one", "two"})
@@ -255,26 +255,23 @@ func TestCropToolValidateAndExecuteBatchParityPreexistingOutput(t *testing.T) {
 
 	tool := NewCropTool()
 	validateErr := tool.Validate(context.Background(), req)
-	if validateErr == nil {
-		t.Fatalf("expected validate error")
-	}
-	if validateErr.Code != engine.ErrorCodeCropOutputExists {
-		t.Fatalf("expected code %s, got %s", engine.ErrorCodeCropOutputExists, validateErr.Code)
+	if validateErr != nil {
+		t.Fatalf("expected validate success, got %+v", validateErr)
 	}
 
 	items, executeErr := tool.ExecuteBatch(context.Background(), req, nil)
-	if executeErr == nil {
-		t.Fatalf("expected execute error")
+	if executeErr != nil {
+		t.Fatalf("expected execute success, got %+v", executeErr)
 	}
-	if executeErr.Code != validateErr.Code {
-		t.Fatalf("expected parity code %s, got %s", validateErr.Code, executeErr.Code)
+	if len(items) != 1 || !items[0].Success {
+		t.Fatalf("expected one successful item, got %+v", items)
 	}
-	if len(items) != 0 {
-		t.Fatalf("expected no items on plan validation error, got %+v", items)
+	if items[0].OutputPath != filepath.Join(outputDir, "input_cropped-2.pdf") {
+		t.Fatalf("expected autoincremented output path, got %s", items[0].OutputPath)
 	}
 }
 
-func TestCropToolValidateAndExecuteBatchParityCollision(t *testing.T) {
+func TestCropToolValidateAndExecuteBatchCollisionUsesAutoincrement(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputA := filepath.Join(tmpDir, "A.pdf")
 	inputB := filepath.Join(tmpDir, "a.PDF")
@@ -298,18 +295,96 @@ func TestCropToolValidateAndExecuteBatchParityCollision(t *testing.T) {
 
 	tool := NewCropTool()
 	validateErr := tool.Validate(context.Background(), req)
-	if validateErr == nil {
-		t.Fatalf("expected validate error")
-	}
-	if validateErr.Code != engine.ErrorCodeCropBatchOutputCollision {
-		t.Fatalf("expected code %s, got %s", engine.ErrorCodeCropBatchOutputCollision, validateErr.Code)
+	if validateErr != nil {
+		t.Fatalf("expected validate success, got %+v", validateErr)
 	}
 
-	_, executeErr := tool.ExecuteBatch(context.Background(), req, nil)
-	if executeErr == nil {
-		t.Fatalf("expected execute error")
+	items, executeErr := tool.ExecuteBatch(context.Background(), req, nil)
+	if executeErr != nil {
+		t.Fatalf("expected execute success, got %+v", executeErr)
 	}
-	if executeErr.Code != validateErr.Code {
-		t.Fatalf("expected parity code %s, got %s", validateErr.Code, executeErr.Code)
+	if len(items) != 2 || !items[0].Success || !items[1].Success {
+		t.Fatalf("expected both items success, got %+v", items)
+	}
+	if items[0].OutputPath != filepath.Join(outputDir, "A_cropped.pdf") {
+		t.Fatalf("unexpected first output path: %s", items[0].OutputPath)
+	}
+	if items[1].OutputPath != filepath.Join(outputDir, "a_cropped-2.pdf") {
+		t.Fatalf("expected incremented second output path, got %s", items[1].OutputPath)
+	}
+}
+
+func TestCropToolExecuteBatchMixedPerFileErrorsReturnsItemsAndAggregateError(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputShort := filepath.Join(tmpDir, "short.pdf")
+	inputLong := filepath.Join(tmpDir, "long.pdf")
+	writeMultiPagePDFForSplitTool(t, inputShort, []string{"one", "two"})
+	writeMultiPagePDFForSplitTool(t, inputLong, []string{"one", "two", "three", "four"})
+
+	outputDir := filepath.Join(tmpDir, "output")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatalf("mkdir output dir: %v", err)
+	}
+
+	tool := NewCropTool()
+	items, jobErr := tool.ExecuteBatch(context.Background(), models.JobRequestV1{
+		ToolID:     ToolIDPDFCropV1,
+		Mode:       "batch",
+		InputPaths: []string{inputShort, inputLong},
+		Options: map[string]any{
+			"outputDir":     outputDir,
+			"cropPreset":    engine.CropPresetSmall,
+			"pageSelection": "3-4",
+		},
+	}, nil)
+
+	if jobErr == nil {
+		t.Fatalf("expected aggregate error for mixed batch result")
+	}
+	if jobErr.DetailCode != engine.ErrorCodeCropFailed {
+		t.Fatalf("expected detail code %s, got %s", engine.ErrorCodeCropFailed, jobErr.DetailCode)
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].Success {
+		t.Fatalf("expected first item failure, got %+v", items[0])
+	}
+	if items[0].Error == nil || items[0].Error.DetailCode != engine.ErrorCodeCropPageSelectionBounds {
+		t.Fatalf("expected first item bounds error, got %+v", items[0].Error)
+	}
+	if !items[1].Success {
+		t.Fatalf("expected second item success, got %+v", items[1])
+	}
+
+	fileErrorsRaw, ok := jobErr.Details["fileErrors"]
+	if !ok {
+		t.Fatalf("expected aggregate details.fileErrors, got %+v", jobErr.Details)
+	}
+	fileErrors, ok := fileErrorsRaw.([]map[string]any)
+	if !ok {
+		anySlice, ok := fileErrorsRaw.([]any)
+		if !ok {
+			t.Fatalf("expected fileErrors to be []map[string]any or []any, got %T", fileErrorsRaw)
+		}
+		fileErrors = make([]map[string]any, 0, len(anySlice))
+		for _, entry := range anySlice {
+			mapped, ok := entry.(map[string]any)
+			if !ok {
+				t.Fatalf("expected map entry in fileErrors, got %T", entry)
+			}
+			fileErrors = append(fileErrors, mapped)
+		}
+	}
+
+	if len(fileErrors) != 1 {
+		t.Fatalf("expected 1 file error, got %+v", fileErrors)
+	}
+	if fileErrors[0]["path"] != inputShort {
+		t.Fatalf("expected file error path %q, got %+v", inputShort, fileErrors[0]["path"])
+	}
+	if fileErrors[0]["code"] != engine.ErrorCodeCropPageSelectionBounds {
+		t.Fatalf("expected file error code %q, got %+v", engine.ErrorCodeCropPageSelectionBounds, fileErrors[0]["code"])
 	}
 }

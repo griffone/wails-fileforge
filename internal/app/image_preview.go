@@ -34,6 +34,19 @@ func (a *App) GetImageCropPreviewV1(req models.ImageCropPreviewRequestV1) models
 	return tool.GetImageCropPreview(req)
 }
 
+func (a *App) GetImageAnnotatePreviewV1(req models.ImageAnnotatePreviewRequestV1) models.ImageAnnotatePreviewResponseV1 {
+	tool, ok := a.imageAnnotateTool()
+	if !ok {
+		return models.ImageAnnotatePreviewResponseV1{
+			Success: false,
+			Message: "Image annotate tool is unavailable.",
+			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", "tool.image.annotate is not registered", nil),
+		}
+	}
+
+	return tool.GetImageAnnotatePreviewV1(req)
+}
+
 func (a *App) imageCropTool() (*image.CropTool, bool) {
 	reg := registry.GetGlobalRegistry()
 	rawTool, err := reg.GetToolV2(image.ToolIDImageCropV1)
@@ -47,4 +60,19 @@ func (a *App) imageCropTool() (*image.CropTool, bool) {
 	}
 
 	return cropTool, true
+}
+
+func (a *App) imageAnnotateTool() (*image.AnnotateTool, bool) {
+	reg := registry.GetGlobalRegistry()
+	rawTool, err := reg.GetToolV2(image.ToolIDImageAnnotateV1)
+	if err != nil {
+		return nil, false
+	}
+
+	annotateTool, ok := rawTool.(*image.AnnotateTool)
+	if !ok {
+		return nil, false
+	}
+
+	return annotateTool, true
 }

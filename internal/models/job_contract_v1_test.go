@@ -9,10 +9,16 @@ func TestCanonicalErrorCodeMapping(t *testing.T) {
 		want       string
 	}{
 		{name: "validation detail", detailCode: "PDF_INVALID_INPUT", want: ErrorCodeValidationInvalidInput},
+		{name: "protected detail", detailCode: "PDF_PROTECTED_INPUT", want: ErrorCodeValidationInvalidInput},
 		{name: "runtime detail", detailCode: "VIDEO_RUNTIME_UNAVAILABLE", want: ErrorCodeRuntimeDepMissing},
 		{name: "timeout detail", detailCode: "EXEC_TIMEOUT", want: ErrorCodeExecTimeoutTransient},
 		{name: "unsupported detail", detailCode: "FORMAT_MISMATCH", want: ErrorCodeUnsupportedFormat},
 		{name: "cancelled detail", detailCode: "JOB_CANCELLED", want: ErrorCodeCancelledByUser},
+		{name: "doc validation detail", detailCode: "DOC_MD_TO_PDF_PLACEHOLDER_INVALID", want: ErrorCodeValidationInvalidInput},
+		{name: "doc render detail", detailCode: "DOC_MD_TO_PDF_RENDER_FAILED", want: ErrorCodeExecIOTransient},
+		{name: "docx runtime detail", detailCode: "DOC_DOCX_TO_PDF_RUNTIME_LIBREOFFICE_MISSING", want: ErrorCodeRuntimeDepMissing},
+		{name: "docx input detail", detailCode: "DOC_DOCX_TO_PDF_INPUT_UNSUPPORTED", want: ErrorCodeValidationInvalidInput},
+		{name: "docx execution detail", detailCode: "DOC_DOCX_TO_PDF_FALLBACK_EXECUTION_FAILED", want: ErrorCodeExecIOTransient},
 		{name: "default detail", detailCode: "EXECUTE_FAILED", want: ErrorCodeExecIOTransient},
 	}
 

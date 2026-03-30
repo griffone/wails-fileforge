@@ -1,8 +1,10 @@
 package pdf
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +12,9 @@ import (
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/pdf/engine"
 	"fileforge-desktop/internal/registry"
+
+	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
 func TestMergeToolValidateMinimumRules(t *testing.T) {
@@ -164,6 +169,49 @@ func TestMergeToolExecuteSingleCorruptInputMappedError(t *testing.T) {
 	}
 }
 
+func TestMergeToolExecuteSingleProtectedInputMappedError(t *testing.T) {
+	tmpDir := t.TempDir()
+	validPDF := filepath.Join(tmpDir, "valid.pdf")
+	protectedSource := filepath.Join(tmpDir, "protected-source.pdf")
+	protectedPDF := filepath.Join(tmpDir, "protected.pdf")
+	out := filepath.Join(tmpDir, "merged.pdf")
+
+	writeMinimalPDFFile(t, validPDF)
+	writeMinimalPDFFile(t, protectedSource)
+
+	encConf := model.NewAESConfiguration("user-pass", "owner-pass", 256)
+	if err := api.EncryptFile(protectedSource, protectedPDF, encConf); err != nil {
+		t.Fatalf("encrypt protected fixture: %v", err)
+	}
+
+	tool := NewMergeTool()
+	item, jobErr := tool.ExecuteSingle(context.Background(), models.JobRequestV1{
+		ToolID:     ToolIDPDFMergeV1,
+		Mode:       "single",
+		InputPaths: []string{validPDF, protectedPDF},
+		Options:    map[string]any{"outputPath": out},
+	})
+
+	if jobErr == nil {
+		t.Fatal("expected execution error, got nil")
+	}
+
+	if jobErr.Code != engine.ErrorCodeProtectedInputPDF {
+		t.Fatalf("expected %s, got %s", engine.ErrorCodeProtectedInputPDF, jobErr.Code)
+	}
+
+	if jobErr.DetailCode != engine.ErrorCodeProtectedInputPDF {
+		t.Fatalf("expected detail code %s, got %s", engine.ErrorCodeProtectedInputPDF, jobErr.DetailCode)
+	}
+
+	if item.Success {
+		t.Fatalf("expected failed item result")
+	}
+	if item.Error == nil || item.Error.Code != engine.ErrorCodeProtectedInputPDF {
+		t.Fatalf("expected item error with code %s, got %+v", engine.ErrorCodeProtectedInputPDF, item.Error)
+	}
+}
+
 func TestPDFMergeToolAppearsInRegistryCatalog(t *testing.T) {
 	r := registry.NewRegistry()
 	tool := NewMergeTool()
@@ -201,8 +249,33 @@ func TestMapMergeErrorUsesConsistentFallback(t *testing.T) {
 func writeMinimalPDFFile(t *testing.T, path string) {
 	t.Helper()
 
-	content := []byte("%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >> endobj\n4 0 obj << /Length 30 >> stream\nBT /F1 18 Tf 40 100 Td (Hi) Tj ET\nendstream endobj\nxref\n0 5\n0000000000 65535 f \n0000000010 00000 n \n0000000063 00000 n \n0000000126 00000 n \n0000000208 00000 n \ntrailer << /Size 5 /Root 1 0 R >>\nstartxref\n292\n%%EOF\n")
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	content := "BT /F1 24 Tf 40 100 Td (Hi) Tj ET"
+	b := &bytes.Buffer{}
+	b.WriteString("%PDF-1.4\n")
+
+	offsets := make([]int, 6)
+
+	writeObj := func(objID int, body string) {
+		offsets[objID] = b.Len()
+		_, _ = fmt.Fprintf(b, "%d 0 obj\n%s\nendobj\n", objID, body)
+	}
+
+	writeObj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	writeObj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	writeObj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>")
+	writeObj(4, fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content))
+	writeObj(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+	xrefOffset := b.Len()
+	b.WriteString("xref\n0 6\n")
+	b.WriteString("0000000000 65535 f \n")
+	for i := 1; i <= 5; i++ {
+		_, _ = fmt.Fprintf(b, "%010d 00000 n \n", offsets[i])
+	}
+	b.WriteString("trailer\n<< /Size 6 /Root 1 0 R >>\n")
+	_, _ = fmt.Fprintf(b, "startxref\n%d\n%%%%EOF\n", xrefOffset)
+
+	if err := os.WriteFile(path, b.Bytes(), 0o644); err != nil {
 		t.Fatalf("failed writing minimal pdf: %v", err)
 	}
 }

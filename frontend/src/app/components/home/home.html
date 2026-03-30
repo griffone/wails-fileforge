@@ -35,6 +35,16 @@
         </button>
       </article>
 
+      <article class="card border border-fuchsia-200 bg-fuchsia-50/50">
+        <h3 class="text-lg font-semibold text-gray-900">Image Annotate</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Annotate images with text, arrows, rectangles, blur and irreversible redact.
+        </p>
+        <button class="btn btn-secondary mt-4" (click)="navigateToImageAnnotate()">
+          Open Image Annotate
+        </button>
+      </article>
+
       <article class="card border border-gray-200">
         <h3 class="text-lg font-semibold text-gray-900">Tool Catalog</h3>
         <p class="mt-2 text-sm text-gray-700">
@@ -72,6 +82,26 @@
         </p>
         <button class="btn btn-secondary mt-4" (click)="navigateToPdfCrop()">
           Open PDF Crop
+        </button>
+      </article>
+
+      <article class="card border border-violet-200 bg-violet-50/40">
+        <h3 class="text-lg font-semibold text-gray-900">Markdown to PDF</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Convert one markdown file to A4 portrait PDF with configurable header/footer.
+        </p>
+        <button class="btn btn-secondary mt-4" (click)="navigateToDocMdToPdf()">
+          Open Markdown to PDF
+        </button>
+      </article>
+
+      <article class="card border border-amber-200 bg-amber-50/40">
+        <h3 class="text-lg font-semibold text-gray-900">DOCX to PDF</h3>
+        <p class="mt-2 text-sm text-gray-700">
+          Convert DOCX files to PDF in single or batch mode with fidelidad estándar.
+        </p>
+        <button class="btn btn-secondary mt-4" (click)="navigateToDocDocxToPdf()">
+          Open DOCX to PDF
         </button>
       </article>
 

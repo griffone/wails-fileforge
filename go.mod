@@ -3,9 +3,14 @@ module fileforge-desktop
 go 1.25.0
 
 require (
+	github.com/disintegration/imaging v1.6.2
+	github.com/fogleman/gg v1.3.0
 	github.com/h2non/bimg v1.1.9
+	github.com/jung-kurt/gofpdf v1.16.2
 	github.com/pdfcpu/pdfcpu v0.10.2
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
+	github.com/yuin/goldmark v1.7.16
+	golang.org/x/image v0.35.0
 )
 
 require (
@@ -26,6 +31,7 @@ require (
 	github.com/go-git/go-git/v5 v5.17.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hhrutter/lzw v1.0.0 // indirect
@@ -51,7 +57,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/image v0.35.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect

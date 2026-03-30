@@ -43,6 +43,9 @@
         </ng-container>
 
         <p *ngIf="field.helpText" class="mt-1 text-xs text-gray-500">{{ field.helpText }}</p>
+        <p *ngIf="fieldError(field.controlName)" class="mt-1 text-xs text-red-700">
+          {{ fieldError(field.controlName) }}
+        </p>
       </div>
     </ng-container>
 
@@ -87,6 +90,12 @@
         <p class="text-xs text-gray-500">Input</p>
         <p class="mb-2 break-all font-mono text-xs text-gray-700">{{ item.inputPath }}</p>
 
+        <p class="text-xs">
+          <span class="font-semibold" [class.text-green-700]="item.success" [class.text-red-700]="!item.success">
+            Item status: {{ itemStatusLabel(item) }}
+          </span>
+        </p>
+
         <p class="text-xs text-gray-500">
           Outputs
           <span *ngIf="item.outputCount !== undefined">({{ item.outputCount }})</span>
@@ -96,7 +105,22 @@
             {{ output }}
           </li>
         </ul>
+
+        <p *ngIf="!item.success" class="mt-2 break-all text-xs text-red-700">
+          {{ itemErrorText(item) }}
+        </p>
       </div>
+    </div>
+
+    <div *ngIf="aggregateFileErrors().length > 0" class="mt-4 rounded border border-red-200 bg-red-50 p-3">
+      <h4 class="text-sm font-semibold text-red-900">Batch file errors (aggregated)</h4>
+      <ul class="mt-2 space-y-1 text-xs text-red-800">
+        <li *ngFor="let err of aggregateFileErrors()">
+          <span class="font-mono">{{ err.path }}</span>
+          <span *ngIf="err.code"> · [{{ err.code }}]</span>
+          <span *ngIf="err.message"> · {{ err.message }}</span>
+        </li>
+      </ul>
     </div>
   </div>
 

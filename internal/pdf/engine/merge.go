@@ -15,6 +15,8 @@ import (
 const (
 	ErrorCodeValidation            = "VALIDATION_ERROR"
 	ErrorCodeInvalidInputPDF       = "PDF_INVALID_INPUT"
+	ErrorCodeInvalidInputsPDF      = "PDF_INVALID_INPUTS"
+	ErrorCodeProtectedInputPDF     = "PDF_PROTECTED_INPUT"
 	ErrorCodeMergeFailed           = "PDF_MERGE_FAILED"
 	ErrorCodeDuplicateInput        = "PDF_DUPLICATE_INPUT"
 	ErrorCodeOutputCollidesInput   = "PDF_OUTPUT_COLLIDES_INPUT"
@@ -26,6 +28,7 @@ const (
 type MergeError struct {
 	Code    string
 	Message string
+	Details map[string]any
 	Cause   error
 }
 
@@ -50,18 +53,35 @@ func Merge(ctx context.Context, inputPaths []string, outputPath string) error {
 		return validationErr
 	}
 
+	inputValidationErrors := make([]map[string]any, 0)
 	for _, inputPath := range inputPaths {
 		if err := ctx.Err(); err != nil {
 			return &MergeError{Code: "CANCELED", Message: "merge canceled", Cause: err}
 		}
 
 		if !isPDFPath(inputPath) {
-			return &MergeError{Code: ErrorCodeValidation, Message: fmt.Sprintf("input file must be .pdf: %s", inputPath)}
+			inputValidationErrors = append(inputValidationErrors, map[string]any{
+				"inputPath": inputPath,
+				"fileName":  filepath.Base(inputPath),
+				"code":      ErrorCodeValidation,
+				"message":   fmt.Sprintf("input file must be .pdf: %s", inputPath),
+			})
+			continue
 		}
 
 		if err := api.ValidateFile(inputPath, nil); err != nil {
-			return &MergeError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("invalid PDF input: %s", filepath.Base(inputPath)), Cause: err}
+			code := classifyInputValidationError(err)
+			inputValidationErrors = append(inputValidationErrors, map[string]any{
+				"inputPath": inputPath,
+				"fileName":  filepath.Base(inputPath),
+				"code":      code,
+				"message":   fmt.Sprintf("%s: %s", codeMessagePrefix(code), filepath.Base(inputPath)),
+			})
 		}
+	}
+
+	if len(inputValidationErrors) > 0 {
+		return aggregateInputValidationError(inputValidationErrors)
 	}
 
 	if err := api.MergeCreateFile(inputPaths, outputPath, false, nil); err != nil {
@@ -69,6 +89,59 @@ func Merge(ctx context.Context, inputPaths []string, outputPath string) error {
 	}
 
 	return nil
+}
+
+func classifyInputValidationError(err error) string {
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "password") || strings.Contains(msg, "encrypt") || strings.Contains(msg, "decrypt") || strings.Contains(msg, "protected") {
+		return ErrorCodeProtectedInputPDF
+	}
+
+	return ErrorCodeInvalidInputPDF
+}
+
+func aggregateInputValidationError(fileErrors []map[string]any) *MergeError {
+	codes := make([]string, 0, len(fileErrors))
+	for _, fileError := range fileErrors {
+		code, _ := fileError["code"].(string)
+		if code != "" {
+			codes = append(codes, code)
+		}
+	}
+
+	errorCode := ErrorCodeInvalidInputsPDF
+	if len(codes) == 1 {
+		errorCode = codes[0]
+	} else if len(codes) > 1 {
+		firstCode := codes[0]
+		allSame := true
+		for _, code := range codes[1:] {
+			if code != firstCode {
+				allSame = false
+				break
+			}
+		}
+		if allSame {
+			errorCode = firstCode
+		}
+	}
+
+	return &MergeError{
+		Code:    errorCode,
+		Message: fmt.Sprintf("%d input file(s) failed PDF validation", len(fileErrors)),
+		Details: map[string]any{
+			"fileErrors": fileErrors,
+		},
+	}
+}
+
+func codeMessagePrefix(code string) string {
+	switch code {
+	case ErrorCodeProtectedInputPDF:
+		return "password-protected PDF input"
+	default:
+		return "invalid PDF input"
+	}
 }
 
 func ValidateMergePaths(inputPaths []string, outputPath string) *MergeError {

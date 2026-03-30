@@ -1,0 +1,91 @@
+<div class="min-h-screen bg-gray-50 p-6">
+  <div class="max-w-5xl mx-auto space-y-6">
+    <header class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-900">DOCX → PDF</h1>
+        <p class="text-gray-600 mt-1">Tool V1: single + batch, input .docx only.</p>
+      </div>
+      <div class="flex gap-2">
+        <a routerLink="/" class="btn btn-secondary">Home</a>
+        <a routerLink="/tool-catalog" class="btn btn-secondary">Catalog</a>
+      </div>
+    </header>
+
+    <section class="card space-y-4">
+      <div class="flex items-center gap-3">
+        <span class="inline-flex rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800">
+          fidelidad estándar
+        </span>
+        <p class="text-sm text-gray-600">
+          LibreOffice como motor primario y fallback automático con Pandoc ante cualquier error de ejecución del primario.
+        </p>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-sm font-medium text-gray-700">Mode</label>
+        <select
+          class="w-full rounded-lg border border-gray-300 px-3 py-2"
+          [value]="form.controls.mode.value"
+          (change)="form.controls.mode.setValue($any($event.target).value); onModeChanged()"
+        >
+          <option value="single">single</option>
+          <option value="batch">batch</option>
+        </select>
+      </div>
+
+      <div *ngIf="currentMode() === 'single'" class="space-y-3">
+        <label class="mb-1 block text-sm font-medium text-gray-700">Input DOCX path</label>
+        <div class="flex gap-2">
+          <input class="w-full rounded-lg border border-gray-300 px-3 py-2" [value]="form.controls.inputPath.value" (input)="form.patchValue({inputPath: $any($event.target).value})" placeholder="/path/file.docx" />
+          <button type="button" class="btn btn-secondary" (click)="selectDocxFromDialog()">Browse</button>
+        </div>
+
+        <label class="mb-1 block text-sm font-medium text-gray-700">Output directory (optional)</label>
+        <div class="flex gap-2">
+          <input class="w-full rounded-lg border border-gray-300 px-3 py-2" [value]="form.controls.outputDir.value" (input)="form.patchValue({outputDir: $any($event.target).value})" placeholder="/path/out" />
+          <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">Browse</button>
+        </div>
+
+        <label class="mb-1 block text-sm font-medium text-gray-700">Output path (optional)</label>
+        <input class="w-full rounded-lg border border-gray-300 px-3 py-2" [value]="form.controls.outputPath.value" (input)="form.patchValue({outputPath: $any($event.target).value})" placeholder="/path/out/file.pdf" />
+        <p class="text-xs text-gray-500">If empty, backend uses non-destructive naming: *_docx2pdf, with -2/-3 collisions.</p>
+      </div>
+
+      <div *ngIf="currentMode() === 'batch'" class="space-y-3">
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-secondary" (click)="selectDocxFromDialog()">Add one DOCX</button>
+          <button type="button" class="btn btn-secondary" (click)="selectMultipleDocxFromDialog()">Add multiple DOCX</button>
+        </div>
+
+        <div class="rounded border border-gray-200 bg-white p-3 text-sm">
+          <p class="text-gray-700 mb-2">Batch inputs ({{ selectedInputPaths.length }})</p>
+          <div *ngIf="selectedInputPaths.length === 0" class="text-gray-500">No files selected.</div>
+          <div *ngFor="let input of selectedInputPaths; let i = index" class="flex items-start justify-between gap-2">
+            <span class="font-mono text-xs break-all">{{ input }}</span>
+            <button type="button" class="btn btn-secondary" (click)="removeBatchInput(i)">Remove</button>
+          </div>
+        </div>
+
+        <label class="mb-1 block text-sm font-medium text-gray-700">Output directory (required)</label>
+        <div class="flex gap-2">
+          <input class="w-full rounded-lg border border-gray-300 px-3 py-2" [value]="form.controls.outputDir.value" (input)="form.patchValue({outputDir: $any($event.target).value})" placeholder="/path/out" />
+          <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">Browse</button>
+        </div>
+      </div>
+
+      <div class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        Esta conversión usa fidelidad estándar. En documentos complejos puede haber diferencias de diseño (tablas, fuentes, espaciado). ¿Querés continuar?
+      </div>
+
+      <div class="flex gap-2">
+        <button type="button" class="btn btn-secondary" (click)="validate()">Validate</button>
+        <button type="button" class="btn btn-primary" [disabled]="isSubmitting" (click)="run()">{{ isSubmitting ? 'Submitting...' : 'Run DOCX → PDF' }}</button>
+        <button type="button" class="btn btn-secondary" [disabled]="!activeJobId || !isPolling" (click)="cancel()">Cancel</button>
+      </div>
+
+      <div *ngIf="validationMessage" class="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">{{ validationMessage }}</div>
+      <div *ngIf="submitMessage" class="rounded border border-gray-200 bg-white p-3 text-sm text-gray-700">{{ submitMessage }}</div>
+      <div *ngIf="statusMessage" class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{{ statusMessage }}</div>
+    </section>
+  </div>
+</div>
