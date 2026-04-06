@@ -17,10 +17,18 @@ type JobRequestV1 struct {
 }
 
 type JobProgressV1 struct {
-	Current int    `json:"current"`
-	Total   int    `json:"total"`
-	Stage   string `json:"stage"`
-	Message string `json:"message"`
+	Current    int    `json:"current"`
+	Total      int    `json:"total"`
+	Stage      string `json:"stage"`
+	Message    string `json:"message"`
+	ETASeconds int    `json:"etaSeconds,omitempty"`
+}
+
+type JobProgressEventV1 struct {
+	JobID    string        `json:"jobId"`
+	ToolID   string        `json:"toolId"`
+	Status   string        `json:"status"`
+	Progress JobProgressV1 `json:"progress"`
 }
 
 type JobResultItemV1 struct {
@@ -28,6 +36,8 @@ type JobResultItemV1 struct {
 	OutputPath  string      `json:"outputPath"`
 	Outputs     []string    `json:"outputs,omitempty"`
 	OutputCount int         `json:"outputCount,omitempty"`
+	Attempts    int         `json:"attempts,omitempty"`
+	RetryCount  int         `json:"retryCount,omitempty"`
 	Success     bool        `json:"success"`
 	Message     string      `json:"message"`
 	Error       *JobErrorV1 `json:"error,omitempty"`

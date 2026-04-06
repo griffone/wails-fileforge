@@ -9,6 +9,7 @@ import {
 } from '../tool-execution-panel/tool-execution-panel';
 import {
   JobErrorV1,
+  JobProgressEventV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
@@ -16,11 +17,10 @@ import {
 } from '../../services/wails';
 
 const VIDEO_TRIM_TOOL_ID = 'tool.video.trim';
-const VIDEO_MERGE_TOOL_ID = 'tool.video.merge';
 const POLLING_INTERVAL_MS = 1000;
 
 type JobMode = 'single' | 'batch';
-type ActiveJobKind = 'trim' | 'merge';
+type ActiveJobKind = 'trim';
 
 @Component({
   selector: 'app-video-trim',
@@ -102,54 +102,26 @@ export class VideoTrim implements OnDestroy {
         { value: 'reencode', label: 'reencode (direct)' },
       ],
     },
-    {
-      controlName: 'mergeOutputs',
-      label: 'Merge outputs when batch completes',
-      type: 'select',
-      options: [
-        { value: 'no', label: 'no' },
-        { value: 'yes', label: 'yes' },
-      ],
-      visibleModes: ['batch'],
-    },
-    {
-      controlName: 'mergeOutputPath',
-      label: 'Merge output path',
-      type: 'text',
-      placeholder: '/path/to/merged.mp4',
-      visibleModes: ['batch'],
-    },
-    {
-      controlName: 'mergeMode',
-      label: 'Merge mode',
-      type: 'select',
-      options: [
-        { value: 'auto', label: 'auto (copy then fallback reencode)' },
-        { value: 'copy', label: 'copy (no fallback)' },
-        { value: 'reencode', label: 'reencode (direct)' },
-      ],
-      visibleModes: ['batch'],
-    },
   ];
 
   selectedInputPaths: string[] = [];
   validationMessage = '';
   submitMessage = '';
   statusMessage = '';
-  mergeChainMessage = '';
   jobResult: JobResultV1 | null = null;
-  mergeJobResult: JobResultV1 | null = null;
   isSubmitting = false;
   isPolling = false;
   activeJobId = '';
   progressStageLabel = '';
   progressPercentLabel = '0%';
+  etaLabel = '—';
   fallbackInfoMessage = '';
 
   private activeJobKind: ActiveJobKind = 'trim';
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private pollInFlight = false;
   private terminalStatusSeen = false;
+  private unsubscribeProgressEvent: (() => void) | null = null;
 
   constructor(
     private readonly fb: FormBuilder,
@@ -164,13 +136,11 @@ export class VideoTrim implements OnDestroy {
       targetFormat: ['mp4', Validators.required],
       qualityPreset: ['medium', Validators.required],
       trimMode: ['auto', Validators.required],
-      mergeOutputs: ['no', Validators.required],
-      mergeOutputPath: [''],
-      mergeMode: ['auto', Validators.required],
     });
   }
 
   ngOnDestroy(): void {
+    this.unsubscribeProgressEvent?.();
     this.stopPolling();
   }
 
@@ -288,7 +258,6 @@ export class VideoTrim implements OnDestroy {
     this.isSubmitting = true;
     this.statusMessage = '';
     this.jobResult = null;
-    this.mergeJobResult = null;
     this.terminalStatusSeen = false;
     this.activeJobKind = 'trim';
 
@@ -384,20 +353,6 @@ export class VideoTrim implements OnDestroy {
       return `Unsupported trimMode: ${trimMode}`;
     }
 
-    if (mode === 'batch' && this.shouldMergeOutputs()) {
-      const mergeOutputPath = this.form.controls.mergeOutputPath.value.trim();
-      const mergeMode = this.form.controls.mergeMode.value.trim();
-      if (!mergeOutputPath) {
-        return 'Merge output path is required when merge chaining is enabled.';
-      }
-      if (!mergeOutputPath.toLowerCase().endsWith(`.${targetFormat}`)) {
-        return `Merge output extension must match target format .${targetFormat}`;
-      }
-      if (mergeMode !== 'auto' && mergeMode !== 'copy' && mergeMode !== 'reencode') {
-        return `Unsupported mergeMode: ${mergeMode}`;
-      }
-    }
-
     return '';
   }
 
@@ -427,26 +382,6 @@ export class VideoTrim implements OnDestroy {
     };
   }
 
-  private buildMergeRequest(mergeInputs: string[]): JobRequestV1 {
-    const targetFormat = this.form.controls.targetFormat.value.trim();
-    const qualityPreset = this.form.controls.qualityPreset.value.trim();
-    const mergeMode = this.form.controls.mergeMode.value.trim();
-    const outputPath = this.form.controls.mergeOutputPath.value.trim();
-
-    return {
-      toolId: VIDEO_MERGE_TOOL_ID,
-      mode: 'single',
-      inputPaths: mergeInputs,
-      outputDir: this.outputDirFromPath(outputPath),
-      options: {
-        outputPath,
-        targetFormat,
-        qualityPreset,
-        mergeMode,
-      },
-    };
-  }
-
   private outputDirFromPath(outputPath: string): string {
     const lastSlash = Math.max(outputPath.lastIndexOf('/'), outputPath.lastIndexOf('\\'));
     if (lastSlash <= 0) {
@@ -464,6 +399,12 @@ export class VideoTrim implements OnDestroy {
   private startPolling(): void {
     this.stopPolling();
     this.isPolling = true;
+    this.unsubscribeProgressEvent?.();
+    this.unsubscribeProgressEvent = this.wailsService.subscribeJobProgressV1(
+      (event: JobProgressEventV1) => {
+        this.handleProgressEvent(event);
+      }
+    );
     this.pollInFlight = false;
     this.pollingTimer = setInterval(() => {
       void this.pollJobStatus();
@@ -478,6 +419,23 @@ export class VideoTrim implements OnDestroy {
     }
     this.isPolling = false;
     this.pollInFlight = false;
+    this.unsubscribeProgressEvent?.();
+    this.unsubscribeProgressEvent = null;
+  }
+
+  private handleProgressEvent(event: JobProgressEventV1): void {
+    if (!this.activeJobId || event.jobId !== this.activeJobId) {
+      return;
+    }
+
+    const stage = event.progress.stage?.trim();
+    const current = event.progress.current;
+    const total = event.progress.total;
+    const percent =
+      total > 0 ? Math.max(0, Math.min(100, Math.round((current / total) * 100))) : 0;
+    this.progressStageLabel = stage || event.status || this.progressStageLabel;
+    this.progressPercentLabel = `${percent}%`;
+    this.etaLabel = this.formatEta(event.progress.etaSeconds);
   }
 
   private async pollJobStatus(): Promise<void> {
@@ -509,12 +467,8 @@ export class VideoTrim implements OnDestroy {
         return;
       }
 
-      if (this.activeJobKind === 'trim') {
-        this.jobResult = response.result;
-        this.captureFallbackInfo(response.result);
-      } else {
-        this.mergeJobResult = response.result;
-      }
+      this.jobResult = response.result;
+      this.captureFallbackInfo(response.result);
 
       this.updateProgressLabels(response.result);
       this.statusMessage = `${this.activeJobKind} ${response.result.status}: ${
@@ -533,79 +487,19 @@ export class VideoTrim implements OnDestroy {
         this.terminalStatusSeen = true;
         this.stopPolling();
         this.activeJobId = '';
-
-        if (this.activeJobKind === 'trim') {
-          await this.handleTrimTerminal(response.result);
-        }
       }
     } finally {
       this.pollInFlight = false;
     }
   }
 
-  private async handleTrimTerminal(result: JobResultV1): Promise<void> {
-    if (
-      this.currentMode() !== 'batch' ||
-      !this.shouldMergeOutputs() ||
-      result.status !== 'success' ||
-      !result.success
-    ) {
-      return;
-    }
-
-    const mergeInputs = this.extractSuccessfulOutputs(result);
-    if (mergeInputs.length < 2) {
-      this.mergeChainMessage =
-        'Merge chain skipped: batch completed but produced fewer than 2 successful outputs.';
-      return;
-    }
-
-    const mergeRequest = this.buildMergeRequest(mergeInputs);
-    const validation = await this.wailsService.validateJobV1(mergeRequest);
-    if (!validation.valid) {
-      this.mergeChainMessage = `Merge chain validation failed: ${this.mapJobError(
-        validation.error,
-        validation.message
-      )}`;
-      return;
-    }
-
-    const runResponse = await this.wailsService.runJobV1(mergeRequest);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.mergeChainMessage = `Merge chain failed to submit: ${this.mapJobError(
-        runResponse.error,
-        runResponse.message
-      )}`;
-      return;
-    }
-
-    this.activeJobKind = 'merge';
-    this.activeJobId = runResponse.jobId;
-    this.terminalStatusSeen = false;
-    this.mergeChainMessage = `Merge chain started: ${runResponse.jobId}`;
-    this.startPolling();
-  }
-
-  private extractSuccessfulOutputs(result: JobResultV1): string[] {
-    const outputs: string[] = [];
-    for (const item of result.items) {
-      if (!item.success) {
-        continue;
-      }
-      if (item.outputs && item.outputs.length > 0) {
-        outputs.push(...item.outputs);
-      }
-    }
-    return outputs.filter((path) => !!path.trim());
-  }
-
   private clearMessages(): void {
     this.validationMessage = '';
     this.submitMessage = '';
-    this.mergeChainMessage = '';
     this.fallbackInfoMessage = '';
     this.progressStageLabel = '';
     this.progressPercentLabel = '0%';
+    this.etaLabel = '—';
   }
 
   private updateProgressLabels(result: JobResultV1): void {
@@ -615,6 +509,7 @@ export class VideoTrim implements OnDestroy {
     const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((current / total) * 100))) : 0;
     this.progressStageLabel = stage;
     this.progressPercentLabel = `${percent}%`;
+    this.etaLabel = this.formatEta(result.progress.etaSeconds);
   }
 
   private captureFallbackInfo(result: JobResultV1): void {
@@ -658,8 +553,18 @@ export class VideoTrim implements OnDestroy {
     return this.form.controls.jobMode.value === 'batch' ? 'batch' : 'single';
   }
 
-  private shouldMergeOutputs(): boolean {
-    return this.form.controls.mergeOutputs.value === 'yes';
+  private formatEta(etaSeconds: number | undefined): string {
+    if (!etaSeconds || etaSeconds <= 0) {
+      return '—';
+    }
+
+    const minutes = Math.floor(etaSeconds / 60);
+    const seconds = etaSeconds % 60;
+    if (minutes <= 0) {
+      return `${seconds}s`;
+    }
+
+    return `${minutes}m ${seconds}s`;
   }
 
   private addInputPath(rawPath: string): void {

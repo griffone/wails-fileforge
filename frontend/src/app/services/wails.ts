@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Call } from '@wailsio/runtime';
+import { Call, Events } from '@wailsio/runtime';
 
 export type ToolRuntimeStatusV1 = 'enabled' | 'disabled' | 'degraded';
 export type JobModeV1 = 'single' | 'batch';
@@ -73,6 +73,14 @@ export interface JobProgressV1 {
   total: number;
   stage: string;
   message: string;
+  etaSeconds?: number;
+}
+
+export interface JobProgressEventV1 {
+  jobId: string;
+  toolId: string;
+  status: JobExecutionStatusV1 | string;
+  progress: JobProgressV1;
 }
 
 export interface JobResultItemV1 {
@@ -80,6 +88,8 @@ export interface JobResultItemV1 {
   outputPath: string;
   outputs?: string[];
   outputCount?: number;
+  attempts?: number;
+  retryCount?: number;
   success: boolean;
   message: string;
   error?: JobErrorV1;
@@ -363,6 +373,27 @@ export class Wails {
     } catch {
       return '';
     }
+  }
+
+  subscribeJobProgressV1(callback: (event: JobProgressEventV1) => void): () => void {
+    return Events.On('jobs/progress/v1', (ev: { data?: unknown }) => {
+      const payload = ev?.data;
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+
+      const candidate = payload as Partial<JobProgressEventV1>;
+      if (typeof candidate.jobId !== 'string' || !candidate.progress) {
+        return;
+      }
+
+      callback({
+        jobId: candidate.jobId,
+        toolId: typeof candidate.toolId === 'string' ? candidate.toolId : '',
+        status: typeof candidate.status === 'string' ? candidate.status : 'running',
+        progress: candidate.progress,
+      });
+    });
   }
 
   isRuntimeAvailable(): boolean {

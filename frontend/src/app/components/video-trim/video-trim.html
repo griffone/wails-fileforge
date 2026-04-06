@@ -4,7 +4,7 @@
       <div>
         <h1 class="text-3xl font-bold text-gray-900">Video Trim</h1>
         <p class="text-gray-600 mt-1">
-          Trim single/batch videos and optionally chain merge for batch outputs.
+          Trim single/batch videos with backend progress + ETA.
         </p>
       </div>
       <div class="flex gap-2">
@@ -62,7 +62,7 @@
 
     <app-tool-execution-panel
       [title]="'Video Trim Execution'"
-      [subtitle]="'Supports single and batch. Batch can optionally chain merge outputs when >=2 successful outputs.'"
+      [subtitle]="'Supports single and batch trim execution with timestamp validation.'"
       [form]="form"
       [fields]="panelFields"
       [currentMode]="form.controls.jobMode.value"
@@ -86,16 +86,8 @@
         Stage: <span class="font-mono">{{ progressStageLabel || jobResult.progress.stage }}</span>
       </p>
       <p class="text-sm text-gray-700">Percent: <span class="font-mono">{{ progressPercentLabel }}</span></p>
+      <p class="text-sm text-gray-700">ETA: <span class="font-mono">{{ etaLabel }}</span></p>
       <p class="text-sm text-amber-700" *ngIf="fallbackInfoMessage">{{ fallbackInfoMessage }}</p>
-    </section>
-
-    <section class="card mt-4 space-y-2" *ngIf="mergeChainMessage || mergeJobResult">
-      <h3 class="text-base font-semibold text-gray-900">Merge chain status</h3>
-      <p class="text-sm text-gray-700" *ngIf="mergeChainMessage">{{ mergeChainMessage }}</p>
-      <div *ngIf="mergeJobResult" class="text-sm text-gray-700 space-y-1">
-        <p>Status: <span class="font-mono">{{ mergeJobResult.status }}</span></p>
-        <p>Message: {{ mergeJobResult.message }}</p>
-      </div>
     </section>
   </div>
 </div>

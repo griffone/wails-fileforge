@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { VideoTrim } from './video-trim';
-import { JobRequestV1, JobResultV1, Wails } from '../../services/wails';
+import { JobRequestV1, Wails } from '../../services/wails';
 
 describe('VideoTrim', () => {
   let component: VideoTrim;
@@ -19,9 +19,12 @@ describe('VideoTrim', () => {
       'openFileDialog',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
+      'subscribeJobProgressV1',
       'getPdfPreviewSource',
       'isRuntimeAvailable',
     ]);
+
+    wailsSpy.subscribeJobProgressV1.and.returnValue(() => undefined);
 
     await TestBed.configureTestingModule({
       imports: [VideoTrim],
@@ -94,90 +97,4 @@ describe('VideoTrim', () => {
     expect(req.options['outputPath']).toBeUndefined();
   });
 
-  it('triggers merge chain when batch has >=2 outputs', async () => {
-    component.form.patchValue({
-      jobMode: 'batch',
-      targetFormat: 'mp4',
-      qualityPreset: 'medium',
-      mergeOutputs: 'yes',
-      mergeOutputPath: '/tmp/out/merged.mp4',
-      mergeMode: 'auto',
-    });
-
-    const trimResult: JobResultV1 = {
-      jobId: 'trim-job',
-      success: true,
-      message: 'done',
-      toolId: 'tool.video.trim',
-      status: 'success',
-      progress: { current: 2, total: 2, stage: 'success', message: 'done' },
-      items: [
-        {
-          inputPath: '/tmp/a.mov',
-          outputPath: '/tmp/out/a_trimmed.mp4',
-          outputs: ['/tmp/out/a_trimmed.mp4'],
-          outputCount: 1,
-          success: true,
-          message: 'ok',
-        },
-        {
-          inputPath: '/tmp/b.mov',
-          outputPath: '/tmp/out/b_trimmed.mp4',
-          outputs: ['/tmp/out/b_trimmed.mp4'],
-          outputCount: 1,
-          success: true,
-          message: 'ok',
-        },
-      ],
-      startedAt: Date.now(),
-      endedAt: Date.now(),
-    };
-
-    wailsSpy.validateJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'ok', valid: true })
-    );
-    wailsSpy.runJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'submitted', jobId: 'merge-job', status: 'queued' })
-    );
-
-    await (component as any).handleTrimTerminal(trimResult);
-
-    const mergeValidateReq = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
-    expect(mergeValidateReq.toolId).toBe('tool.video.merge');
-    expect(mergeValidateReq.mode).toBe('single');
-    expect(mergeValidateReq.inputPaths.length).toBe(2);
-    expect(component['activeJobKind']).toBe('merge');
-    expect(component.mergeChainMessage).toContain('Merge chain started');
-  });
-
-  it('does not trigger merge chain when batch has <2 outputs', async () => {
-    component.form.patchValue({ jobMode: 'batch', mergeOutputs: 'yes' });
-
-    const trimResult: JobResultV1 = {
-      jobId: 'trim-job',
-      success: true,
-      message: 'done',
-      toolId: 'tool.video.trim',
-      status: 'success',
-      progress: { current: 1, total: 1, stage: 'success', message: 'done' },
-      items: [
-        {
-          inputPath: '/tmp/a.mov',
-          outputPath: '/tmp/out/a_trimmed.mp4',
-          outputs: ['/tmp/out/a_trimmed.mp4'],
-          outputCount: 1,
-          success: true,
-          message: 'ok',
-        },
-      ],
-      startedAt: Date.now(),
-      endedAt: Date.now(),
-    };
-
-    await (component as any).handleTrimTerminal(trimResult);
-
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
-    expect(component.mergeChainMessage).toContain('skipped');
-  });
 });

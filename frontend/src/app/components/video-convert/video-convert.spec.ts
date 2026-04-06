@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { VideoConvert } from './video-convert';
-import { JobRequestV1, JobResultV1, Wails } from '../../services/wails';
+import { JobRequestV1, Wails } from '../../services/wails';
 
 describe('VideoConvert', () => {
   let component: VideoConvert;
@@ -19,9 +19,12 @@ describe('VideoConvert', () => {
       'openFileDialog',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
+      'subscribeJobProgressV1',
       'getPdfPreviewSource',
       'isRuntimeAvailable',
     ]);
+
+    wailsSpy.subscribeJobProgressV1.and.returnValue(() => undefined);
 
     await TestBed.configureTestingModule({
       imports: [VideoConvert],
@@ -82,90 +85,4 @@ describe('VideoConvert', () => {
     expect(req.options['outputPath']).toBeUndefined();
   });
 
-  it('triggers merge chain when batch has >=2 outputs', async () => {
-    component.form.patchValue({
-      jobMode: 'batch',
-      targetFormat: 'mp4',
-      qualityPreset: 'medium',
-      mergeOutputs: 'yes',
-      mergeOutputPath: '/tmp/out/merged.mp4',
-      mergeMode: 'auto',
-    });
-
-    const convertResult: JobResultV1 = {
-      jobId: 'convert-job',
-      success: true,
-      message: 'done',
-      toolId: 'tool.video.convert',
-      status: 'success',
-      progress: { current: 2, total: 2, stage: 'success', message: 'done' },
-      items: [
-        {
-          inputPath: '/tmp/a.mov',
-          outputPath: '/tmp/out/a_converted.mp4',
-          outputs: ['/tmp/out/a_converted.mp4'],
-          outputCount: 1,
-          success: true,
-          message: 'ok',
-        },
-        {
-          inputPath: '/tmp/b.mov',
-          outputPath: '/tmp/out/b_converted.mp4',
-          outputs: ['/tmp/out/b_converted.mp4'],
-          outputCount: 1,
-          success: true,
-          message: 'ok',
-        },
-      ],
-      startedAt: Date.now(),
-      endedAt: Date.now(),
-    };
-
-    wailsSpy.validateJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'ok', valid: true })
-    );
-    wailsSpy.runJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'submitted', jobId: 'merge-job', status: 'queued' })
-    );
-
-    await (component as any).handleConvertTerminal(convertResult);
-
-    const mergeValidateReq = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
-    expect(mergeValidateReq.toolId).toBe('tool.video.merge');
-    expect(mergeValidateReq.mode).toBe('single');
-    expect(mergeValidateReq.inputPaths.length).toBe(2);
-    expect(component['activeJobKind']).toBe('merge');
-    expect(component.mergeChainMessage).toContain('Merge chain started');
-  });
-
-  it('does not trigger merge chain when batch has <2 outputs', async () => {
-    component.form.patchValue({ jobMode: 'batch', mergeOutputs: 'yes' });
-
-    const convertResult: JobResultV1 = {
-      jobId: 'convert-job',
-      success: true,
-      message: 'done',
-      toolId: 'tool.video.convert',
-      status: 'success',
-      progress: { current: 1, total: 1, stage: 'success', message: 'done' },
-      items: [
-        {
-          inputPath: '/tmp/a.mov',
-          outputPath: '/tmp/out/a_converted.mp4',
-          outputs: ['/tmp/out/a_converted.mp4'],
-          outputCount: 1,
-          success: true,
-          message: 'ok',
-        },
-      ],
-      startedAt: Date.now(),
-      endedAt: Date.now(),
-    };
-
-    await (component as any).handleConvertTerminal(convertResult);
-
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
-    expect(component.mergeChainMessage).toContain('skipped');
-  });
 });

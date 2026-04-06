@@ -2,7 +2,10 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -24,12 +27,18 @@ const (
 type Orchestrator struct {
 	registry    *registry.Registry
 	concurrency chan struct{}
+	onProgress  func(models.JobProgressEventV1)
+	storePath   string
 
 	mu   sync.RWMutex
 	jobs map[string]*trackedJob
 }
 
 func NewOrchestrator(reg *registry.Registry, maxConcurrent int) *Orchestrator {
+	return NewOrchestratorWithProgressEmitter(reg, maxConcurrent, nil)
+}
+
+func NewOrchestratorWithProgressEmitter(reg *registry.Registry, maxConcurrent int, onProgress func(models.JobProgressEventV1)) *Orchestrator {
 	if reg == nil {
 		reg = registry.GetGlobalRegistry()
 	}
@@ -40,8 +49,61 @@ func NewOrchestrator(reg *registry.Registry, maxConcurrent int) *Orchestrator {
 	return &Orchestrator{
 		registry:    reg,
 		concurrency: make(chan struct{}, maxConcurrent),
+		onProgress:  onProgress,
 		jobs:        make(map[string]*trackedJob),
 	}
+}
+
+func (o *Orchestrator) SetPersistencePath(path string) {
+	o.mu.Lock()
+	o.storePath = path
+	o.mu.Unlock()
+}
+
+func (o *Orchestrator) RecoverInterruptedJobs() error {
+	o.mu.RLock()
+	storePath := o.storePath
+	o.mu.RUnlock()
+
+	if storePath == "" {
+		return nil
+	}
+
+	persisted, err := o.loadPersistedJobs(storePath)
+	if err != nil {
+		return err
+	}
+
+	if len(persisted) == 0 {
+		return nil
+	}
+
+	now := time.Now().UnixMilli()
+
+	o.mu.Lock()
+	for _, result := range persisted {
+		if result.Status != StatusQueued && result.Status != StatusRunning {
+			continue
+		}
+
+		result.Success = false
+		result.Status = StatusInterrupted
+		result.Message = "job interrupted after restart"
+		result.EndedAt = now
+		result.Progress.Stage = StatusInterrupted
+		if result.Progress.Total > 0 && result.Progress.Current > result.Progress.Total {
+			result.Progress.Current = result.Progress.Total
+		}
+		if result.Progress.Message == "" {
+			result.Progress.Message = "interrupted"
+		}
+
+		o.jobs[result.JobID] = &trackedJob{result: result}
+	}
+	o.mu.Unlock()
+
+	o.persistJobsSnapshot()
+	return nil
 }
 
 func (o *Orchestrator) Submit(ctx context.Context, req models.JobRequestV1) (models.RunJobResponseV1, error) {
@@ -64,8 +126,10 @@ func (o *Orchestrator) Submit(ctx context.Context, req models.JobRequestV1) (mod
 	jobCtx, cancel := context.WithCancel(ctx)
 
 	tracked := &trackedJob{
-		ctx:    jobCtx,
-		cancel: cancel,
+		ctx:             jobCtx,
+		cancel:          cancel,
+		onProgressEvent: o.onProgress,
+		onStateChanged:  o.persistJobsSnapshot,
 		result: models.JobResultV1{
 			JobID:     jobID,
 			Success:   false,
@@ -80,6 +144,7 @@ func (o *Orchestrator) Submit(ctx context.Context, req models.JobRequestV1) (mod
 	o.mu.Lock()
 	o.jobs[jobID] = tracked
 	o.mu.Unlock()
+	o.persistJobsSnapshot()
 
 	go o.run(tracked, tool, req)
 
@@ -119,10 +184,14 @@ func (o *Orchestrator) run(job *trackedJob, tool tools.Tool, req models.JobReque
 
 func (o *Orchestrator) runSingle(job *trackedJob, tool tools.Tool, req models.JobRequestV1) {
 	if execWithProgress, ok := tool.(tools.SingleExecutorWithProgress); ok {
-		item, err := execWithProgress.ExecuteSingleWithProgress(job.ctx, req, func(progress models.JobProgressV1) {
-			job.updateProgress(progress)
+		item, err, attempts := o.executeSingleWithRetry(job, req.ToolID, func() (models.JobResultItemV1, *models.JobErrorV1) {
+			return execWithProgress.ExecuteSingleWithProgress(job.ctx, req, func(progress models.JobProgressV1) {
+				job.updateProgress(progress)
+			})
 		})
 		item = normalizeItemError(item)
+		item.Attempts = attempts
+		item.RetryCount = max(0, attempts-1)
 		if err != nil {
 			job.complete(StatusFailed, "job failed", []models.JobResultItemV1{item}, normalizeJobError(err), time.Now().UnixMilli())
 			return
@@ -138,8 +207,12 @@ func (o *Orchestrator) runSingle(job *trackedJob, tool tools.Tool, req models.Jo
 		return
 	}
 
-	item, err := exec.ExecuteSingle(job.ctx, req)
+	item, err, attempts := o.executeSingleWithRetry(job, req.ToolID, func() (models.JobResultItemV1, *models.JobErrorV1) {
+		return exec.ExecuteSingle(job.ctx, req)
+	})
 	item = normalizeItemError(item)
+	item.Attempts = attempts
+	item.RetryCount = max(0, attempts-1)
 	if err != nil {
 		job.complete(StatusFailed, "job failed", []models.JobResultItemV1{item}, normalizeJobError(err), time.Now().UnixMilli())
 		return
@@ -155,22 +228,106 @@ func (o *Orchestrator) runBatch(job *trackedJob, tool tools.Tool, req models.Job
 		return
 	}
 
-	items, err := exec.ExecuteBatch(job.ctx, req, func(progress models.JobProgressV1) {
-		job.updateProgress(progress)
-	})
+	attempts := 0
+	var items []models.JobResultItemV1
+	var err *models.JobErrorV1
+
+	for attempts < maxRetryAttempts {
+		attempts++
+		items, err = exec.ExecuteBatch(job.ctx, req, func(progress models.JobProgressV1) {
+			job.updateProgress(progress)
+		})
+
+		if err == nil || !isRetryableError(req.ToolID, err) || attempts >= maxRetryAttempts {
+			break
+		}
+
+		if !waitRetryBackoff(job.ctx, attempts) {
+			items = normalizeItemsErrors(items)
+			items = o.decorateBatchRetryMetadata(items, attempts)
+			job.complete(StatusCancelled, "job cancelled", items, models.NewCanonicalJobError("JOB_CANCELLED", job.ctx.Err().Error(), retryMetadata(attempts, err)), time.Now().UnixMilli())
+			return
+		}
+	}
+
 	items = normalizeItemsErrors(items)
+	items = o.decorateBatchRetryMetadata(items, attempts)
 	if err != nil {
 		if job.ctx.Err() != nil {
-			job.complete(StatusCancelled, "job cancelled", items, models.NewCanonicalJobError("JOB_CANCELLED", job.ctx.Err().Error(), nil), time.Now().UnixMilli())
+			job.complete(StatusCancelled, "job cancelled", items, models.NewCanonicalJobError("JOB_CANCELLED", job.ctx.Err().Error(), retryMetadata(attempts, err)), time.Now().UnixMilli())
 			return
 		}
 		status, message := deriveBatchFinalState(items)
-		job.complete(status, message, items, normalizeJobError(err), time.Now().UnixMilli())
+		jobErr := normalizeJobError(err)
+		if jobErr != nil {
+			if jobErr.Details == nil {
+				jobErr.Details = map[string]any{}
+			}
+			for k, v := range retryMetadata(attempts, err) {
+				jobErr.Details[k] = v
+			}
+		}
+		job.complete(status, message, items, jobErr, time.Now().UnixMilli())
 		return
 	}
 
 	status, message := deriveBatchFinalState(items)
 	job.complete(status, message, items, nil, time.Now().UnixMilli())
+}
+
+func (o *Orchestrator) executeSingleWithRetry(job *trackedJob, toolID string, execute func() (models.JobResultItemV1, *models.JobErrorV1)) (models.JobResultItemV1, *models.JobErrorV1, int) {
+	attempts := 0
+	var item models.JobResultItemV1
+	var jobErr *models.JobErrorV1
+
+	for attempts < maxRetryAttempts {
+		attempts++
+		item, jobErr = execute()
+
+		if jobErr == nil {
+			return item, nil, attempts
+		}
+
+		if !isRetryableError(toolID, jobErr) || attempts >= maxRetryAttempts {
+			if item.Error == nil {
+				item.Error = jobErr
+			}
+			if item.Error.Details == nil {
+				item.Error.Details = map[string]any{}
+			}
+			for k, v := range retryMetadata(attempts, jobErr) {
+				item.Error.Details[k] = v
+			}
+			return item, jobErr, attempts
+		}
+
+		if !waitRetryBackoff(job.ctx, attempts) {
+			cancelErr := models.NewCanonicalJobError("JOB_CANCELLED", job.ctx.Err().Error(), retryMetadata(attempts, jobErr))
+			if item.Error == nil {
+				item.Error = cancelErr
+			}
+			return item, cancelErr, attempts
+		}
+	}
+
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("EXECUTION_FAILED", "execution failed without explicit error", nil)
+	}
+	if item.Error == nil {
+		item.Error = jobErr
+	}
+	return item, jobErr, attempts
+}
+
+func (o *Orchestrator) decorateBatchRetryMetadata(items []models.JobResultItemV1, attempts int) []models.JobResultItemV1 {
+	decorated := make([]models.JobResultItemV1, len(items))
+	for i := range items {
+		item := items[i]
+		item.Attempts = attempts
+		item.RetryCount = max(0, attempts-1)
+		decorated[i] = item
+	}
+	return decorated
 }
 
 func (o *Orchestrator) GetJob(jobID string) (models.JobResultV1, bool) {
@@ -192,7 +349,68 @@ func (o *Orchestrator) Cancel(jobID string) error {
 		return fmt.Errorf("job '%s' not found", jobID)
 	}
 
-	job.cancel()
+	if job.cancel != nil {
+		job.cancel()
+	}
+	return nil
+}
+
+func (o *Orchestrator) persistJobsSnapshot() {
+	o.mu.RLock()
+	storePath := o.storePath
+	if storePath == "" {
+		o.mu.RUnlock()
+		return
+	}
+
+	persisted := make([]models.JobResultV1, 0)
+	for _, job := range o.jobs {
+		snapshot := job.snapshot()
+		if snapshot.Status == StatusQueued || snapshot.Status == StatusRunning {
+			persisted = append(persisted, snapshot)
+		}
+	}
+	o.mu.RUnlock()
+
+	_ = o.savePersistedJobs(storePath, persisted)
+}
+
+func (o *Orchestrator) loadPersistedJobs(path string) ([]models.JobResultV1, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read persisted jobs: %w", err)
+	}
+
+	if len(content) == 0 {
+		return nil, nil
+	}
+
+	jobs := make([]models.JobResultV1, 0)
+	if err := json.Unmarshal(content, &jobs); err != nil {
+		return nil, fmt.Errorf("decode persisted jobs: %w", err)
+	}
+
+	return jobs, nil
+}
+
+func (o *Orchestrator) savePersistedJobs(path string, persisted []models.JobResultV1) error {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return fmt.Errorf("create persistence directory: %w", err)
+	}
+
+	payload, err := json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode persisted jobs: %w", err)
+	}
+
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		return fmt.Errorf("write persisted jobs: %w", err)
+	}
+
 	return nil
 }
 

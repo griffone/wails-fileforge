@@ -229,8 +229,59 @@ describe('ToolExecutionPanel', () => {
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Item status: failed');
-    expect(text).toContain('VALIDATION_INVALID_INPUT [PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS]');
+    expect(text).toContain('El rango de páginas excede la cantidad disponible en el PDF. (range exceeds page count)');
     expect(text).toContain('Batch file errors (aggregated)');
     expect(text).toContain('/tmp/a.pdf');
+  });
+
+  it('renders batch summary, retry labels and interrupted banner', () => {
+    component.jobResult = {
+      jobId: 'job-4',
+      success: false,
+      message: 'job interrupted after restart',
+      toolId: 'tool.video.convert',
+      status: 'interrupted',
+      progress: {
+        current: 1,
+        total: 3,
+        stage: 'interrupted',
+        message: 'interrupted',
+      },
+      items: [
+        {
+          inputPath: '/tmp/a.mp4',
+          outputPath: '/tmp/a.webm',
+          success: true,
+          message: 'ok',
+          attempts: 2,
+          retryCount: 1,
+        },
+        {
+          inputPath: '/tmp/b.mp4',
+          outputPath: '/tmp/b.webm',
+          success: false,
+          message: 'failed',
+          attempts: 3,
+          retryCount: 2,
+          error: {
+            code: 'EXEC_IO_TRANSIENT',
+            detail_code: 'VIDEO_CONVERT_EXECUTION',
+            message: 'ffmpeg transient failure',
+          },
+        },
+      ],
+      startedAt: Date.now() - 5_000,
+      endedAt: Date.now(),
+    };
+
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Resumen batch');
+    expect(text).toContain('Éxitos: 1 · Fallos: 1 · Reintentos: 3');
+    expect(text).toContain('Interrumpido por reinicio');
+    expect(text).toContain('reanudación automática queda para un roadmap futuro');
+    expect(text).toContain('1 reintento(s), 2 intento(s) total');
+    expect(text).toContain('2 reintento(s), 3 intento(s) total');
   });
 });

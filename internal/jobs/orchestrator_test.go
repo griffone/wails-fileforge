@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,19 +14,23 @@ import (
 )
 
 type testTool struct {
-	id             string
-	capability     string
-	supportSingle  bool
-	supportBatch   bool
-	validateErr    *models.JobErrorV1
-	singleErr      *models.JobErrorV1
-	batchErr       *models.JobErrorV1
-	batchDelay     time.Duration
-	maxActive      *atomic.Int32
-	active         *atomic.Int32
-	mu             sync.Mutex
-	progressEvents []models.JobProgressV1
-	singleProgress bool
+	id              string
+	capability      string
+	supportSingle   bool
+	supportBatch    bool
+	validateErr     *models.JobErrorV1
+	singleErr       *models.JobErrorV1
+	batchErr        *models.JobErrorV1
+	batchDelay      time.Duration
+	maxActive       *atomic.Int32
+	active          *atomic.Int32
+	mu              sync.Mutex
+	progressEvents  []models.JobProgressV1
+	singleProgress  bool
+	singleFailCount int
+	batchFailCount  int
+	singleCalls     atomic.Int32
+	batchCalls      atomic.Int32
 }
 
 func (t *testTool) ID() string { return t.id }
@@ -51,11 +56,19 @@ func (t *testTool) Validate(_ context.Context, _ models.JobRequestV1) *models.Jo
 }
 
 func (t *testTool) ExecuteSingle(_ context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+	call := int(t.singleCalls.Add(1))
 	item := models.JobResultItemV1{
 		InputPath:  req.InputPaths[0],
 		OutputPath: req.OutputDir + "/out.txt",
 		Success:    t.singleErr == nil,
 		Message:    "single",
+	}
+	if t.singleFailCount > 0 && call <= t.singleFailCount {
+		err := models.NewCanonicalJobError("DOC_DOCX_TO_PDF_EXECUTION_FAILED", "transient single failure", nil)
+		item.Success = false
+		item.Error = err
+		item.Message = "single failed"
+		return item, err
 	}
 	if t.singleErr != nil {
 		item.Success = false
@@ -75,6 +88,7 @@ func (t *testTool) ExecuteSingleWithProgress(_ context.Context, req models.JobRe
 }
 
 func (t *testTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	call := int(t.batchCalls.Add(1))
 	if t.active != nil && t.maxActive != nil {
 		current := t.active.Add(1)
 		for {
@@ -118,6 +132,10 @@ func (t *testTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 			Success:    true,
 			Message:    "ok",
 		})
+	}
+
+	if t.batchFailCount > 0 && call <= t.batchFailCount {
+		return items, models.NewCanonicalJobError("DOC_DOCX_TO_PDF_EXECUTION_FAILED", "transient batch failure", nil)
 	}
 
 	if t.batchErr != nil {
@@ -479,5 +497,132 @@ func TestOrchestratorBatchErrorKeepsItemErrorsAndAggregateDetails(t *testing.T) 
 	raw := result.Error.Details["fileErrors"]
 	if raw == nil {
 		t.Fatalf("expected details.fileErrors in aggregate error, got %+v", result.Error.Details)
+	}
+}
+
+func TestOrchestratorSingleRetryStopsAtThreeAndSucceeds(t *testing.T) {
+	tool := &testTool{
+		id:              "tool.doc.docx_to_pdf",
+		capability:      "doc",
+		supportSingle:   true,
+		supportBatch:    false,
+		singleFailCount: 2,
+	}
+	orch := newTestOrchestrator(t, tool, 1)
+
+	response, err := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "single",
+		InputPaths: []string{"/tmp/in.docx"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+
+	result := waitForTerminalStatus(t, orch, response.JobID)
+	if result.Status != StatusSuccess {
+		t.Fatalf("expected success after retries, got %s", result.Status)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one result item, got %d", len(result.Items))
+	}
+	if result.Items[0].Attempts != 3 {
+		t.Fatalf("expected attempts=3, got %d", result.Items[0].Attempts)
+	}
+	if result.Items[0].RetryCount != 2 {
+		t.Fatalf("expected retryCount=2, got %d", result.Items[0].RetryCount)
+	}
+}
+
+func TestOrchestratorBatchRetryMaxThreeAndPartialSuccess(t *testing.T) {
+	tool := &testTool{
+		id:             "tool.doc.docx_to_pdf",
+		capability:     "doc",
+		supportSingle:  true,
+		supportBatch:   true,
+		batchFailCount: 2,
+	}
+	orch := newTestOrchestrator(t, tool, 1)
+
+	response, err := orch.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "batch",
+		InputPaths: []string{"a.docx", "b.docx"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+
+	result := waitForTerminalStatus(t, orch, response.JobID)
+	if result.Status != StatusSuccess {
+		t.Fatalf("expected success after transient batch retries, got %s", result.Status)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(result.Items))
+	}
+	for _, item := range result.Items {
+		if item.Attempts != 3 {
+			t.Fatalf("expected attempts=3 for item %s, got %d", item.InputPath, item.Attempts)
+		}
+		if item.RetryCount != 2 {
+			t.Fatalf("expected retryCount=2 for item %s, got %d", item.InputPath, item.RetryCount)
+		}
+	}
+}
+
+func TestOrchestratorRecoveryMarksQueuedAndRunningAsInterrupted(t *testing.T) {
+	reg := registry.NewRegistry()
+	tool := &testTool{id: "tool.doc.docx_to_pdf", capability: "doc", supportSingle: true, supportBatch: true}
+	tool.batchDelay = 120 * time.Millisecond
+	reg.SafeRegisterToolV2(tool)
+
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "jobs_state_v1.json")
+
+	orchA := NewOrchestrator(reg, 1)
+	orchA.SetPersistencePath(storePath)
+
+	_, err := orchA.Submit(context.Background(), models.JobRequestV1{
+		ToolID:     tool.ID(),
+		Mode:       "batch",
+		InputPaths: []string{"a.docx", "b.docx", "c.docx"},
+		OutputDir:  "/tmp",
+		Options:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected submit error: %v", err)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+
+	orchB := NewOrchestrator(reg, 1)
+	orchB.SetPersistencePath(storePath)
+	if err := orchB.RecoverInterruptedJobs(); err != nil {
+		t.Fatalf("recovery failed: %v", err)
+	}
+
+	orchB.mu.RLock()
+	defer orchB.mu.RUnlock()
+	if len(orchB.jobs) == 0 {
+		t.Fatalf("expected recovered interrupted jobs in history")
+	}
+
+	foundInterrupted := false
+	for _, tracked := range orchB.jobs {
+		snap := tracked.snapshot()
+		if snap.Status == StatusInterrupted {
+			foundInterrupted = true
+			if snap.Progress.Stage != StatusInterrupted {
+				t.Fatalf("expected interrupted progress stage, got %s", snap.Progress.Stage)
+			}
+		}
+	}
+
+	if !foundInterrupted {
+		t.Fatalf("expected at least one interrupted recovered job")
 	}
 }

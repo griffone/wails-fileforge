@@ -81,9 +81,95 @@ export class ToolExecutionPanel {
     return item.success ? 'success' : 'failed';
   }
 
+  statusLabel(): string {
+    const status = this.jobResult?.status;
+    switch (status) {
+      case 'queued':
+        return 'En cola';
+      case 'running':
+        return 'En ejecución';
+      case 'success':
+        return 'Completado';
+      case 'failed':
+        return 'Falló';
+      case 'partial_success':
+        return 'Completado con fallos';
+      case 'cancelled':
+        return 'Cancelado';
+      case 'interrupted':
+        return 'Interrumpido por reinicio';
+      default:
+        return status ?? 'Desconocido';
+    }
+  }
+
+  statusBadgeClass(): string {
+    const status = this.jobResult?.status;
+    switch (status) {
+      case 'success':
+        return 'badge-success';
+      case 'partial_success':
+        return 'badge-warning';
+      case 'failed':
+      case 'cancelled':
+      case 'interrupted':
+        return 'badge-danger';
+      case 'running':
+      case 'queued':
+      default:
+        return 'badge-neutral';
+    }
+  }
+
+  itemRetryLabel(item: JobResultItemV1): string {
+    const attempts = item.attempts ?? 1;
+    const retries = item.retryCount ?? Math.max(0, attempts - 1);
+    if (retries <= 0) {
+      return 'sin reintentos';
+    }
+    return `${retries} reintento(s), ${attempts} intento(s) total`;
+  }
+
+  summaryCounts(): { success: number; failed: number; retries: number } {
+    const items = this.jobResult?.items ?? [];
+    let success = 0;
+    let failed = 0;
+    let retries = 0;
+    for (const item of items) {
+      if (item.success) {
+        success++;
+      } else {
+        failed++;
+      }
+      retries += item.retryCount ?? Math.max(0, (item.attempts ?? 1) - 1);
+    }
+    return { success, failed, retries };
+  }
+
+  interruptedBanner(): string {
+    if (this.jobResult?.status !== 'interrupted') {
+      return '';
+    }
+    return 'Este job quedó interrumpido por reinicio de la app. La reanudación automática queda para un roadmap futuro (v1 no auto-resume).';
+  }
+
   itemErrorText(item: JobResultItemV1): string {
     if (!item.error) {
       return item.message;
+    }
+
+    const detailCode = (item.error.detail_code ?? '').toUpperCase();
+    const friendlyByDetail: Record<string, string> = {
+      PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS: 'El rango de páginas excede la cantidad disponible en el PDF.',
+      PDF_CROP_INVALID_PAGE_SELECTION: 'El rango de páginas tiene formato inválido.',
+      PDF_MERGE_INVALID_INPUTS: 'Uno o más PDFs de entrada son inválidos o no se pudieron leer.',
+      DOC_DOCX_TO_PDF_INPUT_UNSUPPORTED: 'El archivo no es un DOCX soportado.',
+      DOC_MD_TO_PDF_INPUT_UNSUPPORTED: 'El archivo no es Markdown soportado.',
+    };
+
+    const friendlyMessage = friendlyByDetail[detailCode];
+    if (friendlyMessage) {
+      return `${friendlyMessage} (${item.error.message})`;
     }
 
     const detail = item.error.detail_code ? ` [${item.error.detail_code}]` : '';

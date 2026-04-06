@@ -4,11 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"fileforge-desktop/internal/jobs"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/registry"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+const JobProgressEventNameV1 = "jobs/progress/v1"
 
 type ToolingService struct {
 	ctx          context.Context
@@ -22,13 +28,36 @@ func NewToolingService(reg *registry.Registry) *ToolingService {
 	}
 
 	return &ToolingService{
-		registry:     reg,
-		orchestrator: jobs.NewOrchestrator(reg, 2),
+		registry: reg,
+		orchestrator: jobs.NewOrchestratorWithProgressEmitter(reg, 2, func(evt models.JobProgressEventV1) {
+			app := application.Get()
+			if app == nil {
+				return
+			}
+			app.Event.Emit(JobProgressEventNameV1, evt)
+		}),
 	}
 }
 
 func (s *ToolingService) SetContext(ctx context.Context) {
 	s.ctx = ctx
+
+	storePath := defaultJobsPersistencePath()
+	s.orchestrator.SetPersistencePath(storePath)
+	if err := s.orchestrator.RecoverInterruptedJobs(); err != nil {
+		log.Printf("tooling.recovery.failed path=%s err=%v", storePath, err)
+	} else {
+		log.Printf("tooling.recovery.ok path=%s", storePath)
+	}
+}
+
+func defaultJobsPersistencePath() string {
+	configDir, err := os.UserConfigDir()
+	if err != nil || configDir == "" {
+		return filepath.Join(".", ".fileforge", "jobs_state_v1.json")
+	}
+
+	return filepath.Join(configDir, "fileforge", "jobs_state_v1.json")
 }
 
 func (s *ToolingService) contextOrBackground() context.Context {
