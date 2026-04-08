@@ -24,7 +24,9 @@ describe('VideoTrim', () => {
       'isRuntimeAvailable',
     ]);
 
-    wailsSpy.subscribeJobProgressV1.and.returnValue(() => undefined);
+    // return an unsubscribe spy so we can assert it's called on destroy
+    const unsubscribeSpy = jasmine.createSpy('unsubscribe');
+    wailsSpy.subscribeJobProgressV1.and.returnValue(unsubscribeSpy);
 
     await TestBed.configureTestingModule({
       imports: [VideoTrim],
@@ -34,6 +36,19 @@ describe('VideoTrim', () => {
     fixture = TestBed.createComponent(VideoTrim);
     component = fixture.componentInstance;
     fixture.detectChanges();
+  });
+
+  it('unsubscribes from job progress on destroy', () => {
+    // simulate that the component registered the subscription
+    (component as any).unsubscribeProgressEvent = wailsSpy.subscribeJobProgressV1(() => {});
+
+    // destroy the fixture (triggers ngOnDestroy)
+    fixture.destroy();
+
+    expect((wailsSpy.subscribeJobProgressV1 as jasmine.Spy).calls.count()).toBeGreaterThan(0);
+    // the returned unsubscribe spy should have been called
+    const returned = (wailsSpy.subscribeJobProgressV1 as jasmine.Spy).calls.mostRecent().returnValue as jasmine.Spy;
+    expect(returned).toHaveBeenCalled();
   });
 
   it('shapes single payload for tool.video.trim', async () => {

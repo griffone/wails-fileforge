@@ -24,7 +24,9 @@ describe('VideoConvert', () => {
       'isRuntimeAvailable',
     ]);
 
-    wailsSpy.subscribeJobProgressV1.and.returnValue(() => undefined);
+    // return an unsubscribe spy so we can assert it's called on destroy
+    const unsubscribeSpy = jasmine.createSpy('unsubscribe');
+    wailsSpy.subscribeJobProgressV1.and.returnValue(unsubscribeSpy);
 
     await TestBed.configureTestingModule({
       imports: [VideoConvert],
@@ -34,6 +36,15 @@ describe('VideoConvert', () => {
     fixture = TestBed.createComponent(VideoConvert);
     component = fixture.componentInstance;
     fixture.detectChanges();
+  });
+
+  it('unsubscribes from job progress on destroy', () => {
+    (component as any).unsubscribeProgressEvent = wailsSpy.subscribeJobProgressV1(() => {});
+    fixture.destroy();
+
+    expect((wailsSpy.subscribeJobProgressV1 as jasmine.Spy).calls.count()).toBeGreaterThan(0);
+    const returned = (wailsSpy.subscribeJobProgressV1 as jasmine.Spy).calls.mostRecent().returnValue as jasmine.Spy;
+    expect(returned).toHaveBeenCalled();
   });
 
   it('shapes single payload for tool.video.convert', async () => {

@@ -1,5 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -97,6 +99,7 @@ export class VideoConvert implements OnDestroy {
   private pollInFlight = false;
   private terminalStatusSeen = false;
   private unsubscribeProgressEvent: (() => void) | null = null;
+  private readonly destroy$ = new Subject<void>();
 
   constructor(
     private readonly fb: FormBuilder,
@@ -114,6 +117,8 @@ export class VideoConvert implements OnDestroy {
   ngOnDestroy(): void {
     this.unsubscribeProgressEvent?.();
     this.stopPolling();
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   async selectVideoFromDialog(): Promise<void> {
