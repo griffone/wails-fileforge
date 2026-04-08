@@ -22,7 +22,6 @@ const POLLING_INTERVAL_MS = 1000;
   selector: 'app-image-converter',
   standalone: true,
   imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
   templateUrl: './image-converter.html',
   styleUrl: './image-converter.css',
 })
