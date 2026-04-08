@@ -223,4 +223,18 @@ describe('ImageCrop', () => {
     expect(component.isPolling).toBeFalse();
     expect(component.activeJobId).toBe('');
   }));
+
+  it('does not call form handlers after destroy (unsubscribed)', () => {
+    // spy on the handler that's called from valueChanges subscriptions
+    spyOn(component as any, 'onManualCoordinatesChanged');
+
+    // destroy the fixture (triggers ngOnDestroy and should complete destroy$)
+    fixture.destroy();
+
+    // trigger value change after destroy
+    component.form.patchValue({ x: '1' });
+
+    // handler should not have been called after destroy
+    expect((component as any).onManualCoordinatesChanged).not.toHaveBeenCalled();
+  });
 });

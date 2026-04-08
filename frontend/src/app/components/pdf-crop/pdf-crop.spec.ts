@@ -50,6 +50,21 @@ describe('PdfCrop', () => {
     fixture.detectChanges();
   });
 
+  it('unsubscribes form subscriptions on destroy', () => {
+    // spy on updateOverlayFromCurrentForm invoked by form.valueChanges
+    const compAny = component as any;
+    spyOn(compAny, 'updateOverlayFromCurrentForm');
+    spyOn(compAny, 'updatePageSelectionLiveMessage');
+
+    fixture.destroy();
+
+    component.form.patchValue({ cropPreset: 'none' });
+    component.form.controls.pageSelection.setValue('1');
+
+    expect(compAny.updateOverlayFromCurrentForm).not.toHaveBeenCalled();
+    expect(compAny.updatePageSelectionLiveMessage).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     setPreviewWorkerInitializerForTests(null);
   });

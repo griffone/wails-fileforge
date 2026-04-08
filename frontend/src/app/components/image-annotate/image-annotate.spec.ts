@@ -261,4 +261,11 @@ describe('ImageAnnotate', () => {
     expect(component.isPolling).toBeFalse();
     expect(component.activeJobId).toBe('');
   }));
+
+  it('stops listening to operationForm after destroy', () => {
+    spyOn(component as any, 'onAdvancedFormChanged');
+    fixture.destroy();
+    component.operationForm.patchValue({ x: '2' });
+    expect((component as any).onAdvancedFormChanged).not.toHaveBeenCalled();
+  });
 });
