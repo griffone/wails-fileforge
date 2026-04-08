@@ -7,6 +7,7 @@ import {
   ExecutionPanelField,
   ToolExecutionPanel,
 } from '../tool-execution-panel/tool-execution-panel';
+import { FileDrop } from '../file-drop/file-drop';
 import {
   JobErrorV1,
   JobRequestV1,
@@ -21,7 +22,7 @@ const POLLING_INTERVAL_MS = 1000;
 @Component({
   selector: 'app-image-converter',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel, FileDrop],
   templateUrl: './image-converter.html',
   styleUrl: './image-converter.css',
 })

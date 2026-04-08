@@ -17,7 +17,7 @@ const POLLING_INTERVAL_MS = 1000;
 @Component({
   selector: 'app-pdf-merge',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, FileDrop],
   templateUrl: './pdf-merge.html',
   styleUrl: './pdf-merge.css',
 })
