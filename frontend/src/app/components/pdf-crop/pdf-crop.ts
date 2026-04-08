@@ -9,7 +9,8 @@ import {
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import * as pdfjsLib from 'pdfjs-dist';
-import { Subscription } from 'rxjs';
+import { Subscription, Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 
 import {
   ExecutionPanelField,
@@ -219,6 +220,7 @@ export class PdfCrop implements OnInit, OnDestroy {
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private formSubscriptions = new Subscription();
+  private readonly destroy$ = new Subject<void>();
   private previewMeta: {
     pointsToPxScale: number;
     canvasWidthPx: number;
@@ -246,13 +248,13 @@ export class PdfCrop implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.formSubscriptions.add(
-      this.form.valueChanges.subscribe(() => {
+      this.form.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => {
         this.updateOverlayFromCurrentForm();
       })
     );
 
     this.formSubscriptions.add(
-      this.form.controls.pageSelection.valueChanges.subscribe((value) => {
+      this.form.controls.pageSelection.valueChanges.pipe(takeUntil(this.destroy$)).subscribe((value) => {
         this.updatePageSelectionLiveMessage(value);
       })
     );
@@ -264,6 +266,8 @@ export class PdfCrop implements OnInit, OnDestroy {
     this.stopPolling();
     this.cancelActivePreviewTask();
     this.formSubscriptions.unsubscribe();
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   async selectPdfFromDialog(): Promise<void> {
