@@ -1,5 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -54,6 +56,7 @@ interface DrawDraft {
   styleUrl: './image-annotate.css',
 })
 export class ImageAnnotate implements OnDestroy {
+  private readonly destroy$ = new Subject<void>();
   @ViewChild('singleFileInput') singleFileInput?: ElementRef<HTMLInputElement>;
   @ViewChild('batchFileInput') batchFileInput?: ElementRef<HTMLInputElement>;
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
@@ -158,11 +161,11 @@ export class ImageAnnotate implements OnDestroy {
       blurIntensity: ['40'],
     });
 
-    this.form.controls.format.valueChanges.subscribe(() => this.scheduleAnnotatePreviewRefresh());
-    this.form.controls.jobMode.valueChanges.subscribe(() => {
+    this.form.controls.format.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.scheduleAnnotatePreviewRefresh());
+    this.form.controls.jobMode.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => {
       this.onModeChanged();
     });
-    this.operationForm.valueChanges.subscribe(() => this.onAdvancedFormChanged());
+    this.operationForm.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onAdvancedFormChanged());
   }
 
   ngOnDestroy(): void {
@@ -171,6 +174,8 @@ export class ImageAnnotate implements OnDestroy {
       clearTimeout(this.previewDebounceTimer);
       this.previewDebounceTimer = null;
     }
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   setActiveTool(tool: AnnotateTool): void {
