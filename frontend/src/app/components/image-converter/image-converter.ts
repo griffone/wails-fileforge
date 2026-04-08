@@ -117,6 +117,15 @@ export class ImageConverter implements OnDestroy {
     }
   }
 
+  onFileDropPaths(paths: string[]): void {
+    if (this.currentMode() === 'single') {
+      this.selectedInputPaths = [paths[0]];
+      return;
+    }
+
+    this.appendPaths(paths);
+  }
+
   ngOnDestroy(): void {
     this.stopPolling();
   }

@@ -27,7 +27,7 @@
         </button>
       </div>
 
-      <app-file-drop (filePaths)="(paths) => { if (currentMode() === 'single') { selectedInputPaths = [paths[0]] } else { appendPaths(paths) } }" accept="image/*"></app-file-drop>
+      <app-file-drop (filePaths)="onFileDropPaths($event)" accept="image/*"></app-file-drop>
 
       <ul class="max-h-56 space-y-2 overflow-auto rounded-lg border border-gray-200 bg-white p-3">
         <li
