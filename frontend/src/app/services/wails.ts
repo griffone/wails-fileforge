@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { Call, Events } from '@wailsio/runtime';
+import { Subject, Subscription } from 'rxjs';
 
 export type ToolRuntimeStatusV1 = 'enabled' | 'disabled' | 'degraded';
 export type JobModeV1 = 'single' | 'batch';
@@ -230,6 +231,11 @@ export interface MarkdownToPdfOptionsV1 {
   providedIn: 'root',
 })
 export class Wails {
+  // Job progress Subject / registration tracking to ensure we only register
+  // the Wails Events.On handler once and avoid duplicate listeners.
+  private jobProgressSubject: Subject<JobProgressEventV1> | null = null;
+  private jobProgressUnsubscribe: (() => void) | null = null;
+  private jobProgressRefCount = 0;
   private callByID(id: number, ...args: unknown[]): Promise<any> {
     return Call.ByID(id, ...args);
   }
@@ -376,24 +382,60 @@ export class Wails {
   }
 
   subscribeJobProgressV1(callback: (event: JobProgressEventV1) => void): () => void {
-    return Events.On('jobs/progress/v1', (ev: { data?: unknown }) => {
-      const payload = ev?.data;
-      if (!payload || typeof payload !== 'object') {
-        return;
-      }
+    // Lazy-create the Subject and register the Events.On handler exactly once.
+    if (!this.jobProgressSubject) {
+      this.jobProgressSubject = new Subject<JobProgressEventV1>();
+      this.jobProgressUnsubscribe = Events.On('jobs/progress/v1', (ev: { data?: unknown }) => {
+        const payload = ev?.data;
+        if (!payload || typeof payload !== 'object') {
+          return;
+        }
 
-      const candidate = payload as Partial<JobProgressEventV1>;
-      if (typeof candidate.jobId !== 'string' || !candidate.progress) {
-        return;
-      }
+        const candidate = payload as Partial<JobProgressEventV1>;
+        if (typeof candidate.jobId !== 'string' || !candidate.progress) {
+          return;
+        }
 
-      callback({
-        jobId: candidate.jobId,
-        toolId: typeof candidate.toolId === 'string' ? candidate.toolId : '',
-        status: typeof candidate.status === 'string' ? candidate.status : 'running',
-        progress: candidate.progress,
+        this.jobProgressSubject?.next({
+          jobId: candidate.jobId,
+          toolId: typeof candidate.toolId === 'string' ? candidate.toolId : '',
+          status: typeof candidate.status === 'string' ? candidate.status : 'running',
+          progress: candidate.progress,
+        });
       });
-    });
+    }
+
+    this.jobProgressRefCount += 1;
+
+    const subscription: Subscription = this.jobProgressSubject.subscribe(callback);
+
+    // Return an unsubscribe function that decrements the ref count and
+    // only removes the global Events.On handler when no consumers remain.
+    return () => {
+      try {
+        subscription.unsubscribe();
+      } catch {
+        // ignore
+      }
+
+      this.jobProgressRefCount -= 1;
+      if (this.jobProgressRefCount <= 0) {
+        // No more consumers - cleanup global listener and complete subject
+        try {
+          this.jobProgressUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.jobProgressUnsubscribe = null;
+        try {
+          this.jobProgressSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.jobProgressSubject = null;
+        this.jobProgressRefCount = 0;
+      }
+    };
   }
 
   isRuntimeAvailable(): boolean {
