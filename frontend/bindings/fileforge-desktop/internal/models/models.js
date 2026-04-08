@@ -603,6 +603,13 @@ export class JobProgressV1 {
              */
             this["message"] = "";
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["etaSeconds"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }
@@ -724,6 +731,20 @@ export class JobResultItemV1 {
              */
             this["outputCount"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["attempts"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["retryCount"] = undefined;
+        }
         if (!("success" in $$source)) {
             /**
              * @member
@@ -756,13 +777,13 @@ export class JobResultItemV1 {
      */
     static createFrom($$source = {}) {
         const $$createField2_0 = $$createType5;
-        const $$createField6_0 = $$createType1;
+        const $$createField8_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
             $$parsedSource["outputs"] = $$createField2_0($$parsedSource["outputs"]);
         }
         if ("error" in $$parsedSource) {
-            $$parsedSource["error"] = $$createField6_0($$parsedSource["error"]);
+            $$parsedSource["error"] = $$createField8_0($$parsedSource["error"]);
         }
         return new JobResultItemV1(/** @type {Partial<JobResultItemV1>} */($$parsedSource));
     }

@@ -1,0 +1,6 @@
+.drop-zone {
+  cursor: pointer;
+}
+.drop-zone.drag-over {
+  background-color: #f8fafc;
+}

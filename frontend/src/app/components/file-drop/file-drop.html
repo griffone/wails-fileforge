@@ -1,0 +1,14 @@
+<div
+  class="drop-zone p-4 rounded-lg border border-dashed border-gray-300 text-center text-sm text-gray-600"
+  (dragover)="onDragOver($event)"
+  (drop)="onDrop($event)"
+>
+  <p>Drag & drop files here, or use the file input.</p>
+  <input
+    type="file"
+    [attr.accept]="accept"
+    [attr.multiple]="multiple ? true : null"
+    class="hidden"
+    (change)="onFilesSelected($event.target.files)"
+  />
+</div>
