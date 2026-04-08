@@ -18,9 +18,10 @@ describe('Wails jobProgress$', () => {
       progress: { current: 1, total: 2, stage: 'processing', message: 'half', etaSeconds: 10 },
     };
 
-    // Spy on Events.On to capture the registered handler and invoke it
-    let registeredHandler: ((ev: { data?: unknown }) => void) | null = null;
-    spyOn(Events, 'On').and.callFake((topic: string, handler: (ev: { data?: unknown }) => void) => {
+    // Spy on Events.On to capture the registered handler and invoke it.
+    // Cast to any to avoid strict Wails types in tests.
+    let registeredHandler: ((ev: any) => void) | null = null;
+    spyOn(Events as any, 'On').and.callFake((topic: string, handler: any) => {
       registeredHandler = handler;
       // return a noop unsubscribe
       return () => {};
@@ -38,7 +39,7 @@ describe('Wails jobProgress$', () => {
       }
     });
 
-    // simulate native event
-    registeredHandler?.({ data: payload });
+    // simulate native event — Wails event includes a name field
+    registeredHandler?.({ name: 'jobs/progress/v1', data: payload });
   });
 });
