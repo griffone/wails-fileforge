@@ -19,8 +19,9 @@ describe('Wails jobProgress$', () => {
     };
 
     // Spy on Events.On to capture the registered handler and invoke it.
-    // Cast to any to avoid strict Wails types in tests.
-    let registeredHandler: ((ev: any) => void) | null = null;
+    // Cast to any to avoid strict Wails types in tests. Use `any` so the
+    // test can invoke the captured handler without TypeScript callable errors.
+    let registeredHandler: any = null;
     spyOn(Events as any, 'On').and.callFake((topic: string, handler: any) => {
       registeredHandler = handler;
       // return a noop unsubscribe
@@ -39,7 +40,8 @@ describe('Wails jobProgress$', () => {
       }
     });
 
-    // simulate native event — Wails event includes a name field
+    // simulate native event — Wails event shape: { name, data }
+    // Invoke the captured handler with the expected payload envelope.
     registeredHandler?.({ name: 'jobs/progress/v1', data: payload });
   });
 });
