@@ -22,6 +22,7 @@ const POLLING_INTERVAL_MS = 1000;
   selector: 'app-image-converter',
   standalone: true,
   imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
   templateUrl: './image-converter.html',
   styleUrl: './image-converter.css',
 })
@@ -108,6 +109,12 @@ export class ImageConverter implements OnDestroy {
       resizeWidth: [''],
       resizeHeight: [''],
     });
+  }
+
+  appendPaths(paths: string[]): void {
+    for (const p of paths) {
+      this.addInput(p);
+    }
   }
 
   ngOnDestroy(): void {

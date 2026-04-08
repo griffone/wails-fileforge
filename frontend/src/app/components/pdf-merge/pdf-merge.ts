@@ -9,6 +9,7 @@ import {
   JobStatusResponseV1,
   Wails,
 } from '../../services/wails';
+import { FileDrop } from '../file-drop/file-drop';
 
 const PDF_MERGE_TOOL_ID = 'tool.pdf.merge';
 const POLLING_INTERVAL_MS = 1000;
