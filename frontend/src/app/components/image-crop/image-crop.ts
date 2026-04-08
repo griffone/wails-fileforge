@@ -6,6 +6,8 @@ import {
   ViewChild,
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import { RouterLink } from '@angular/router';
 
 import {
@@ -45,6 +47,7 @@ interface CropRect {
   styleUrl: './image-crop.css',
 })
 export class ImageCrop implements OnDestroy {
+  private readonly destroy$ = new Subject<void>();
   @ViewChild('singleFileInput') singleFileInput?: ElementRef<HTMLInputElement>;
   @ViewChild('batchFileInput') batchFileInput?: ElementRef<HTMLInputElement>;
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
@@ -158,12 +161,12 @@ export class ImageCrop implements OnDestroy {
       height: ['1', Validators.required],
     });
 
-    this.form.controls.x.valueChanges.subscribe(() => this.onManualCoordinatesChanged());
-    this.form.controls.y.valueChanges.subscribe(() => this.onManualCoordinatesChanged());
-    this.form.controls.width.valueChanges.subscribe(() => this.onManualCoordinatesChanged());
-    this.form.controls.height.valueChanges.subscribe(() => this.onManualCoordinatesChanged());
-    this.form.controls.ratioPreset.valueChanges.subscribe((preset) => this.onRatioPresetChanged(preset as RatioPreset));
-    this.form.controls.format.valueChanges.subscribe(() => this.scheduleCropPreviewRefresh());
+    this.form.controls.x.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onManualCoordinatesChanged());
+    this.form.controls.y.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onManualCoordinatesChanged());
+    this.form.controls.width.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onManualCoordinatesChanged());
+    this.form.controls.height.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onManualCoordinatesChanged());
+    this.form.controls.ratioPreset.valueChanges.pipe(takeUntil(this.destroy$)).subscribe((preset) => this.onRatioPresetChanged(preset as RatioPreset));
+    this.form.controls.format.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.scheduleCropPreviewRefresh());
   }
 
   ngOnDestroy(): void {
@@ -172,6 +175,10 @@ export class ImageCrop implements OnDestroy {
       clearTimeout(this.previewDebounceTimer);
       this.previewDebounceTimer = null;
     }
+
+    // Signal all takeUntil subscriptions to complete and release resources
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   async selectImageFromDialog(): Promise<void> {
