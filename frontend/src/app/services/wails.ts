@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { Call, Events } from '@wailsio/runtime';
-import { Subject, Subscription } from 'rxjs';
+import { Subject, Subscription, ReplaySubject, Observable } from 'rxjs';
 
 export type ToolRuntimeStatusV1 = 'enabled' | 'disabled' | 'degraded';
 export type JobModeV1 = 'single' | 'batch';
@@ -233,9 +233,38 @@ export interface MarkdownToPdfOptionsV1 {
 export class Wails {
   // Job progress Subject / registration tracking to ensure we only register
   // the Wails Events.On handler once and avoid duplicate listeners.
-  private jobProgressSubject: Subject<JobProgressEventV1> | null = null;
+  // We expose a public Observable that replays the last event for late
+  // subscribers while keeping the existing subscribeJobProgressV1 API.
+  private jobProgressSubject: ReplaySubject<JobProgressEventV1> | null = null;
   private jobProgressUnsubscribe: (() => void) | null = null;
   private jobProgressRefCount = 0;
+
+  // Public observable that consumers can subscribe to. It will ensure the
+  // native Events.On handler is registered while there are active
+  // subscribers and will replay the last value for late subscribers.
+  public readonly jobProgress$: Observable<JobProgressEventV1> = new Observable(
+    (subscriber) => {
+      // Ensure the shared subject and native listener are registered.
+      const unregister = this.ensureJobProgressRegistered();
+
+      // At this point jobProgressSubject is guaranteed to exist.
+      const sub = this.jobProgressSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        // Decrement refcount and cleanup if needed
+        unregister();
+      };
+    }
+  );
   private callByID(id: number, ...args: unknown[]): Promise<any> {
     return Call.ByID(id, ...args);
   }
@@ -382,9 +411,32 @@ export class Wails {
   }
 
   subscribeJobProgressV1(callback: (event: JobProgressEventV1) => void): () => void {
-    // Lazy-create the Subject and register the Events.On handler exactly once.
+    // Use the public observable internally to keep behavior consistent and
+    // backward-compatible. subscribeJobProgressV1 should subscribe to the
+    // jobProgress$ Observable and return an unsubscribe function.
+    const unregister = this.ensureJobProgressRegistered();
+
+    const subscription: Subscription = this.jobProgressSubject!.subscribe(callback);
+
+    return () => {
+      try {
+        subscription.unsubscribe();
+      } catch {
+        // ignore
+      }
+      // decrement refcount / cleanup
+      unregister();
+    };
+  }
+
+  // Ensure the replay subject exists and the native Events.On handler is
+  // registered. Increments an internal refcount and returns an unregister
+  // function that should be called when the consumer unsubscribes.
+  private ensureJobProgressRegistered(): () => void {
+    // Lazy-create subject if necessary
     if (!this.jobProgressSubject) {
-      this.jobProgressSubject = new Subject<JobProgressEventV1>();
+      this.jobProgressSubject = new ReplaySubject<JobProgressEventV1>(1);
+      // Register the native event listener - store the unsubscribe fn
       this.jobProgressUnsubscribe = Events.On('jobs/progress/v1', (ev: { data?: unknown }) => {
         const payload = ev?.data;
         if (!payload || typeof payload !== 'object') {
@@ -407,20 +459,11 @@ export class Wails {
 
     this.jobProgressRefCount += 1;
 
-    const subscription: Subscription = this.jobProgressSubject.subscribe(callback);
-
-    // Return an unsubscribe function that decrements the ref count and
-    // only removes the global Events.On handler when no consumers remain.
+    // Return unregister function
     return () => {
-      try {
-        subscription.unsubscribe();
-      } catch {
-        // ignore
-      }
-
       this.jobProgressRefCount -= 1;
       if (this.jobProgressRefCount <= 0) {
-        // No more consumers - cleanup global listener and complete subject
+        // cleanup
         try {
           this.jobProgressUnsubscribe?.();
         } catch {
