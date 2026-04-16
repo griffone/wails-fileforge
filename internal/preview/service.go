@@ -104,8 +104,8 @@ func (s *PreviewService) Fetch(ctx context.Context, jobID string) (PreviewResult
 	}
 	// attempt to read from cache by cacheKey
 	if job.CacheKey != "" && s.cache != nil {
-		if data, ok, err := s.cache.Get(job.CacheKey); err == nil && ok {
-			return PreviewResult{Success: true, Data: data, ContentType: "image/webp", Message: "ok (from cache)"}, nil
+		if data, mime, ok, err := s.cache.Get(job.CacheKey); err == nil && ok {
+			return PreviewResult{Success: true, Data: data, ContentType: mime, Message: "ok (from cache)"}, nil
 		} else if err != nil {
 			// log but continue to indicate not ready
 		}
@@ -170,7 +170,7 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 	cacheKey := cachepkg.GeneratePreviewCacheKey(job.Req.Path, 0, 0, cachepkg.PageRange{Start: cp.Start, End: cp.End}, job.Req.PageOffset, job.Req.Width, job.Req.Height, job.Req.Format, 80)
 	job.CacheKey = cacheKey
 	if s.cache != nil {
-		_ = s.cache.Put(cacheKey, data)
+		_ = s.cache.Put(cacheKey, data, ct)
 	}
 
 	s.mu.Lock()

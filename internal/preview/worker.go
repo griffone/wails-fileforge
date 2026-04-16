@@ -26,6 +26,7 @@ func NewWorkerPool(size int, maxQueue int) *WorkerPool {
 		queue: make(chan *previewJob, maxQueue),
 		size:  size,
 		stop:  make(chan struct{}),
+		// TODO: consider adding a rate-limiter or tokens for global throughput
 	}
 }
 

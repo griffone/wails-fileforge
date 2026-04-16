@@ -45,7 +45,8 @@ func NewPreviewCache(maxCacheBytes int64, diskDir string, maxDiskBytes int64, sp
 }
 
 // Put stores data in cache; may spill to disk if over threshold.
-func (c *PreviewCache) Put(jobID string, data []byte) error {
+// contentType is the MIME type for the data (e.g., image/webp).
+func (c *PreviewCache) Put(jobID string, data []byte, contentType string) error {
 	if c == nil || c.mem == nil {
 		return errors.New("cache not initialized")
 	}
@@ -58,7 +59,7 @@ func (c *PreviewCache) Put(jobID string, data []byte) error {
 			c.mem.Wait()
 			return nil
 		}
-		path, err := WriteSpillFile(c.diskDir, jobID, data)
+		path, err := WriteCacheEntry(c.diskDir, jobID, data, contentType)
 		if err != nil {
 			return fmt.Errorf("preview: spill write: %w", err)
 		}
@@ -72,27 +73,34 @@ func (c *PreviewCache) Put(jobID string, data []byte) error {
 	return nil
 }
 
-// Get returns data and contentType if present. For spill files, reads disk file.
-func (c *PreviewCache) Get(jobID string) ([]byte, bool, error) {
+// Get returns data and contentType if present. For spill files, reads disk file and its meta.
+func (c *PreviewCache) Get(jobID string) ([]byte, string, bool, error) {
 	if c == nil || c.mem == nil {
-		return nil, false, errors.New("cache not initialized")
+		return nil, "", false, errors.New("cache not initialized")
 	}
 	v, ok := c.mem.Get(jobID)
 	if !ok {
-		return nil, false, nil
+		return nil, "", false, nil
 	}
 	switch v := v.(type) {
 	case []byte:
-		return v, true, nil
+		return v, "", true, nil
 	case string:
 		// treat as path to spill file
 		data, err := os.ReadFile(v)
 		if err != nil {
-			return nil, false, fmt.Errorf("preview: read spill: %w", err)
+			return nil, "", false, fmt.Errorf("preview: read spill: %w", err)
 		}
-		return data, true, nil
+		// read meta file for mime type
+		metaPath := v + ".meta"
+		mime := ""
+		if mb, err := os.ReadFile(metaPath); err == nil {
+			// meta contains raw mime string (for simplicity)
+			mime = string(mb)
+		}
+		return data, mime, true, nil
 	default:
-		return nil, false, fmt.Errorf("preview: unknown cache entry type")
+		return nil, "", false, fmt.Errorf("preview: unknown cache entry type")
 	}
 }
 

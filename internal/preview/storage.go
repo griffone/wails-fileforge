@@ -53,6 +53,45 @@ func WriteSpillFile(dir, jobID string, data []byte) (string, error) {
 	return fname, nil
 }
 
+// WriteCacheEntry writes data and a small meta file containing the mime type
+// to the cache directory under a stable filename derived from keyBase.
+func WriteCacheEntry(dir, keyBase string, data []byte, contentType string) (string, error) {
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "fileforge-previews")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("preview: write cache mkdir: %w", err)
+	}
+	fname := filepath.Join(dir, keyBase+".bin")
+	// write to temp then rename
+	tmp, err := ioutil.TempFile(dir, "cache-*")
+	if err != nil {
+		return "", fmt.Errorf("preview: tmpfile: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		// ignore chmod error
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return "", fmt.Errorf("preview: write tmp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return "", fmt.Errorf("preview: close tmp: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), fname); err != nil {
+		os.Remove(tmp.Name())
+		return "", fmt.Errorf("preview: rename cache: %w", err)
+	}
+	// write meta file
+	metaPath := fname + ".meta"
+	if err := os.WriteFile(metaPath, []byte(contentType), 0o600); err != nil {
+		// best effort: ignore error but log in future
+	}
+	return fname, nil
+}
+
 // RemoveSpillFile removes the spill file at path if it exists.
 func RemoveSpillFile(path string) error {
 	if path == "" {

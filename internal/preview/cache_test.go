@@ -17,10 +17,10 @@ func TestCachePutGetSmall(t *testing.T) {
 		t.Fatalf("new cache: %v", err)
 	}
 	data := []byte("hello")
-	if err := c.Put("job-small", data); err != nil {
+	if err := c.Put("job-small", data, "image/webp"); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	got, ok, err := c.Get("job-small")
+	got, mime, ok, err := c.Get("job-small")
 	if err != nil {
 		t.Fatalf("get err: %v", err)
 	}
@@ -29,6 +29,9 @@ func TestCachePutGetSmall(t *testing.T) {
 	}
 	if string(got) != string(data) {
 		t.Fatalf("mismatch: %s", string(got))
+	}
+	if mime != "" && mime != "image/webp" {
+		t.Fatalf("unexpected mime: %s", mime)
 	}
 }
 
@@ -46,10 +49,10 @@ func TestCacheSpillToDisk(t *testing.T) {
 	for i := range data {
 		data[i] = byte(i % 256)
 	}
-	if err := c.Put("job-big", data); err != nil {
+	if err := c.Put("job-big", data, "image/webp"); err != nil {
 		t.Fatalf("put big: %v", err)
 	}
-	got, ok, err := c.Get("job-big")
+	got, mime, ok, err := c.Get("job-big")
 	if err != nil {
 		t.Fatalf("get big err: %v", err)
 	}
@@ -58,5 +61,8 @@ func TestCacheSpillToDisk(t *testing.T) {
 	}
 	if len(got) != len(data) {
 		t.Fatalf("len mismatch got=%d want=%d", len(got), len(data))
+	}
+	if mime != "image/webp" {
+		t.Fatalf("unexpected mime: %s", mime)
 	}
 }
