@@ -45,7 +45,7 @@
         </div>
       </ng-container>
       <ng-template #legacyDrop>
-        <app-file-drop (filePaths)="onFileDropPaths($event)" accept="image/*"></app-file-drop>
+        <app-file-drop (filesSelected)="onFileDropFiles($event)" accept="image/*"></app-file-drop>
       </ng-template>
 
       <ul class="max-h-56 space-y-2 overflow-auto rounded-lg border border-gray-200 bg-white p-3">

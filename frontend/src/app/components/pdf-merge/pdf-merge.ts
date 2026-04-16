@@ -10,6 +10,7 @@ import {
   Wails,
 } from '../../services/wails';
 import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
 
 const PDF_MERGE_TOOL_ID = 'tool.pdf.merge';
 const POLLING_INTERVAL_MS = 1000;
@@ -17,7 +18,7 @@ const POLLING_INTERVAL_MS = 1000;
 @Component({
   selector: 'app-pdf-merge',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, FileDrop],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, FileDrop, JobCard],
   templateUrl: './pdf-merge.html',
   styleUrl: './pdf-merge.css',
 })

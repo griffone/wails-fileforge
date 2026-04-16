@@ -152,7 +152,7 @@ export class ImageConverter implements OnDestroy {
   onFileDropFiles(files: File[]): void {
     // Preserve local-only handling: use file.name as placeholder path for now
     // Phase2: implement thumbnail previews via local object URLs or backend preview endpoint
-    const paths = files.map((f) => f.path || f.name || f.name);
+    const paths = files.map((f) => ((f as unknown as { path?: string }).path) ?? f.name);
     this.onFileDropPaths(paths);
   }
 
