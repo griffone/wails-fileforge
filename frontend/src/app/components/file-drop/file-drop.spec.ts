@@ -13,7 +13,7 @@ describe('FileDrop', () => {
   });
 
   it('should emit filesSelected when input change', () => {
-    const spy = jest.fn();
+    const spy = jasmine.createSpy('filesSelected');
     component.filesSelected.subscribe(spy);
     const file = new File(['x'], 'a.pdf', { type: 'application/pdf' });
     component['emitFiles']( { item: (i: number) => (i === 0 ? file : null), length: 1 } as unknown as FileList);
