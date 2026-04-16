@@ -3,6 +3,7 @@ package preview
 import (
 	"context"
 	"errors"
+	cachepkg "fileforge-desktop/internal/utils/cache"
 	"fmt"
 	"github.com/google/uuid"
 	"os"
@@ -101,6 +102,14 @@ func (s *PreviewService) Fetch(ctx context.Context, jobID string) (PreviewResult
 	if job.Result != nil {
 		return *job.Result, nil
 	}
+	// attempt to read from cache by cacheKey
+	if job.CacheKey != "" && s.cache != nil {
+		if data, ok, err := s.cache.Get(job.CacheKey); err == nil && ok {
+			return PreviewResult{Success: true, Data: data, ContentType: "image/webp", Message: "ok (from cache)"}, nil
+		} else if err != nil {
+			// log but continue to indicate not ready
+		}
+	}
 	return PreviewResult{Success: false, Message: "not ready"}, nil
 }
 
@@ -155,10 +164,13 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 		return fmt.Errorf("preview: %w", perr)
 	}
 
-	// store in cache if available (service-level cache preferred)
+	// compute a deterministic cache key and store in cache if available
+	// Note: processors SHOULD ideally return or accept a cache key; here we compute from request
+	cp := job.Req.PageRange
+	cacheKey := cachepkg.GeneratePreviewCacheKey(job.Req.Path, 0, 0, cachepkg.PageRange{Start: cp.Start, End: cp.End}, job.Req.PageOffset, job.Req.Width, job.Req.Height, job.Req.Format, 80)
+	job.CacheKey = cacheKey
 	if s.cache != nil {
-		// use cache key job.ID for now; future: use full preview cache key
-		_ = s.cache.Put(job.ID, data)
+		_ = s.cache.Put(cacheKey, data)
 	}
 
 	s.mu.Lock()
