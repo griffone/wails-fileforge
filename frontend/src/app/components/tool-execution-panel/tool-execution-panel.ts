@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { JobResultItemV1, JobResultV1 } from '../../services/wails';
+import { JobCard } from '../job-card/job-card';
 
 export interface ExecutionPanelOption {
   value: string;
@@ -23,7 +24,7 @@ export interface ExecutionPanelField {
 @Component({
   selector: 'app-tool-execution-panel',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, JobCard],
   templateUrl: './tool-execution-panel.html',
   styleUrl: './tool-execution-panel.css',
 })
