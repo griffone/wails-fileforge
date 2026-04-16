@@ -50,7 +50,7 @@
         (change)="onFileInputChange($event)"
       />
 
-      <app-file-drop (filePaths)="appendInputPaths($event)" accept=".pdf,application/pdf"></app-file-drop>
+      <app-file-drop (filesSelected)="onFilesAdded($event)" accept=".pdf,application/pdf"></app-file-drop>
 
       <div class="space-y-2">
         <h3 class="text-sm font-semibold text-gray-900">Input queue ({{ selectedInputPaths.length }})</h3>

@@ -23,6 +23,7 @@ const POLLING_INTERVAL_MS = 1000;
 })
 export class PdfMerge implements OnDestroy {
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
+  // FileDrop will emit File[]; we listen with onFilesAdded
 
   readonly form;
   selectedInputPaths: string[] = [];
@@ -49,6 +50,11 @@ export class PdfMerge implements OnDestroy {
     this.form = this.fb.nonNullable.group({
       outputPath: ['', Validators.required],
     });
+  }
+
+  onFilesAdded(files: File[]): void {
+    const paths = this.extractPathsFromFileList(files as unknown as FileList);
+    this.appendInputPaths(paths);
   }
 
   ngOnDestroy(): void {

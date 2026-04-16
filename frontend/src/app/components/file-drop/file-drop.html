@@ -1,14 +1,16 @@
-<div
-  class="drop-zone p-4 rounded-lg border border-dashed border-gray-300 text-center text-sm text-gray-600"
-  (dragover)="onDragOver($event)"
-  (drop)="onDrop($event)"
->
-  <p>Drag & drop files here, or use the file input.</p>
-  <input
-    type="file"
-    [attr.accept]="accept"
-    [attr.multiple]="multiple ? true : null"
-    class="hidden"
-    (change)="onFilesSelected($event.target.files)"
-  />
+<div class="file-drop" role="button" [attr.aria-label]="ariaLabel" tabindex="0"
+     (click)="triggerFileInput()" (keydown.enter)="triggerFileInput()"
+     (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
+  <input type="file" #fileInput [attr.accept]="accept" [attr.multiple]="multiple ? '' : null" hidden (change)="onFileInputChange($event)" />
+  <ng-container *ngIf="!dragOver">
+    <div class="file-drop-inner">
+      <p class="file-drop-title">Arrastrá o hacé click para seleccionar archivos</p>
+      <p class="file-drop-sub">Soportado: {{ accept || 'todos los tipos' }}</p>
+    </div>
+  </ng-container>
+  <ng-container *ngIf="dragOver">
+    <div class="file-drop-inner drag-over">
+      <p class="file-drop-title">Soltá para agregar archivos</p>
+    </div>
+  </ng-container>
 </div>

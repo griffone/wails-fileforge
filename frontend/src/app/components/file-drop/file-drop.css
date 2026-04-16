@@ -1,6 +1,21 @@
-.drop-zone {
+.file-drop {
+  border: 2px dashed var(--primary, #0B6FFF);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
   cursor: pointer;
 }
-.drop-zone.drag-over {
-  background-color: #f8fafc;
+.file-drop:focus {
+  outline: 3px solid rgba(11,111,255,0.12);
+}
+.file-drop .file-drop-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.file-drop.drag-over {
+  background: rgba(11,111,255,0.04);
+}
+.file-drop-title {
+  font-weight: 600;
 }
