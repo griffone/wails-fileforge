@@ -7,6 +7,7 @@ import {
 import { provideRouter } from '@angular/router';
 
 import { PdfMerge } from './pdf-merge';
+import { FileDrop } from '../file-drop/file-drop';
 import {
   JobRequestV1,
   JobStatusResponseV1,
@@ -34,7 +35,7 @@ describe('PdfMerge', () => {
     ]);
 
     await TestBed.configureTestingModule({
-      imports: [PdfMerge],
+      imports: [PdfMerge, FileDrop],
       providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
@@ -145,10 +146,37 @@ describe('PdfMerge', () => {
 
   it('appends valid files and ignores duplicates/extensions', () => {
     component.selectedInputPaths = ['/tmp/a.pdf'];
-    component.appendInputPaths(['/tmp/a.pdf', '/tmp/b.pdf', '/tmp/c.txt']);
+    // Simulate FileDrop emitting File[] with path property
+    const files: File[] = [
+      Object.assign(new File([''], 'a.pdf'), { path: '/tmp/a.pdf' }),
+      Object.assign(new File([''], 'b.pdf'), { path: '/tmp/b.pdf' }),
+      Object.assign(new File([''], 'c.txt'), { path: '/tmp/c.txt' }),
+    ];
+
+    component.onFilesAdded(files);
 
     expect(component.selectedInputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
     expect(component.submitMessage).toContain('ignoraron');
+  });
+
+  it("shows 'Uploading' in JobCard when job progress stage is 'uploading'", () => {
+    component.jobResult = {
+      jobId: 'job-1',
+      success: false,
+      message: 'uploading',
+      toolId: 'tool.pdf.merge',
+      status: 'running',
+      progress: { current: 1, total: 2, stage: 'uploading', message: 'Uploading files' },
+      items: [],
+      startedAt: Date.now(),
+    } as any;
+
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('app-job-card')).toBeTruthy();
+    // The JobCard displays 'Uploading…' or bytes; check presence of 'Uploading' text
+    expect(compiled.textContent).toContain('Uploading');
   });
 
   it('supports drag-drop reorder via index move', () => {

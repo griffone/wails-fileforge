@@ -25,9 +25,7 @@
         <button type="button" class="btn btn-secondary" (click)="selectFilesFromDialog()">
           Select PDFs (Wails)
         </button>
-        <button type="button" class="btn btn-secondary" (click)="triggerFileInput()">
-          Add from browser input
-        </button>
+        <!-- Browser file input removed: replaced by FileDrop component for a unified UX -->
         <button
           type="button"
           class="btn btn-secondary"
@@ -41,16 +39,7 @@
         </button>
       </div>
 
-      <input
-        #fileInput
-        type="file"
-        multiple
-        accept=".pdf,application/pdf"
-        class="hidden"
-        (change)="onFileInputChange($event)"
-      />
-
-      <app-file-drop (filesSelected)="onFilesAdded($event)" accept=".pdf,application/pdf"></app-file-drop>
+      <app-file-drop (filesSelected)="onFilesAdded($event)" accept=".pdf,application/pdf" aria-label="PDF file drop zone"></app-file-drop>
 
       <div class="space-y-2">
         <h3 class="text-sm font-semibold text-gray-900">Input queue ({{ selectedInputPaths.length }})</h3>
@@ -128,15 +117,11 @@
         {{ submitMessage }}
       </div>
 
-      <div *ngIf="jobResult" class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+      <div *ngIf="jobResult" class="rounded-lg border border-gray-200 bg-gray-50 p-4" role="region" aria-live="polite">
         <h3 class="text-base font-semibold text-gray-900">Job Status</h3>
         <p class="mt-2 text-sm text-gray-700">ID: {{ jobResult.jobId }}</p>
-        <p class="text-sm text-gray-700">Status: {{ jobResult.status }}</p>
-        <p class="text-sm text-gray-700">
-          Progress: {{ jobResult.progress.current }} / {{ jobResult.progress.total }} · {{ jobResult.progress.stage }}
-          ({{ jobResult.progress.total > 0 ? ((jobResult.progress.current / jobResult.progress.total) * 100 | number:'1.0-0') : 0 }}%)
-        </p>
-        <p class="text-sm text-gray-700">Message: {{ jobResult.message }}</p>
+        <!-- Use shared JobCard for progress/stage display -->
+        <app-job-card [job]="jobResult" role="status" aria-live="polite" tabindex="0"></app-job-card>
       </div>
 
       <div *ngIf="statusMessage" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">

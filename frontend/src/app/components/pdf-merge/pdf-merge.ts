@@ -22,7 +22,6 @@ const POLLING_INTERVAL_MS = 1000;
   styleUrl: './pdf-merge.css',
 })
 export class PdfMerge implements OnDestroy {
-  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
   // FileDrop will emit File[]; we listen with onFilesAdded
 
   readonly form;
@@ -191,47 +190,8 @@ export class PdfMerge implements OnDestroy {
     this.validationMessage = 'Carpeta de salida seleccionada. Revisá o ajustá el nombre final del archivo.';
   }
 
-  triggerFileInput(): void {
-    this.fileInput?.nativeElement.click();
-  }
-
-  onFileInputChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const files = target?.files;
-    if (!files || files.length === 0) {
-      return;
-    }
-
-    const paths = this.extractPathsFromFileList(files);
-    this.appendInputPaths(paths);
-
-    if (target) {
-      target.value = '';
-    }
-  }
-
-  onDragOver(event: DragEvent): void {
-    event.preventDefault();
-    this.dragOver = true;
-  }
-
-  onDragLeave(event: DragEvent): void {
-    event.preventDefault();
-    this.dragOver = false;
-  }
-
-  onFileDrop(event: DragEvent): void {
-    event.preventDefault();
-    this.dragOver = false;
-
-    const files = event.dataTransfer?.files;
-    if (!files || files.length === 0) {
-      return;
-    }
-
-    const paths = this.extractPathsFromFileList(files);
-    this.appendInputPaths(paths);
-  }
+  // FileDrop replaces the browser file input and native drag handlers.
+  // onFilesAdded(files: File[]) is used as the single entrypoint for new files.
 
   moveUp(index: number): void {
     if (index <= 0 || index >= this.selectedInputPaths.length) {
