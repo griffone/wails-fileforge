@@ -1,6 +1,8 @@
 package preview
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -57,7 +59,11 @@ type previewJob struct {
 	Result    *PreviewResult
 	Err       error
 	CreatedAt time.Time
-	// TODO: (image-preview) add cancel context, retries, worker metadata
+	// runtime fields
+	Ctx      context.Context
+	Cancel   context.CancelFunc
+	Attempts int
+	// TODO: (image-preview) add worker metadata
 }
 
 // Validate performs small sanity checks on the request. It does not check the filesystem.
@@ -105,5 +111,5 @@ func validatePath(p string, allowedRoots []string) error {
 			return nil
 		}
 	}
-	return &ValidationError{Field: "path", Message: "path is outside allowed roots"}
+	return &ValidationError{Field: "path", Message: fmt.Sprintf("path is outside allowed roots: %s", p)}
 }
