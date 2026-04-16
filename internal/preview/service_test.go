@@ -25,4 +25,7 @@ func TestEnqueueAndStatus(t *testing.T) {
 	if status.Status != JobStateQueued {
 		t.Fatalf("expected queued got %v", status.Status)
 	}
+
+	// cleanup: shutdown pool to avoid goroutine leak in test
+	_ = svc.Shutdown(context.Background())
 }
