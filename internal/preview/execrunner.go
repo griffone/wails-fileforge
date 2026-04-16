@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"syscall"
+	"time"
 )
 
 // ExecRunner runs external commands with a context, returning stdout and stderr.
@@ -33,8 +35,25 @@ func (r *LocalExecRunner) Run(ctx context.Context, name string, args []string, s
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
 
-	// Note: exec.CommandContext will kill the process if ctx is cancelled.
-	// This is sufficient for now; RLIMITs can be added here before Start().
-	err := cmd.Run()
-	return stdout.Bytes(), stderr.Bytes(), err
+	// Set minimal SysProcAttr for potential RLIMIT additions later
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+
+	// Run in goroutine so we can react to ctx cancellation reliably
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Run()
+	}()
+	select {
+	case err := <-done:
+		return stdout.Bytes(), stderr.Bytes(), err
+	case <-ctx.Done():
+		// Attempt graceful kill, then force
+		_ = cmd.Process.Kill()
+		select {
+		case err := <-done:
+			return stdout.Bytes(), stderr.Bytes(), err
+		case <-time.After(2 * time.Second):
+			return stdout.Bytes(), stderr.Bytes(), ctx.Err()
+		}
+	}
 }

@@ -116,7 +116,7 @@ func (s *PreviewService) Fetch(ctx context.Context, jobID string) (PreviewResult
 // handleJob processes a preview job using the configured processor and cache.
 func (s *PreviewService) handleJob(job *previewJob) error {
 	// create per-job context with timeout
-	timeout := 15 * time.Second
+	timeout := 30 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
