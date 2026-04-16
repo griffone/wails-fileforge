@@ -10,10 +10,15 @@ import (
 
 // PreviewRequest describes the client's request to start a preview job.
 type PreviewRequest struct {
-	Path   string `json:"path"`
-	Width  int    `json:"width"`
-	Height int    `json:"height"`
-	Format string `json:"format"` // "webp", "jpeg", "auto"
+	Path      string     `json:"path"`
+	Width     int        `json:"width"`
+	Height    int        `json:"height"`
+	Format    string     `json:"format"` // "webp", "jpeg", "auto"
+	PageRange *PageRange `json:"pageRange,omitempty"`
+	// PageOffset can be used by callers (e.g. splits) to request a page offset
+	// relative to the provided PageRange. For example, PageOffset=1 requests
+	// the next page after the start of the range.
+	PageOffset int `json:"pageOffset,omitempty"`
 }
 
 // PreviewStartResponse is the response returned when a preview job is enqueued.
@@ -81,7 +86,23 @@ func (r *PreviewRequest) Validate() error {
 	if f != "webp" && f != "jpeg" && f != "auto" {
 		return &ValidationError{Field: "format", Message: "format must be 'webp', 'jpeg' or 'auto'"}
 	}
+	// Default PageRange to first page when omitted
+	if r.PageRange == nil {
+		r.PageRange = &PageRange{Start: 1, End: 1}
+	}
+	if r.PageRange.Start < 1 {
+		return &ValidationError{Field: "pageRange.start", Message: "start must be >= 1"}
+	}
+	if r.PageRange.End < r.PageRange.Start {
+		return &ValidationError{Field: "pageRange.end", Message: "end must be >= start"}
+	}
 	return nil
+}
+
+// PageRange describes a 1-based inclusive page range.
+type PageRange struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
 }
 
 // ValidationError indicates a client-side validation failure.
