@@ -1,0 +1,22 @@
+<div class="pdf-split-preview">
+  <label class="file-input">
+    Seleccionar PDF
+    <input type="file" accept="application/pdf" (change)="onFileSelected($event)" />
+  </label>
+
+  <div *ngIf="pdf">
+    <h3>Páginas ({{ pages.length }})</h3>
+    <div class="thumbnails-grid">
+      <div *ngFor="let p of pages" class="thumb">
+        <canvas id="canvas-{{p}}"></canvas>
+        <div class="controls">
+          <label><input type="checkbox" (change)="toggleRange(p,p)" /> Seleccionar</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button (click)="splitClientSide()">Split (cliente)</button>
+    </div>
+  </div>
+</div>

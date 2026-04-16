@@ -33,6 +33,8 @@
     "@wailsio/runtime": "^3.0.0-alpha.79",
     "lucide-angular": "^0.577.0",
     "pdfjs-dist": "^4.10.38",
+    "jszip": "3.10.1",
+    "pdf-lib": "1.17.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.16.1"

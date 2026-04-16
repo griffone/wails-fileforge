@@ -72,6 +72,44 @@ export class JobStatus {
 }
 
 /**
+ * PageRange describes a 1-based inclusive page range.
+ */
+export class PageRange {
+    /**
+     * Creates a new PageRange instance.
+     * @param {Partial<PageRange>} [$$source = {}] - The source object to create the PageRange.
+     */
+    constructor($$source = {}) {
+        if (!("start" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["start"] = 0;
+        }
+        if (!("end" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["end"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PageRange instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {PageRange}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PageRange(/** @type {Partial<PageRange>} */($$parsedSource));
+    }
+}
+
+/**
  * PreviewRequest describes the client's request to start a preview job.
  */
 export class PreviewRequest {
@@ -109,6 +147,23 @@ export class PreviewRequest {
              */
             this["format"] = "";
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {PageRange | null | undefined}
+             */
+            this["pageRange"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * PageOffset can be used by callers (e.g. splits) to request a page offset
+             * relative to the provided PageRange. For example, PageOffset=1 requests
+             * the next page after the start of the range.
+             * @member
+             * @type {number | undefined}
+             */
+            this["pageOffset"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }
@@ -119,7 +174,11 @@ export class PreviewRequest {
      * @returns {PreviewRequest}
      */
     static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("pageRange" in $$parsedSource) {
+            $$parsedSource["pageRange"] = $$createField4_0($$parsedSource["pageRange"]);
+        }
         return new PreviewRequest(/** @type {Partial<PreviewRequest>} */($$parsedSource));
     }
 }
@@ -224,3 +283,7 @@ export class PreviewStartResponse {
         return new PreviewStartResponse(/** @type {Partial<PreviewStartResponse>} */($$parsedSource));
     }
 }
+
+// Private type creation functions
+const $$createType0 = PageRange.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);

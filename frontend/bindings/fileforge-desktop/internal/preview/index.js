@@ -5,6 +5,7 @@
 export {
     JobState,
     JobStatus,
+    PageRange,
     PreviewRequest,
     PreviewResult,
     PreviewStartResponse

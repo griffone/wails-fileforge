@@ -346,6 +346,39 @@ export class Wails {
     }
   }
 
+  // Frontend wrappers for PDF split feature.
+  // NOTE: The Go backend methods are TODOs and must be implemented server-side.
+  // We provide typed wrappers here so the UI can call them later. They currently
+  // call Call.ByID with placeholder IDs — backend dev must expose the matching
+  // bindings and update these numeric IDs accordingly.
+  async getPdfBytes(inputPath: string): Promise<PDFPreviewSourceResponseV1> {
+    try {
+      // TODO: Replace 0 with generated binding ID for backend method that returns PDF bytes base64
+      return await this.callByID(0, inputPath);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('getPdfBytes failed', error),
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_PDF_BYTES_FAILED', error),
+      };
+    }
+  }
+
+  async splitPdfBackend(inputPath: string, ranges: Array<{ from: number; to: number }>): Promise<RunJobResponseV1> {
+    try {
+      // TODO: Replace 0 with generated binding ID for backend split job
+      return await this.callByID(0, inputPath, ranges);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('splitPdfBackend failed', error),
+        jobId: '',
+        status: 'failed',
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_PDF_SPLIT_FAILED', error),
+      };
+    }
+  }
+
   // Preview service wrappers (StartPreview / GetPreviewStatus / GetPreview / CancelPreview)
   // These wrap generated bindings that call into the backend preview service.
   async StartPreview(req: { path: string; width: number; height: number; format: string }): Promise<any> {
