@@ -3,6 +3,7 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { JobResultItemV1, JobResultV1 } from '../../services/wails';
 import { JobCard } from '../job-card/job-card';
+import { FEATURE_FLAGS } from '../../config/feature-flags';
 
 export interface ExecutionPanelOption {
   value: string;
@@ -29,6 +30,7 @@ export interface ExecutionPanelField {
   styleUrl: './tool-execution-panel.css',
 })
 export class ToolExecutionPanel {
+  readonly featureFlags = FEATURE_FLAGS;
   @Input() title = 'Tool Execution';
   @Input() subtitle = '';
   @Input() form: FormGroup = new FormGroup({});
@@ -80,6 +82,11 @@ export class ToolExecutionPanel {
 
   itemStatusLabel(item: JobResultItemV1): string {
     return item.success ? 'success' : 'failed';
+  }
+
+  // Accessibility helper: announce stage transitions via aria-live region in parent components
+  ariaStageAnnouncement(): string {
+    return this.jobResult?.progress?.message ?? '';
   }
 
   statusLabel(): string {

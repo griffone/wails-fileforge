@@ -35,7 +35,11 @@ func NewPreviewService(cfg Config) *PreviewService {
 	}
 	// initialize worker pool with defaults; caller can replace wp if desired
 	svc.wp = NewWorkerPool(4, cfg.MaxQueue)
-	// leave cache nil by default; tests can inject via svc.cache
+	// initialize cache with defaults
+	// defaults: 100MB mem, spill threshold 1MB, 1GB disk, TTL 5m
+	diskDir, _ := EnsureDiskDir("")
+	cache, _ := NewPreviewCache(100*1024*1024, diskDir, 1*1024*1024*1024, 1*1024*1024, 5*time.Minute)
+	svc.cache = cache
 	// start worker pool with handler bound to this service
 	svc.wp.Start(func(job *previewJob) {
 		// ensure we don't block the worker forever

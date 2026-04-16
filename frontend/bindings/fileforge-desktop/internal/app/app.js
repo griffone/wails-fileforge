@@ -9,6 +9,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as models$0 from "../models/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as preview$0 from "../preview/models.js";
 
 /**
  * @param {string} jobID
@@ -21,12 +24,23 @@ export function CancelJobV1(jobID) {
 }
 
 /**
+ * CancelPreview attempts to cancel a preview job.
+ * @param {string} jobID
+ * @returns {$CancellablePromise<preview$0.PreviewStartResponse>}
+ */
+export function CancelPreview(jobID) {
+    return $Call.ByID(2053488540, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * @param {models$0.ImageAnnotatePreviewRequestV1} req
  * @returns {$CancellablePromise<models$0.ImageAnnotatePreviewResponseV1>}
  */
 export function GetImageAnnotatePreviewV1(req) {
     return $Call.ByID(372302096, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType2($result);
     }));
 }
 
@@ -36,7 +50,7 @@ export function GetImageAnnotatePreviewV1(req) {
  */
 export function GetImageCropPreviewV1(req) {
     return $Call.ByID(4006508154, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType3($result);
     }));
 }
 
@@ -46,7 +60,7 @@ export function GetImageCropPreviewV1(req) {
  */
 export function GetImagePreviewSourceV1(inputPath) {
     return $Call.ByID(2617279209, inputPath).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType4($result);
     }));
 }
 
@@ -56,7 +70,7 @@ export function GetImagePreviewSourceV1(inputPath) {
  */
 export function GetJobStatusV1(jobID) {
     return $Call.ByID(1961277890, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType5($result);
     }));
 }
 
@@ -66,7 +80,29 @@ export function GetJobStatusV1(jobID) {
  */
 export function GetPDFPreviewSourceV1(inputPath) {
     return $Call.ByID(632882064, inputPath).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType6($result);
+    }));
+}
+
+/**
+ * GetPreview returns the preview bytes (if ready) for a job.
+ * @param {string} jobID
+ * @returns {$CancellablePromise<preview$0.PreviewResult>}
+ */
+export function GetPreview(jobID) {
+    return $Call.ByID(1152353978, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType7($result);
+    }));
+}
+
+/**
+ * GetPreviewStatus returns the job status for a preview job.
+ * @param {string} jobID
+ * @returns {$CancellablePromise<preview$0.JobStatus>}
+ */
+export function GetPreviewStatus(jobID) {
+    return $Call.ByID(1885578308, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType8($result);
     }));
 }
 
@@ -75,7 +111,7 @@ export function GetPDFPreviewSourceV1(inputPath) {
  */
 export function ListToolsV1() {
     return $Call.ByID(517184612).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType9($result);
     }));
 }
 
@@ -100,7 +136,7 @@ export function OpenFileDialog() {
  */
 export function OpenMultipleFilesDialog() {
     return $Call.ByID(3029276213).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType10($result);
     }));
 }
 
@@ -110,7 +146,7 @@ export function OpenMultipleFilesDialog() {
  */
 export function RunJobV1(req) {
     return $Call.ByID(162380599, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType11($result);
     }));
 }
 
@@ -122,23 +158,45 @@ export function SetContext() {
 }
 
 /**
+ * Shutdown gracefully stops services owned by App.
+ * @returns {$CancellablePromise<void>}
+ */
+export function Shutdown() {
+    return $Call.ByID(2189478604);
+}
+
+/**
+ * StartPreview enqueues a preview job and returns a job id. Feature-flag guarded.
+ * @param {preview$0.PreviewRequest} req
+ * @returns {$CancellablePromise<preview$0.PreviewStartResponse>}
+ */
+export function StartPreview(req) {
+    return $Call.ByID(1123038030, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * @param {models$0.JobRequestV1} req
  * @returns {$CancellablePromise<models$0.ValidateJobResponseV1>}
  */
 export function ValidateJobV1(req) {
     return $Call.ByID(1505194326, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType9($result);
+        return $$createType12($result);
     }));
 }
 
 // Private type creation functions
 const $$createType0 = models$0.CancelJobResponseV1.createFrom;
-const $$createType1 = models$0.ImageAnnotatePreviewResponseV1.createFrom;
-const $$createType2 = models$0.ImageCropPreviewResponseV1.createFrom;
-const $$createType3 = models$0.ImagePreviewSourceResponseV1.createFrom;
-const $$createType4 = models$0.JobStatusResponseV1.createFrom;
-const $$createType5 = models$0.PDFPreviewSourceResponseV1.createFrom;
-const $$createType6 = models$0.ListToolsResponseV1.createFrom;
-const $$createType7 = $Create.Array($Create.Any);
-const $$createType8 = models$0.RunJobResponseV1.createFrom;
-const $$createType9 = models$0.ValidateJobResponseV1.createFrom;
+const $$createType1 = preview$0.PreviewStartResponse.createFrom;
+const $$createType2 = models$0.ImageAnnotatePreviewResponseV1.createFrom;
+const $$createType3 = models$0.ImageCropPreviewResponseV1.createFrom;
+const $$createType4 = models$0.ImagePreviewSourceResponseV1.createFrom;
+const $$createType5 = models$0.JobStatusResponseV1.createFrom;
+const $$createType6 = models$0.PDFPreviewSourceResponseV1.createFrom;
+const $$createType7 = preview$0.PreviewResult.createFrom;
+const $$createType8 = preview$0.JobStatus.createFrom;
+const $$createType9 = models$0.ListToolsResponseV1.createFrom;
+const $$createType10 = $Create.Array($Create.Any);
+const $$createType11 = models$0.RunJobResponseV1.createFrom;
+const $$createType12 = models$0.ValidateJobResponseV1.createFrom;

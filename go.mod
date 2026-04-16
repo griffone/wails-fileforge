@@ -6,7 +6,8 @@ go 1.25.0
 	github.com/disintegration/imaging v1.6.2
 	github.com/fogleman/gg v1.3.0
 		github.com/h2non/bimg v1.1.9
-		github.com/dgraph-io/ristretto v0.0.0-20240507215315-1f11c49d8b0a
+    github.com/dgraph-io/ristretto v0.0.0-20240507215315-1f11c49d8b0a
+    github.com/google/uuid v1.6.0
 	github.com/jung-kurt/gofpdf v1.16.2
 	github.com/pdfcpu/pdfcpu v0.10.2
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74

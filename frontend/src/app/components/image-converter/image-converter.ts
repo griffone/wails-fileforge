@@ -1,4 +1,6 @@
 import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -8,6 +10,7 @@ import {
   ToolExecutionPanel,
 } from '../tool-execution-panel/tool-execution-panel';
 import { FileDrop } from '../file-drop/file-drop';
+import { FEATURE_FLAGS } from '../../config/feature-flags';
 import {
   JobErrorV1,
   JobRequestV1,
@@ -27,7 +30,10 @@ const POLLING_INTERVAL_MS = 1000;
   styleUrl: './image-converter.css',
 })
 export class ImageConverter implements OnDestroy {
+  readonly featureFlags = FEATURE_FLAGS;
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
+
+  private readonly destroy$ = new Subject<void>();
 
   readonly form;
   readonly panelFields: ExecutionPanelField[] = [
@@ -109,12 +115,45 @@ export class ImageConverter implements OnDestroy {
       resizeWidth: [''],
       resizeHeight: [''],
     });
+
+    // Subscribe to job progress events to update JobCard in real-time.
+    // Keep subscription hygiene using destroy$.
+    this.wailsService.jobProgress$.pipe(takeUntil(this.destroy$)).subscribe((ev) => {
+      if (!ev || ev.jobId !== this.activeJobId) return;
+      // convert JobProgressEvent into partial JobResultV1 update for UI
+      this.jobResult = {
+        jobId: ev.jobId,
+        success: false,
+        message: ev.progress.message,
+        toolId: ev.toolId,
+        status: ev.status as any,
+        progress: ev.progress,
+        items: this.jobResult?.items ?? [],
+        startedAt: Date.now(),
+      };
+      // announce stage transitions via aria-live: statusMessage is rendered with role=alert
+      this.statusMessage = `${ev.progress.stage}: ${ev.progress.message}`;
+      if (this.isTerminalStatus(ev.status)) {
+        this.activeJobId = '';
+        this.stopPolling();
+      }
+    });
+    // Note: we keep the existing polling loop for backward compatibility with older runtimes
+    // and as a fallback when jobProgress$ events may not be delivered.
   }
 
   appendPaths(paths: string[]): void {
     for (const p of paths) {
       this.addInput(p);
     }
+  }
+
+  // New FileDrop file selected handler (accepts File[] and converts to local paths)
+  onFileDropFiles(files: File[]): void {
+    // Preserve local-only handling: use file.name as placeholder path for now
+    // Phase2: implement thumbnail previews via local object URLs or backend preview endpoint
+    const paths = files.map((f) => f.path || f.name || f.name);
+    this.onFileDropPaths(paths);
   }
 
   onFileDropPaths(paths: string[]): void {
@@ -128,6 +167,8 @@ export class ImageConverter implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopPolling();
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   async selectImageFromDialog(): Promise<void> {

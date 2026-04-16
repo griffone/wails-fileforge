@@ -13,6 +13,7 @@ import (
 	_ "fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/models"
 	_ "fileforge-desktop/internal/pdf"
+	"fileforge-desktop/internal/preview"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/services"
 	_ "fileforge-desktop/internal/video"
@@ -23,18 +24,44 @@ import (
 type App struct {
 	ctx            context.Context
 	toolingService *services.ToolingService
+	previewService *preview.PreviewService
 }
 
 func New() *App {
 	reg := registry.GetGlobalRegistry()
-	return &App{
+	a := &App{
 		toolingService: services.NewToolingService(reg),
 	}
+	// initialize preview service with sensible defaults; AllowedRoots: $HOME + TMP
+	home, _ := os.UserHomeDir()
+	allowed := []string{}
+	if home != "" {
+		allowed = append(allowed, home)
+	}
+	allowed = append(allowed, os.TempDir())
+	a.previewService = preview.NewPreviewService(preview.Config{AllowedRoots: allowed, MaxQueue: 1024})
+	return a
 }
 
 func (a *App) SetContext(ctx context.Context) {
 	a.ctx = ctx
 	a.toolingService.SetContext(ctx)
+}
+
+// Shutdown gracefully stops services owned by App.
+func (a *App) Shutdown(ctx context.Context) error {
+	var firstErr error
+	// shutdown preview service
+	if a.previewService != nil {
+		if err := a.previewService.Shutdown(ctx); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("app: %w", err)
+			}
+		}
+	}
+	// shutdown tooling service if it exposes a shutdown (none currently)
+	// TODO: if toolingService implements Shutdown(ctx) call it here
+	return firstErr
 }
 
 func (a *App) ListToolsV1() models.ListToolsResponseV1 {
@@ -86,6 +113,53 @@ func (a *App) OpenDirectoryDialog() (string, error) {
 	dialog.CanChooseFiles(false)
 
 	return dialog.PromptForSingleSelection()
+}
+
+// StartPreview enqueues a preview job and returns a job id. Feature-flag guarded.
+func (a *App) StartPreview(ctx context.Context, req preview.PreviewRequest) preview.PreviewStartResponse {
+	if os.Getenv("FEATURE_UIUX_OVERHAUL_V1") != "true" {
+		return preview.PreviewStartResponse{Success: false, Message: "feature disabled"}
+	}
+	id, err := a.previewService.Enqueue(ctx, req)
+	if err != nil {
+		return preview.PreviewStartResponse{Success: false, Message: err.Error()}
+	}
+	return preview.PreviewStartResponse{Success: true, JobID: id, Message: "queued"}
+}
+
+// GetPreviewStatus returns the job status for a preview job.
+func (a *App) GetPreviewStatus(ctx context.Context, jobID string) preview.JobStatus {
+	if os.Getenv("FEATURE_UIUX_OVERHAUL_V1") != "true" {
+		return preview.JobStatus{Status: preview.JobStateFailed, Progress: 0, Message: "feature disabled"}
+	}
+	status, ok := a.previewService.Status(jobID)
+	if !ok {
+		return preview.JobStatus{Status: preview.JobStateFailed, Progress: 0, Message: "not found"}
+	}
+	return status
+}
+
+// GetPreview returns the preview bytes (if ready) for a job.
+func (a *App) GetPreview(ctx context.Context, jobID string) preview.PreviewResult {
+	if os.Getenv("FEATURE_UIUX_OVERHAUL_V1") != "true" {
+		return preview.PreviewResult{Success: false, Message: "feature disabled"}
+	}
+	res, err := a.previewService.Fetch(ctx, jobID)
+	if err != nil {
+		return preview.PreviewResult{Success: false, Message: err.Error()}
+	}
+	return res
+}
+
+// CancelPreview attempts to cancel a preview job.
+func (a *App) CancelPreview(jobID string) preview.PreviewStartResponse {
+	if os.Getenv("FEATURE_UIUX_OVERHAUL_V1") != "true" {
+		return preview.PreviewStartResponse{Success: false, Message: "feature disabled"}
+	}
+	if err := a.previewService.Cancel(jobID); err != nil {
+		return preview.PreviewStartResponse{Success: false, Message: err.Error()}
+	}
+	return preview.PreviewStartResponse{Success: true, JobID: jobID, Message: "canceled"}
 }
 
 func (a *App) GetPDFPreviewSourceV1(inputPath string) models.PDFPreviewSourceResponseV1 {

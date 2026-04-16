@@ -7,7 +7,8 @@ import {
 import { provideRouter } from '@angular/router';
 
 import { ImageConverter } from './image-converter';
-import { JobRequestV1, JobStatusResponseV1, Wails } from '../../services/wails';
+import { JobRequestV1, JobStatusResponseV1, Wails, JobProgressEventV1 } from '../../services/wails';
+import { Subject } from 'rxjs';
 
 describe('ImageConverter', () => {
   let component: ImageConverter;
@@ -27,6 +28,14 @@ describe('ImageConverter', () => {
       'isRuntimeAvailable',
     ]);
 
+    // Provide a small Subject to simulate jobProgress$ events used by the component
+    const jobProgressSubj = new Subject<JobProgressEventV1>();
+    (wailsSpy as any).jobProgress$ = jobProgressSubj.asObservable();
+    (wailsSpy as any).subscribeJobProgressV1 = jasmine.createSpy('subscribeJobProgressV1').and.callFake((cb: any) => {
+      const s = jobProgressSubj.subscribe(cb);
+      return () => s.unsubscribe();
+    });
+
     await TestBed.configureTestingModule({
       imports: [ImageConverter],
       providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
@@ -35,6 +44,17 @@ describe('ImageConverter', () => {
     fixture = TestBed.createComponent(ImageConverter);
     component = fixture.componentInstance;
     fixture.detectChanges();
+  });
+
+  it('honors feature flag and handles file drop File[] -> paths mapping', () => {
+    // default feature flag is false so toggle for test
+    (component as any).featureFlags.uiux_overhaul_v1 = true;
+
+    const fakeFiles = [new File(['x'], 'a.png')];
+    component.onFileDropFiles(fakeFiles as any);
+
+    expect(component.selectedInputPaths.length).toBe(1);
+    expect(component.selectedInputPaths[0]).toContain('a.png');
   });
 
   it('builds single request payload for tool.image.convert', async () => {
@@ -116,6 +136,18 @@ describe('ImageConverter', () => {
     };
 
     wailsSpy.getJobStatusV1.and.returnValues(Promise.resolve(running), Promise.resolve(done));
+
+    // Push progress events through the jobProgress$ subject we attached in beforeEach
+    const jobProgressSubj = (wailsSpy as any).jobProgress$ as Subject<JobProgressEventV1>;
+    // emit a running event then a done event
+    setTimeout(() =>
+      (jobProgressSubj as any).next({ jobId: 'img-job', toolId: 'tool.image.convert', status: 'running', progress: running.result!.progress }),
+      0
+    );
+    setTimeout(() =>
+      (jobProgressSubj as any).next({ jobId: 'img-job', toolId: 'tool.image.convert', status: 'success', progress: done.result!.progress }),
+      500
+    );
 
     component.form.patchValue({
       jobMode: 'single',
