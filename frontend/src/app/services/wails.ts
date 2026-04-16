@@ -346,6 +346,41 @@ export class Wails {
     }
   }
 
+  // Preview service wrappers (StartPreview / GetPreviewStatus / GetPreview / CancelPreview)
+  // These wrap generated bindings that call into the backend preview service.
+  async StartPreview(req: { path: string; width: number; height: number; format: string }): Promise<any> {
+    try {
+      // bindings use a generated ID; Call.ByID will resolve to the preview model
+      return await this.callByID(1123038030, req);
+    } catch (error) {
+      return { success: false, message: this.formatMessage('StartPreview failed', error) };
+    }
+  }
+
+  async GetPreviewStatus(jobID: string): Promise<any> {
+    try {
+      return await this.callByID(1885578308, jobID);
+    } catch (error) {
+      return { status: 'failed', progress: 0, message: this.formatMessage('GetPreviewStatus failed', error) };
+    }
+  }
+
+  async GetPreview(jobID: string): Promise<any> {
+    try {
+      return await this.callByID(1152353978, jobID);
+    } catch (error) {
+      return { success: false, message: this.formatMessage('GetPreview failed', error) };
+    }
+  }
+
+  async CancelPreview(jobID: string): Promise<any> {
+    try {
+      return await this.callByID(2053488540, jobID);
+    } catch (error) {
+      return { success: false, message: this.formatMessage('CancelPreview failed', error) };
+    }
+  }
+
   async getImagePreviewSourceV1(inputPath: string): Promise<ImagePreviewSourceResponseV1> {
     try {
       return await this.callByID(2617279209, inputPath);

@@ -3,6 +3,7 @@ module fileforge-desktop
 go 1.25.0
 
 require (
+	github.com/dgraph-io/ristretto/v2 v2.1.0
 	github.com/disintegration/imaging v1.6.2
 	github.com/fogleman/gg v1.3.0
 	github.com/google/uuid v1.6.0

@@ -68,6 +68,15 @@
         </ul>
         <p *ngIf="selectedInputPaths.length === 0" class="font-mono text-gray-900 break-all">No PDF selected.</p>
       </div>
+      <div *ngIf="featureFlags.uiux_overhaul_v1" class="mt-4">
+        <h3 class="text-sm font-semibold">Split preview</h3>
+        <p class="text-xs text-gray-600">Per-split thumbnails will be requested from the preview service (rate-limited).</p>
+        <div *ngIf="previewStatus === 'loading'" class="text-xs text-gray-500">Loading source preview...</div>
+        <div *ngIf="previewStatus === 'error'" class="text-xs text-red-500">Source preview unavailable — thumbnails will fall back.</div>
+        <div *ngIf="featureFlags.uiux_overhaul_v1 && previewImageDataUrl" class="mt-4 p-3 rounded-lg border border-yellow-200 bg-yellow-50 text-sm">
+          <img [src]="previewImageDataUrl" alt="source preview" style="max-width:240px; max-height:320px;" />
+        </div>
+      </div>
     </section>
 
     <app-tool-execution-panel
@@ -89,5 +98,16 @@
       (run)="run()"
       (cancel)="cancel()"
     ></app-tool-execution-panel>
+
+    <!-- Quick UX fallback: show source PDF preview used for split thumbnails when feature flag active -->
+    <div *ngIf="featureFlags.uiux_overhaul_v1 && previewImageDataUrl" class="mt-4 p-3 rounded-lg border border-yellow-200 bg-yellow-50 text-sm">
+      <div class="flex items-center gap-2">
+        <img [src]="previewImageDataUrl" alt="PDF preview" class="w-20 h-auto border" />
+        <div>
+          <p class="font-semibold">Preview (source PDF)</p>
+          <p class="text-xs text-gray-700">Preview is of the source PDF - may not reflect split output</p>
+        </div>
+      </div>
+    </div>
   </div>
 </div>

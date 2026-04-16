@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dgraph-io/ristretto"
+	"github.com/dgraph-io/ristretto/v2"
 )
 
 // PreviewCache provides an in-memory LRU cache with optional disk spill.
 type PreviewCache struct {
-	mem      *ristretto.Cache
+	mem      *ristretto.Cache[string, any]
 	diskDir  string
 	spillThr int64
 	mu       sync.RWMutex
@@ -26,12 +26,12 @@ func NewPreviewCache(maxCacheBytes int64, diskDir string, maxDiskBytes int64, sp
 	if maxCacheBytes <= 0 {
 		return nil, errors.New("maxCacheBytes must be > 0")
 	}
-	cfg := &ristretto.Config{
+	cfg := &ristretto.Config[string, any]{
 		NumCounters: 1e4, // number of keys to track frequency
 		MaxCost:     maxCacheBytes,
 		BufferItems: 64,
 	}
-	mem, err := ristretto.NewCache(cfg)
+	mem, err := ristretto.NewCache[string, any](cfg)
 	if err != nil {
 		return nil, fmt.Errorf("preview: new cache: %w", err)
 	}

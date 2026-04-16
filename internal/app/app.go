@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,7 +173,33 @@ func (a *App) GetPDFPreviewSourceV1(inputPath string) models.PDFPreviewSourceRes
 		}
 	}
 
-	if strings.ToLower(filepath.Ext(path)) != ".pdf" {
+	// Normalize path inputs before further checks and filesystem access.
+	normalized := path
+
+	// Handle file:// URIs (file:///absolute/path and file://host/absolute/path)
+	if strings.HasPrefix(normalized, "file://") {
+		if u, err := url.Parse(normalized); err == nil {
+			// u.Path contains the filesystem path for file:// URLs
+			normalized = u.Path
+		} else {
+			// Fallback: strip the prefix
+			normalized = strings.TrimPrefix(normalized, "file://")
+		}
+	}
+
+	// Expand ~ to user home directory
+	if strings.HasPrefix(normalized, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			rest := strings.TrimPrefix(normalized, "~")
+			rest = strings.TrimPrefix(rest, string(os.PathSeparator))
+			normalized = filepath.Join(home, rest)
+		}
+	}
+
+	// Clean the path
+	normalized = filepath.Clean(normalized)
+
+	if strings.ToLower(filepath.Ext(normalized)) != ".pdf" {
 		return models.PDFPreviewSourceResponseV1{
 			Success: false,
 			Message: "Preview supports only .pdf files.",
@@ -182,12 +209,13 @@ func (a *App) GetPDFPreviewSourceV1(inputPath string) models.PDFPreviewSourceRes
 
 	const maxPreviewBytes = 8 * 1024 * 1024
 
-	info, err := os.Stat(path)
+	info, err := os.Stat(normalized)
 	if err != nil {
+		wrapped := fmt.Errorf("stat %s: %w", normalized, err)
 		return models.PDFPreviewSourceResponseV1{
 			Success: false,
 			Message: "Cannot access the selected PDF file.",
-			Error:   models.NewCanonicalJobError("PDF_PREVIEW_READ_FAILED", err.Error(), nil),
+			Error:   models.NewCanonicalJobError("PDF_PREVIEW_READ_FAILED", wrapped.Error(), nil),
 		}
 	}
 
@@ -207,12 +235,13 @@ func (a *App) GetPDFPreviewSourceV1(inputPath string) models.PDFPreviewSourceRes
 		}
 	}
 
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(normalized)
 	if err != nil {
+		wrapped := fmt.Errorf("read %s: %w", normalized, err)
 		return models.PDFPreviewSourceResponseV1{
 			Success: false,
 			Message: "Failed to read PDF content for preview.",
-			Error:   models.NewCanonicalJobError("PDF_PREVIEW_READ_FAILED", err.Error(), nil),
+			Error:   models.NewCanonicalJobError("PDF_PREVIEW_READ_FAILED", wrapped.Error(), nil),
 		}
 	}
 

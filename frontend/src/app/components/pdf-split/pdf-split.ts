@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import { FEATURE_FLAGS } from '../../config/feature-flags';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
@@ -68,6 +69,16 @@ export class PdfSplit implements OnDestroy {
   ];
 
   selectedInputPaths: string[] = [];
+  // Preview fallback: single source preview image reused for split thumbnails
+  readonly featureFlags = FEATURE_FLAGS;
+  previewImageDataUrl: string | null = null;
+  previewStatus = '';
+  private previewRequested = false;
+  // Per-split preview state
+  private splitPreviewConcurrency = 3; // default parallel requests
+  splitPreviewUrls: Record<string, string | null> = {};
+  private splitPreviewQueue: Array<() => Promise<void>> = [];
+  private splitPreviewActive = 0;
   validationMessage = '';
   submitMessage = '';
   statusMessage = '';
@@ -88,6 +99,100 @@ export class PdfSplit implements OnDestroy {
       strategy: [STRATEGY_EVERY_PAGE, Validators.required],
       ranges: [''],
     });
+  }
+
+  // Ensure we have a source preview image available (single request reused for split items).
+  // This is intentionally lightweight and tolerates failures: preview is optional.
+  async ensureSourcePreview(): Promise<void> {
+    if (!this.featureFlags.uiux_overhaul_v1) return;
+    if (this.previewRequested) return;
+    if (this.selectedInputPaths.length === 0) return;
+
+    // Only attempt for first selected PDF
+    const source = this.selectedInputPaths[0];
+    this.previewRequested = true;
+    this.previewStatus = 'loading';
+    try {
+      const resp = await this.wailsService.getPdfPreviewSource(source);
+      if (resp.success && resp.dataBase64) {
+        this.previewImageDataUrl = `data:${resp.mimeType ?? 'image/png'};base64,${resp.dataBase64}`;
+        this.previewStatus = 'ready';
+      } else {
+        this.previewStatus = 'error';
+        console.warn('[pdf-split.preview] preview fetch failed', resp.message);
+      }
+    } catch (err) {
+      this.previewStatus = 'error';
+      console.warn('[pdf-split.preview] preview request exception', err);
+    }
+  }
+
+  // Enqueue a per-split preview request. splitKey is a stable key (e.g. output path)
+  private enqueueSplitPreview(splitKey: string, inputPath: string, pageRange?: string): void {
+    if (!this.featureFlags.uiux_overhaul_v1) return;
+    if (this.splitPreviewUrls[splitKey]) return; // already have
+    const task = async (): Promise<void> => {
+      try {
+        // Attempt per-range StartPreview if available
+        const width = 240;
+        const height = 320;
+        const format = 'auto';
+        // StartPreview accepts path/width/height/format. Include pageRange in path as a fallback convention
+        const req = { path: inputPath, width, height, format, pageRange } as any;
+        const startResp = await this.wailsService.StartPreview(req);
+        if (!startResp || !startResp.success || !startResp.jobID) {
+          // fallback: reuse source preview
+          this.splitPreviewUrls[splitKey] = this.previewImageDataUrl;
+          return;
+        }
+
+        const jobId = startResp.jobID;
+        // poll status until succeeded/failed
+        while (true) {
+          const status = await this.wailsService.GetPreviewStatus(jobId);
+          if (!status) {
+            break;
+          }
+          if (status.status === 'succeeded') {
+            const res = await this.wailsService.GetPreview(jobId);
+            if (res && res.success && res.data) {
+              const b64 = res.data as string;
+              const mime = res.contentType || 'image/webp';
+              this.splitPreviewUrls[splitKey] = `data:${mime};base64,${b64}`;
+            } else {
+              this.splitPreviewUrls[splitKey] = this.previewImageDataUrl;
+            }
+            break;
+          }
+          if (status.status === 'failed' || status.status === 'canceled' || status.status === 'timedout') {
+            this.splitPreviewUrls[splitKey] = this.previewImageDataUrl;
+            break;
+          }
+          // sleep
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      } catch (err) {
+        console.warn('[pdf-split.preview] split preview task failed', err);
+        this.splitPreviewUrls[splitKey] = this.previewImageDataUrl;
+      }
+    };
+
+    this.splitPreviewQueue.push(task);
+    void this.processSplitPreviewQueue();
+  }
+
+  private async processSplitPreviewQueue(): Promise<void> {
+    if (this.splitPreviewActive >= this.splitPreviewConcurrency) return;
+    const task = this.splitPreviewQueue.shift();
+    if (!task) return;
+    this.splitPreviewActive++;
+    try {
+      await task();
+    } finally {
+      this.splitPreviewActive--;
+      // continue processing next
+      void this.processSplitPreviewQueue();
+    }
   }
 
   ngOnDestroy(): void {
@@ -158,6 +263,16 @@ export class PdfSplit implements OnDestroy {
     }
 
     this.selectedInputPaths = this.selectedInputPaths.filter((_, i) => i !== index);
+    // Reset preview if inputs changed
+    if (this.selectedInputPaths.length === 0) {
+      this.previewImageDataUrl = null;
+      this.previewRequested = false;
+      this.previewStatus = '';
+    } else {
+      // If the first input changed, allow re-request
+      this.previewRequested = false;
+      void this.ensureSourcePreview();
+    }
   }
 
   async validate(): Promise<void> {
@@ -417,5 +532,8 @@ export class PdfSplit implements OnDestroy {
     }
 
     this.selectedInputPaths = [...this.selectedInputPaths, inputPath];
+    // When new inputs are added, attempt to fetch a single source preview for the first PDF
+    this.previewRequested = false;
+    void this.ensureSourcePreview();
   }
 }
