@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -129,8 +131,15 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 		return nil
 	}
 
-	// use processor; default to bimg
-	proc := NewBimgProcessor()
+	// use processor; switch to PDF processor when file is a PDF
+	var proc JobProcessor
+	if strings.ToLower(filepath.Ext(job.Req.Path)) == ".pdf" {
+		// use the PDF processor backed by external tools
+		// inject a LocalExecRunner by default
+		proc = NewPDFProcessor(NewLocalExecRunner())
+	} else {
+		proc = NewBimgProcessor()
+	}
 	data, ct, perr := proc.Process(ctx, job.Req)
 	if perr != nil {
 		// retry once on non-validation errors
@@ -148,6 +157,7 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 
 	// store in cache if available (service-level cache preferred)
 	if s.cache != nil {
+		// use cache key job.ID for now; future: use full preview cache key
 		_ = s.cache.Put(job.ID, data)
 	}
 
