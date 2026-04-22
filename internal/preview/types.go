@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+const (
+	minPreviewDimension = 1
+	maxPreviewDimension = 4096
+)
+
 // PreviewRequest describes the client's request to start a preview job.
 type PreviewRequest struct {
 	Path      string     `json:"path"`
@@ -78,11 +83,11 @@ func (r *PreviewRequest) Validate() error {
 	if r.Path == "" {
 		return &ValidationError{Field: "path", Message: "path is required"}
 	}
-	if r.Width <= 0 || r.Width > 256 {
-		return &ValidationError{Field: "width", Message: "width must be 1..256"}
+	if r.Width < minPreviewDimension || r.Width > maxPreviewDimension {
+		return &ValidationError{Field: "width", Message: "width must be 1..4096"}
 	}
-	if r.Height <= 0 || r.Height > 256 {
-		return &ValidationError{Field: "height", Message: "height must be 1..256"}
+	if r.Height < minPreviewDimension || r.Height > maxPreviewDimension {
+		return &ValidationError{Field: "height", Message: "height must be 1..4096"}
 	}
 	f := strings.ToLower(r.Format)
 	if f != "webp" && f != "jpeg" && f != "auto" {

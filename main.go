@@ -24,7 +24,7 @@ func main() {
 	win := app.Window.New()
 	win.SetTitle("FileForge Desktop").
 		SetURL("/").
-		SetSize(800, 600).
+		SetMinSize(1080, 720).
 		Show()
 
 	if err := app.Run(); err != nil {

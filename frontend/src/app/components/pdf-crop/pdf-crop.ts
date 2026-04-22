@@ -24,6 +24,7 @@ import {
   PDFPreviewSourceResponseV1,
   Wails,
 } from '../../services/wails';
+import { PdfRendererService } from '../../services/pdf-renderer.service';
 
 const PDF_CROP_TOOL_ID = 'tool.pdf.crop';
 const POLLING_INTERVAL_MS = 1000;
@@ -34,6 +35,10 @@ const CROP_PRESETS = ['none', 'small', 'medium', 'large', 'custom'] as const;
 type CropPreset = (typeof CROP_PRESETS)[number];
 
 const PDF_WORKER_PUBLIC_URL = 'assets/pdfjs/pdf.worker.min.mjs';
+const PDF_CMAP_PUBLIC_URL = 'assets/pdfjs/cmaps/';
+const PDF_STANDARD_FONT_PUBLIC_URL = 'assets/pdfjs/standard_fonts/';
+const PDF_ICC_PUBLIC_URL = 'assets/pdfjs/iccs/';
+const PDF_WASM_PUBLIC_URL = 'assets/pdfjs/wasm/';
 type PDFPreviewStatus = 'empty' | 'loading' | 'ready' | 'error';
 type PDFPreviewStage =
   | 'input'
@@ -56,7 +61,7 @@ class PDFPreviewRuntimeError extends Error {
     readonly code: PDFPreviewErrorCode,
     message: string,
     readonly stage: PDFPreviewStage,
-    readonly recoverable: boolean = true
+    readonly recoverable: boolean = true,
   ) {
     super(message);
   }
@@ -73,7 +78,9 @@ interface WorkerInitFailure {
 
 type EnsurePdfJsWorkerConfigured = () => WorkerInitResult | WorkerInitFailure;
 
-function defaultEnsurePdfJsWorkerConfigured(): WorkerInitResult | WorkerInitFailure {
+function defaultEnsurePdfJsWorkerConfigured():
+  | WorkerInitResult
+  | WorkerInitFailure {
   try {
     if (typeof window === 'undefined') {
       return {
@@ -81,7 +88,7 @@ function defaultEnsurePdfJsWorkerConfigured(): WorkerInitResult | WorkerInitFail
         error: new PDFPreviewRuntimeError(
           'PDF_PREVIEW_WORKER_MISCONFIG',
           'Preview worker is unavailable in this runtime.',
-          'worker-init'
+          'worker-init',
         ),
       };
     }
@@ -96,7 +103,7 @@ function defaultEnsurePdfJsWorkerConfigured(): WorkerInitResult | WorkerInitFail
         error: new PDFPreviewRuntimeError(
           'PDF_PREVIEW_WORKER_MISCONFIG',
           'Unable to configure PDF preview worker source.',
-          'worker-init'
+          'worker-init',
         ),
       };
     }
@@ -110,7 +117,7 @@ function defaultEnsurePdfJsWorkerConfigured(): WorkerInitResult | WorkerInitFail
         error instanceof Error
           ? error.message
           : 'Unexpected worker initialization failure.',
-        'worker-init'
+        'worker-init',
       ),
     };
   }
@@ -120,9 +127,10 @@ let ensurePdfJsWorkerConfigured: EnsurePdfJsWorkerConfigured =
   defaultEnsurePdfJsWorkerConfigured;
 
 export function setPreviewWorkerInitializerForTests(
-  initializer: EnsurePdfJsWorkerConfigured | null
+  initializer: EnsurePdfJsWorkerConfigured | null,
 ): void {
-  ensurePdfJsWorkerConfigured = initializer ?? defaultEnsurePdfJsWorkerConfigured;
+  ensurePdfJsWorkerConfigured =
+    initializer ?? defaultEnsurePdfJsWorkerConfigured;
 }
 
 @Component({
@@ -231,7 +239,8 @@ export class PdfCrop implements OnInit, OnDestroy {
 
   constructor(
     private readonly fb: FormBuilder,
-    private readonly wailsService: Wails
+    private readonly wailsService: Wails,
+    private readonly pdfRenderer: PdfRendererService,
   ) {
     this.form = this.fb.nonNullable.group({
       jobMode: [JOB_MODE_SINGLE, Validators.required],
@@ -250,13 +259,15 @@ export class PdfCrop implements OnInit, OnDestroy {
     this.formSubscriptions.add(
       this.form.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => {
         this.updateOverlayFromCurrentForm();
-      })
+      }),
     );
 
     this.formSubscriptions.add(
-      this.form.controls.pageSelection.valueChanges.pipe(takeUntil(this.destroy$)).subscribe((value) => {
-        this.updatePageSelectionLiveMessage(value);
-      })
+      this.form.controls.pageSelection.valueChanges
+        .pipe(takeUntil(this.destroy$))
+        .subscribe((value) => {
+          this.updatePageSelectionLiveMessage(value);
+        }),
     );
 
     this.updatePageSelectionLiveMessage(this.form.controls.pageSelection.value);
@@ -378,7 +389,9 @@ export class PdfCrop implements OnInit, OnDestroy {
       return;
     }
 
-    this.selectedInputPaths = this.selectedInputPaths.filter((_, i) => i !== index);
+    this.selectedInputPaths = this.selectedInputPaths.filter(
+      (_, i) => i !== index,
+    );
   }
 
   onJobModeChange(): void {
@@ -430,13 +443,22 @@ export class PdfCrop implements OnInit, OnDestroy {
         return;
       }
 
-	      const workerInit = ensurePdfJsWorkerConfigured();
-	      if (!workerInit.ok) {
-	        throw workerInit.error;
-	      }
+      const workerInit = ensurePdfJsWorkerConfigured();
+      if (!workerInit.ok) {
+        throw workerInit.error;
+      }
 
       const loadingTask = pdfjsLib.getDocument({
         data: bytes,
+        cMapUrl: PDF_CMAP_PUBLIC_URL,
+        cMapPacked: true,
+        standardFontDataUrl: PDF_STANDARD_FONT_PUBLIC_URL,
+        iccUrl: PDF_ICC_PUBLIC_URL,
+        wasmUrl: PDF_WASM_PUBLIC_URL,
+        useWasm: true,
+        useWorkerFetch: true,
+        isImageDecoderSupported: false,
+        isOffscreenCanvasSupported: false,
       });
       this.activePreviewCancel = () => {
         void loadingTask.destroy();
@@ -454,7 +476,6 @@ export class PdfCrop implements OnInit, OnDestroy {
         return;
       }
 
-      const page = await pdfDocument.getPage(1);
       const canvas = await this.waitForPreviewCanvas();
       if (!canvas) {
         try {
@@ -465,41 +486,25 @@ export class PdfCrop implements OnInit, OnDestroy {
         throw new PDFPreviewRuntimeError(
           'PDF_PREVIEW_RENDER_FAILED',
           'Preview canvas is not available.',
-          'canvas'
+          'canvas',
         );
       }
 
-      const context = canvas.getContext('2d');
-      if (!context) {
-        try {
-          await pdfDocument.destroy();
-        } catch {
-          // no-op
-        }
-        throw new PDFPreviewRuntimeError(
-          'PDF_PREVIEW_RENDER_FAILED',
-          'Unable to create 2D context for preview.',
-          'canvas'
-        );
-      }
-
-      const baseViewport = page.getViewport({ scale: 1 });
       const maxPreviewWidthPx = 560;
-      const scale = Math.min(1.6, maxPreviewWidthPx / Math.max(baseViewport.width, 1));
-      const viewport = page.getViewport({ scale });
+      const page = await pdfDocument.getPage(1);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const scale = Math.min(
+        1.6,
+        maxPreviewWidthPx / Math.max(baseViewport.width, 1),
+      );
 
-      canvas.width = Math.max(1, Math.round(viewport.width));
-      canvas.height = Math.max(1, Math.round(viewport.height));
-      canvas.style.width = `${canvas.width}px`;
-      canvas.style.height = `${canvas.height}px`;
-
-      const renderTask = page.render({ canvasContext: context, viewport });
-      this.activePreviewCancel = () => {
-        renderTask.cancel();
-      };
-      await renderTask.promise.catch((error: unknown) => {
-        throw this.wrapRenderError(error, 'render');
-      });
+      await this.pdfRenderer.renderPageToCanvasWithFallback(
+        pdfDocument,
+        1,
+        canvas,
+        scale,
+        selectedPath,
+      );
 
       if (requestID !== this.previewRequestID) {
         try {
@@ -523,7 +528,8 @@ export class PdfCrop implements OnInit, OnDestroy {
       };
 
       this.previewStatus = 'ready';
-      this.previewMessage = 'Preview approximate — final crop may vary slightly by renderer.';
+      this.previewMessage =
+        'Preview approximate — final crop may vary slightly by renderer.';
       this.updateOverlayFromCurrentForm();
     } catch (error) {
       if (requestID !== this.previewRequestID) {
@@ -570,13 +576,16 @@ export class PdfCrop implements OnInit, OnDestroy {
 
     this.runSummarySnapshot = {
       mode: request.mode,
-      range: (request.options['pageSelection'] as string | undefined)?.trim() || 'all pages',
+      range:
+        (request.options['pageSelection'] as string | undefined)?.trim() ||
+        'all pages',
       cropPreset: String(request.options['cropPreset'] ?? ''),
       marginsSummary: this.cropSummaryMarginsText(request),
       fileCount: request.inputPaths.length,
-      outputTarget: request.mode === JOB_MODE_SINGLE
-        ? String(request.options['outputPath'] ?? '')
-        : String(request.options['outputDir'] ?? ''),
+      outputTarget:
+        request.mode === JOB_MODE_SINGLE
+          ? String(request.options['outputPath'] ?? '')
+          : String(request.options['outputDir'] ?? ''),
     };
     this.showRunSummaryConfirmation = true;
   }
@@ -607,14 +616,20 @@ export class PdfCrop implements OnInit, OnDestroy {
 
     const validation = await this.wailsService.validateJobV1(request);
     if (!validation.valid) {
-      this.submitMessage = this.mapJobError(validation.error, validation.message);
+      this.submitMessage = this.mapJobError(
+        validation.error,
+        validation.message,
+      );
       this.isSubmitting = false;
       return;
     }
 
     const runResponse = await this.wailsService.runJobV1(request);
     if (!runResponse.success || !runResponse.jobId) {
-      this.submitMessage = this.mapJobError(runResponse.error, runResponse.message);
+      this.submitMessage = this.mapJobError(
+        runResponse.error,
+        runResponse.message,
+      );
       this.isSubmitting = false;
       return;
     }
@@ -743,7 +758,7 @@ export class PdfCrop implements OnInit, OnDestroy {
       throw new PDFPreviewRuntimeError(
         'PDF_PREVIEW_INVALID_PATH',
         'No PDF selected for preview.',
-        'input'
+        'input',
       );
     }
 
@@ -764,7 +779,9 @@ export class PdfCrop implements OnInit, OnDestroy {
     return bytes;
   }
 
-  private mapBackendPreviewError(response: PDFPreviewSourceResponseV1): PDFPreviewRuntimeError {
+  private mapBackendPreviewError(
+    response: PDFPreviewSourceResponseV1,
+  ): PDFPreviewRuntimeError {
     const backendCode = response.error?.code;
     const backendMessage = response.error?.message || response.message;
 
@@ -773,31 +790,31 @@ export class PdfCrop implements OnInit, OnDestroy {
         return new PDFPreviewRuntimeError(
           'PDF_PREVIEW_INVALID_PATH',
           backendMessage || 'Selected path is invalid.',
-          'backend'
+          'backend',
         );
       case 'PDF_PREVIEW_NOT_PDF':
         return new PDFPreviewRuntimeError(
           'PDF_PREVIEW_NOT_PDF',
           backendMessage || 'Preview supports only PDF files.',
-          'backend'
+          'backend',
         );
       case 'PDF_PREVIEW_TOO_LARGE':
         return new PDFPreviewRuntimeError(
           'PDF_PREVIEW_TOO_LARGE',
           backendMessage || 'PDF is too large for preview.',
-          'backend'
+          'backend',
         );
       case 'PDF_PREVIEW_READ_FAILED':
         return new PDFPreviewRuntimeError(
           'PDF_PREVIEW_READ_FAILED',
           backendMessage || 'Failed to read PDF preview source.',
-          'backend'
+          'backend',
         );
       default:
         return new PDFPreviewRuntimeError(
           'PDF_PREVIEW_READ_FAILED',
           backendMessage || 'Failed to load PDF bytes from backend.',
-          'backend'
+          'backend',
         );
     }
   }
@@ -831,13 +848,17 @@ export class PdfCrop implements OnInit, OnDestroy {
     return new PDFPreviewRuntimeError(
       'PDF_PREVIEW_RENDER_FAILED',
       error instanceof Error ? error.message : 'Unknown preview error.',
-      'render'
+      'render',
     );
   }
 
   private isPreviewRuntimeErrorLike(
-    error: unknown
-  ): error is { code: PDFPreviewErrorCode; stage: PDFPreviewStage; message: string } {
+    error: unknown,
+  ): error is {
+    code: PDFPreviewErrorCode;
+    stage: PDFPreviewStage;
+    message: string;
+  } {
     if (!error || typeof error !== 'object') {
       return false;
     }
@@ -869,18 +890,26 @@ export class PdfCrop implements OnInit, OnDestroy {
     }
   }
 
-  private wrapRenderError(error: unknown, stage: PDFPreviewStage): PDFPreviewRuntimeError {
-    const message = error instanceof Error ? error.message : 'Unknown rendering error.';
+  private wrapRenderError(
+    error: unknown,
+    stage: PDFPreviewStage,
+  ): PDFPreviewRuntimeError {
+    const message =
+      error instanceof Error ? error.message : 'Unknown rendering error.';
 
     if (message.toLowerCase().includes('workersrc')) {
       return new PDFPreviewRuntimeError(
         'PDF_PREVIEW_WORKER_MISCONFIG',
         message,
-        stage
+        stage,
       );
     }
 
-    return new PDFPreviewRuntimeError('PDF_PREVIEW_RENDER_FAILED', message, stage);
+    return new PDFPreviewRuntimeError(
+      'PDF_PREVIEW_RENDER_FAILED',
+      message,
+      stage,
+    );
   }
 
   private cancelActivePreviewTask(): void {
@@ -892,7 +921,11 @@ export class PdfCrop implements OnInit, OnDestroy {
     this.activePreviewCancel = null;
   }
 
-  private logPreviewIssue(code: PDFPreviewErrorCode, stage: PDFPreviewStage, detail: string): void {
+  private logPreviewIssue(
+    code: PDFPreviewErrorCode,
+    stage: PDFPreviewStage,
+    detail: string,
+  ): void {
     console.warn('[pdf-crop.preview]', { code, stage, detail });
   }
 
@@ -919,7 +952,7 @@ export class PdfCrop implements OnInit, OnDestroy {
       this.previewMeta.canvasWidthPx,
       this.previewMeta.canvasHeightPx,
       this.previewMeta.pointsToPxScale,
-      margins
+      margins,
     );
 
     this.previewOverlayStyle = {
@@ -985,10 +1018,18 @@ export class PdfCrop implements OnInit, OnDestroy {
         ...(cropPreset === 'custom'
           ? {
               margins: {
-                top: Number.parseFloat(this.form.controls.marginTop.value.trim()),
-                right: Number.parseFloat(this.form.controls.marginRight.value.trim()),
-                bottom: Number.parseFloat(this.form.controls.marginBottom.value.trim()),
-                left: Number.parseFloat(this.form.controls.marginLeft.value.trim()),
+                top: Number.parseFloat(
+                  this.form.controls.marginTop.value.trim(),
+                ),
+                right: Number.parseFloat(
+                  this.form.controls.marginRight.value.trim(),
+                ),
+                bottom: Number.parseFloat(
+                  this.form.controls.marginBottom.value.trim(),
+                ),
+                left: Number.parseFloat(
+                  this.form.controls.marginLeft.value.trim(),
+                ),
               },
             }
           : {}),
@@ -997,7 +1038,10 @@ export class PdfCrop implements OnInit, OnDestroy {
   }
 
   private outputDirFromPath(outputPath: string): string {
-    const lastSlash = Math.max(outputPath.lastIndexOf('/'), outputPath.lastIndexOf('\\'));
+    const lastSlash = Math.max(
+      outputPath.lastIndexOf('/'),
+      outputPath.lastIndexOf('\\'),
+    );
     if (lastSlash <= 0) {
       return '';
     }
@@ -1076,9 +1120,8 @@ export class PdfCrop implements OnInit, OnDestroy {
       return;
     }
 
-    const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(
-      this.activeJobId
-    );
+    const response: JobStatusResponseV1 =
+      await this.wailsService.getJobStatusV1(this.activeJobId);
     if (!response.found || !response.result) {
       this.statusMessage = this.mapJobError(response.error, response.message);
       this.stopPolling();
@@ -1168,7 +1211,7 @@ export function computePreviewOverlayRect(
   canvasWidthPx: number,
   canvasHeightPx: number,
   pointsToPxScale: number,
-  marginsPt: CropMargins
+  marginsPt: CropMargins,
 ): PreviewOverlayRect {
   const clampPx = (value: number): number => {
     if (!Number.isFinite(value) || value < 0) {

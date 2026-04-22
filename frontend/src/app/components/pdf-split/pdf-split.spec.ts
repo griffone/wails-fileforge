@@ -8,17 +8,18 @@ import { provideRouter } from '@angular/router';
 
 import { PdfSplit } from './pdf-split';
 import {
-  JobRequestV1,
   JobStatusResponseV1,
   RunJobResponseV1,
   ValidateJobResponseV1,
   Wails,
 } from '../../services/wails';
+import { PdfRendererService } from '../../services/pdf-renderer.service';
 
 describe('PdfSplit', () => {
   let component: PdfSplit;
   let fixture: any;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let pdfRendererSpy: jasmine.SpyObj<PdfRendererService>;
 
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
@@ -37,10 +38,50 @@ describe('PdfSplit', () => {
       'GetPreview',
       'CancelPreview',
     ]);
+    pdfRendererSpy = jasmine.createSpyObj<PdfRendererService>(
+      'PdfRendererService',
+      [
+        'loadFromBytes',
+        'renderPageToCanvas',
+        'renderPageToCanvasWithFallback',
+        'destroy',
+      ],
+    );
+    const fakePdfPage = {
+      getViewport: jasmine
+        .createSpy('getViewport')
+        .and.callFake(({ scale }: { scale: number }) => ({
+          width: 600 * scale,
+          height: 800 * scale,
+        })),
+      render: jasmine
+        .createSpy('render')
+        .and.returnValue({ promise: Promise.resolve() }),
+    };
+    const fakePdfDocument = {
+      numPages: 3,
+      getPage: jasmine
+        .createSpy('getPage')
+        .and.returnValue(Promise.resolve(fakePdfPage)),
+    };
+    pdfRendererSpy.loadFromBytes.and.callFake(
+      async () => fakePdfDocument as any,
+    );
+    pdfRendererSpy.renderPageToCanvasWithFallback.and.callFake(
+      async (_pdf, _pageNumber, canvas) => canvas,
+    );
+    pdfRendererSpy.renderPageToCanvas.and.callFake(
+      async (_pdf, _pageNumber, canvas) => canvas,
+    );
+    pdfRendererSpy.destroy.and.returnValue(Promise.resolve());
 
     await TestBed.configureTestingModule({
       imports: [PdfSplit],
-      providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
+      providers: [
+        provideRouter([]),
+        { provide: Wails, useValue: wailsSpy },
+        { provide: PdfRendererService, useValue: pdfRendererSpy },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(PdfSplit);
@@ -67,7 +108,7 @@ describe('PdfSplit', () => {
 
     await component.validate();
 
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0];
     expect(req.toolId).toBe('tool.pdf.split');
     expect(req.mode).toBe('single');
     expect(req.inputPaths).toEqual(['/tmp/in.pdf']);
@@ -78,50 +119,62 @@ describe('PdfSplit', () => {
     expect(req.options['ranges']).toBeUndefined();
   });
 
-  it('requests a single source preview and exposes data url when feature flag enabled', async () => {
+  it('requests a single source preview and exposes rendered data url when feature flag enabled', async () => {
     (component as any).featureFlags.uiux_overhaul_v1 = true;
-    const previewResponse = { success: true, message: 'ok', dataBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAE', mimeType: 'image/png' };
-    wailsSpy.getPdfPreviewSource.and.returnValue(Promise.resolve(previewResponse as any));
+    const previewResponse = {
+      success: true,
+      message: 'ok',
+      dataBase64: 'JVBERi0xLjQKJSBmdW5ueSByZWFsIHBkZg==',
+      mimeType: 'application/pdf',
+    };
+    wailsSpy.getPdfPreviewSource.and.returnValue(
+      Promise.resolve(previewResponse as any),
+    );
 
     component.selectedInputPaths = ['/tmp/source.pdf'];
-    // trigger logic that would request preview (simulate by calling our internal logic if exposed)
-    // The component does lazy preview fetch when inputs change in real UI; call explicit method if present
-    // We'll call a private-ish method via (component as any) to simulate behaviour
-    if (typeof (component as any).ensureSourcePreview === 'function') {
-      await (component as any).ensureSourcePreview();
-    } else {
-      // fallback: call getPdfPreviewSource directly via wails spy and set data
-      const resp: any = await wailsSpy.getPdfPreviewSource(component.selectedInputPaths[0]);
-      if (resp.success && resp.dataBase64) {
-        component.previewImageDataUrl = `data:${resp.mimeType};base64,${resp.dataBase64}`;
-      }
-    }
+    await (component as any).ensureSourcePreview();
 
     expect(component.previewImageDataUrl).toContain('data:image/png;base64,');
+    expect(component.previewStatus).toBe('ready');
+    expect(component.splitPreviewBlocks.length).toBe(3);
+    expect(Object.keys(component.splitPreviewUrls).length).toBe(3);
   });
 
-  it('enqueues per-split preview task and stores data url', fakeAsync(async () => {
-    const startResp = { success: true, message: 'queued', jobID: 'job-1' } as any;
-    const statusRunning = { status: 'running' } as any;
-    const statusSucceeded = { status: 'succeeded' } as any;
-    const previewData = { success: true, data: 'dGVzdGJhc2U=', contentType: 'image/webp' } as any;
+  it('renders block thumbnails from the first page of each range', async () => {
+    (component as any).featureFlags.uiux_overhaul_v1 = true;
+    const previewResponse = {
+      success: true,
+      message: 'ok',
+      dataBase64: 'JVBERi0xLjQKJSBmdW5ueSByZWFsIHBkZg==',
+      mimeType: 'application/pdf',
+    };
+    wailsSpy.getPdfPreviewSource.and.returnValue(
+      Promise.resolve(previewResponse as any),
+    );
 
-    wailsSpy.StartPreview.and.returnValue(Promise.resolve(startResp));
-    wailsSpy.GetPreviewStatus.and.returnValues(Promise.resolve(statusRunning), Promise.resolve(statusSucceeded));
-    wailsSpy.GetPreview.and.returnValue(Promise.resolve(previewData));
+    component.selectedInputPaths = ['/tmp/source.pdf'];
+    component.form.patchValue({
+      strategy: 'ranges',
+      ranges: '1-3,5,8-10',
+    });
 
-    // call enqueue
-    (component as any).previewImageDataUrl = null; // ensure fallback empty
-    (component as any).enqueueSplitPreview('out1', '/tmp/source.pdf', '1-1');
+    await (component as any).ensureSourcePreview();
 
-    // allow microtasks and timers to run
-    flushMicrotasks();
-    tick(500);
-
-    // after polling completes, the splitPreviewUrls should be populated with data url
-    const url = (component as any).splitPreviewUrls['out1'];
-    expect(url).toContain('data:image/webp;base64,');
-  }));
+    expect(
+      component.splitPreviewBlocks.map(
+        (block: { pageRange: string }) => block.pageRange,
+      ),
+    ).toEqual(['1-3', '5', '8-10']);
+    expect(component.splitPreviewUrls['range-1-1-3']).toContain(
+      'data:image/png;base64,',
+    );
+    expect(component.splitPreviewUrls['range-2-5']).toContain(
+      'data:image/png;base64,',
+    );
+    expect(component.splitPreviewUrls['range-3-8-10']).toContain(
+      'data:image/png;base64,',
+    );
+  });
 
   it('shapes payload for tool.pdf.split in batch mode with ranges', async () => {
     const validation: ValidateJobResponseV1 = {
@@ -141,7 +194,7 @@ describe('PdfSplit', () => {
 
     await component.validate();
 
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0];
     expect(req.toolId).toBe('tool.pdf.split');
     expect(req.mode).toBe('batch');
     expect(req.inputPaths).toEqual(['/tmp/in-a.pdf', '/tmp/in-b.pdf']);
@@ -173,7 +226,12 @@ describe('PdfSplit', () => {
         message: 'working',
         toolId: 'tool.pdf.split',
         status: 'running',
-        progress: { current: 1, total: 2, stage: 'running', message: 'running' },
+        progress: {
+          current: 1,
+          total: 2,
+          stage: 'running',
+          message: 'running',
+        },
         items: [],
         startedAt: Date.now(),
       },
@@ -193,7 +251,10 @@ describe('PdfSplit', () => {
           {
             inputPath: '/tmp/in-a.pdf',
             outputPath: '/tmp/out/in-a',
-            outputs: ['/tmp/out/in-a/in-a_page_001.pdf', '/tmp/out/in-a/in-a_page_002.pdf'],
+            outputs: [
+              '/tmp/out/in-a/in-a_page_001.pdf',
+              '/tmp/out/in-a/in-a_page_002.pdf',
+            ],
             outputCount: 2,
             success: true,
             message: 'PDF split successful: generated 2 files',
@@ -216,11 +277,15 @@ describe('PdfSplit', () => {
     wailsSpy.runJobV1.and.returnValue(Promise.resolve(run));
     wailsSpy.getJobStatusV1.and.returnValues(
       Promise.resolve(running),
-      Promise.resolve(completed)
+      Promise.resolve(completed),
     );
 
     component.selectedInputPaths = ['/tmp/in-a.pdf', '/tmp/in-b.pdf'];
-    component.form.patchValue({ jobMode: 'batch', outputDir: '/tmp/out', strategy: 'every_page' });
+    component.form.patchValue({
+      jobMode: 'batch',
+      outputDir: '/tmp/out',
+      strategy: 'every_page',
+    });
 
     void component.run();
     flushMicrotasks();
@@ -253,7 +318,11 @@ describe('PdfSplit', () => {
     wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
 
     component.selectedInputPaths = ['/tmp/a.pdf', '/tmp/A.pdf'];
-    component.form.patchValue({ jobMode: 'batch', outputDir: '/tmp/out', strategy: 'every_page' });
+    component.form.patchValue({
+      jobMode: 'batch',
+      outputDir: '/tmp/out',
+      strategy: 'every_page',
+    });
 
     await component.validate();
 

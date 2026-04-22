@@ -22,7 +22,10 @@
       </header>
 
       <div>
-        <label class="mb-1 block text-sm font-medium text-gray-700" for="jobMode">
+        <label
+          class="mb-1 block text-sm font-medium text-gray-700"
+          for="jobMode"
+        >
           Job mode
         </label>
         <select
@@ -30,21 +33,39 @@
           class="w-full rounded-lg border border-gray-300 px-3 py-2"
           [formControl]="form.controls.jobMode"
         >
-          <option *ngFor="let mode of jobModes" [value]="mode.value">{{ mode.label }}</option>
+          <option *ngFor="let mode of jobModes" [value]="mode.value">
+            {{ mode.label }}
+          </option>
         </select>
       </div>
 
       <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn btn-secondary" (click)="selectPdfFromDialog()">
+        <button
+          type="button"
+          class="btn btn-secondary"
+          (click)="selectPdfFromDialog()"
+        >
           Select single PDF (Wails)
         </button>
-        <button type="button" class="btn btn-secondary" (click)="selectMultiplePdfsFromDialog()">
+        <button
+          type="button"
+          class="btn btn-secondary"
+          (click)="selectMultiplePdfsFromDialog()"
+        >
           Select multiple PDFs (Wails)
         </button>
-        <button type="button" class="btn btn-secondary" (click)="triggerFileInput()">
+        <button
+          type="button"
+          class="btn btn-secondary"
+          (click)="triggerFileInput()"
+        >
           Add from browser input
         </button>
-        <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">
+        <button
+          type="button"
+          class="btn btn-secondary"
+          (click)="selectOutputDirectory()"
+        >
           Select output folder
         </button>
       </div>
@@ -61,27 +82,118 @@
       <div class="rounded-lg border border-gray-200 bg-white p-3 text-sm">
         <p class="text-gray-600 mb-1">Selected inputs:</p>
         <ul *ngIf="selectedInputPaths.length > 0" class="space-y-2">
-          <li *ngFor="let inputPath of selectedInputPaths; let i = index" class="flex items-start justify-between gap-2">
-            <p class="font-mono text-gray-900 break-all text-xs">{{ inputPath }}</p>
-            <button type="button" class="btn btn-secondary" (click)="removeInputPath(i)">Remove</button>
+          <li
+            *ngFor="let inputPath of selectedInputPaths; let i = index"
+            class="flex items-start justify-between gap-2"
+          >
+            <p class="font-mono text-gray-900 break-all text-xs">
+              {{ inputPath }}
+            </p>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              (click)="removeInputPath(i)"
+            >
+              Remove
+            </button>
           </li>
         </ul>
-        <p *ngIf="selectedInputPaths.length === 0" class="font-mono text-gray-900 break-all">No PDF selected.</p>
+        <p
+          *ngIf="selectedInputPaths.length === 0"
+          class="font-mono text-gray-900 break-all"
+        >
+          No PDF selected.
+        </p>
       </div>
-      <div *ngIf="featureFlags.uiux_overhaul_v1" class="mt-4">
-        <h3 class="text-sm font-semibold">Split preview</h3>
-        <p class="text-xs text-gray-600">Per-split thumbnails will be requested from the preview service (rate-limited).</p>
-        <div *ngIf="previewStatus === 'loading'" class="text-xs text-gray-500">Loading source preview...</div>
-        <div *ngIf="previewStatus === 'error'" class="text-xs text-red-500">Source preview unavailable — thumbnails will fall back.</div>
-        <div *ngIf="featureFlags.uiux_overhaul_v1 && previewImageDataUrl" class="mt-4 p-3 rounded-lg border border-yellow-200 bg-yellow-50 text-sm">
-          <img [src]="previewImageDataUrl" alt="source preview" style="max-width:240px; max-height:320px;" />
+      <div
+        *ngIf="featureFlags.uiux_overhaul_v1"
+        class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+      >
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900">Split preview</h3>
+            <p class="mt-1 text-xs text-slate-600">
+              Thumbnails show the first visible page of each block before
+              execution.
+            </p>
+          </div>
+          <p *ngIf="previewStatus === 'loading'" class="text-xs text-slate-500">
+            Loading preview...
+          </p>
+          <p *ngIf="previewStatus === 'error'" class="text-xs text-red-600">
+            {{ previewMessage }}
+          </p>
         </div>
+
+        <div
+          *ngIf="previewImageDataUrl"
+          class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3"
+        >
+          <p
+            class="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500"
+          >
+            Source preview
+          </p>
+          <img
+            [src]="previewImageDataUrl"
+            alt="Source PDF first page preview"
+            class="max-h-[36rem] w-auto max-w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
+          />
+        </div>
+
+        <div
+          *ngIf="splitPreviewBlocks.length > 0; else previewFallback"
+          class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+        >
+          <article
+            *ngFor="let block of splitPreviewBlocks"
+            class="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
+          >
+            <div class="split-preview-thumb-shell">
+              <img
+                *ngIf="splitPreviewUrls[block.key]; else previewPlaceholder"
+                [src]="splitPreviewUrls[block.key] || ''"
+                [alt]="block.label"
+                class="split-preview-thumb"
+                draggable="false"
+              />
+              <ng-template #previewPlaceholder>
+                <div class="split-preview-placeholder">
+                  <span>{{
+                    previewStatus === "loading"
+                      ? "Rendering..."
+                      : "Preview pending"
+                  }}</span>
+                </div>
+              </ng-template>
+            </div>
+
+            <div class="border-t border-slate-200 bg-white p-3">
+              <p class="text-sm font-semibold text-slate-900">
+                {{ block.label }}
+              </p>
+              <p class="mt-1 text-xs text-slate-600">
+                Preview range: {{ block.pageRange }}
+              </p>
+            </div>
+          </article>
+        </div>
+
+        <ng-template #previewFallback>
+          <div
+            class="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600"
+          >
+            {{ previewMessage }}
+          </div>
+        </ng-template>
       </div>
     </section>
 
     <app-tool-execution-panel
       [title]="'PDF Split Execution'"
-      [subtitle]="'Validate, run, poll and cancel using V1 contracts. Ranges example: 1-3,5,8-10.'"
+      [subtitle]="
+        'Validate, run, poll and cancel using V1 contracts. Ranges example: 1-3,5,8-10.'
+      "
       [form]="form"
       [fields]="panelFields"
       [currentMode]="form.controls.strategy.value"
@@ -98,16 +210,5 @@
       (run)="run()"
       (cancel)="cancel()"
     ></app-tool-execution-panel>
-
-    <!-- Quick UX fallback: show source PDF preview used for split thumbnails when feature flag active -->
-    <div *ngIf="featureFlags.uiux_overhaul_v1 && previewImageDataUrl" class="mt-4 p-3 rounded-lg border border-yellow-200 bg-yellow-50 text-sm">
-      <div class="flex items-center gap-2">
-        <img [src]="previewImageDataUrl" alt="PDF preview" class="w-20 h-auto border" />
-        <div>
-          <p class="font-semibold">Preview (source PDF)</p>
-          <p class="text-xs text-gray-700">Preview is of the source PDF - may not reflect split output</p>
-        </div>
-      </div>
-    </div>
   </div>
 </div>

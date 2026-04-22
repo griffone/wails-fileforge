@@ -166,7 +166,7 @@ export function Shutdown() {
 }
 
 /**
- * StartPreview enqueues a preview job and returns a job id. Feature-flag guarded.
+ * StartPreview enqueues a preview job and returns a job id.
  * @param {preview$0.PreviewRequest} req
  * @returns {$CancellablePromise<preview$0.PreviewStartResponse>}
  */

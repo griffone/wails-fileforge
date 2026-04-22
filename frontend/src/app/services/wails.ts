@@ -177,7 +177,12 @@ export interface ImageCropPreviewResponseV1 {
   error?: JobErrorV1;
 }
 
-export type ImageAnnotateOperationTypeV1 = 'text' | 'arrow' | 'rect' | 'blur' | 'redact';
+export type ImageAnnotateOperationTypeV1 =
+  | 'text'
+  | 'arrow'
+  | 'rect'
+  | 'blur'
+  | 'redact';
 
 export interface ImageAnnotateOperationV1 {
   type: ImageAnnotateOperationTypeV1;
@@ -263,7 +268,7 @@ export class Wails {
         // Decrement refcount and cleanup if needed
         unregister();
       };
-    }
+    },
   );
   private callByID(id: number, ...args: unknown[]): Promise<any> {
     return Call.ByID(id, ...args);
@@ -289,7 +294,11 @@ export class Wails {
         success: false,
         message: this.formatMessage('Validation call failed', error),
         valid: false,
-        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_VALIDATE_FAILED', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IPC_VALIDATE_FAILED',
+          error,
+        ),
       };
     }
   }
@@ -316,7 +325,11 @@ export class Wails {
         success: false,
         message: this.formatMessage('Cancel job failed', error),
         jobId,
-        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_CANCEL_FAILED', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IPC_CANCEL_FAILED',
+          error,
+        ),
       };
     }
   }
@@ -329,19 +342,29 @@ export class Wails {
         success: false,
         message: this.formatMessage('Get job status failed', error),
         found: false,
-        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_STATUS_FAILED', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IPC_STATUS_FAILED',
+          error,
+        ),
       };
     }
   }
 
-  async getPdfPreviewSource(inputPath: string): Promise<PDFPreviewSourceResponseV1> {
+  async getPdfPreviewSource(
+    inputPath: string,
+  ): Promise<PDFPreviewSourceResponseV1> {
     try {
       return await this.callByID(632882064, inputPath);
     } catch (error) {
       return {
         success: false,
         message: this.formatMessage('Get PDF preview source failed', error),
-        error: this.defaultError('EXEC_IO_TRANSIENT', 'PDF_PREVIEW_READ_FAILED', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'PDF_PREVIEW_READ_FAILED',
+          error,
+        ),
       };
     }
   }
@@ -359,12 +382,19 @@ export class Wails {
       return {
         success: false,
         message: this.formatMessage('getPdfBytes failed', error),
-        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_PDF_BYTES_FAILED', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IPC_PDF_BYTES_FAILED',
+          error,
+        ),
       };
     }
   }
 
-  async splitPdfBackend(inputPath: string, ranges: Array<{ from: number; to: number }>): Promise<RunJobResponseV1> {
+  async splitPdfBackend(
+    inputPath: string,
+    ranges: Array<{ from: number; to: number }>,
+  ): Promise<RunJobResponseV1> {
     try {
       // TODO: Replace 0 with generated binding ID for backend split job
       return await this.callByID(0, inputPath, ranges);
@@ -374,19 +404,33 @@ export class Wails {
         message: this.formatMessage('splitPdfBackend failed', error),
         jobId: '',
         status: 'failed',
-        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_PDF_SPLIT_FAILED', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IPC_PDF_SPLIT_FAILED',
+          error,
+        ),
       };
     }
   }
 
   // Preview service wrappers (StartPreview / GetPreviewStatus / GetPreview / CancelPreview)
   // These wrap generated bindings that call into the backend preview service.
-  async StartPreview(req: { path: string; width: number; height: number; format: string }): Promise<any> {
+  async StartPreview(req: {
+    path: string;
+    width: number;
+    height: number;
+    format: string;
+    pageRange?: { start: number; end: number };
+    pageOffset?: number;
+  }): Promise<any> {
     try {
       // bindings use a generated ID; Call.ByID will resolve to the preview model
       return await this.callByID(1123038030, req);
     } catch (error) {
-      return { success: false, message: this.formatMessage('StartPreview failed', error) };
+      return {
+        success: false,
+        message: this.formatMessage('StartPreview failed', error),
+      };
     }
   }
 
@@ -394,7 +438,11 @@ export class Wails {
     try {
       return await this.callByID(1885578308, jobID);
     } catch (error) {
-      return { status: 'failed', progress: 0, message: this.formatMessage('GetPreviewStatus failed', error) };
+      return {
+        status: 'failed',
+        progress: 0,
+        message: this.formatMessage('GetPreviewStatus failed', error),
+      };
     }
   }
 
@@ -402,7 +450,10 @@ export class Wails {
     try {
       return await this.callByID(1152353978, jobID);
     } catch (error) {
-      return { success: false, message: this.formatMessage('GetPreview failed', error) };
+      return {
+        success: false,
+        message: this.formatMessage('GetPreview failed', error),
+      };
     }
   }
 
@@ -410,24 +461,33 @@ export class Wails {
     try {
       return await this.callByID(2053488540, jobID);
     } catch (error) {
-      return { success: false, message: this.formatMessage('CancelPreview failed', error) };
+      return {
+        success: false,
+        message: this.formatMessage('CancelPreview failed', error),
+      };
     }
   }
 
-  async getImagePreviewSourceV1(inputPath: string): Promise<ImagePreviewSourceResponseV1> {
+  async getImagePreviewSourceV1(
+    inputPath: string,
+  ): Promise<ImagePreviewSourceResponseV1> {
     try {
       return await this.callByID(2617279209, inputPath);
     } catch (error) {
       return {
         success: false,
         message: this.formatMessage('Get image preview source failed', error),
-        error: this.defaultError('EXEC_IO_TRANSIENT', 'IMAGE_PREVIEW_READ_FAILED', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IMAGE_PREVIEW_READ_FAILED',
+          error,
+        ),
       };
     }
   }
 
   async getImageCropPreviewV1(
-    request: ImageCropPreviewRequestV1
+    request: ImageCropPreviewRequestV1,
   ): Promise<ImageCropPreviewResponseV1> {
     try {
       return await this.callByID(4006508154, request);
@@ -435,13 +495,17 @@ export class Wails {
       return {
         success: false,
         message: this.formatMessage('Get image crop preview failed', error),
-        error: this.defaultError('EXEC_IO_TRANSIENT', 'IMAGE_CROP_PREVIEW_EXECUTION', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IMAGE_CROP_PREVIEW_EXECUTION',
+          error,
+        ),
       };
     }
   }
 
   async getImageAnnotatePreviewV1(
-    request: ImageAnnotatePreviewRequestV1
+    request: ImageAnnotatePreviewRequestV1,
   ): Promise<ImageAnnotatePreviewResponseV1> {
     try {
       return await this.callByID(372302096, request);
@@ -449,7 +513,11 @@ export class Wails {
       return {
         success: false,
         message: this.formatMessage('Get image annotate preview failed', error),
-        error: this.defaultError('EXEC_IO_TRANSIENT', 'IMAGE_ANNOTATE_PREVIEW_EXECUTION', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IMAGE_ANNOTATE_PREVIEW_EXECUTION',
+          error,
+        ),
       };
     }
   }
@@ -478,13 +546,16 @@ export class Wails {
     }
   }
 
-  subscribeJobProgressV1(callback: (event: JobProgressEventV1) => void): () => void {
+  subscribeJobProgressV1(
+    callback: (event: JobProgressEventV1) => void,
+  ): () => void {
     // Use the public observable internally to keep behavior consistent and
     // backward-compatible. subscribeJobProgressV1 should subscribe to the
     // jobProgress$ Observable and return an unsubscribe function.
     const unregister = this.ensureJobProgressRegistered();
 
-    const subscription: Subscription = this.jobProgressSubject!.subscribe(callback);
+    const subscription: Subscription =
+      this.jobProgressSubject!.subscribe(callback);
 
     return () => {
       try {
@@ -505,24 +576,31 @@ export class Wails {
     if (!this.jobProgressSubject) {
       this.jobProgressSubject = new ReplaySubject<JobProgressEventV1>(1);
       // Register the native event listener - store the unsubscribe fn
-      this.jobProgressUnsubscribe = Events.On('jobs/progress/v1', (ev: { data?: unknown }) => {
-        const payload = ev?.data;
-        if (!payload || typeof payload !== 'object') {
-          return;
-        }
+      this.jobProgressUnsubscribe = Events.On(
+        'jobs/progress/v1',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
 
-        const candidate = payload as Partial<JobProgressEventV1>;
-        if (typeof candidate.jobId !== 'string' || !candidate.progress) {
-          return;
-        }
+          const candidate = payload as Partial<JobProgressEventV1>;
+          if (typeof candidate.jobId !== 'string' || !candidate.progress) {
+            return;
+          }
 
-        this.jobProgressSubject?.next({
-          jobId: candidate.jobId,
-          toolId: typeof candidate.toolId === 'string' ? candidate.toolId : '',
-          status: typeof candidate.status === 'string' ? candidate.status : 'running',
-          progress: candidate.progress,
-        });
-      });
+          this.jobProgressSubject?.next({
+            jobId: candidate.jobId,
+            toolId:
+              typeof candidate.toolId === 'string' ? candidate.toolId : '',
+            status:
+              typeof candidate.status === 'string'
+                ? candidate.status
+                : 'running',
+            progress: candidate.progress,
+          });
+        },
+      );
     }
 
     this.jobProgressRefCount += 1;
@@ -564,7 +642,7 @@ export class Wails {
   private defaultError(
     code: CanonicalErrorCodeV1,
     detailCode: string,
-    error: unknown
+    error: unknown,
   ): JobErrorV1 {
     return {
       code,

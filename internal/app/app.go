@@ -116,11 +116,8 @@ func (a *App) OpenDirectoryDialog() (string, error) {
 	return dialog.PromptForSingleSelection()
 }
 
-// StartPreview enqueues a preview job and returns a job id. Feature-flag guarded.
+// StartPreview enqueues a preview job and returns a job id.
 func (a *App) StartPreview(ctx context.Context, req preview.PreviewRequest) preview.PreviewStartResponse {
-	if os.Getenv("FEATURE_UIUX_OVERHAUL_V1") != "true" {
-		return preview.PreviewStartResponse{Success: false, Message: "feature disabled"}
-	}
 	id, err := a.previewService.Enqueue(ctx, req)
 	if err != nil {
 		return preview.PreviewStartResponse{Success: false, Message: err.Error()}
@@ -130,9 +127,6 @@ func (a *App) StartPreview(ctx context.Context, req preview.PreviewRequest) prev
 
 // GetPreviewStatus returns the job status for a preview job.
 func (a *App) GetPreviewStatus(ctx context.Context, jobID string) preview.JobStatus {
-	if os.Getenv("FEATURE_UIUX_OVERHAUL_V1") != "true" {
-		return preview.JobStatus{Status: preview.JobStateFailed, Progress: 0, Message: "feature disabled"}
-	}
 	status, ok := a.previewService.Status(jobID)
 	if !ok {
 		return preview.JobStatus{Status: preview.JobStateFailed, Progress: 0, Message: "not found"}
@@ -142,9 +136,6 @@ func (a *App) GetPreviewStatus(ctx context.Context, jobID string) preview.JobSta
 
 // GetPreview returns the preview bytes (if ready) for a job.
 func (a *App) GetPreview(ctx context.Context, jobID string) preview.PreviewResult {
-	if os.Getenv("FEATURE_UIUX_OVERHAUL_V1") != "true" {
-		return preview.PreviewResult{Success: false, Message: "feature disabled"}
-	}
 	res, err := a.previewService.Fetch(ctx, jobID)
 	if err != nil {
 		return preview.PreviewResult{Success: false, Message: err.Error()}
@@ -154,9 +145,6 @@ func (a *App) GetPreview(ctx context.Context, jobID string) preview.PreviewResul
 
 // CancelPreview attempts to cancel a preview job.
 func (a *App) CancelPreview(jobID string) preview.PreviewStartResponse {
-	if os.Getenv("FEATURE_UIUX_OVERHAUL_V1") != "true" {
-		return preview.PreviewStartResponse{Success: false, Message: "feature disabled"}
-	}
 	if err := a.previewService.Cancel(jobID); err != nil {
 		return preview.PreviewStartResponse{Success: false, Message: err.Error()}
 	}
@@ -207,7 +195,7 @@ func (a *App) GetPDFPreviewSourceV1(inputPath string) models.PDFPreviewSourceRes
 		}
 	}
 
-	const maxPreviewBytes = 8 * 1024 * 1024
+	const maxPreviewBytes = 32 * 1024 * 1024
 
 	info, err := os.Stat(normalized)
 	if err != nil {

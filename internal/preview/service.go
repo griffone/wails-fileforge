@@ -5,12 +5,13 @@ import (
 	"errors"
 	cachepkg "fileforge-desktop/internal/utils/cache"
 	"fmt"
-	"github.com/google/uuid"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Config holds preview service configuration used at construction.
@@ -197,7 +198,14 @@ func (s *PreviewService) Status(jobID string) (JobStatus, bool) {
 	if !ok {
 		return JobStatus{Status: JobStateFailed, Progress: 0, Message: "not found"}, false
 	}
-	return JobStatus{Status: job.State, Progress: job.Progress, Message: ""}, true
+	message := ""
+	if job.Result != nil && job.Result.Message != "" {
+		message = job.Result.Message
+	} else if job.Err != nil {
+		message = job.Err.Error()
+	}
+
+	return JobStatus{Status: job.State, Progress: job.Progress, Message: message}, true
 }
 
 // Cancel marks a job canceled if possible.
