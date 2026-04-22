@@ -1,4 +1,5 @@
 import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { PdfRendererService } from '../../services/pdf-renderer.service';
 import { Wails } from '../../services/wails';
 
@@ -7,6 +8,7 @@ import { Wails } from '../../services/wails';
   templateUrl: './pdf-split-preview.component.html',
   styleUrls: ['./pdf-split-preview.component.scss'],
   standalone: true,
+  imports: [CommonModule],
 })
 export class PdfSplitPreviewComponent {
   file: File | null = null;
