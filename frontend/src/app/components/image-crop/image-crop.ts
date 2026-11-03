@@ -740,7 +740,7 @@ export class ImageCrop implements OnDestroy {
     switch (error.detail_code) {
       case 'IMAGE_CROP_OUT_OF_BOUNDS':
         return `Crop area is out of bounds: ${error.message}`;
-      case 'IMAGE_CROP_RATIO_MISMATCH':
+      case 'IMAGE_CROP_RATIO_INVALID':
         return `Ratio mismatch: ${error.message}`;
       default:
         break;

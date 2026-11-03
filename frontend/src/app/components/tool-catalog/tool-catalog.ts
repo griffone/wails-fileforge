@@ -53,6 +53,10 @@ export class ToolCatalog implements OnInit {
   }
 
   routeForTool(toolId: string): string | null {
+    if (toolId === 'tool.image.convert') {
+      return '/image-converter';
+    }
+
     if (toolId === 'tool.image.crop') {
       return '/image-crop';
     }

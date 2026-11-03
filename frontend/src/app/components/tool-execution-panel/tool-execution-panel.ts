@@ -169,8 +169,9 @@ export class ToolExecutionPanel {
     const detailCode = (item.error.detail_code ?? '').toUpperCase();
     const friendlyByDetail: Record<string, string> = {
       PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS: 'El rango de páginas excede la cantidad disponible en el PDF.',
-      PDF_CROP_INVALID_PAGE_SELECTION: 'El rango de páginas tiene formato inválido.',
-      PDF_MERGE_INVALID_INPUTS: 'Uno o más PDFs de entrada son inválidos o no se pudieron leer.',
+      PDF_CROP_PAGE_SELECTION_INVALID: 'El rango de páginas tiene formato inválido.',
+      PDF_INVALID_INPUTS: 'Uno o más PDFs de entrada son inválidos o no se pudieron leer.',
+      PDF_MERGE_OUTPUT_ALREADY_EXISTS: 'El archivo de salida ya existe. Elija otro nombre para continuar.',
       DOC_DOCX_TO_PDF_INPUT_UNSUPPORTED: 'El archivo no es un DOCX soportado.',
       DOC_MD_TO_PDF_INPUT_UNSUPPORTED: 'El archivo no es Markdown soportado.',
     };
