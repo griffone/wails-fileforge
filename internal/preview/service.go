@@ -16,8 +16,11 @@ import (
 
 // Config holds preview service configuration used at construction.
 type Config struct {
-	AllowedRoots []string
-	MaxQueue     int
+	AllowedRoots    []string
+	MaxQueue        int
+	JobTTL          time.Duration
+	CleanupInterval time.Duration
+	JobTimeout      time.Duration
 }
 
 // PreviewService manages preview jobs.
@@ -29,10 +32,13 @@ type PreviewService struct {
 	wp   *WorkerPool
 	// cache can be injected or a package-level default used
 	cache *PreviewCache
+	// cleanupStop stops the background janitor
+	cleanupStop chan struct{}
 }
 
 // NewPreviewService constructs a PreviewService with provided config.
 func NewPreviewService(cfg Config) *PreviewService {
+	cfg = applyPreviewDefaults(cfg)
 	svc := &PreviewService{
 		cfg:  cfg,
 		jobs: make(map[string]*previewJob),
@@ -44,12 +50,32 @@ func NewPreviewService(cfg Config) *PreviewService {
 	diskDir, _ := EnsureDiskDir("")
 	cache, _ := NewPreviewCache(100*1024*1024, diskDir, 1*1024*1024*1024, 1*1024*1024, 5*time.Minute)
 	svc.cache = cache
+	if svc.cache != nil {
+		svc.cache.StartJanitor(0, 0)
+	}
+	svc.startJobJanitor()
 	// start worker pool with handler bound to this service
 	svc.wp.Start(func(job *previewJob) {
 		// ensure we don't block the worker forever
 		_ = svc.handleJob(job)
 	})
 	return svc
+}
+
+func applyPreviewDefaults(cfg Config) Config {
+	if cfg.MaxQueue <= 0 {
+		cfg.MaxQueue = DefaultMaxQueue
+	}
+	if cfg.JobTTL <= 0 {
+		cfg.JobTTL = DefaultJobTTL
+	}
+	if cfg.CleanupInterval <= 0 {
+		cfg.CleanupInterval = DefaultCleanupInterval
+	}
+	if cfg.JobTimeout <= 0 {
+		cfg.JobTimeout = DefaultJobTimeout
+	}
+	return cfg
 }
 
 // Enqueue validates the request and registers a new job. Worker execution is TODO.
@@ -62,6 +88,8 @@ func (s *PreviewService) Enqueue(ctx context.Context, req PreviewRequest) (strin
 		return "", fmt.Errorf("preview: %w", err)
 	}
 
+	s.cleanupExpiredJobs()
+
 	// create job id (use UUID for stable identifiers)
 	id := uuid.NewString()
 	job := &previewJob{
@@ -70,7 +98,11 @@ func (s *PreviewService) Enqueue(ctx context.Context, req PreviewRequest) (strin
 		State:     JobStateQueued,
 		Progress:  0,
 		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
+	jobCtx, jobCancel := context.WithCancel(context.Background())
+	job.Ctx = jobCtx
+	job.Cancel = jobCancel
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -85,6 +117,8 @@ func (s *PreviewService) Enqueue(ctx context.Context, req PreviewRequest) (strin
 			// keep job registered but mark as rejected
 			job.State = JobStateFailed
 			job.Result = &PreviewResult{Success: false, Message: "queue full"}
+			job.Err = err
+			job.UpdatedAt = time.Now()
 			return "", fmt.Errorf("preview: %w", err)
 		}
 	}
@@ -116,17 +150,26 @@ func (s *PreviewService) Fetch(ctx context.Context, jobID string) (PreviewResult
 
 // handleJob processes a preview job using the configured processor and cache.
 func (s *PreviewService) handleJob(job *previewJob) error {
+	if s.isJobCanceled(job) {
+		return nil
+	}
 	// create per-job context with timeout
-	timeout := 30 * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	baseCtx := job.Ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(baseCtx, s.cfg.JobTimeout)
 	defer cancel()
+	if ctx.Err() != nil {
+		s.markJobCanceled(job, ctx.Err())
+		return ctx.Err()
+	}
 
 	s.mu.Lock()
 	// attach runtime fields
-	job.Ctx = ctx
-	job.Cancel = cancel
 	job.State = JobStateRunning
 	job.Progress = 10
+	job.UpdatedAt = time.Now()
 	s.mu.Unlock()
 
 	// simple MaxInputSize check (50MB)
@@ -154,10 +197,14 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 	if perr != nil {
 		// retry once on non-validation errors
 		var vErr *ValidationError
-		if !errors.As(perr, &vErr) && job.Attempts == 0 {
+		if !errors.As(perr, &vErr) && job.Attempts == 0 && ctx.Err() == nil {
 			job.Attempts++
 			data, ct, perr = proc.Process(ctx, job.Req)
 		}
+	}
+	if ctx.Err() != nil || s.isJobCanceled(job) {
+		s.markJobCanceled(job, ctx.Err())
+		return ctx.Err()
 	}
 
 	if perr != nil {
@@ -178,6 +225,7 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 	job.Result = &PreviewResult{Success: true, Data: data, ContentType: ct, Message: "ok"}
 	job.Progress = 100
 	job.State = JobStateSucceeded
+	job.UpdatedAt = time.Now()
 	s.mu.Unlock()
 	return nil
 }
@@ -188,6 +236,27 @@ func (s *PreviewService) markJobFailed(job *previewJob, err error) {
 	job.State = JobStateFailed
 	job.Progress = 0
 	job.Result = &PreviewResult{Success: false, Message: err.Error()}
+	job.Err = err
+	job.UpdatedAt = time.Now()
+}
+
+func (s *PreviewService) markJobCanceled(job *previewJob, err error) {
+	if err == nil {
+		err = context.Canceled
+	}
+	state := JobStateCanceled
+	message := "canceled"
+	if errors.Is(err, context.DeadlineExceeded) {
+		state = JobStateTimedOut
+		message = "timed out"
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job.State = state
+	job.Progress = 0
+	job.Result = &PreviewResult{Success: false, Message: message}
+	job.Err = err
+	job.UpdatedAt = time.Now()
 }
 
 // Status returns job status and whether the job was found.
@@ -211,17 +280,25 @@ func (s *PreviewService) Status(jobID string) (JobStatus, bool) {
 // Cancel marks a job canceled if possible.
 func (s *PreviewService) Cancel(jobID string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	job, ok := s.jobs[jobID]
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("preview: job not found")
 	}
 	if job.State == JobStateSucceeded || job.State == JobStateFailed {
+		s.mu.Unlock()
 		return fmt.Errorf("preview: cannot cancel completed job")
 	}
 	job.State = JobStateCanceled
 	job.Progress = 0
 	job.Result = &PreviewResult{Success: false, Message: "canceled"}
+	job.Err = context.Canceled
+	job.UpdatedAt = time.Now()
+	cancel := job.Cancel
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	return nil
 }
 
@@ -233,6 +310,10 @@ func (s *PreviewService) Shutdown(ctx context.Context) error {
 			return fmt.Errorf("preview: workerpool stop: %w", err)
 		}
 	}
+	if s.cleanupStop != nil {
+		close(s.cleanupStop)
+		s.cleanupStop = nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// mark queued/running jobs as canceled on shutdown
@@ -240,7 +321,83 @@ func (s *PreviewService) Shutdown(ctx context.Context) error {
 		if j.State == JobStateQueued || j.State == JobStateRunning {
 			j.State = JobStateCanceled
 			j.Result = &PreviewResult{Success: false, Message: "shutdown"}
+			j.Err = context.Canceled
+			j.UpdatedAt = time.Now()
+			if j.Cancel != nil {
+				j.Cancel()
+			}
 		}
 	}
 	return nil
+}
+
+func (s *PreviewService) startJobJanitor() {
+	if s.cfg.JobTTL <= 0 {
+		return
+	}
+	interval := s.cfg.CleanupInterval
+	if interval <= 0 {
+		interval = DefaultCleanupInterval
+	}
+	stop := make(chan struct{})
+	s.cleanupStop = stop
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.cleanupExpiredJobs()
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
+func (s *PreviewService) cleanupExpiredJobs() {
+	if s.cfg.JobTTL <= 0 {
+		return
+	}
+	cutoff := time.Now().Add(-s.cfg.JobTTL)
+	cacheKeys := make([]string, 0)
+	s.mu.Lock()
+	for id, job := range s.jobs {
+		last := job.UpdatedAt
+		if last.IsZero() {
+			last = job.CreatedAt
+		}
+		if last.After(cutoff) {
+			continue
+		}
+		if job.State == JobStateRunning {
+			continue
+		}
+		if job.State == JobStateQueued {
+			job.State = JobStateTimedOut
+			job.Progress = 0
+			job.Result = &PreviewResult{Success: false, Message: "expired"}
+			job.Err = context.DeadlineExceeded
+			job.UpdatedAt = time.Now()
+			if job.Cancel != nil {
+				job.Cancel()
+			}
+		}
+		if job.CacheKey != "" {
+			cacheKeys = append(cacheKeys, job.CacheKey)
+		}
+		delete(s.jobs, id)
+	}
+	s.mu.Unlock()
+	if s.cache != nil {
+		for _, key := range cacheKeys {
+			s.cache.Delete(key)
+		}
+	}
+}
+
+func (s *PreviewService) isJobCanceled(job *previewJob) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return job.State == JobStateCanceled || job.State == JobStateTimedOut
 }

@@ -83,7 +83,24 @@ func (t *ImageToolAdapter) Validate(_ context.Context, req models.JobRequestV1) 
 func (t *ImageToolAdapter) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
 	inputPath := req.InputPaths[0]
 	format := t.resolveFormat(req.Options)
-	outputPath := t.resolveSingleOutputPath(inputPath, req.OutputDir, format, req.Options)
+	outputPath, outputPathProvided := t.resolveSingleOutputPath(inputPath, req.OutputDir, format, req.Options)
+	if sameFilePath(inputPath, outputPath) {
+		if outputPathProvided {
+			jobErr := models.NewCanonicalJobError("IMAGE_OUTPUT_SAME_AS_INPUT", "outputPath must differ from inputPath", nil)
+			return models.JobResultItemV1{
+				InputPath:  inputPath,
+				OutputPath: outputPath,
+				Success:    false,
+				Message:    "conversion failed",
+				Error:      jobErr,
+			}, jobErr
+		}
+		outputDir := strings.TrimSpace(req.OutputDir)
+		if outputDir == "" {
+			outputDir = filepath.Dir(inputPath)
+		}
+		outputPath = t.resolveBatchOutputPath(inputPath, outputDir, format, map[string]struct{}{})
+	}
 
 	err := t.converter.ConvertSingle(ctx, inputPath, outputPath, format, req.Options)
 	if err != nil {
@@ -172,10 +189,10 @@ func (t *ImageToolAdapter) resolveFormat(options map[string]any) string {
 	return strings.ToLower(strings.TrimSpace(format))
 }
 
-func (t *ImageToolAdapter) resolveSingleOutputPath(inputPath, outputDir, format string, options map[string]any) string {
+func (t *ImageToolAdapter) resolveSingleOutputPath(inputPath, outputDir, format string, options map[string]any) (string, bool) {
 	if options != nil {
 		if outputPath, ok := options["outputPath"].(string); ok && strings.TrimSpace(outputPath) != "" {
-			return outputPath
+			return outputPath, true
 		}
 	}
 
@@ -184,7 +201,7 @@ func (t *ImageToolAdapter) resolveSingleOutputPath(inputPath, outputDir, format 
 	}
 
 	name := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
-	return filepath.Join(outputDir, fmt.Sprintf("%s.%s", name, format))
+	return filepath.Join(outputDir, fmt.Sprintf("%s.%s", name, format)), false
 }
 
 func (t *ImageToolAdapter) resolveBatchOutputPath(inputPath, outputDir, format string, used map[string]struct{}) string {
@@ -211,4 +228,31 @@ func (t *ImageToolAdapter) resolveBatchOutputPath(inputPath, outputDir, format s
 			return next
 		}
 	}
+}
+
+func sameFilePath(left, right string) bool {
+	if left == "" || right == "" {
+		return false
+	}
+	leftClean := filepath.Clean(left)
+	rightClean := filepath.Clean(right)
+	if leftClean == rightClean {
+		return true
+	}
+	if abs, err := filepath.Abs(leftClean); err == nil {
+		leftClean = abs
+	}
+	if abs, err := filepath.Abs(rightClean); err == nil {
+		rightClean = abs
+	}
+	if leftClean == rightClean {
+		return true
+	}
+	if eval, err := filepath.EvalSymlinks(leftClean); err == nil {
+		leftClean = eval
+	}
+	if eval, err := filepath.EvalSymlinks(rightClean); err == nil {
+		rightClean = eval
+	}
+	return leftClean == rightClean
 }

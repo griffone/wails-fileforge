@@ -69,6 +69,7 @@ type previewJob struct {
 	Result    *PreviewResult
 	Err       error
 	CreatedAt time.Time
+	UpdatedAt time.Time
 	// CacheKey is the deterministic cache key for this job's output (sha256 hex)
 	CacheKey string
 	// runtime fields
