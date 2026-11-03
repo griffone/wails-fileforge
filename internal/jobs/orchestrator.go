@@ -228,42 +228,77 @@ func (o *Orchestrator) runBatch(job *trackedJob, tool tools.Tool, req models.Job
 		return
 	}
 
-	attempts := 0
-	var items []models.JobResultItemV1
-	var err *models.JobErrorV1
+	originalTotal := len(req.InputPaths)
+	items := make([]models.JobResultItemV1, 0, originalTotal)
+	attempts := make([]int, originalTotal)
+	for index := range attempts {
+		attempts[index] = 1
+	}
+	uniqueIndexByInput := uniqueBatchInputIndex(req.InputPaths)
 
-	for attempts < maxRetryAttempts {
-		attempts++
-		items, err = exec.ExecuteBatch(job.ctx, req, func(progress models.JobProgressV1) {
-			job.updateProgress(progress)
-		})
+	currentReq := req
+	currentIndices := make([]int, originalTotal)
+	for index := range currentIndices {
+		currentIndices[index] = index
+	}
 
-		if err == nil || !isRetryableError(req.ToolID, err) || attempts >= maxRetryAttempts {
+	retries := 0
+	var lastErr *models.JobErrorV1
+
+	for {
+		retrying := retries > 0
+		batchItems, execErr := exec.ExecuteBatch(job.ctx, currentReq, o.batchProgressHandler(job, retrying, currentIndices, originalTotal))
+		lastErr = execErr
+
+		if len(batchItems) == 0 {
 			break
 		}
 
-		if !waitRetryBackoff(job.ctx, attempts) {
+		if retrying {
+			items = mergeBatchRetryItems(items, batchItems, currentIndices, uniqueIndexByInput)
+			for _, index := range currentIndices {
+				attempts[index]++
+			}
+		} else {
+			items = alignBatchItems(batchItems, req.InputPaths)
+		}
+
+		failedIndices := failedBatchIndices(items, originalTotal)
+		if execErr == nil || !isRetryableError(req.ToolID, execErr) || 1+retries >= maxRetryAttempts || len(failedIndices) == 0 {
+			break
+		}
+
+		if !waitRetryBackoff(job.ctx, retries+1) {
 			items = normalizeItemsErrors(items)
-			items = o.decorateBatchRetryMetadata(items, attempts)
-			job.complete(StatusCancelled, "job cancelled", items, models.NewCanonicalJobError("JOB_CANCELLED", job.ctx.Err().Error(), retryMetadata(attempts, err)), time.Now().UnixMilli())
+			items = decorateBatchItems(items, attempts)
+			job.complete(StatusCancelled, "job cancelled", items, models.NewCanonicalJobError("JOB_CANCELLED", job.ctx.Err().Error(), retryMetadata(maxAttemptCount(attempts), execErr)), time.Now().UnixMilli())
 			return
+		}
+
+		retries++
+		currentIndices = failedIndices
+		currentReq = req
+		currentReq.InputPaths = make([]string, 0, len(failedIndices))
+		for _, index := range failedIndices {
+			currentReq.InputPaths = append(currentReq.InputPaths, req.InputPaths[index])
 		}
 	}
 
 	items = normalizeItemsErrors(items)
-	items = o.decorateBatchRetryMetadata(items, attempts)
-	if err != nil {
+	items = decorateBatchItems(items, attempts)
+	aggregateAttempts := maxAttemptCount(attempts)
+	if lastErr != nil {
 		if job.ctx.Err() != nil {
-			job.complete(StatusCancelled, "job cancelled", items, models.NewCanonicalJobError("JOB_CANCELLED", job.ctx.Err().Error(), retryMetadata(attempts, err)), time.Now().UnixMilli())
+			job.complete(StatusCancelled, "job cancelled", items, models.NewCanonicalJobError("JOB_CANCELLED", job.ctx.Err().Error(), retryMetadata(aggregateAttempts, lastErr)), time.Now().UnixMilli())
 			return
 		}
 		status, message := deriveBatchFinalState(items)
-		jobErr := normalizeJobError(err)
+		jobErr := normalizeJobError(lastErr)
 		if jobErr != nil {
 			if jobErr.Details == nil {
 				jobErr.Details = map[string]any{}
 			}
-			for k, v := range retryMetadata(attempts, err) {
+			for k, v := range retryMetadata(aggregateAttempts, lastErr) {
 				jobErr.Details[k] = v
 			}
 		}
@@ -273,6 +308,126 @@ func (o *Orchestrator) runBatch(job *trackedJob, tool tools.Tool, req models.Job
 
 	status, message := deriveBatchFinalState(items)
 	job.complete(status, message, items, nil, time.Now().UnixMilli())
+}
+
+func (o *Orchestrator) batchProgressHandler(job *trackedJob, retrying bool, originalIndices []int, total int) func(models.JobProgressV1) {
+	return func(progress models.JobProgressV1) {
+		if retrying {
+			current := progress.Current
+			if current >= 1 && current <= len(originalIndices) {
+				current = originalIndices[current-1] + 1
+			}
+			progress.Current = current
+			progress.Total = total
+			progress.Stage = "retrying"
+		}
+
+		job.updateProgress(progress)
+	}
+}
+
+func uniqueBatchInputIndex(inputPaths []string) map[string]int {
+	counts := make(map[string]int, len(inputPaths))
+	firstIndex := make(map[string]int, len(inputPaths))
+	for index, inputPath := range inputPaths {
+		counts[inputPath]++
+		if _, exists := firstIndex[inputPath]; !exists {
+			firstIndex[inputPath] = index
+		}
+	}
+
+	unique := make(map[string]int, len(firstIndex))
+	for inputPath, count := range counts {
+		if count == 1 {
+			unique[inputPath] = firstIndex[inputPath]
+		}
+	}
+
+	return unique
+}
+
+func alignBatchItems(items []models.JobResultItemV1, inputPaths []string) []models.JobResultItemV1 {
+	aligned := make([]models.JobResultItemV1, 0, max(len(items), len(inputPaths)))
+	for index, inputPath := range inputPaths {
+		if index < len(items) {
+			aligned = append(aligned, items[index])
+			continue
+		}
+		aligned = append(aligned, models.JobResultItemV1{
+			InputPath: inputPath,
+			Success:   false,
+			Message:   "no result returned for input",
+		})
+	}
+
+	if len(items) > len(inputPaths) {
+		aligned = append(aligned, items[len(inputPaths):]...)
+	}
+
+	return aligned
+}
+
+func failedBatchIndices(items []models.JobResultItemV1, total int) []int {
+	failed := make([]int, 0)
+	for index := 0; index < total && index < len(items); index++ {
+		if !items[index].Success {
+			failed = append(failed, index)
+		}
+	}
+
+	return failed
+}
+
+func mergeBatchRetryItems(items []models.JobResultItemV1, retryItems []models.JobResultItemV1, targetIndices []int, uniqueIndexByInput map[string]int) []models.JobResultItemV1 {
+	targets := make(map[int]struct{}, len(targetIndices))
+	for _, index := range targetIndices {
+		targets[index] = struct{}{}
+	}
+
+	for position, retryItem := range retryItems {
+		target := -1
+		if index, ok := uniqueIndexByInput[retryItem.InputPath]; ok {
+			target = index
+		} else if position < len(targetIndices) {
+			target = targetIndices[position]
+		}
+
+		if target < 0 || target >= len(items) {
+			continue
+		}
+		if _, isTarget := targets[target]; !isTarget {
+			continue
+		}
+
+		items[target] = retryItem
+	}
+
+	return items
+}
+
+func maxAttemptCount(attempts []int) int {
+	highest := 1
+	for _, attempt := range attempts {
+		highest = max(highest, attempt)
+	}
+
+	return highest
+}
+
+func decorateBatchItems(items []models.JobResultItemV1, attempts []int) []models.JobResultItemV1 {
+	decorated := make([]models.JobResultItemV1, len(items))
+	for index := range items {
+		item := items[index]
+		attempt := 1
+		if index < len(attempts) && attempts[index] > 0 {
+			attempt = attempts[index]
+		}
+		item.Attempts = attempt
+		item.RetryCount = max(0, attempt-1)
+		decorated[index] = item
+	}
+
+	return decorated
 }
 
 func (o *Orchestrator) executeSingleWithRetry(job *trackedJob, toolID string, execute func() (models.JobResultItemV1, *models.JobErrorV1)) (models.JobResultItemV1, *models.JobErrorV1, int) {
@@ -317,17 +472,6 @@ func (o *Orchestrator) executeSingleWithRetry(job *trackedJob, toolID string, ex
 		item.Error = jobErr
 	}
 	return item, jobErr, attempts
-}
-
-func (o *Orchestrator) decorateBatchRetryMetadata(items []models.JobResultItemV1, attempts int) []models.JobResultItemV1 {
-	decorated := make([]models.JobResultItemV1, len(items))
-	for i := range items {
-		item := items[i]
-		item.Attempts = attempts
-		item.RetryCount = max(0, attempts-1)
-		decorated[i] = item
-	}
-	return decorated
 }
 
 func (o *Orchestrator) GetJob(jobID string) (models.JobResultV1, bool) {

@@ -27,44 +27,42 @@ func isRetryableError(toolID string, jobErr *models.JobErrorV1) bool {
 	}
 
 	transientByTool := map[string]map[string]struct{}{
+		"tool.image.convert": {
+			"IMAGE_BATCH_ITEM":       {},
+			"IMAGE_SINGLE_EXECUTION": {},
+		},
+		"tool.image.crop": {
+			"IMAGE_CROP_BATCH_ITEM": {},
+			"IMAGE_CROP_EXECUTION":  {},
+		},
+		"tool.image.annotate": {
+			"IMAGE_ANNOTATE_BATCH_ITEM": {},
+			"IMAGE_ANNOTATE_EXECUTION":  {},
+		},
+		"tool.pdf.merge": {
+			"PDF_MERGE_FAILED": {},
+		},
+		"tool.pdf.split": {
+			"PDF_SPLIT_FAILED": {},
+		},
+		"tool.pdf.crop": {
+			"PDF_CROP_FAILED": {},
+		},
 		"tool.doc.docx_to_pdf": {
-			"DOC_DOCX_TO_PDF_EXECUTION_FAILED":          {},
 			"DOC_DOCX_TO_PDF_PRIMARY_EXECUTION_FAILED":  {},
 			"DOC_DOCX_TO_PDF_FALLBACK_EXECUTION_FAILED": {},
 		},
 		"tool.doc.md_to_pdf": {
 			"DOC_MD_TO_PDF_RENDER_FAILED": {},
 		},
-		"tool.pdf.crop": {
-			"PDF_CROP_EXECUTION": {},
-			"PDF_CROP_FAILED":    {},
-		},
-		"tool.pdf.merge": {
-			"PDF_MERGE_EXECUTION": {},
-			"PDF_MERGE_FAILED":    {},
-		},
-		"tool.pdf.split": {
-			"PDF_SPLIT_EXECUTION": {},
-			"PDF_SPLIT_FAILED":    {},
-		},
-		"tool.image.crop": {
-			"IMAGE_CROP_EXECUTION": {},
-		},
-		"tool.image.annotate": {
-			"IMAGE_ANNOTATE_EXECUTION":  {},
-			"IMAGE_ANNOTATE_BATCH_ITEM": {},
-		},
 		"tool.video.convert": {
-			"VIDEO_CONVERT_EXECUTION": {},
-			"VIDEO_CONVERT_FAILED":    {},
+			"VIDEO_CONVERT_EXECUTION_FAILED": {},
 		},
 		"tool.video.trim": {
-			"VIDEO_TRIM_EXECUTION": {},
-			"VIDEO_TRIM_FAILED":    {},
+			"VIDEO_TRIM_EXECUTION_FAILED": {},
 		},
 		"tool.video.merge": {
-			"VIDEO_MERGE_EXECUTION": {},
-			"VIDEO_MERGE_FAILED":    {},
+			"VIDEO_MERGE_EXECUTION_FAILED": {},
 		},
 	}
 
