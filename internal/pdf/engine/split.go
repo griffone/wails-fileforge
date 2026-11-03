@@ -47,12 +47,19 @@ type SplitBatchResult struct {
 	InputPath string
 	OutputDir string
 	Outputs   []string
+	Error     *SplitError
 }
 
 type splitBatchItemPlan struct {
 	InputPath string
 	OutputDir string
 	Planned   []splitPlannedOutput
+	Error     *SplitError
+}
+
+type splitBatchInput struct {
+	InputPath string
+	OutputDir string
 }
 
 func (e *SplitError) Error() string {
@@ -86,8 +93,7 @@ func ValidateSplitRequest(inputPath, outputDir, strategy, rangesExpr string) *Sp
 }
 
 func ValidateSplitBatchRequest(inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) *SplitError {
-	_, err := buildSplitBatchPlan(inputPaths, outputDir, strategy, rangesExpr, perInputDir)
-	return err
+	return validateSplitBatchShape(inputPaths, outputDir, strategy, rangesExpr, perInputDir)
 }
 
 func SplitBatch(ctx context.Context, inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) ([]SplitBatchResult, error) {
@@ -95,16 +101,46 @@ func SplitBatch(ctx context.Context, inputPaths []string, outputDir, strategy, r
 		return nil, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: err}
 	}
 
-	plans, validationErr := buildSplitBatchPlan(inputPaths, outputDir, strategy, rangesExpr, perInputDir)
+	plans, validationErr := planSplitBatch(inputPaths, outputDir, strategy, rangesExpr, perInputDir)
 	if validationErr != nil {
 		return nil, validationErr
 	}
 
 	results := make([]SplitBatchResult, 0, len(plans))
 	for _, plan := range plans {
+		if err := ctx.Err(); err != nil {
+			return results, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: err}
+		}
+
+		if plan.Error != nil {
+			results = append(results, SplitBatchResult{
+				InputPath: plan.InputPath,
+				OutputDir: plan.OutputDir,
+				Error:     plan.Error,
+			})
+			continue
+		}
+
 		outputs, err := executeSplitPlan(ctx, plan.InputPath, plan.Planned)
 		if err != nil {
-			return results, err
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return results, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: ctxErr}
+			}
+
+			var splitErr *SplitError
+			if !errors.As(err, &splitErr) {
+				splitErr = &SplitError{Code: ErrorCodeSplitFailed, Message: "failed to split PDF", Cause: err}
+			}
+			if splitErr.Code == "CANCELED" {
+				return results, splitErr
+			}
+
+			results = append(results, SplitBatchResult{
+				InputPath: plan.InputPath,
+				OutputDir: plan.OutputDir,
+				Error:     splitErr,
+			})
+			continue
 		}
 
 		results = append(results, SplitBatchResult{
@@ -185,23 +221,37 @@ func buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr string
 	return planned, nil
 }
 
-func buildSplitBatchPlan(inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) ([]splitBatchItemPlan, *SplitError) {
+func validateSplitBatchShape(inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) *SplitError {
 	outputDir = strings.TrimSpace(outputDir)
 	if outputDir == "" {
-		return nil, &SplitError{Code: ErrorCodeValidation, Message: "outputDir is required"}
+		return &SplitError{Code: ErrorCodeValidation, Message: "outputDir is required"}
 	}
 
 	if len(inputPaths) < 1 {
-		return nil, &SplitError{Code: ErrorCodeValidation, Message: "at least 1 input PDF is required"}
+		return &SplitError{Code: ErrorCodeValidation, Message: "at least 1 input PDF is required"}
 	}
 
 	if validationErr := validateOutputDirectory(outputDir, false); validationErr != nil {
-		return nil, validationErr
+		return validationErr
 	}
 
-	plans := make([]splitBatchItemPlan, 0, len(inputPaths))
+	if strategy != SplitStrategyEveryPage && strategy != SplitStrategyRanges {
+		return &SplitError{Code: ErrorCodeUnsupportedStrategy, Message: fmt.Sprintf("unsupported split strategy: %s", strategy)}
+	}
+
+	if strategy == SplitStrategyRanges {
+		if _, rangesErr := ParseSplitRanges(rangesExpr); rangesErr != nil {
+			return rangesErr
+		}
+	}
+
+	_, conflictsErr := resolveSplitBatchInputs(inputPaths, outputDir, perInputDir)
+	return conflictsErr
+}
+
+func resolveSplitBatchInputs(inputPaths []string, outputDir string, perInputDir bool) ([]splitBatchInput, *SplitError) {
+	inputs := make([]splitBatchInput, 0, len(inputPaths))
 	seenInputDirs := make(map[string]string, len(inputPaths))
-	seenOutputs := make(map[string]string)
 
 	for _, rawInputPath := range inputPaths {
 		inputPath := strings.TrimSpace(rawInputPath)
@@ -210,10 +260,8 @@ func buildSplitBatchPlan(inputPaths []string, outputDir, strategy, rangesExpr st
 		}
 
 		effectiveOutputDir := outputDir
-		allowCreateOutputDir := false
 		if perInputDir {
 			effectiveOutputDir = filepath.Join(outputDir, perInputSplitDirName(inputPath))
-			allowCreateOutputDir = true
 
 			dirKey := normalizePathKey(effectiveOutputDir)
 			if previous, exists := seenInputDirs[dirKey]; exists {
@@ -222,9 +270,35 @@ func buildSplitBatchPlan(inputPaths []string, outputDir, strategy, rangesExpr st
 			seenInputDirs[dirKey] = inputPath
 		}
 
-		planned, err := buildSplitPlanWithOptions(inputPath, effectiveOutputDir, strategy, rangesExpr, allowCreateOutputDir)
-		if err != nil {
-			return nil, err
+		inputs = append(inputs, splitBatchInput{InputPath: inputPath, OutputDir: effectiveOutputDir})
+	}
+
+	return inputs, nil
+}
+
+func planSplitBatch(inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) ([]splitBatchItemPlan, *SplitError) {
+	if validationErr := validateSplitBatchShape(inputPaths, outputDir, strategy, rangesExpr, perInputDir); validationErr != nil {
+		return nil, validationErr
+	}
+
+	inputs, conflictsErr := resolveSplitBatchInputs(inputPaths, strings.TrimSpace(outputDir), perInputDir)
+	if conflictsErr != nil {
+		return nil, conflictsErr
+	}
+
+	plans := make([]splitBatchItemPlan, 0, len(inputs))
+	seenOutputs := make(map[string]string)
+
+	for _, input := range inputs {
+		allowCreateOutputDir := perInputDir
+		planned, planErr := buildSplitPlanWithOptions(input.InputPath, input.OutputDir, strategy, rangesExpr, allowCreateOutputDir)
+		if planErr != nil {
+			plans = append(plans, splitBatchItemPlan{
+				InputPath: input.InputPath,
+				OutputDir: input.OutputDir,
+				Error:     planErr,
+			})
+			continue
 		}
 
 		for _, entry := range planned {
@@ -236,8 +310,8 @@ func buildSplitBatchPlan(inputPaths []string, outputDir, strategy, rangesExpr st
 		}
 
 		plans = append(plans, splitBatchItemPlan{
-			InputPath: inputPath,
-			OutputDir: effectiveOutputDir,
+			InputPath: input.InputPath,
+			OutputDir: input.OutputDir,
 			Planned:   planned,
 		})
 	}

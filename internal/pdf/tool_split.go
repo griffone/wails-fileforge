@@ -132,16 +132,32 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 		return nil, mapSplitError(err)
 	}
 
+	fileErrors := make([]map[string]any, 0)
 	items := make([]models.JobResultItemV1, 0, len(batchResults))
 	for i, result := range batchResults {
-		items = append(items, models.JobResultItemV1{
-			InputPath:   result.InputPath,
-			OutputPath:  result.OutputDir,
-			Outputs:     append([]string(nil), result.Outputs...),
-			OutputCount: len(result.Outputs),
-			Success:     true,
-			Message:     fmt.Sprintf("PDF split successful: generated %d files", len(result.Outputs)),
-		})
+		item := models.JobResultItemV1{
+			InputPath:  result.InputPath,
+			OutputPath: result.OutputDir,
+		}
+
+		if result.Error != nil {
+			jobErr := mapSplitError(result.Error)
+			item.Success = false
+			item.Message = jobErr.Message
+			item.Error = jobErr
+			fileErrors = append(fileErrors, map[string]any{
+				"path":    result.InputPath,
+				"code":    jobErr.DetailCode,
+				"message": jobErr.Message,
+			})
+		} else {
+			item.Success = true
+			item.Outputs = append([]string(nil), result.Outputs...)
+			item.OutputCount = len(result.Outputs)
+			item.Message = fmt.Sprintf("PDF split successful: generated %d files", len(result.Outputs))
+		}
+
+		items = append(items, item)
 
 		if onProgress != nil {
 			onProgress(models.JobProgressV1{
@@ -151,6 +167,12 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 				Message: fmt.Sprintf("processed %d/%d", i+1, len(batchResults)),
 			})
 		}
+	}
+
+	if len(fileErrors) > 0 {
+		return items, models.NewCanonicalJobError(engine.ErrorCodeSplitFailed, "one or more files failed in batch split", map[string]any{
+			"fileErrors": fileErrors,
+		})
 	}
 
 	return items, nil
@@ -255,5 +277,5 @@ func mapSplitError(err error) *models.JobErrorV1 {
 		return &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
 	}
 
-	return &models.JobErrorV1{Code: splitErr.Code, Message: splitErr.Message}
+	return &models.JobErrorV1{Code: splitErr.Code, DetailCode: splitErr.Code, Message: splitErr.Message}
 }
