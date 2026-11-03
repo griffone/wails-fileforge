@@ -5,8 +5,6 @@ import { Wails } from './wails';
 const PDF_WORKER_PUBLIC_URL = 'assets/pdfjs/pdf.worker.min.mjs';
 const PDF_CMAP_PUBLIC_URL = 'assets/pdfjs/cmaps/';
 const PDF_STANDARD_FONT_PUBLIC_URL = 'assets/pdfjs/standard_fonts/';
-const PDF_ICC_PUBLIC_URL = 'assets/pdfjs/iccs/';
-const PDF_WASM_PUBLIC_URL = 'assets/pdfjs/wasm/';
 const BACKEND_PREVIEW_MAX_DIMENSION = 4096;
 const BACKEND_PREVIEW_POLL_ATTEMPTS = 300;
 const BACKEND_PREVIEW_POLL_DELAY_MS = 100;
@@ -50,10 +48,7 @@ export class PdfRendererService {
       data: bytes,
       cMapUrl: PDF_CMAP_PUBLIC_URL,
       cMapPacked: true,
-      iccUrl: PDF_ICC_PUBLIC_URL,
       standardFontDataUrl: PDF_STANDARD_FONT_PUBLIC_URL,
-      wasmUrl: PDF_WASM_PUBLIC_URL,
-      useWasm: true,
       useWorkerFetch: true,
       isImageDecoderSupported: false,
       isOffscreenCanvasSupported: false,

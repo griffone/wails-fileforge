@@ -39,10 +39,7 @@ describe('PdfRendererService', () => {
       jasmine.objectContaining({
         cMapUrl: 'assets/pdfjs/cmaps/',
         cMapPacked: true,
-        iccUrl: 'assets/pdfjs/iccs/',
         standardFontDataUrl: 'assets/pdfjs/standard_fonts/',
-        wasmUrl: 'assets/pdfjs/wasm/',
-        useWasm: true,
         useWorkerFetch: true,
         isImageDecoderSupported: false,
         isOffscreenCanvasSupported: false,

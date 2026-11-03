@@ -37,8 +37,6 @@ type CropPreset = (typeof CROP_PRESETS)[number];
 const PDF_WORKER_PUBLIC_URL = 'assets/pdfjs/pdf.worker.min.mjs';
 const PDF_CMAP_PUBLIC_URL = 'assets/pdfjs/cmaps/';
 const PDF_STANDARD_FONT_PUBLIC_URL = 'assets/pdfjs/standard_fonts/';
-const PDF_ICC_PUBLIC_URL = 'assets/pdfjs/iccs/';
-const PDF_WASM_PUBLIC_URL = 'assets/pdfjs/wasm/';
 type PDFPreviewStatus = 'empty' | 'loading' | 'ready' | 'error';
 type PDFPreviewStage =
   | 'input'
@@ -453,9 +451,6 @@ export class PdfCrop implements OnInit, OnDestroy {
         cMapUrl: PDF_CMAP_PUBLIC_URL,
         cMapPacked: true,
         standardFontDataUrl: PDF_STANDARD_FONT_PUBLIC_URL,
-        iccUrl: PDF_ICC_PUBLIC_URL,
-        wasmUrl: PDF_WASM_PUBLIC_URL,
-        useWasm: true,
         useWorkerFetch: true,
         isImageDecoderSupported: false,
         isOffscreenCanvasSupported: false,
