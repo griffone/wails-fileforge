@@ -137,14 +137,6 @@ func ConvertDOCX(ctx context.Context, probe RuntimeProbe, runner CommandRunner, 
 
 	fallbackErr := runPandoc(ctx, runner, req.InputPath, req.OutputPath)
 	if fallbackErr == nil {
-		if isFontDetectionError(primaryErr) {
-			return ConvertDOCXResult{
-				EngineUsed:   EnginePandoc,
-				FallbackUsed: true,
-				PrimaryError: primaryErr.Error(),
-			}, primaryErr
-		}
-
 		return ConvertDOCXResult{
 			EngineUsed:   EnginePandoc,
 			FallbackUsed: true,
@@ -309,15 +301,4 @@ func moveFile(srcPath, dstPath string) error {
 	}
 
 	return nil
-}
-
-func isFontDetectionError(err error) bool {
-	if err == nil {
-		return false
-	}
-	var docxErr *DOCXError
-	if errors.As(err, &docxErr) {
-		return docxErr.Code == ErrorCodeDocxFontSubstitution
-	}
-	return false
 }
