@@ -1,139 +1,190 @@
-<div class="min-h-screen bg-gray-50 p-6">
-  <div class="mx-auto max-w-5xl space-y-6">
-    <header>
-      <h1 class="text-3xl font-bold text-gray-900">FileForge Desktop</h1>
-      <p class="mt-2 text-gray-600">Cross-platform file conversion toolkit</p>
-    </header>
+<div class="page home-page">
+  <section class="home-hero" aria-labelledby="home-title">
+    <div class="home-intro">
+      <p class="eyebrow">LOCAL-FIRST FILE WORKBENCH</p>
+      <h1 id="home-title" class="page-title home-title">
+        Every file tool. One <em>workbench</em>.
+      </h1>
+      <p class="page-sub home-sub">
+        Convert, crop, merge and annotate without leaving your machine. No uploads, no
+        accounts, no waiting.
+      </p>
 
-    <section class="card">
-      <h2 class="text-lg font-semibold text-gray-900">Platform status</h2>
-      <div class="mt-3 grid gap-3 text-sm text-gray-700 md:grid-cols-3">
-        <p>Runtime: <strong>{{ isRuntimeAvailable() ? 'available' : 'unavailable' }}</strong></p>
-        <p>Catalog tool domains: <strong>{{ catalogTools.length }}</strong></p>
-        <p>Catalog tools (V1): <strong>{{ catalogToolsCount }}</strong></p>
+      <div class="home-search">
+        <lucide-icon
+          class="home-search-icon"
+          [img]="searchIcon"
+          [size]="18"
+          [strokeWidth]="1.75"
+          aria-hidden="true"
+        ></lucide-icon>
+        <label class="sr-only" for="home-tool-search">Search tools</label>
+        <input
+          #searchInput
+          id="home-tool-search"
+          class="home-search-input"
+          type="search"
+          placeholder="Find a tool — try “merge” or “webp”"
+          autocomplete="off"
+          spellcheck="false"
+          aria-controls="home-tool-grid"
+          [value]="query()"
+          (input)="onSearchInput($event)"
+          (keydown)="onSearchKeydown($event)"
+        />
+        @if (query().length > 0) {
+          <button
+            class="home-search-clear"
+            type="button"
+            aria-label="Clear search"
+            (click)="clearSearch()"
+          >
+            <lucide-icon [img]="clearIcon" [size]="14" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+          </button>
+        }
+        <kbd class="kbd home-search-kbd" aria-hidden="true">Enter</kbd>
+      </div>
+    </div>
+
+    <aside class="home-index" aria-labelledby="home-index-title">
+      <p id="home-index-title" class="home-index-label mono">FILEFORGE / INDEX</p>
+
+      <p class="home-index-total">
+        <span class="home-index-number">{{ registry.tools.length }}</span>
+        <span class="home-index-unit">tools ready</span>
+      </p>
+
+      <hr class="home-index-rule" />
+
+      <ul class="home-index-list">
+        @for (category of filterCategories; track category.id) {
+          <li class="home-index-row">
+            <span class="home-index-row-label">{{ category.label }}</span>
+            <span class="home-index-dots" aria-hidden="true"></span>
+            <span class="home-index-row-count">{{ categoryCounts()[category.id] }}</span>
+          </li>
+        }
+      </ul>
+
+      <div class="home-index-foot">
+        <span class="home-index-runtime">
+          <span
+            class="status-dot"
+            [attr.data-state]="isRuntimeAvailable() ? 'success' : 'idle'"
+            aria-hidden="true"
+          ></span>
+          {{ isRuntimeAvailable() ? 'Runtime online' : 'Preview only' }}
+        </span>
+        <span class="home-index-local">100% local</span>
+      </div>
+    </aside>
+  </section>
+
+  @if (showRecent()) {
+    <section class="home-recent" aria-labelledby="home-recent-title">
+      <div class="section-head">
+        <h2 id="home-recent-title" class="section-title">Recently used</h2>
+      </div>
+      <div class="home-recent-list">
+        @for (tool of recent(); track tool.id) {
+          <a class="home-recent-link" [routerLink]="tool.route">
+            <span class="tool-icon" [attr.data-tone]="tool.category" aria-hidden="true">
+              <lucide-icon [img]="tool.icon" [size]="14" [strokeWidth]="1.75"></lucide-icon>
+            </span>
+            <span class="home-recent-name">{{ tool.name }}</span>
+            <lucide-icon
+              class="home-recent-arrow"
+              [img]="arrowIcon"
+              [size]="13"
+              [strokeWidth]="2"
+              aria-hidden="true"
+            ></lucide-icon>
+          </a>
+        }
       </div>
     </section>
+  }
 
-    <section class="grid gap-4 md:grid-cols-3">
-      <article class="card border border-blue-200 bg-blue-50/50">
-        <h3 class="text-lg font-semibold text-gray-900">Image Converter</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Convert between PNG, JPG, WebP and GIF formats.
-        </p>
-        <button class="btn btn-primary mt-4" (click)="navigateToConverter('img')">
-          Open Image Converter
-        </button>
-      </article>
+  <section class="home-tools" aria-labelledby="home-tools-title">
+    <h2 id="home-tools-title" class="sr-only">Tool index</h2>
 
-      <article class="card border border-sky-200 bg-sky-50/50">
-        <h3 class="text-lg font-semibold text-gray-900">Image Crop</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Crop images with ratio presets, drag selection, manual coordinates and batch support.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToImageCrop()">
-          Open Image Crop
+    <div class="home-toolbar">
+      <div class="home-filters" role="group" aria-label="Filter tools by category">
+        <button
+          class="chip"
+          type="button"
+          [attr.aria-pressed]="activeCategory() === 'all'"
+          (click)="selectCategory('all')"
+        >
+          All
         </button>
-      </article>
+        @for (category of filterCategories; track category.id) {
+          <button
+            class="chip"
+            type="button"
+            [attr.aria-pressed]="activeCategory() === category.id"
+            (click)="selectCategory(category.id)"
+          >
+            {{ category.label }}
+          </button>
+        }
+      </div>
 
-      <article class="card border border-fuchsia-200 bg-fuchsia-50/50">
-        <h3 class="text-lg font-semibold text-gray-900">Image Annotate</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Annotate images with text, arrows, rectangles, blur and irreversible redact.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToImageAnnotate()">
-          Open Image Annotate
-        </button>
-      </article>
+      <p class="home-result-count" aria-live="polite" aria-atomic="true">
+        {{ filteredTools().length }} of {{ registry.tools.length }} tools
+      </p>
+    </div>
 
-      <article class="card border border-gray-200">
-        <h3 class="text-lg font-semibold text-gray-900">Tool Catalog</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Inspect registered platform tools and runtime health.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToToolCatalog()">
-          Open Tool Catalog
-        </button>
-      </article>
+    <div id="home-tool-grid">
+      @if (filteredTools().length > 0) {
+        <div class="tool-grid">
+          @for (tool of filteredTools(); track tool.id) {
+            <a class="tool-card home-tool-card" [routerLink]="tool.route">
+              <span class="home-tool-top">
+                <span class="tool-icon" [attr.data-tone]="tool.category" aria-hidden="true">
+                  <lucide-icon [img]="tool.icon" [size]="18" [strokeWidth]="1.75"></lucide-icon>
+                </span>
+                <lucide-icon
+                  class="tool-card-arrow"
+                  [img]="arrowIcon"
+                  [size]="15"
+                  [strokeWidth]="2"
+                  aria-hidden="true"
+                ></lucide-icon>
+              </span>
+              <span class="tool-card-title">{{ tool.name }}</span>
+              <span class="tool-card-desc">{{ tool.description }}</span>
+              <span class="tool-card-formats">
+                @for (format of tool.formats.slice(0, 4); track format) {
+                  <span class="chip home-format-chip">{{ format }}</span>
+                }
+              </span>
+            </a>
+          }
+        </div>
+      } @else {
+        <div class="empty-state" role="status">
+          <lucide-icon [img]="emptyIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
+          @if (query().trim()) {
+            <strong>No tools match “{{ query().trim() }}”</strong>
+          } @else {
+            <strong>No tools in this category</strong>
+          }
+          <p>Try another word or category — the bench holds {{ registry.tools.length }} tools.</p>
+          <button class="btn btn-secondary empty-state-action" type="button" (click)="clearFilters()">
+            Clear filters
+          </button>
+        </div>
+      }
+    </div>
+  </section>
 
-      <article class="card border border-red-200 bg-red-50/40">
-        <h3 class="text-lg font-semibold text-gray-900">PDF Merge</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Merge multiple PDF files in custom order using V1 jobs.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToPdfMerge()">
-          Open PDF Merge
-        </button>
-      </article>
-
-      <article class="card border border-purple-200 bg-purple-50/40">
-        <h3 class="text-lg font-semibold text-gray-900">PDF Split</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Split one PDF into individual page files with V1 tool orchestration.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToPdfSplit()">
-          Open PDF Split
-        </button>
-      </article>
-
-      <article class="card border border-indigo-200 bg-indigo-50/40">
-        <h3 class="text-lg font-semibold text-gray-900">PDF Crop</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Crop one PDF with presets or custom margins using V1 jobs.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToPdfCrop()">
-          Open PDF Crop
-        </button>
-      </article>
-
-      <article class="card border border-violet-200 bg-violet-50/40">
-        <h3 class="text-lg font-semibold text-gray-900">Markdown to PDF</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Convert one markdown file to A4 portrait PDF with configurable header/footer.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToDocMdToPdf()">
-          Open Markdown to PDF
-        </button>
-      </article>
-
-      <article class="card border border-amber-200 bg-amber-50/40">
-        <h3 class="text-lg font-semibold text-gray-900">DOCX to PDF</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Convert DOCX files to PDF in single or batch mode with fidelidad estándar.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToDocDocxToPdf()">
-          Open DOCX to PDF
-        </button>
-      </article>
-
-      <article class="card border border-emerald-200 bg-emerald-50/40">
-        <h3 class="text-lg font-semibold text-gray-900">Video Convert</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Convert one video to mp4/webm with quality presets using V1 jobs.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToVideoConvert()">
-          Open Video Convert
-        </button>
-      </article>
-
-      <article class="card border border-teal-200 bg-teal-50/40">
-        <h3 class="text-lg font-semibold text-gray-900">Video Trim</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Trim one video by start/end time to mp4/webm with V1 jobs.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToVideoTrim()">
-          Open Video Trim
-        </button>
-      </article>
-
-      <article class="card border border-cyan-200 bg-cyan-50/40">
-        <h3 class="text-lg font-semibold text-gray-900">Video Merge</h3>
-        <p class="mt-2 text-sm text-gray-700">
-          Merge ordered multiple videos into one mp4/webm output with V1 jobs.
-        </p>
-        <button class="btn btn-secondary mt-4" (click)="navigateToVideoMerge()">
-          Open Video Merge
-        </button>
-      </article>
-    </section>
-  </div>
+  <footer class="home-local">
+    <p class="home-local-main">
+      <lucide-icon [img]="shieldIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+      Your files stay on this machine.
+    </p>
+    <p class="home-local-meta">No uploads · No accounts · Works offline.</p>
+    <p class="home-shortcut">Press <kbd class="kbd">{{ shortcutLabel }}</kbd> to search from anywhere</p>
+  </footer>
 </div>

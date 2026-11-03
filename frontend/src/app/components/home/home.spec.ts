@@ -1,16 +1,23 @@
-import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
 
 import { Home } from './home';
+import { RecentToolsService } from '../../services/recent-tools.service';
 import { Wails } from '../../services/wails';
 
 describe('Home', () => {
   let component: Home;
-  let fixture: any;
+  let fixture: ComponentFixture<Home>;
   let wailsSpy: jasmine.SpyObj<Wails>;
 
   beforeEach(async () => {
+    localStorage.removeItem('ff-recent-tools');
+
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', ['listToolsV1', 'isRuntimeAvailable']);
+    wailsSpy.listToolsV1.and.returnValue(
+      Promise.resolve({ success: true, message: 'ok', tools: [] }),
+    );
+    wailsSpy.isRuntimeAvailable.and.returnValue(false);
 
     await TestBed.configureTestingModule({
       imports: [Home],
@@ -20,6 +27,37 @@ describe('Home', () => {
     fixture = TestBed.createComponent(Home);
     component = fixture.componentInstance;
   });
+
+  function searchInput(): HTMLInputElement {
+    return fixture.nativeElement.querySelector('#home-tool-search') as HTMLInputElement;
+  }
+
+  function filterChip(label: string): HTMLButtonElement {
+    const chips = Array.from(
+      fixture.nativeElement.querySelectorAll('.home-filters .chip') as NodeListOf<HTMLButtonElement>,
+    );
+    const chip = chips.find((item) => item.textContent?.trim() === label);
+
+    if (!chip) {
+      throw new Error(`Filter chip not found: ${label}`);
+    }
+
+    return chip;
+  }
+
+  function typeQuery(value: string): void {
+    const input = searchInput();
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+  }
+
+  function cardNames(): string[] {
+    const titles = fixture.nativeElement.querySelectorAll(
+      '.tool-card-title',
+    ) as NodeListOf<HTMLElement>;
+    return Array.from(titles).map((title) => title.textContent?.trim() ?? '');
+  }
 
   it('loads catalog count from ListToolsV1 on init', async () => {
     wailsSpy.listToolsV1.and.returnValue(
@@ -130,7 +168,7 @@ describe('Home', () => {
             state: { status: 'enabled', healthy: true },
           },
         ],
-      })
+      }),
     );
 
     fixture.detectChanges();
@@ -146,7 +184,7 @@ describe('Home', () => {
         success: false,
         message: 'ipc error',
         tools: [],
-      })
+      }),
     );
 
     fixture.detectChanges();
@@ -160,5 +198,69 @@ describe('Home', () => {
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
 
     expect(component.isRuntimeAvailable()).toBeTrue();
+  });
+
+  it('renders every workbench tool by default', () => {
+    fixture.detectChanges();
+
+    expect(cardNames().length).toBe(11);
+    expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('filters the grid by search query', () => {
+    fixture.detectChanges();
+    typeQuery('merge');
+
+    expect(cardNames()[0]).toBe('PDF Merge');
+    expect(cardNames()).not.toContain('Image Convert');
+  });
+
+  it('filters the grid by category', () => {
+    fixture.detectChanges();
+
+    filterChip('Image').click();
+    fixture.detectChanges();
+
+    expect(cardNames().length).toBe(3);
+    expect(filterChip('Image').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('opens the first filtered tool when Enter is pressed', () => {
+    const router = TestBed.inject(Router);
+    const navigate = spyOn(router, 'navigateByUrl').and.resolveTo(true);
+
+    fixture.detectChanges();
+    typeQuery('merge');
+
+    searchInput().dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+
+    expect(navigate).toHaveBeenCalledWith('/pdf-merge');
+  });
+
+  it('restores every tool when filters are cleared', () => {
+    fixture.detectChanges();
+    typeQuery('zzzz');
+
+    expect(fixture.nativeElement.querySelector('.empty-state')).not.toBeNull();
+
+    (fixture.nativeElement.querySelector('.empty-state-action') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(cardNames().length).toBe(11);
+    expect(searchInput().value).toBe('');
+    expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('shows recently used tools when no filter is active', () => {
+    const recentTools = TestBed.inject(RecentToolsService);
+    recentTools.record('/pdf-merge');
+
+    fixture.detectChanges();
+
+    const section = fixture.nativeElement.querySelector('.home-recent') as HTMLElement | null;
+    expect(section).not.toBeNull();
+    expect(section?.textContent).toContain('PDF Merge');
   });
 });

@@ -69,9 +69,9 @@ Out of scope:
 
 - [x] T01 Foundation — fonts, tokens, themes, base styles, semantic remap of Tailwind gray/blue/amber/red/slate scales.
 - [x] T02 Services — tool registry, theme service, recent-tools service.
-- [ ] T03 App shell — sidebar, top bar, responsive rail, brand, route context.
-- [ ] T04 Command palette — `⌘K`, filtering, grouped results, keyboard navigation.
-- [ ] T05 Home — searchable command center, category filters, tool cards, recent tools, local-first strip.
+- [x] T03 App shell — sidebar, top bar, responsive rail, brand, route context.
+- [x] T04 Command palette — `⌘K`, filtering, grouped results, keyboard navigation.
+- [x] T05 Home — searchable command center, category filters, tool cards, recent tools, local-first strip.
 - [ ] T06 Shared components — FileDrop, JobCard, ToolExecutionPanel restyle and a11y.
 - [ ] T07 System page — Tool Catalog restyle and status presentation.
 - [ ] T08 Flagship pages — Image Converter and PDF Merge composition.
@@ -91,3 +91,5 @@ Out of scope:
 - 2026-11-03: UI map completed; 13 page components, 4 shared components, no theme, 405 hardcoded color utilities, `lucide-angular` unused.
 - 2026-11-03: Design direction locked; tracking started.
 - 2026-11-03: T01–T02 complete. Bundled Archivo Variable + Instrument Serif + IBM Plex Mono; 1,275-line token/component system; dark/light themes with pre-boot script; semantic Tailwind remap verified in the compiled bundle; tool registry (11 tools + Home + System), theme service and recent-tools service. Targeted specs: 19/19. Build passes; angular initial budget raised to 1.25 MB to fit bundled fonts (baseline 983 kB, now 1.00 MB).
+- 2026-11-03: T03–T05 complete. 248px rail grouped by domain, 60px sticky top bar, breadcrumb, `Ctrl/Cmd+K` command palette (recent + grouped results, full keyboard nav), theme toggle, runtime status, responsive drawer. Home rebuilt as a command center with live search, category chips, data-driven index panel, recent tools, 11-tool grid, empty state and local-first strip. Visual QA at 1440/1024/700/390 in both themes; no horizontal overflow.
+- 2026-11-03: T06–T07 complete. FileDrop rewritten (English copy, CloudUpload tile, Space key, drag state, described-by hint); JobCard extracted to template/CSS with a single progress bar, stage tones and accessible progress semantics; ToolExecutionPanel rebuilt around panels/field grid/banners, Spanish copy normalized to English; ToolCatalog rebuilt as System status with runtime panel, registry-driven cards, loading/error/empty states. Targeted specs: 21/21.

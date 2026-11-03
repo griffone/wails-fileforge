@@ -1,4 +1,122 @@
-<header class="app-header">
-  <h1>{{ title }}</h1>
-</header>
-<router-outlet></router-outlet>
+<div class="app-frame" [class.is-nav-open]="mobileNavOpen()">
+  <aside class="rail" id="app-rail">
+    <a class="rail-brand" routerLink="/" aria-label="FileForge home" (click)="onRailNavigate()">
+      <span class="rail-brand-mark" aria-hidden="true">
+        <lucide-icon [img]="brandIcon" [size]="19" [strokeWidth]="1.75"></lucide-icon>
+      </span>
+      <span class="rail-brand-text">
+        <span class="rail-brand-wordmark">FILEFORGE</span>
+        <span class="rail-brand-subtitle">LOCAL TOOL SUITE</span>
+      </span>
+    </a>
+
+    <nav #railNav class="rail-nav" aria-label="Workbench navigation">
+      @for (group of registry.navGroups; track group.id) {
+        <div class="rail-group">
+          <p class="rail-group-label">{{ group.label }}</p>
+          @for (item of group.items; track item.id) {
+            <a
+              class="nav-item"
+              [routerLink]="item.route"
+              routerLinkActive="is-active"
+              [routerLinkActiveOptions]="item.route === '/' ? exactMatch : prefixMatch"
+              ariaCurrentWhenActive="page"
+              [attr.aria-label]="group.label + ': ' + item.navName"
+              (click)="onRailNavigate()"
+            >
+              <lucide-icon
+                class="nav-item-icon"
+                [img]="item.icon"
+                [size]="17"
+                [strokeWidth]="1.75"
+              ></lucide-icon>
+              <span class="nav-item-label">{{ item.navName }}</span>
+            </a>
+          }
+        </div>
+      }
+    </nav>
+
+    <div class="rail-footer">
+      <div class="runtime-status" [attr.data-state]="runtimeAvailable ? 'online' : 'preview'">
+        <span
+          class="status-dot"
+          [attr.data-state]="runtimeAvailable ? 'success' : 'idle'"
+          aria-hidden="true"
+        ></span>
+        <span class="runtime-label">{{ runtimeAvailable ? 'Runtime online' : 'Preview only' }}</span>
+      </div>
+
+      <button
+        class="icon-btn rail-theme"
+        type="button"
+        [attr.aria-label]="themeActionLabel()"
+        [attr.aria-pressed]="isDark()"
+        [title]="themeActionLabel()"
+        (click)="toggleTheme()"
+      >
+        <lucide-icon [img]="themeIcon()" [size]="16" [strokeWidth]="1.75"></lucide-icon>
+      </button>
+    </div>
+  </aside>
+
+  <div class="app-body">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button
+          #menuButton
+          class="icon-btn topbar-menu"
+          type="button"
+          aria-controls="app-rail"
+          [attr.aria-expanded]="mobileNavOpen()"
+          [attr.aria-label]="mobileNavOpen() ? 'Close navigation' : 'Open navigation'"
+          (click)="toggleMobileNav()"
+        >
+          <lucide-icon [img]="mobileNavOpen() ? closeIcon : menuIcon" [size]="18" [strokeWidth]="1.75"></lucide-icon>
+        </button>
+
+        <div class="topbar-context">
+          @if (currentTool(); as tool) {
+            @if (tool.route === '/') {
+              <span class="topbar-crumb">Workbench</span>
+            } @else {
+              <span class="topbar-crumb-category">{{ registry.categoryLabel(tool.category) }}</span>
+              <span class="topbar-crumb-sep" aria-hidden="true">/</span>
+              <span class="topbar-crumb">{{ tool.name }}</span>
+            }
+          } @else {
+            <span class="topbar-crumb">Workbench</span>
+          }
+        </div>
+      </div>
+
+      <button
+        #paletteTrigger
+        class="palette-trigger"
+        type="button"
+        aria-haspopup="dialog"
+        [attr.aria-expanded]="paletteOpen()"
+        [attr.aria-label]="'Search tools and actions (' + shortcutLabel + ')'"
+        (click)="openPalette()"
+      >
+        <lucide-icon [img]="searchIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>
+        <span class="palette-trigger-label">Search tools</span>
+        <kbd class="kbd palette-trigger-kbd">{{ shortcutLabel }}</kbd>
+      </button>
+    </header>
+
+    <main class="app-content" id="main-content">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+</div>
+
+@if (mobileNavOpen()) {
+  <div class="rail-backdrop" aria-hidden="true" (click)="closeMobileNav(true)"></div>
+}
+
+<app-command-palette
+  [open]="paletteOpen()"
+  (closed)="onPaletteClosed()"
+  (navigate)="onPaletteNavigate($event)"
+></app-command-palette>

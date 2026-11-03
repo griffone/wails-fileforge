@@ -1,0 +1,450 @@
+/* Home — the workbench command center. */
+
+.home-page {
+  padding-top: 46px;
+}
+
+.home-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 40px;
+  align-items: start;
+}
+
+.home-intro {
+  min-width: 0;
+  animation: home-in 420ms cubic-bezier(0.2, 0.8, 0.24, 1) both;
+}
+
+.home-title {
+  margin: 14px 0 0;
+  font-size: clamp(2.25rem, 1.45rem + 2.4vw, 3.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+}
+
+.home-sub {
+  margin: 18px 0 0;
+  max-width: 52ch;
+}
+
+/* ---- Search -------------------------------------------------------------- */
+
+.home-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 560px;
+  height: 52px;
+  margin-top: 26px;
+  padding: 0 12px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 var(--edge-highlight);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.home-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.home-search-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.home-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9375rem;
+  letter-spacing: -0.005em;
+}
+
+.home-search-input:focus,
+.home-search-input:focus-visible {
+  outline: none;
+}
+
+.home-search-input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.home-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.home-search-clear {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.home-search-clear:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.home-search-kbd {
+  flex: none;
+}
+
+/* ---- Workbench index ----------------------------------------------------- */
+
+.home-index {
+  margin-top: 10px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface) 72%);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 var(--edge-highlight);
+  animation: home-in 460ms cubic-bezier(0.2, 0.8, 0.24, 1) 60ms both;
+}
+
+.home-index-label {
+  margin: 0;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.home-index-total {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.home-index-number {
+  font-family: var(--font-display);
+  font-size: 2.75rem;
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  color: var(--text);
+}
+
+.home-index-unit {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.home-index-rule {
+  margin: 14px 0 6px;
+}
+
+.home-index-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-index-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 0.8125rem;
+  color: var(--text-soft);
+}
+
+.home-index-dots {
+  flex: 1;
+  border-bottom: 1px dotted var(--border-strong);
+  transform: translateY(-4px);
+}
+
+.home-index-row-count {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--muted);
+}
+
+.home-index-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+
+.home-index-runtime,
+.home-index-local {
+  font-family: var(--font-mono);
+  font-size: 0.59375rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.home-index-runtime {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.home-index-local {
+  color: var(--muted);
+}
+
+/* ---- Recently used ------------------------------------------------------- */
+
+.home-recent {
+  margin-top: 40px;
+}
+
+.home-recent-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.home-recent-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 0.78125rem;
+  font-weight: 550;
+  text-decoration: none;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.home-recent-link:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.home-recent-link .tool-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.home-recent-link .tool-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.home-recent-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.home-recent-arrow {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+}
+
+/* ---- Tool index ---------------------------------------------------------- */
+
+.home-tools {
+  margin-top: 34px;
+}
+
+.home-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.home-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.home-result-count {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.home-page .tool-grid {
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+}
+
+.home-tool-card {
+  min-height: 174px;
+  padding: 16px;
+  gap: 0;
+}
+
+.home-tool-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tool-card-arrow {
+  flex: none;
+  color: var(--muted);
+  opacity: 0;
+  transform: translate(-3px, 3px);
+  transition: opacity 180ms ease, transform 180ms ease, color 180ms ease;
+}
+
+.home-tool-card:hover .tool-card-arrow,
+.home-tool-card:focus-visible .tool-card-arrow {
+  opacity: 1;
+  transform: none;
+  color: var(--text-soft);
+}
+
+.tool-card-title {
+  margin-top: 14px;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.tool-card-desc {
+  margin-top: 5px;
+  font-size: 0.78125rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.tool-card-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+.home-format-chip {
+  height: 20px;
+  padding: 0 7px;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: default;
+}
+
+/* ---- Local-first footer -------------------------------------------------- */
+
+.home-local {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin-top: 44px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.home-local-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-soft);
+}
+
+.home-local-main lucide-icon {
+  color: var(--success);
+  opacity: 0.85;
+}
+
+.home-local-meta,
+.home-shortcut {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+.home-shortcut {
+  margin-left: auto;
+}
+
+@keyframes home-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .home-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  .home-index {
+    max-width: 460px;
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-title {
+    font-size: clamp(2rem, 1.3rem + 3.6vw, 2.65rem);
+  }
+
+  .home-search {
+    height: 48px;
+    margin-top: 22px;
+  }
+
+  .home-search-kbd {
+    display: none;
+  }
+
+  .home-local {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 7px;
+  }
+
+  .home-shortcut {
+    margin-left: 0;
+  }
+}

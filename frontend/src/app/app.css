@@ -1,0 +1,6 @@
+/* The workbench frame lives in src/styles.css ("5. App shell"); this file is
+   reserved for component-local adjustments. */
+:host {
+  display: block;
+  min-height: 100vh;
+}

@@ -1,0 +1,89 @@
+@if (open) {
+  <div class="palette-backdrop" (click)="onBackdropClick($event)">
+    <div
+      class="palette"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="palette-title"
+    >
+      <h2 id="palette-title" class="palette-sr">Command palette</h2>
+
+      <div class="palette-search">
+        <lucide-icon class="palette-search-icon" [img]="searchIcon" [size]="16" [strokeWidth]="1.75"></lucide-icon>
+        <label class="palette-sr" for="palette-search">Search tools and actions</label>
+        <input
+          #searchInput
+          id="palette-search"
+          class="palette-input"
+          type="text"
+          placeholder="Search tools and actions…"
+          autocomplete="off"
+          spellcheck="false"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded="true"
+          aria-controls="palette-listbox"
+          [attr.aria-activedescendant]="flatEntries().length > 0 ? optionId(activeIndex()) : null"
+          [value]="query()"
+          (input)="onQueryInput($event)"
+          (keydown)="onInputKeydown($event)"
+        />
+        <kbd class="kbd palette-esc">Esc</kbd>
+      </div>
+
+      <div #listbox id="palette-listbox" class="palette-body" role="listbox" aria-label="Search results">
+        @if (groups().length > 0) {
+          @for (group of groups(); track group.id) {
+            <div class="palette-group" role="presentation">
+              <p class="palette-group-label">{{ group.label }}</p>
+              @for (entry of group.entries; track entry.index) {
+                <div
+                  class="palette-option"
+                  role="option"
+                  [id]="optionId(entry.index)"
+                  [attr.data-index]="entry.index"
+                  [attr.aria-selected]="isActive(entry.index)"
+                  [class.is-active]="isActive(entry.index)"
+                  (mouseenter)="setActive(entry.index)"
+                  (mousedown)="$event.preventDefault()"
+                  (click)="select(entry)"
+                >
+                  <span class="tool-icon palette-option-icon" [attr.data-tone]="entry.tool.category">
+                    <lucide-icon [img]="entry.tool.icon" [size]="16" [strokeWidth]="1.75"></lucide-icon>
+                  </span>
+                  <span class="palette-option-text">
+                    <span class="palette-option-name">{{ entry.tool.name }}</span>
+                    <span class="palette-option-desc">{{ entry.tool.description }}</span>
+                  </span>
+                  <span class="palette-option-meta">{{ entry.meta }}</span>
+                </div>
+              }
+            </div>
+          }
+        } @else {
+          <div class="palette-empty" role="status">
+            <lucide-icon [img]="emptyIcon" [size]="22" [strokeWidth]="1.5"></lucide-icon>
+            <p class="palette-empty-title">No matches for “{{ query() }}”</p>
+            <p class="palette-empty-hint">Try a tool name, a category, or a file format.</p>
+          </div>
+        }
+      </div>
+
+      <div class="palette-foot" aria-hidden="true">
+        <span class="palette-hint">
+          <lucide-icon [img]="upIcon" [size]="12" [strokeWidth]="2"></lucide-icon>
+          <lucide-icon [img]="downIcon" [size]="12" [strokeWidth]="2"></lucide-icon>
+          Navigate
+        </span>
+        <span class="palette-hint">
+          <lucide-icon [img]="enterIcon" [size]="12" [strokeWidth]="2"></lucide-icon>
+          Open
+        </span>
+        <span class="palette-hint">
+          <kbd class="kbd">Esc</kbd>
+          Close
+        </span>
+      </div>
+    </div>
+  </div>
+}
