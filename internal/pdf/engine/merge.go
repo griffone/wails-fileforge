@@ -18,6 +18,7 @@ const (
 	ErrorCodeInvalidInputsPDF      = "PDF_INVALID_INPUTS"
 	ErrorCodeProtectedInputPDF     = "PDF_PROTECTED_INPUT"
 	ErrorCodeMergeFailed           = "PDF_MERGE_FAILED"
+	ErrorCodeMergeOutputExists     = "PDF_MERGE_OUTPUT_ALREADY_EXISTS"
 	ErrorCodeDuplicateInput        = "PDF_DUPLICATE_INPUT"
 	ErrorCodeOutputCollidesInput   = "PDF_OUTPUT_COLLIDES_INPUT"
 	ErrorCodeOutputDirNotFound     = "PDF_OUTPUT_DIR_NOT_FOUND"
@@ -82,6 +83,10 @@ func Merge(ctx context.Context, inputPaths []string, outputPath string) error {
 
 	if len(inputValidationErrors) > 0 {
 		return aggregateInputValidationError(inputValidationErrors)
+	}
+
+	if existsErr := ensureMergeOutputDoesNotExist(outputPath); existsErr != nil {
+		return existsErr
 	}
 
 	if err := api.MergeCreateFile(inputPaths, outputPath, false, nil); err != nil {
@@ -181,7 +186,26 @@ func ValidateMergePaths(inputPaths []string, outputPath string) *MergeError {
 		return validationErr
 	}
 
+	if existsErr := ensureMergeOutputDoesNotExist(outputPath); existsErr != nil {
+		return existsErr
+	}
+
 	return nil
+}
+
+func ensureMergeOutputDoesNotExist(outputPath string) *MergeError {
+	outputPath = strings.TrimSpace(outputPath)
+
+	_, err := os.Stat(outputPath)
+	if err == nil {
+		return &MergeError{Code: ErrorCodeMergeOutputExists, Message: fmt.Sprintf("output file already exists: %s", outputPath)}
+	}
+
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	return &MergeError{Code: ErrorCodeOutputDirNotWritable, Message: fmt.Sprintf("output path is not accessible: %s", outputPath), Cause: err}
 }
 
 func IsMergeErrorCode(err error, code string) bool {
