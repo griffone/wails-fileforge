@@ -2,10 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Frontend</title>
-  <base href="/">
+  <title>FileForge — Local Tool Suite</title>
+  <meta name="color-scheme" content="dark light">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <base href="/">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <script>
+    // Apply the persisted theme before Angular boots to avoid a flash of the
+    // wrong palette. Falls back to the OS preference and then to dark.
+    (function () {
+      try {
+        var stored = localStorage.getItem('ff-theme');
+        var theme = stored === 'light' || stored === 'dark'
+          ? stored
+          : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.dataset.theme = theme;
+      } catch (error) {
+        document.documentElement.dataset.theme = 'dark';
+      }
+    })();
+  </script>
 </head>
 <body>
   <app-root></app-root>
