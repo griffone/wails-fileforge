@@ -681,4 +681,12 @@ describe('PdfCrop', () => {
     expect(component.previewStatus).toBe('error');
     expect(component.previewMessage).toContain('Only .pdf files are supported for preview');
   });
+
+  it('renders the workbench header without page-level navigation links', () => {
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('.eyebrow')?.textContent).toContain('PDF');
+    expect(element.querySelector('.page-title')?.textContent).toContain('PDF');
+    expect(element.querySelectorAll('.page-head a').length).toBe(0);
+  });
 });

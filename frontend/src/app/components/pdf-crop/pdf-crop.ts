@@ -7,7 +7,12 @@ import {
   ViewChild,
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import {
+  FolderOpen,
+  LucideAngularModule,
+  ShieldCheck,
+  X,
+} from 'lucide-angular';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Subscription, Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
@@ -134,13 +139,22 @@ export function setPreviewWorkerInitializerForTests(
 @Component({
   selector: 'app-pdf-crop',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    LucideAngularModule,
+    ToolExecutionPanel,
+  ],
   templateUrl: './pdf-crop.html',
   styleUrl: './pdf-crop.css',
 })
 export class PdfCrop implements OnInit, OnDestroy {
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
   @ViewChild('previewCanvas') previewCanvas?: ElementRef<HTMLCanvasElement>;
+
+  readonly shieldIcon = ShieldCheck;
+  readonly folderOpenIcon = FolderOpen;
+  readonly closeIcon = X;
 
   readonly form;
   readonly panelFields: ExecutionPanelField[] = [

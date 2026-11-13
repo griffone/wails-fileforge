@@ -75,7 +75,7 @@ Out of scope:
 - [x] T06 Shared components — FileDrop, JobCard, ToolExecutionPanel restyle and a11y.
 - [x] T07 System page — Tool Catalog restyle and status presentation.
 - [x] T08 Flagship pages — Image Converter and PDF Merge composition.
-- [ ] T09 Remaining pages — crop, annotate, split, PDF crop, docs, video pages.
+- [x] T09 Remaining pages — crop, annotate, split, PDF crop, docs, video pages.
 - [ ] T10 A11y + QA — labels, live regions, focus, keyboard; build and tests.
 - [ ] T11 Docs + close — update repo docs, verify final state, report.
 
@@ -94,3 +94,4 @@ Out of scope:
 - 2026-11-03: T03–T05 complete. 248px rail grouped by domain, 60px sticky top bar, breadcrumb, `Ctrl/Cmd+K` command palette (recent + grouped results, full keyboard nav), theme toggle, runtime status, responsive drawer. Home rebuilt as a command center with live search, category chips, data-driven index panel, recent tools, 11-tool grid, empty state and local-first strip. Visual QA at 1440/1024/700/390 in both themes; no horizontal overflow.
 - 2026-11-03: T06–T07 complete. FileDrop rewritten (English copy, CloudUpload tile, Space key, drag state, described-by hint); JobCard extracted to template/CSS with a single progress bar, stage tones and accessible progress semantics; ToolExecutionPanel rebuilt around panels/field grid/banners, Spanish copy normalized to English; ToolCatalog rebuilt as System status with runtime panel, registry-driven cards, loading/error/empty states. Targeted specs: 21/21.
 - 2026-11-03: T08 complete. Image Convert and PDF Merge rebuilt as two-column workbenches with page headers, file/queue panels, styled settings/output panels and consistent banners. Fixed a real `File[]`/`FileList` crash in PDF Merge, fixed the Image Converter progress test subject, normalized all PDF Merge UI copy to English, and added modal Escape/focus handling. Targeted specs: 42/42; full suite 151/153 with only the two pre-existing PdfRenderer fixture failures.
+- 2026-11-03: T09 complete. All remaining pages (image crop/annotate, PDF split/crop, Markdown/DOCX → PDF, video convert/trim/merge) now use the shared page header, panel, field, banner and button system. Removed per-page back links, duplicate progress cards and raw preview colors; translated the remaining Spanish copy; added real Job status panels to both document tools; fixed label associations and icon-button labels. Targeted specs: 66/66; full suite 160/162 (two pre-existing PdfRenderer fixture failures).

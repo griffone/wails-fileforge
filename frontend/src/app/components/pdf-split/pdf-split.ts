@@ -2,7 +2,12 @@ import { CommonModule } from '@angular/common';
 import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { FEATURE_FLAGS } from '../../config/feature-flags';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import {
+  FolderOpen,
+  LucideAngularModule,
+  ShieldCheck,
+  X,
+} from 'lucide-angular';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import {
@@ -44,13 +49,22 @@ interface PreviewPdfDocument {
 @Component({
   selector: 'app-pdf-split',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    LucideAngularModule,
+    ToolExecutionPanel,
+  ],
   templateUrl: './pdf-split.html',
   styleUrl: './pdf-split.css',
 })
 export class PdfSplit implements OnDestroy {
   private readonly destroy$ = new Subject<void>();
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
+
+  readonly shieldIcon = ShieldCheck;
+  readonly folderOpenIcon = FolderOpen;
+  readonly closeIcon = X;
 
   readonly form;
   readonly panelFields: ExecutionPanelField[] = [

@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import { DocDocxToPdf } from './doc-docx-to-pdf';
 import {
   JobRequestV1,
+  JobResultV1,
   JobStatusResponseV1,
   RunJobResponseV1,
   ValidateJobResponseV1,
@@ -73,9 +74,35 @@ describe('DocDocxToPdf', () => {
     await component.run();
 
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Esta conversión usa fidelidad estándar. En documentos complejos puede haber diferencias de diseño (tablas, fuentes, espaciado). ¿Querés continuar?'
+      'This conversion uses standard fidelity. Complex documents may differ in layout (tables, fonts, spacing). Do you want to continue?'
     );
     expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+  });
+
+  it('renders the job status panel with a job card once a result exists', () => {
+    expect(fixture.nativeElement.querySelector('.job-panel')).toBeNull();
+
+    const result: JobResultV1 = {
+      jobId: 'docx-job-status',
+      success: true,
+      message: 'ok',
+      toolId: 'tool.doc.docx_to_pdf',
+      status: 'success',
+      progress: { current: 1, total: 1, stage: 'success', message: 'done' },
+      items: [],
+      startedAt: Date.now(),
+      endedAt: Date.now(),
+    };
+
+    component.jobResult = result;
+    fixture.detectChanges();
+
+    const panel = fixture.nativeElement.querySelector('.job-panel') as HTMLElement;
+    expect(panel).toBeTruthy();
+    expect(panel.querySelector('app-job-card')).toBeTruthy();
+    expect(panel.textContent).toContain('Job status');
+    expect(panel.textContent).toContain('Completed');
+    expect(panel.textContent).toContain('docx-job-status');
   });
 
   it('runs and polls until terminal status', fakeAsync(() => {

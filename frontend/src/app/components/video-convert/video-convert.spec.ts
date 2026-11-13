@@ -96,4 +96,24 @@ describe('VideoConvert', () => {
     expect(req.options['outputPath']).toBeUndefined();
   });
 
+  it('renders a single progress representation from the execution panel', () => {
+    component.jobResult = {
+      jobId: 'convert-job-1',
+      success: false,
+      message: 'Working',
+      toolId: 'tool.video.convert',
+      status: 'running',
+      progress: { current: 1, total: 2, stage: 'processing', message: 'Working' },
+      items: [],
+      startedAt: Date.now(),
+    };
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelectorAll('app-job-card').length).toBe(1);
+    expect(root.querySelectorAll('[role="progressbar"]').length).toBe(1);
+    expect(root.textContent).not.toContain('Convert progress details');
+    expect(root.textContent).not.toContain('ETA:');
+  });
+
 });

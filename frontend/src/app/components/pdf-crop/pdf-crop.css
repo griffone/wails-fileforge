@@ -2,85 +2,306 @@
   display: block;
 }
 
-.preview-shell {
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
-  background: #ffffff;
-  min-height: 280px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-}
-
-.preview-state {
-  width: 100%;
-  text-align: center;
-  color: #4b5563;
+.page-head-copy {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  align-items: center;
-  justify-content: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.preview-loading {
-  color: #1d4ed8;
+.page-local {
+  flex: none;
+  margin-top: 3px;
+}
+
+.page-local lucide-icon {
+  color: var(--success);
+  opacity: 0.85;
+}
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel-head-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.panel-head-copy .panel-title,
+.panel-head-copy .panel-sub {
+  margin: 0;
+}
+
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel-mode {
+  max-width: 240px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-end {
+  margin-left: auto;
+}
+
+/* ---- Files -------------------------------------------------------------- */
+
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.file-index {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+}
+
+.file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-remove {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.file-remove:hover:not(:disabled) {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.file-empty {
+  gap: 6px;
+  padding: 1.5rem 1rem;
+}
+
+.file-empty span {
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.input-row .btn {
+  flex: none;
+  height: 40px;
+}
+
+/* ---- Preview ------------------------------------------------------------ */
+
+.preview-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.preview-empty {
+  width: 100%;
+  border: 0;
 }
 
 .preview-error {
-  color: #b91c1c;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.preview-error .banner {
+  width: 100%;
 }
 
 .preview-ready {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
   align-items: center;
+  gap: 10px;
+}
+
+.preview-ready .panel-sub {
+  margin: 0;
 }
 
 .preview-stage {
   position: relative;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
   overflow: hidden;
-  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
 }
 
 .preview-canvas {
   display: block;
   max-width: 100%;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
 }
 
 .preview-overlay {
   position: absolute;
   box-sizing: border-box;
-  border: 2px solid #ef4444;
-  background: rgba(239, 68, 68, 0.12);
+  border: 2px solid var(--danger);
+  background: var(--danger-soft);
   pointer-events: none;
 }
 
-.preview-caption {
-  color: #4b5563;
-  font-size: 0.85rem;
-}
+/* ---- Confirmation modal ------------------------------------------------- */
 
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
+  z-index: 70;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
-  z-index: 40;
+  padding: 20px;
+  background: rgba(6, 8, 11, 0.55);
+  backdrop-filter: blur(6px) saturate(108%);
 }
 
 .modal-card {
-  width: min(42rem, 100%);
-  background: #ffffff;
-  border-radius: 0.75rem;
-  border: 1px solid #e5e7eb;
-  padding: 1rem;
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.25);
+  width: min(480px, 100%);
+  max-height: 84vh;
+  padding: 20px;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 1px 0 var(--edge-highlight);
+}
+
+.modal-title {
+  margin: 10px 0 0;
+  font-size: 1.125rem;
+}
+
+.modal-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.modal-summary div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-summary dt {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.modal-summary dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  text-align: right;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+@media (max-width: 640px) {
+  .page-head-row {
+    flex-direction: column;
+  }
+
+  .toolbar-end {
+    margin-left: 0;
+  }
+
+  .panel-mode {
+    max-width: none;
+  }
+
+  .input-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .input-row .btn {
+    width: 100%;
+  }
 }

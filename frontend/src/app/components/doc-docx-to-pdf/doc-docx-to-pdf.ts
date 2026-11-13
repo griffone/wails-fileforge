@@ -1,7 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { FolderOpen, LucideAngularModule, ShieldCheck, X } from 'lucide-angular';
+import { JobCard } from '../job-card/job-card';
 import {
   JobErrorV1,
   JobRequestV1,
@@ -13,18 +14,22 @@ import {
 const TOOL_ID = 'tool.doc.docx_to_pdf';
 const POLLING_INTERVAL_MS = 1000;
 const STANDARD_FIDELITY_WARNING =
-  'Esta conversión usa fidelidad estándar. En documentos complejos puede haber diferencias de diseño (tablas, fuentes, espaciado). ¿Querés continuar?';
+  'This conversion uses standard fidelity. Complex documents may differ in layout (tables, fonts, spacing). Do you want to continue?';
 
 type JobMode = 'single' | 'batch';
 
 @Component({
   selector: 'app-doc-docx-to-pdf',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink],
+  imports: [CommonModule, ReactiveFormsModule, LucideAngularModule, JobCard],
   templateUrl: './doc-docx-to-pdf.html',
   styleUrl: './doc-docx-to-pdf.css',
 })
 export class DocDocxToPdf implements OnDestroy {
+  readonly shieldIcon = ShieldCheck;
+  readonly folderOpenIcon = FolderOpen;
+  readonly closeIcon = X;
+
   readonly form;
 
   selectedInputPaths: string[] = [];
@@ -58,6 +63,64 @@ export class DocDocxToPdf implements OnDestroy {
 
   currentMode(): JobMode {
     return this.form.controls.mode.value === 'batch' ? 'batch' : 'single';
+  }
+
+  inputCountLabel(): string {
+    if (this.currentMode() === 'batch') {
+      const count = this.selectedInputPaths.length;
+      return count === 0 ? 'Queue empty' : `${count} queued`;
+    }
+
+    return this.form.controls.inputPath.value.trim() ? '1 selected' : 'None selected';
+  }
+
+  jobStatusLabel(): string {
+    switch (this.jobResult?.status) {
+      case 'success':
+        return 'Completed';
+      case 'partial_success':
+        return 'Completed with errors';
+      case 'failed':
+        return 'Failed';
+      case 'cancelled':
+        return 'Cancelled';
+      case 'interrupted':
+        return 'Interrupted';
+      case 'running':
+        return 'Running';
+      case 'queued':
+        return 'Queued';
+      default:
+        return this.jobResult?.status ?? 'Unknown';
+    }
+  }
+
+  jobStatusBadgeClass(): string {
+    switch (this.jobResult?.status) {
+      case 'success':
+        return 'badge badge-success';
+      case 'partial_success':
+        return 'badge badge-warning';
+      case 'failed':
+      case 'cancelled':
+      case 'interrupted':
+        return 'badge badge-danger';
+      default:
+        return 'badge badge-neutral';
+    }
+  }
+
+  jobSummaryText(): string {
+    const items = this.jobResult?.items ?? [];
+    if (items.length === 0) {
+      return '';
+    }
+
+    const succeeded = items.filter((item) => item.success).length;
+    const failed = items.length - succeeded;
+    return failed > 0
+      ? `${succeeded} of ${items.length} files succeeded · ${failed} failed`
+      : `${succeeded} of ${items.length} files succeeded`;
   }
 
   onModeChanged(): void {

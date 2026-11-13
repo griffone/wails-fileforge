@@ -3,7 +3,15 @@ import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import {
+  ArrowDown,
+  ArrowUp,
+  FolderOpen,
+  LucideAngularModule,
+  ShieldCheck,
+  Trash2,
+  X,
+} from 'lucide-angular';
 
 import {
   ExecutionPanelField,
@@ -51,7 +59,12 @@ interface DrawDraft {
 @Component({
   selector: 'app-image-annotate',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    LucideAngularModule,
+    ToolExecutionPanel,
+  ],
   templateUrl: './image-annotate.html',
   styleUrl: './image-annotate.css',
 })
@@ -61,20 +74,17 @@ export class ImageAnnotate implements OnDestroy {
   @ViewChild('batchFileInput') batchFileInput?: ElementRef<HTMLInputElement>;
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
 
+  readonly shieldIcon = ShieldCheck;
+  readonly folderOpenIcon = FolderOpen;
+  readonly closeIcon = X;
+  readonly arrowUpIcon = ArrowUp;
+  readonly arrowDownIcon = ArrowDown;
+  readonly trashIcon = Trash2;
+
   readonly form;
   readonly operationForm;
 
   readonly panelFields: ExecutionPanelField[] = [
-    {
-      controlName: 'jobMode',
-      label: 'Mode',
-      type: 'select',
-      options: [
-        { value: 'single', label: 'single' },
-        { value: 'batch', label: 'batch' },
-      ],
-      helpText: 'Batch v1 applies the same operations to all selected files.',
-    },
     {
       controlName: 'outputPath',
       label: 'Output path (optional)',

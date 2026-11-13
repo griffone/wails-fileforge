@@ -1,68 +1,95 @@
-<div class="min-h-screen bg-gray-50 p-6">
-  <div class="max-w-4xl mx-auto">
-    <div class="mb-6 flex items-center justify-between">
-      <div>
-        <h1 class="text-3xl font-bold text-gray-900">Video Trim</h1>
-        <p class="text-gray-600 mt-1">
-          Trim single/batch videos with backend progress + ETA.
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">VIDEO</p>
+        <h1 class="page-title">Video <em>Trim</em></h1>
+        <p class="page-sub">
+          Cut a precise time range out of one clip or a batch queue — local-first, so your videos never
+          leave this machine.
         </p>
       </div>
-      <div class="flex gap-2">
-        <a routerLink="/" class="btn btn-secondary">Home</a>
-        <a routerLink="/tool-catalog" class="btn btn-secondary">Catalog</a>
-      </div>
-    </div>
 
-    <section class="card space-y-4 mb-4">
-      <header>
-        <h2 class="text-xl font-semibold text-gray-900">Input videos</h2>
-        <p class="mt-1 text-sm text-gray-600">
-          Single mode requires exactly 1 input. Batch mode supports multiple inputs.
-        </p>
+      <span class="badge badge-neutral page-local">
+        <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <section class="panel" aria-labelledby="video-trim-input-title">
+      <header class="panel-head">
+        <div class="panel-head-copy">
+          <h2 id="video-trim-input-title" class="panel-title">Input videos</h2>
+          <p class="panel-sub">Single mode takes exactly one file; batch mode builds a queue.</p>
+        </div>
+        <span class="badge badge-neutral">{{ inputCountLabel() }}</span>
       </header>
 
-      <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn btn-secondary" (click)="selectVideoFromDialog()">
-          Select one (Wails)
-        </button>
-        <button type="button" class="btn btn-secondary" (click)="selectMultipleVideosFromDialog()">
-          Select multiple (Wails)
-        </button>
-        <button type="button" class="btn btn-secondary" (click)="triggerFileInput()">
-          Add from browser input
-        </button>
-      </div>
-
-      <input
-        #fileInput
-        type="file"
-        accept="video/mp4,video/quicktime,video/x-matroska,.mp4,.mov,.mkv"
-        class="hidden"
-        [attr.multiple]="form.controls.jobMode.value === 'batch' ? '' : null"
-        (change)="onFileInputChange($event)"
-      />
-
-      <div class="rounded-lg border border-gray-200 bg-white p-3 text-sm">
-        <p class="text-gray-600 mb-1">Selected inputs ({{ selectedInputPaths.length }}):</p>
-        <div *ngIf="selectedInputPaths.length > 0; else noInput" class="space-y-2">
-          <div
-            *ngFor="let input of selectedInputPaths; let i = index"
-            class="flex items-start justify-between gap-2"
+      <div class="panel-body">
+        <div class="toolbar" role="group" aria-label="Video selection actions">
+          <button type="button" class="btn btn-secondary btn-sm" (click)="selectVideoFromDialog()">
+            <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            Select one
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" (click)="selectMultipleVideosFromDialog()">
+            Select multiple
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="triggerFileInput()">
+            Use file input
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm toolbar-end"
+            [disabled]="selectedInputPaths.length === 0"
+            (click)="clearSelectedInput()"
           >
-            <p class="font-mono text-gray-900 break-all text-xs">{{ input }}</p>
-            <button type="button" class="btn btn-secondary" (click)="removeInput(i)">Remove</button>
-          </div>
-          <button type="button" class="btn btn-secondary" (click)="clearSelectedInput()">Clear all</button>
+            <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            Clear
+          </button>
         </div>
-        <ng-template #noInput>
-          <p class="font-mono text-gray-900 break-all">No videos selected.</p>
+
+        <input
+          #fileInput
+          type="file"
+          accept="video/mp4,video/quicktime,video/x-matroska,.mp4,.mov,.mkv"
+          class="hidden"
+          [attr.multiple]="form.controls.jobMode.value === 'batch' ? '' : null"
+          (change)="onFileInputChange($event)"
+        />
+
+        <ul
+          *ngIf="selectedInputPaths.length > 0; else emptyInputs"
+          class="file-list"
+          aria-label="Selected videos"
+        >
+          <li *ngFor="let input of selectedInputPaths; let i = index" class="file-row">
+            <span class="file-index mono">{{ i + 1 }}</span>
+            <span class="file-path mono">{{ input }}</span>
+            <button
+              type="button"
+              class="icon-btn file-remove"
+              [attr.aria-label]="'Remove ' + input"
+              (click)="removeInput(i)"
+            >
+              <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            </button>
+          </li>
+        </ul>
+
+        <ng-template #emptyInputs>
+          <div class="empty-state file-empty">
+            <strong>No videos selected</strong>
+            <span>Pick MP4, MOV or MKV files with a native dialog or the browser file input.</span>
+          </div>
         </ng-template>
       </div>
     </section>
 
     <app-tool-execution-panel
-      [title]="'Video Trim Execution'"
-      [subtitle]="'Supports single and batch trim execution with timestamp validation.'"
+      [title]="'Trim setup'"
+      [subtitle]="'Time range, destination and encoding path.'"
       [form]="form"
       [fields]="panelFields"
       [currentMode]="form.controls.jobMode.value"
@@ -73,21 +100,20 @@
       [isPolling]="isPolling"
       [canCancel]="!!activeJobId"
       [jobResult]="jobResult"
-      [runButtonText]="'Run Video Trim'"
-      [submittingButtonText]="'Submitting Video Trim...'"
+      [runButtonText]="'Trim video'"
+      [submittingButtonText]="'Submitting…'"
       (validate)="validate()"
       (run)="run()"
       (cancel)="cancel()"
     ></app-tool-execution-panel>
 
-    <section class="card mt-4 space-y-2" *ngIf="jobResult">
-      <h3 class="text-base font-semibold text-gray-900">Trim progress details</h3>
-      <p class="text-sm text-gray-700">
-        Stage: <span class="font-mono">{{ progressStageLabel || jobResult.progress.stage }}</span>
-      </p>
-      <p class="text-sm text-gray-700">Percent: <span class="font-mono">{{ progressPercentLabel }}</span></p>
-      <p class="text-sm text-gray-700">ETA: <span class="font-mono">{{ etaLabel }}</span></p>
-      <p class="text-sm text-amber-700" *ngIf="fallbackInfoMessage">{{ fallbackInfoMessage }}</p>
-    </section>
+    <div
+      *ngIf="fallbackInfoMessage"
+      class="banner banner-warning workspace-span"
+      role="status"
+      aria-live="polite"
+    >
+      {{ fallbackInfoMessage }}
+    </div>
   </div>
 </div>

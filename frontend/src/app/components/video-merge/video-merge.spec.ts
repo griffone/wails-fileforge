@@ -92,6 +92,27 @@ describe('VideoMerge', () => {
     expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
   });
 
+  it('renders the merge queue in order with labelled reorder controls', () => {
+    component.selectedInputPaths = ['/tmp/first.mp4', '/tmp/second.mov'];
+    fixture.detectChanges();
+
+    const rows = fixture.nativeElement.querySelectorAll('.queue-row') as NodeListOf<HTMLElement>;
+    expect(rows.length).toBe(2);
+    expect(rows[0].textContent).toContain('first.mp4');
+    expect(rows[0].querySelector('.queue-index')?.textContent?.trim()).toBe('1');
+    expect(rows[1].querySelector('.queue-index')?.textContent?.trim()).toBe('2');
+
+    const firstUp = rows[0].querySelector('[aria-label="Move first.mp4 up"]') as HTMLButtonElement;
+    const firstDown = rows[0].querySelector('[aria-label="Move first.mp4 down"]') as HTMLButtonElement;
+    const secondUp = rows[1].querySelector('[aria-label="Move second.mov up"]') as HTMLButtonElement;
+    const secondDown = rows[1].querySelector('[aria-label="Move second.mov down"]') as HTMLButtonElement;
+
+    expect(firstUp.disabled).toBeTrue();
+    expect(firstDown.disabled).toBeFalse();
+    expect(secondUp.disabled).toBeFalse();
+    expect(secondDown.disabled).toBeTrue();
+  });
+
   it('maps merge error codes to actionable messages', () => {
     const baseFallback = 'fallback';
     const cases: Array<{ code: string; contains: string }> = [

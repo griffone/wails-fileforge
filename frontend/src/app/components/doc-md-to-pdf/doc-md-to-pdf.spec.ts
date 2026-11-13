@@ -2,7 +2,14 @@ import { fakeAsync, flushMicrotasks, TestBed, tick } from '@angular/core/testing
 import { provideRouter } from '@angular/router';
 
 import { DocMdToPdf } from './doc-md-to-pdf';
-import { JobRequestV1, JobStatusResponseV1, RunJobResponseV1, ValidateJobResponseV1, Wails } from '../../services/wails';
+import {
+  JobRequestV1,
+  JobResultV1,
+  JobStatusResponseV1,
+  RunJobResponseV1,
+  ValidateJobResponseV1,
+  Wails,
+} from '../../services/wails';
 
 describe('DocMdToPdf', () => {
   let component: DocMdToPdf;
@@ -85,6 +92,35 @@ describe('DocMdToPdf', () => {
     const preview = component.previewHeaderText();
     expect(preview).toContain('notes.md');
     expect(preview).toContain('P1/?');
+  });
+
+  it('renders the job status panel with a job card once a result exists', () => {
+    expect(fixture.nativeElement.querySelector('.job-panel')).toBeNull();
+
+    const result: JobResultV1 = {
+      jobId: 'md-job-1',
+      success: false,
+      message: 'Partial',
+      toolId: 'tool.doc.md_to_pdf',
+      status: 'partial_success',
+      progress: { current: 1, total: 2, stage: 'finalizing', message: 'Finishing' },
+      items: [
+        { inputPath: '/tmp/a.md', outputPath: '/tmp/a.pdf', success: true, message: 'ok' },
+        { inputPath: '/tmp/b.md', outputPath: '', success: false, message: 'failed' },
+      ],
+      startedAt: Date.now(),
+    };
+
+    component.jobResult = result;
+    fixture.detectChanges();
+
+    const panel = fixture.nativeElement.querySelector('.job-panel') as HTMLElement;
+    expect(panel).toBeTruthy();
+    expect(panel.querySelector('app-job-card')).toBeTruthy();
+    expect(panel.textContent).toContain('Job status');
+    expect(panel.textContent).toContain('Completed with errors');
+    expect(panel.textContent).toContain('md-job-1');
+    expect(panel.textContent).toContain('1 of 2 files succeeded');
   });
 
   it('runs job and polls until terminal status', fakeAsync(() => {

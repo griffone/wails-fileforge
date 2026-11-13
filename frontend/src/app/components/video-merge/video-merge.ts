@@ -1,7 +1,14 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import {
+  ArrowDown,
+  ArrowUp,
+  FolderOpen,
+  LucideAngularModule,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-angular';
 
 import {
   ExecutionPanelField,
@@ -21,12 +28,18 @@ const POLLING_INTERVAL_MS = 1000;
 @Component({
   selector: 'app-video-merge',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
+  imports: [CommonModule, ReactiveFormsModule, LucideAngularModule, ToolExecutionPanel],
   templateUrl: './video-merge.html',
   styleUrl: './video-merge.css',
 })
 export class VideoMerge implements OnDestroy {
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
+
+  readonly shieldIcon = ShieldCheck;
+  readonly folderOpenIcon = FolderOpen;
+  readonly arrowUpIcon = ArrowUp;
+  readonly arrowDownIcon = ArrowDown;
+  readonly trashIcon = Trash2;
 
   readonly form;
   readonly panelFields: ExecutionPanelField[] = [
@@ -61,7 +74,7 @@ export class VideoMerge implements OnDestroy {
       label: 'Merge mode',
       type: 'select',
       options: [
-        { value: 'auto', label: 'auto (copy then fallback reencode)' },
+        { value: 'auto', label: 'auto (copy → reencode)' },
         { value: 'copy', label: 'copy (no fallback)' },
         { value: 'reencode', label: 'reencode (direct)' },
       ],
@@ -170,6 +183,17 @@ export class VideoMerge implements OnDestroy {
     next[index + 1] = next[index];
     next[index] = tmp;
     this.selectedInputPaths = next;
+  }
+
+  fileNameFromPath(path: string): string {
+    const normalized = path.replace(/\\/g, '/');
+    const idx = normalized.lastIndexOf('/');
+    return idx >= 0 ? normalized.slice(idx + 1) : normalized;
+  }
+
+  queueCountLabel(): string {
+    const count = this.selectedInputPaths.length;
+    return count === 0 ? 'Queue empty' : `${count} queued`;
   }
 
   async validate(): Promise<void> {

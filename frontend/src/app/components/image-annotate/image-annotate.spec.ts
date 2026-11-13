@@ -268,4 +268,12 @@ describe('ImageAnnotate', () => {
     component.operationForm.patchValue({ x: '2' });
     expect((component as any).onAdvancedFormChanged).not.toHaveBeenCalled();
   });
+
+  it('renders the workbench header without page-level navigation links', () => {
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('.eyebrow')?.textContent).toContain('IMAGE');
+    expect(element.querySelector('.page-title')?.textContent).toContain('Image');
+    expect(element.querySelectorAll('.page-head a').length).toBe(0);
+  });
 });

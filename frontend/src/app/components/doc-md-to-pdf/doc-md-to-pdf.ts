@@ -1,7 +1,8 @@
 import { Component, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { FolderOpen, LucideAngularModule, ShieldCheck } from 'lucide-angular';
+import { JobCard } from '../job-card/job-card';
 import {
   JobErrorV1,
   JobRequestV1,
@@ -16,11 +17,14 @@ const POLLING_INTERVAL_MS = 1000;
 @Component({
   selector: 'app-doc-md-to-pdf',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink],
+  imports: [CommonModule, ReactiveFormsModule, LucideAngularModule, JobCard],
   templateUrl: './doc-md-to-pdf.html',
   styleUrl: './doc-md-to-pdf.css',
 })
 export class DocMdToPdf implements OnDestroy {
+  readonly shieldIcon = ShieldCheck;
+  readonly folderOpenIcon = FolderOpen;
+
   readonly form;
 
   validationMessage = '';
@@ -161,6 +165,55 @@ export class DocMdToPdf implements OnDestroy {
       marginTop: `${group.marginTop.value}px`,
       marginBottom: `${group.marginBottom.value}px`,
     };
+  }
+
+  jobStatusLabel(): string {
+    switch (this.jobResult?.status) {
+      case 'success':
+        return 'Completed';
+      case 'partial_success':
+        return 'Completed with errors';
+      case 'failed':
+        return 'Failed';
+      case 'cancelled':
+        return 'Cancelled';
+      case 'interrupted':
+        return 'Interrupted';
+      case 'running':
+        return 'Running';
+      case 'queued':
+        return 'Queued';
+      default:
+        return this.jobResult?.status ?? 'Unknown';
+    }
+  }
+
+  jobStatusBadgeClass(): string {
+    switch (this.jobResult?.status) {
+      case 'success':
+        return 'badge badge-success';
+      case 'partial_success':
+        return 'badge badge-warning';
+      case 'failed':
+      case 'cancelled':
+      case 'interrupted':
+        return 'badge badge-danger';
+      default:
+        return 'badge badge-neutral';
+    }
+  }
+
+  jobSummaryText(): string {
+    const items = this.jobResult?.items ?? [];
+    if (items.length === 0) {
+      return '';
+    }
+
+    const succeeded = items.filter((item) => item.success).length;
+    const failed = items.length - succeeded;
+    return failed > 0
+      ? `${succeeded} of ${items.length} files succeeded · ${failed} failed`
+      : `${succeeded} of ${items.length} files succeeded`;
   }
 
   private previewFont(font: string): string {

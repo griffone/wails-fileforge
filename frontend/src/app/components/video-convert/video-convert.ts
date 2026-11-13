@@ -3,7 +3,7 @@ import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { FolderOpen, LucideAngularModule, ShieldCheck, X } from 'lucide-angular';
 
 import {
   ExecutionPanelField,
@@ -27,12 +27,16 @@ type ActiveJobKind = 'convert';
 @Component({
   selector: 'app-video-convert',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
+  imports: [CommonModule, ReactiveFormsModule, LucideAngularModule, ToolExecutionPanel],
   templateUrl: './video-convert.html',
   styleUrl: './video-convert.css',
 })
 export class VideoConvert implements OnDestroy {
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
+
+  readonly shieldIcon = ShieldCheck;
+  readonly folderOpenIcon = FolderOpen;
+  readonly closeIcon = X;
 
   readonly form;
   readonly panelFields: ExecutionPanelField[] = [
@@ -499,6 +503,11 @@ export class VideoConvert implements OnDestroy {
       default:
         return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
     }
+  }
+
+  inputCountLabel(): string {
+    const count = this.selectedInputPaths.length;
+    return count === 0 ? 'None selected' : `${count} selected`;
   }
 
   private currentMode(): JobMode {

@@ -1,285 +1,465 @@
-<div class="min-h-screen bg-gray-50 p-6">
-  <div class="mx-auto max-w-6xl space-y-6">
-    <header class="flex items-center justify-between">
-      <div>
-        <h1 class="text-3xl font-bold text-gray-900">Image Annotate</h1>
-        <p class="mt-1 text-gray-600">
-          Pixel-perfect annotate preview (text/arrow/rect/blur/redact). Main flow: draw directly on source image.
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">IMAGE</p>
+        <h1 class="page-title">Image <em>annotate</em></h1>
+        <p class="page-sub">
+          Draw text, arrows, rectangles, blur and redaction directly on an image, then render a
+          pixel-perfect result — local-first, so your files never leave this machine.
         </p>
       </div>
 
-      <div class="flex gap-2">
-        <a routerLink="/" class="btn btn-secondary">Home</a>
-        <a routerLink="/tool-catalog" class="btn btn-secondary">Catalog</a>
-      </div>
-    </header>
+      <span class="badge badge-neutral page-local">
+        <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
 
-    <section class="card space-y-4">
-      <h2 class="text-lg font-semibold text-gray-900">Input files</h2>
+  <div class="page-stack">
+    <section class="panel" aria-labelledby="annot-input-title">
+      <header class="panel-head">
+        <div class="panel-head-copy">
+          <h2 id="annot-input-title" class="panel-title">Input images</h2>
+          <p class="panel-sub">Batch mode applies the same operations to every file.</p>
+        </div>
+        <span class="badge badge-neutral">
+          {{ form.controls.jobMode.value === 'batch'
+            ? selectedInputPaths.length + ' queued'
+            : (selectedInputPath ? '1 selected' : 'none selected') }}
+        </span>
+      </header>
 
-      <div *ngIf="form.controls.jobMode.value === 'single'; else batchInputBlock" class="space-y-3">
-        <div class="flex flex-wrap gap-2">
-          <button type="button" class="btn btn-primary" (click)="selectImageFromDialog()">
-            Select image (Wails)
-          </button>
-          <button type="button" class="btn btn-secondary" (click)="triggerSingleFileInput()">
-            Select via file input
-          </button>
-          <button type="button" class="btn btn-secondary" (click)="clearInputs()">Clear</button>
+      <div class="panel-body">
+        <div class="field panel-mode">
+          <label class="label" for="annot-mode">Mode</label>
+          <select id="annot-mode" class="select" [formControl]="form.controls.jobMode">
+            <option value="single">Single image</option>
+            <option value="batch">Batch queue</option>
+          </select>
         </div>
 
-        <input
-          #singleFileInput
-          type="file"
-          class="hidden"
-          accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
-          (change)="onSingleFileInputChange($event)"
-        />
-
-        <div class="rounded-lg border border-gray-200 bg-white p-3 text-sm">
-          <p class="text-gray-600 mb-1">Selected input:</p>
-          <p class="font-mono text-xs text-gray-900 break-all">
-            {{ selectedInputPath || 'No image selected.' }}
-          </p>
-        </div>
-      </div>
-
-      <ng-template #batchInputBlock>
-        <div class="space-y-3">
-          <div class="flex flex-wrap gap-2">
-            <button type="button" class="btn btn-primary" (click)="selectMultipleImagesFromDialog()">
-              Select multiple images (Wails)
+        <div *ngIf="form.controls.jobMode.value === 'single'; else batchInputBlock" class="stack">
+          <div class="toolbar" role="group" aria-label="Image selection actions">
+            <button type="button" class="btn btn-primary btn-sm" (click)="selectImageFromDialog()">
+              <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Select image
             </button>
-            <button type="button" class="btn btn-secondary" (click)="selectImageFromDialog()">
-              Add one image
+            <button type="button" class="btn btn-secondary btn-sm" (click)="triggerSingleFileInput()">
+              Use file input
             </button>
-            <button type="button" class="btn btn-secondary" (click)="triggerBatchFileInput()">
-              Add via file input
+            <button type="button" class="btn btn-ghost btn-sm toolbar-end" (click)="clearInputs()">
+              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Clear
             </button>
-            <button type="button" class="btn btn-secondary" (click)="clearInputs()">Clear</button>
           </div>
 
           <input
-            #batchFileInput
+            #singleFileInput
             type="file"
             class="hidden"
             accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
-            multiple
-            (change)="onBatchFileInputChange($event)"
+            (change)="onSingleFileInputChange($event)"
           />
 
-          <ul class="max-h-52 space-y-2 overflow-auto rounded-lg border border-gray-200 bg-white p-3">
-            <li
-              *ngFor="let path of selectedInputPaths; let i = index"
-              class="flex items-center justify-between gap-2 rounded border border-gray-100 p-2"
+          <div *ngIf="selectedInputPath; else emptySingle" class="file-row">
+            <span class="file-path mono">{{ selectedInputPath }}</span>
+            <button
+              type="button"
+              class="icon-btn file-remove"
+              aria-label="Remove selected image"
+              (click)="clearInputs()"
             >
-              <span class="truncate text-xs text-gray-700">{{ path }}</span>
-              <button type="button" class="btn btn-secondary" (click)="removeBatchInput(i)">
-                Remove
-              </button>
-            </li>
-            <li *ngIf="selectedInputPaths.length === 0" class="text-sm text-gray-500">
-              No batch images selected.
-            </li>
-          </ul>
+              <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            </button>
+          </div>
+
+          <ng-template #emptySingle>
+            <div class="empty-state file-empty">
+              <strong>No image selected</strong>
+              <span>Pick a file with the native dialog or with a browser file input.</span>
+            </div>
+          </ng-template>
         </div>
-      </ng-template>
-    </section>
 
-    <section class="card space-y-4" *ngIf="sourcePreviewDataUrl">
-      <h2 class="text-lg font-semibold text-gray-900">Draw annotations</h2>
-      <p class="text-sm text-gray-600">{{ previewMessage }}</p>
+        <ng-template #batchInputBlock>
+          <div class="stack">
+            <div class="toolbar" role="group" aria-label="Batch image selection actions">
+              <button type="button" class="btn btn-primary btn-sm" (click)="selectMultipleImagesFromDialog()">
+                <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Select multiple images
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" (click)="selectImageFromDialog()">
+                Add one image
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" (click)="triggerBatchFileInput()">
+                Use file input
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm toolbar-end" (click)="clearInputs()">
+                <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Clear
+              </button>
+            </div>
 
-      <div class="tool-bar">
-        <button type="button" class="btn" [class.btn-primary]="isActiveTool('select')" [class.btn-secondary]="!isActiveTool('select')" (click)="setActiveTool('select')">Select</button>
-        <button type="button" class="btn" [class.btn-primary]="isActiveTool('rect')" [class.btn-secondary]="!isActiveTool('rect')" (click)="setActiveTool('rect')">Rect</button>
-        <button type="button" class="btn" [class.btn-primary]="isActiveTool('blur')" [class.btn-secondary]="!isActiveTool('blur')" (click)="setActiveTool('blur')">Blur</button>
-        <button type="button" class="btn" [class.btn-primary]="isActiveTool('redact')" [class.btn-secondary]="!isActiveTool('redact')" (click)="setActiveTool('redact')">Redact</button>
-        <button type="button" class="btn" [class.btn-primary]="isActiveTool('arrow')" [class.btn-secondary]="!isActiveTool('arrow')" (click)="setActiveTool('arrow')">Arrow</button>
-        <button type="button" class="btn" [class.btn-primary]="isActiveTool('text')" [class.btn-secondary]="!isActiveTool('text')" (click)="setActiveTool('text')">Text</button>
-      </div>
-
-      <div class="grid gap-4 md:grid-cols-2">
-        <div>
-          <h3 class="mb-2 text-sm font-semibold text-gray-800">Source (interactive overlay)</h3>
-          <div class="preview-stage">
-            <img
-              #previewImage
-              [src]="sourcePreviewDataUrl"
-              alt="source"
-              class="preview-image"
-              draggable="false"
-              [style.cursor]="sourceInteractionCursor()"
-              (load)="onPreviewImageLoaded()"
+            <input
+              #batchFileInput
+              type="file"
+              class="hidden"
+              accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
+              multiple
+              (change)="onBatchFileInputChange($event)"
             />
 
-            <svg
-              class="annotate-overlay"
-              [style.cursor]="sourceInteractionCursor()"
-              (pointerdown)="onOverlayPointerDown($event)"
-              (pointermove)="onOverlayPointerMove($event)"
-              (pointerup)="onOverlayPointerUp()"
-              (pointerleave)="onOverlayPointerUp()"
-            >
-              <defs>
-                <marker id="arrow-head" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-                  <path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path>
-                </marker>
-              </defs>
+            <ul *ngIf="selectedInputPaths.length > 0; else emptyBatch" class="file-list" aria-label="Queued images">
+              <li *ngFor="let path of selectedInputPaths; let i = index" class="file-row">
+                <span class="file-index mono">{{ i + 1 }}</span>
+                <span class="file-path mono">{{ path }}</span>
+                <button
+                  type="button"
+                  class="icon-btn file-remove"
+                  [attr.aria-label]="'Remove ' + path"
+                  (click)="removeBatchInput(i)"
+                >
+                  <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                </button>
+              </li>
+            </ul>
 
-              <ng-container *ngFor="let op of operations; let i = index">
-                <ng-container *ngIf="op.type === 'rect' || op.type === 'blur' || op.type === 'redact'">
-                  <ng-container *ngIf="displayRectForOperation(op) as rect">
-                    <rect
-                      [attr.x]="rect.x"
-                      [attr.y]="rect.y"
-                      [attr.width]="rect.width"
-                      [attr.height]="rect.height"
-                      [attr.class]="'shape shape-' + op.type + (isOperationSelected(i) ? ' shape-selected' : '')"
-                      [attr.stroke-width]="op.strokeWidth || 2"
-                      (pointerdown)="$event.stopPropagation()"
-                      (click)="onOperationShapeClick(i, $event)"
-                    ></rect>
-                  </ng-container>
-                </ng-container>
-
-                <ng-container *ngIf="op.type === 'arrow'">
-                  <ng-container *ngIf="displayArrowForOperation(op) as arrow">
-                    <line
-                      [attr.x1]="arrow.from.x"
-                      [attr.y1]="arrow.from.y"
-                      [attr.x2]="arrow.to.x"
-                      [attr.y2]="arrow.to.y"
-                      [attr.class]="'shape shape-arrow' + (isOperationSelected(i) ? ' shape-selected' : '')"
-                      [attr.stroke-width]="op.strokeWidth || 2"
-                      marker-end="url(#arrow-head)"
-                      (pointerdown)="$event.stopPropagation()"
-                      (click)="onOperationShapeClick(i, $event)"
-                    ></line>
-                  </ng-container>
-                </ng-container>
-
-                <ng-container *ngIf="op.type === 'text'">
-                  <ng-container *ngIf="displayTextPointForOperation(op) as point">
-                    <text
-                      [attr.x]="point.x"
-                      [attr.y]="point.y"
-                      [attr.class]="'shape shape-text' + (isOperationSelected(i) ? ' shape-selected' : '')"
-                      [attr.font-size]="op.fontSize || 18"
-                      (pointerdown)="$event.stopPropagation()"
-                      (click)="onOperationShapeClick(i, $event)"
-                    >
-                      {{ op.text || 'text' }}
-                    </text>
-                  </ng-container>
-                </ng-container>
-              </ng-container>
-
-              <ng-container *ngIf="displayDraftRect() as draftRect">
-                <rect
-                  [attr.x]="draftRect.x"
-                  [attr.y]="draftRect.y"
-                  [attr.width]="draftRect.width"
-                  [attr.height]="draftRect.height"
-                  class="shape shape-draft"
-                ></rect>
-              </ng-container>
-
-              <ng-container *ngIf="displayDraftArrow() as draftArrow">
-                <line
-                  [attr.x1]="draftArrow.from.x"
-                  [attr.y1]="draftArrow.from.y"
-                  [attr.x2]="draftArrow.to.x"
-                  [attr.y2]="draftArrow.to.y"
-                  class="shape shape-draft"
-                  marker-end="url(#arrow-head)"
-                ></line>
-              </ng-container>
-            </svg>
-          </div>
-        </div>
-
-        <div>
-          <h3 class="mb-2 text-sm font-semibold text-gray-800">Annotated (pixel-perfect backend preview)</h3>
-          <div class="preview-shell">
-            <ng-container *ngIf="annotatePreviewDataUrl; else noAnnotatePreview">
-              <img [src]="annotatePreviewDataUrl" alt="annotated preview" class="preview-image" draggable="false" />
-            </ng-container>
-            <ng-template #noAnnotatePreview>
-              <p class="text-sm text-gray-500">
-                {{ isPreviewLoading ? 'Generating preview...' : 'No annotated preview available yet.' }}
-              </p>
+            <ng-template #emptyBatch>
+              <div class="empty-state file-empty">
+                <strong>No images queued</strong>
+                <span>Add one or more images. The operations below apply to all of them.</span>
+              </div>
             </ng-template>
           </div>
+        </ng-template>
+      </div>
+    </section>
+
+    <section class="panel" *ngIf="sourcePreviewDataUrl" aria-labelledby="annot-canvas-title">
+      <header class="panel-head">
+        <div class="panel-head-copy">
+          <h2 id="annot-canvas-title" class="panel-title">Annotate canvas</h2>
+          <p class="panel-sub" role="status" aria-live="polite">{{ previewMessage }}</p>
+        </div>
+        <span class="badge" [class.badge-info]="isPreviewLoading" [class.badge-success]="!isPreviewLoading">
+          {{ isPreviewLoading ? 'Rendering' : 'Ready' }}
+        </span>
+      </header>
+
+      <div class="panel-body">
+        <div class="toolbar" role="group" aria-label="Annotation tools">
+          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('select')" (click)="setActiveTool('select')">
+            Select
+          </button>
+          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('rect')" (click)="setActiveTool('rect')">
+            Rect
+          </button>
+          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('blur')" (click)="setActiveTool('blur')">
+            Blur
+          </button>
+          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('redact')" (click)="setActiveTool('redact')">
+            Redact
+          </button>
+          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('arrow')" (click)="setActiveTool('arrow')">
+            Arrow
+          </button>
+          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('text')" (click)="setActiveTool('text')">
+            Text
+          </button>
+        </div>
+
+        <div class="canvas-grid">
+          <figure class="preview-block">
+            <figcaption class="preview-caption">Source — interactive overlay</figcaption>
+            <div class="preview-stage">
+              <img
+                #previewImage
+                [src]="sourcePreviewDataUrl"
+                alt="Source image with the annotation overlay"
+                class="preview-image"
+                draggable="false"
+                [style.cursor]="sourceInteractionCursor()"
+                (load)="onPreviewImageLoaded()"
+              />
+
+              <svg
+                class="annotate-overlay"
+                [style.cursor]="sourceInteractionCursor()"
+                (pointerdown)="onOverlayPointerDown($event)"
+                (pointermove)="onOverlayPointerMove($event)"
+                (pointerup)="onOverlayPointerUp()"
+                (pointerleave)="onOverlayPointerUp()"
+              >
+                <defs>
+                  <marker id="arrow-head" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path>
+                  </marker>
+                </defs>
+
+                <ng-container *ngFor="let op of operations; let i = index">
+                  <ng-container *ngIf="op.type === 'rect' || op.type === 'blur' || op.type === 'redact'">
+                    <ng-container *ngIf="displayRectForOperation(op) as rect">
+                      <rect
+                        [attr.x]="rect.x"
+                        [attr.y]="rect.y"
+                        [attr.width]="rect.width"
+                        [attr.height]="rect.height"
+                        [attr.class]="'shape shape-' + op.type + (isOperationSelected(i) ? ' shape-selected' : '')"
+                        [attr.stroke-width]="op.strokeWidth || 2"
+                        (pointerdown)="$event.stopPropagation()"
+                        (click)="onOperationShapeClick(i, $event)"
+                      ></rect>
+                    </ng-container>
+                  </ng-container>
+
+                  <ng-container *ngIf="op.type === 'arrow'">
+                    <ng-container *ngIf="displayArrowForOperation(op) as arrow">
+                      <line
+                        [attr.x1]="arrow.from.x"
+                        [attr.y1]="arrow.from.y"
+                        [attr.x2]="arrow.to.x"
+                        [attr.y2]="arrow.to.y"
+                        [attr.class]="'shape shape-arrow' + (isOperationSelected(i) ? ' shape-selected' : '')"
+                        [attr.stroke-width]="op.strokeWidth || 2"
+                        marker-end="url(#arrow-head)"
+                        (pointerdown)="$event.stopPropagation()"
+                        (click)="onOperationShapeClick(i, $event)"
+                      ></line>
+                    </ng-container>
+                  </ng-container>
+
+                  <ng-container *ngIf="op.type === 'text'">
+                    <ng-container *ngIf="displayTextPointForOperation(op) as point">
+                      <text
+                        [attr.x]="point.x"
+                        [attr.y]="point.y"
+                        [attr.class]="'shape shape-text' + (isOperationSelected(i) ? ' shape-selected' : '')"
+                        [attr.font-size]="op.fontSize || 18"
+                        (pointerdown)="$event.stopPropagation()"
+                        (click)="onOperationShapeClick(i, $event)"
+                      >
+                        {{ op.text || 'text' }}
+                      </text>
+                    </ng-container>
+                  </ng-container>
+                </ng-container>
+
+                <ng-container *ngIf="displayDraftRect() as draftRect">
+                  <rect
+                    [attr.x]="draftRect.x"
+                    [attr.y]="draftRect.y"
+                    [attr.width]="draftRect.width"
+                    [attr.height]="draftRect.height"
+                    class="shape shape-draft"
+                  ></rect>
+                </ng-container>
+
+                <ng-container *ngIf="displayDraftArrow() as draftArrow">
+                  <line
+                    [attr.x1]="draftArrow.from.x"
+                    [attr.y1]="draftArrow.from.y"
+                    [attr.x2]="draftArrow.to.x"
+                    [attr.y2]="draftArrow.to.y"
+                    class="shape shape-draft"
+                    marker-end="url(#arrow-head)"
+                  ></line>
+                </ng-container>
+              </svg>
+            </div>
+          </figure>
+
+          <figure class="preview-block">
+            <figcaption class="preview-caption">Backend preview — pixel-perfect output</figcaption>
+            <div class="preview-result-shell">
+              <ng-container *ngIf="annotatePreviewDataUrl; else noAnnotatePreview">
+                <img
+                  [src]="annotatePreviewDataUrl"
+                  alt="Annotated result preview"
+                  class="preview-image"
+                  draggable="false"
+                />
+              </ng-container>
+              <ng-template #noAnnotatePreview>
+                <p class="panel-sub">
+                  {{ isPreviewLoading ? 'Generating preview…' : 'No annotated preview available yet.' }}
+                </p>
+              </ng-template>
+            </div>
+          </figure>
         </div>
       </div>
     </section>
 
-    <section class="card space-y-4">
-      <h2 class="text-lg font-semibold text-gray-900">Ajustes avanzados</h2>
-      <p class="text-sm text-gray-600">
-        Estos controles mantienen edición fina/manual. Si seleccionás una forma en el overlay, se edita desde acá.
-      </p>
+    <section class="panel" aria-labelledby="annot-set-title">
+      <header class="panel-head">
+        <div class="panel-head-copy">
+          <h2 id="annot-set-title" class="panel-title">Annotation set</h2>
+          <p class="panel-sub">
+            Fine-tune the selected shape, or add a new one from these coordinates.
+          </p>
+        </div>
+        <span class="badge badge-neutral">
+          {{ operations.length }} operation{{ operations.length === 1 ? '' : 's' }}
+        </span>
+      </header>
 
-      <form [formGroup]="operationForm" class="grid gap-3 md:grid-cols-4">
-        <label class="block text-sm">
-          <span class="text-gray-700">Type</span>
-          <select formControlName="type" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2">
-            <option value="text">text</option>
-            <option value="arrow">arrow</option>
-            <option value="rect">rect</option>
-            <option value="blur">blur</option>
-            <option value="redact">redact</option>
-          </select>
-        </label>
+      <div class="panel-body">
+        <div class="settings-grid">
+          <form class="advanced-form" [formGroup]="operationForm">
+            <div class="field-grid">
+              <div class="field">
+                <label class="label" for="annot-type">Type</label>
+                <select id="annot-type" class="select" formControlName="type">
+                  <option value="text">text</option>
+                  <option value="arrow">arrow</option>
+                  <option value="rect">rect</option>
+                  <option value="blur">blur</option>
+                  <option value="redact">redact</option>
+                </select>
+              </div>
 
-        <label class="block text-sm"><span class="text-gray-700">x</span><input formControlName="x" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
-        <label class="block text-sm"><span class="text-gray-700">y</span><input formControlName="y" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
-        <label class="block text-sm"><span class="text-gray-700">x2</span><input formControlName="x2" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
+              <div class="field">
+                <label class="label" for="annot-x">X</label>
+                <input id="annot-x" class="input" type="text" formControlName="x" />
+              </div>
 
-        <label class="block text-sm"><span class="text-gray-700">y2</span><input formControlName="y2" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
-        <label class="block text-sm"><span class="text-gray-700">width</span><input formControlName="width" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
-        <label class="block text-sm"><span class="text-gray-700">height</span><input formControlName="height" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
-        <label class="block text-sm"><span class="text-gray-700">blurIntensity (0..100)</span><input formControlName="blurIntensity" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
+              <div class="field">
+                <label class="label" for="annot-y">Y</label>
+                <input id="annot-y" class="input" type="text" formControlName="y" />
+              </div>
 
-        <label class="block text-sm md:col-span-2"><span class="text-gray-700">text (multiline supported)</span><textarea formControlName="text" rows="3" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"></textarea></label>
-        <label class="block text-sm"><span class="text-gray-700">fontSize</span><input formControlName="fontSize" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
-        <label class="block text-sm"><span class="text-gray-700">color</span><input formControlName="color" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
+              <div class="field">
+                <label class="label" for="annot-x2">X2</label>
+                <input id="annot-x2" class="input" type="text" formControlName="x2" />
+              </div>
 
-        <label class="block text-sm"><span class="text-gray-700">opacity (0..1)</span><input formControlName="opacity" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
-        <label class="block text-sm"><span class="text-gray-700">strokeWidth</span><input formControlName="strokeWidth" type="text" class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
-      </form>
+              <div class="field">
+                <label class="label" for="annot-y2">Y2</label>
+                <input id="annot-y2" class="input" type="text" formControlName="y2" />
+              </div>
 
-      <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn btn-primary" (click)="addOperation()">Add operation</button>
-        <button type="button" class="btn btn-secondary" (click)="clearOperations()">Clear operations</button>
-      </div>
+              <div class="field">
+                <label class="label" for="annot-width">Width</label>
+                <input id="annot-width" class="input" type="text" formControlName="width" />
+              </div>
 
-      <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-        <strong>Blur vs Redact:</strong>
-        <ul class="list-disc pl-5">
-          <li><strong>blur</strong> oculta parcialmente (intensidad configurable 0..100).</li>
-          <li><strong>redact</strong> cubre con rectángulo sólido (irreversible v1).</li>
-        </ul>
-      </div>
+              <div class="field">
+                <label class="label" for="annot-height">Height</label>
+                <input id="annot-height" class="input" type="text" formControlName="height" />
+              </div>
 
-      <label *ngIf="hasRedactOperations()" class="inline-flex items-center gap-2 text-sm text-gray-800">
-        <input type="checkbox" [formControl]="form.controls.redactConfirmed" />
-        Confirmo que entiendo que redact es irreversible en output final.
-      </label>
+              <div class="field">
+                <label class="label" for="annot-blur">Blur intensity (0–100)</label>
+                <input id="annot-blur" class="input" type="text" formControlName="blurIntensity" />
+              </div>
 
-      <div class="space-y-2">
-        <div *ngIf="operations.length === 0" class="text-sm text-gray-500">No operations added.</div>
-        <div *ngFor="let op of operations; let i = index" class="flex items-center justify-between rounded border border-gray-200 bg-white p-2 text-sm" [class.selected-row]="isOperationSelected(i)">
-          <div class="min-w-0 pr-2">
-            <span class="font-medium">#{{ i + 1 }}</span>
-            <span class="ml-2 text-gray-700">{{ operationSummary(op) }}</span>
-          </div>
-          <div class="flex gap-1">
-            <button type="button" class="btn btn-secondary" (click)="selectOperation(i)">Select</button>
-            <button type="button" class="btn btn-secondary" (click)="moveOperationUp(i)">↑</button>
-            <button type="button" class="btn btn-secondary" (click)="moveOperationDown(i)">↓</button>
-            <button type="button" class="btn btn-secondary" (click)="removeOperation(i)">Remove</button>
+              <div class="field">
+                <label class="label" for="annot-font">Font size</label>
+                <input id="annot-font" class="input" type="text" formControlName="fontSize" />
+              </div>
+
+              <div class="field">
+                <label class="label" for="annot-color">Color</label>
+                <input id="annot-color" class="input" type="text" formControlName="color" />
+              </div>
+
+              <div class="field">
+                <label class="label" for="annot-opacity">Opacity (0–1)</label>
+                <input id="annot-opacity" class="input" type="text" formControlName="opacity" />
+              </div>
+
+              <div class="field">
+                <label class="label" for="annot-stroke">Stroke width</label>
+                <input id="annot-stroke" class="input" type="text" formControlName="strokeWidth" />
+              </div>
+
+              <div class="field field-wide">
+                <label class="label" for="annot-text">Text (multiline supported)</label>
+                <textarea id="annot-text" class="textarea" rows="3" formControlName="text"></textarea>
+              </div>
+            </div>
+          </form>
+
+          <div class="operations">
+            <div class="actions">
+              <button type="button" class="btn btn-primary" (click)="addOperation()">Add operation</button>
+              <button type="button" class="btn btn-ghost" (click)="clearOperations()">Clear all</button>
+            </div>
+
+            <div class="banner banner-warning">
+              <div>
+                <strong>Blur vs redact</strong>
+                <ul class="banner-list">
+                  <li><strong>Blur</strong> partially hides the area with a configurable intensity (0–100).</li>
+                  <li><strong>Redact</strong> covers the area with a solid rectangle and is irreversible in v1.</li>
+                </ul>
+              </div>
+            </div>
+
+            <label *ngIf="hasRedactOperations()" class="checkbox-row" for="annot-redact-confirm">
+              <input
+                id="annot-redact-confirm"
+                type="checkbox"
+                [formControl]="form.controls.redactConfirmed"
+              />
+              <span>I understand that redact is irreversible in the final output.</span>
+            </label>
+
+            <ul *ngIf="operations.length > 0; else emptyOperations" class="operation-list" aria-label="Annotations">
+              <li
+                *ngFor="let op of operations; let i = index"
+                class="operation-row"
+                [class.is-selected]="isOperationSelected(i)"
+              >
+                <span class="operation-index mono">{{ i + 1 }}</span>
+                <span class="operation-summary">{{ operationSummary(op) }}</span>
+                <span class="operation-actions">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-mini"
+                    [attr.aria-pressed]="isOperationSelected(i)"
+                    (click)="selectOperation(i)"
+                  >
+                    Select
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-btn operation-move"
+                    [attr.aria-label]="'Move annotation ' + (i + 1) + ' up'"
+                    [disabled]="i === 0"
+                    (click)="moveOperationUp(i)"
+                  >
+                    <lucide-icon [img]="arrowUpIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-btn operation-move"
+                    [attr.aria-label]="'Move annotation ' + (i + 1) + ' down'"
+                    [disabled]="i === operations.length - 1"
+                    (click)="moveOperationDown(i)"
+                  >
+                    <lucide-icon [img]="arrowDownIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-btn operation-remove"
+                    [attr.aria-label]="'Remove annotation ' + (i + 1)"
+                    (click)="removeOperation(i)"
+                  >
+                    <lucide-icon [img]="trashIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                  </button>
+                </span>
+              </li>
+            </ul>
+
+            <ng-template #emptyOperations>
+              <div class="empty-state file-empty">
+                <strong>No operations yet</strong>
+                <span>Draw on the canvas or add one from the coordinate form.</span>
+              </div>
+            </ng-template>
           </div>
         </div>
       </div>

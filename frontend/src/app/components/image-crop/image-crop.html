@@ -1,148 +1,231 @@
-<div class="min-h-screen bg-gray-50 p-6">
-  <div class="mx-auto max-w-6xl space-y-6">
-    <header class="flex items-center justify-between">
-      <div>
-        <h1 class="text-3xl font-bold text-gray-900">Image Crop</h1>
-        <p class="mt-1 text-gray-600">
-          Pixel-perfect crop preview with backend parity. Coordinates origin: (0,0) top-left.
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">IMAGE</p>
+        <h1 class="page-title">Image <em>crop</em></h1>
+        <p class="page-sub">
+          Draw a crop rectangle over a live preview and get a pixel-perfect result — local-first, so
+          your images never leave this machine.
         </p>
       </div>
 
-      <div class="flex gap-2">
-        <a routerLink="/" class="btn btn-secondary">Home</a>
-        <a routerLink="/tool-catalog" class="btn btn-secondary">Catalog</a>
-      </div>
-    </header>
+      <span class="badge badge-neutral page-local">
+        <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
 
-    <section class="card space-y-4">
-      <h2 class="text-lg font-semibold text-gray-900">Input files</h2>
+  <div class="page-stack">
+    <section class="panel" aria-labelledby="crop-input-title">
+      <header class="panel-head">
+        <div class="panel-head-copy">
+          <h2 id="crop-input-title" class="panel-title">Input images</h2>
+          <p class="panel-sub">Batch mode applies the same crop area to every file.</p>
+        </div>
+        <span class="badge badge-neutral">
+          {{ form.controls.jobMode.value === 'batch'
+            ? selectedInputPaths.length + ' queued'
+            : (selectedInputPath ? '1 selected' : 'none selected') }}
+        </span>
+      </header>
 
-      <div *ngIf="form.controls.jobMode.value === 'single'; else batchInputBlock" class="space-y-3">
-        <div class="flex flex-wrap gap-2">
-          <button type="button" class="btn btn-primary" (click)="selectImageFromDialog()">
-            Select image (Wails)
-          </button>
-          <button type="button" class="btn btn-secondary" (click)="triggerSingleFileInput()">
-            Select via file input
-          </button>
-          <button type="button" class="btn btn-secondary" (click)="clearInputs()">Clear</button>
+      <div class="panel-body">
+        <div class="field panel-mode">
+          <label class="label" for="crop-mode">Mode</label>
+          <select id="crop-mode" class="select" [formControl]="form.controls.jobMode">
+            <option value="single">Single image</option>
+            <option value="batch">Batch queue</option>
+          </select>
         </div>
 
-        <input
-          #singleFileInput
-          type="file"
-          class="hidden"
-          accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
-          (change)="onSingleFileInputChange($event)"
-        />
-
-        <div class="rounded-lg border border-gray-200 bg-white p-3 text-sm">
-          <p class="text-gray-600 mb-1">Selected input:</p>
-          <p class="font-mono text-xs text-gray-900 break-all">
-            {{ selectedInputPath || 'No image selected.' }}
-          </p>
-        </div>
-      </div>
-
-      <ng-template #batchInputBlock>
-        <div class="space-y-3">
-          <div class="flex flex-wrap gap-2">
-            <button type="button" class="btn btn-primary" (click)="selectMultipleImagesFromDialog()">
-              Select multiple images (Wails)
+        <div *ngIf="form.controls.jobMode.value === 'single'; else batchInputBlock" class="stack">
+          <div class="toolbar" role="group" aria-label="Image selection actions">
+            <button type="button" class="btn btn-primary btn-sm" (click)="selectImageFromDialog()">
+              <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Select image
             </button>
-            <button type="button" class="btn btn-secondary" (click)="selectImageFromDialog()">
-              Add one image
+            <button type="button" class="btn btn-secondary btn-sm" (click)="triggerSingleFileInput()">
+              Use file input
             </button>
-            <button type="button" class="btn btn-secondary" (click)="triggerBatchFileInput()">
-              Add via file input
+            <button type="button" class="btn btn-ghost btn-sm toolbar-end" (click)="clearInputs()">
+              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Clear
             </button>
-            <button type="button" class="btn btn-secondary" (click)="clearInputs()">Clear</button>
           </div>
 
           <input
-            #batchFileInput
+            #singleFileInput
             type="file"
             class="hidden"
             accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
-            multiple
-            (change)="onBatchFileInputChange($event)"
+            (change)="onSingleFileInputChange($event)"
           />
 
-          <ul class="max-h-52 space-y-2 overflow-auto rounded-lg border border-gray-200 bg-white p-3">
-            <li
-              *ngFor="let path of selectedInputPaths; let i = index"
-              class="flex items-center justify-between gap-2 rounded border border-gray-100 p-2"
+          <div *ngIf="selectedInputPath; else emptySingle" class="file-row">
+            <span class="file-path mono">{{ selectedInputPath }}</span>
+            <button
+              type="button"
+              class="icon-btn file-remove"
+              aria-label="Remove selected image"
+              (click)="clearInputs()"
             >
-              <span class="truncate text-xs text-gray-700">{{ path }}</span>
-              <button type="button" class="btn btn-secondary" (click)="removeBatchInput(i)">
-                Remove
-              </button>
-            </li>
-            <li *ngIf="selectedInputPaths.length === 0" class="text-sm text-gray-500">
-              No batch images selected.
-            </li>
-          </ul>
+              <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            </button>
+          </div>
+
+          <ng-template #emptySingle>
+            <div class="empty-state file-empty">
+              <strong>No image selected</strong>
+              <span>Pick a file with the native dialog or with a browser file input.</span>
+            </div>
+          </ng-template>
         </div>
-      </ng-template>
-    </section>
 
-    <section class="card space-y-4" *ngIf="sourcePreviewDataUrl">
-      <h2 class="text-lg font-semibold text-gray-900">Crop preview</h2>
-      <p class="text-sm text-gray-600">{{ previewMessage }}</p>
+        <ng-template #batchInputBlock>
+          <div class="stack">
+            <div class="toolbar" role="group" aria-label="Batch image selection actions">
+              <button type="button" class="btn btn-primary btn-sm" (click)="selectMultipleImagesFromDialog()">
+                <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Select multiple images
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" (click)="selectImageFromDialog()">
+                Add one image
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" (click)="triggerBatchFileInput()">
+                Use file input
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm toolbar-end" (click)="clearInputs()">
+                <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Clear
+              </button>
+            </div>
 
-      <div class="grid gap-4 md:grid-cols-2">
-        <div>
-          <h3 class="mb-2 text-sm font-semibold text-gray-800">Source (drag or resize selection)</h3>
-          <div
-            class="preview-stage"
-            (pointermove)="onPreviewPointerMove($event)"
-            (pointerup)="onPreviewPointerUp()"
-            (pointerleave)="onPreviewPointerUp()"
-          >
-            <img
-              #previewImage
-              [src]="sourcePreviewDataUrl"
-              alt="Source preview"
-              class="preview-image"
-              draggable="false"
-              (load)="onPreviewImageLoaded()"
-              (pointerdown)="onPreviewPointerDown($event)"
+            <input
+              #batchFileInput
+              type="file"
+              class="hidden"
+              accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
+              multiple
+              (change)="onBatchFileInputChange($event)"
             />
 
-            <div
-              class="selection-rect"
-              [ngStyle]="previewCropStyle()"
-              (pointerdown)="onSelectionBodyPointerDown($event)"
-            >
-              <span class="selection-handle nw" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-nw')"></span>
-              <span class="selection-handle ne" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-ne')"></span>
-              <span class="selection-handle sw" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-sw')"></span>
-              <span class="selection-handle se" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-se')"></span>
-            </div>
-          </div>
-        </div>
+            <ul *ngIf="selectedInputPaths.length > 0; else emptyBatch" class="file-list" aria-label="Queued images">
+              <li *ngFor="let path of selectedInputPaths; let i = index" class="file-row">
+                <span class="file-index mono">{{ i + 1 }}</span>
+                <span class="file-path mono">{{ path }}</span>
+                <button
+                  type="button"
+                  class="icon-btn file-remove"
+                  [attr.aria-label]="'Remove ' + path"
+                  (click)="removeBatchInput(i)"
+                >
+                  <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                </button>
+              </li>
+            </ul>
 
-        <div>
-          <h3 class="mb-2 text-sm font-semibold text-gray-800">Backend crop preview (pixel-perfect)</h3>
-          <div class="preview-result-shell">
-            <ng-container *ngIf="cropPreviewDataUrl; else noCropPreview">
-              <img [src]="cropPreviewDataUrl" alt="Crop preview" class="preview-image" draggable="false" />
-            </ng-container>
-            <ng-template #noCropPreview>
-              <p class="text-sm text-gray-500">
-                {{ isPreviewLoading ? 'Generating preview...' : 'No preview available yet.' }}
-              </p>
+            <ng-template #emptyBatch>
+              <div class="empty-state file-empty">
+                <strong>No images queued</strong>
+                <span>Add one or more images. The first one drives the preview.</span>
+              </div>
             </ng-template>
           </div>
+        </ng-template>
+      </div>
+    </section>
+
+    <section class="panel" *ngIf="sourcePreviewDataUrl" aria-labelledby="crop-editor-title">
+      <header class="panel-head">
+        <div class="panel-head-copy">
+          <h2 id="crop-editor-title" class="panel-title">Crop editor</h2>
+          <p class="panel-sub" role="status" aria-live="polite">{{ previewMessage }}</p>
+        </div>
+        <div class="head-badges">
+          <span class="badge badge-neutral">
+            {{ form.controls.width.value }} × {{ form.controls.height.value }} px
+          </span>
+          <span class="badge" [class.badge-info]="isPreviewLoading" [class.badge-success]="!isPreviewLoading">
+            {{ isPreviewLoading ? 'Rendering' : 'Ready' }}
+          </span>
+        </div>
+      </header>
+
+      <div class="panel-body">
+        <div class="editor-grid">
+          <figure class="preview-block">
+            <figcaption class="preview-caption">Source — drag to draw, pull the handles to resize</figcaption>
+            <div
+              class="preview-stage"
+              (pointermove)="onPreviewPointerMove($event)"
+              (pointerup)="onPreviewPointerUp()"
+              (pointerleave)="onPreviewPointerUp()"
+            >
+              <img
+                #previewImage
+                [src]="sourcePreviewDataUrl"
+                alt="Source image with the crop selection overlay"
+                class="preview-image"
+                draggable="false"
+                (load)="onPreviewImageLoaded()"
+                (pointerdown)="onPreviewPointerDown($event)"
+              />
+
+              <div
+                class="selection-rect"
+                [ngStyle]="previewCropStyle()"
+                (pointerdown)="onSelectionBodyPointerDown($event)"
+              >
+                <span class="selection-handle nw" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-nw')"></span>
+                <span class="selection-handle ne" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-ne')"></span>
+                <span class="selection-handle sw" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-sw')"></span>
+                <span class="selection-handle se" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-se')"></span>
+              </div>
+            </div>
+          </figure>
+
+          <figure class="preview-block">
+            <figcaption class="preview-caption">Backend preview — pixel-perfect crop</figcaption>
+            <div class="preview-result-shell">
+              <ng-container *ngIf="cropPreviewDataUrl; else noCropPreview">
+                <img
+                  [src]="cropPreviewDataUrl"
+                  alt="Cropped result preview"
+                  class="preview-image"
+                  draggable="false"
+                />
+              </ng-container>
+              <ng-template #noCropPreview>
+                <p class="panel-sub">
+                  {{ isPreviewLoading ? 'Generating preview…' : 'No preview available yet.' }}
+                </p>
+              </ng-template>
+            </div>
+          </figure>
         </div>
       </div>
     </section>
 
-    <section class="card">
-      <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">
-          Select output directory
-        </button>
+    <section class="panel" aria-labelledby="crop-output-title">
+      <header class="panel-head">
+        <div class="panel-head-copy">
+          <h2 id="crop-output-title" class="panel-title">Output destination</h2>
+          <p class="panel-sub">Optional — when empty, files are written next to each source.</p>
+        </div>
+      </header>
+
+      <div class="panel-body">
+        <div class="output-row">
+          <span class="file-path mono">
+            {{ form.controls.outputDir.value || 'No output directory selected.' }}
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm" (click)="selectOutputDirectory()">
+            <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            Choose folder
+          </button>
+        </div>
       </div>
     </section>
 

@@ -8,7 +8,12 @@ import {
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
-import { RouterLink } from '@angular/router';
+import {
+  FolderOpen,
+  LucideAngularModule,
+  ShieldCheck,
+  X,
+} from 'lucide-angular';
 
 import {
   ExecutionPanelField,
@@ -42,7 +47,12 @@ interface CropRect {
 @Component({
   selector: 'app-image-crop',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    LucideAngularModule,
+    ToolExecutionPanel,
+  ],
   templateUrl: './image-crop.html',
   styleUrl: './image-crop.css',
 })
@@ -52,18 +62,12 @@ export class ImageCrop implements OnDestroy {
   @ViewChild('batchFileInput') batchFileInput?: ElementRef<HTMLInputElement>;
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
 
+  readonly shieldIcon = ShieldCheck;
+  readonly folderOpenIcon = FolderOpen;
+  readonly closeIcon = X;
+
   readonly form;
   readonly panelFields: ExecutionPanelField[] = [
-    {
-      controlName: 'jobMode',
-      label: 'Mode',
-      type: 'select',
-      options: [
-        { value: 'single', label: 'single' },
-        { value: 'batch', label: 'batch' },
-      ],
-      helpText: 'Batch applies the same crop area to all selected files.',
-    },
     {
       controlName: 'outputPath',
       label: 'Output path (optional)',
