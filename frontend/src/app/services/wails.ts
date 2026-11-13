@@ -73,6 +73,8 @@ export interface PlannedOutputV1 {
   inputPath: string;
   outputPath: string;
   outputKind: string;
+  /** Known file count for directory outputs; omitted when unknown. */
+  outputCount?: number;
   exists: boolean;
   adjusted: boolean;
   warnings?: string[];

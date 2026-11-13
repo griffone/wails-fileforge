@@ -35,17 +35,55 @@
 
     @if (loading) {
       <p class="output-plan-status" role="status">Working out the output…</p>
-    } @else if (visibleOutputs().length > 0) {
+    } @else if (primaryDirectory(); as output) {
+      <div class="output-plan-primary">
+        <span class="output-plan-primary-icon" aria-hidden="true">
+          <lucide-icon [img]="outputFolderIcon" [size]="18" [strokeWidth]="1.6"></lucide-icon>
+        </span>
+        <span class="output-plan-file">
+          <span class="output-plan-name" [title]="output.outputPath">{{ outputName(output) }}</span>
+          <span class="output-plan-directory mono" [title]="output.outputPath">{{ outputDirectory(output) }}</span>
+        </span>
+        <span class="output-plan-tags">
+          <span class="badge badge-neutral">Folder</span>
+          @if (outputCountLabel(output); as countLabel) {
+            <span class="output-plan-count">{{ countLabel }}</span>
+          }
+          @if (output.adjusted) {
+            <span class="badge badge-warning">Adjusted</span>
+          }
+        </span>
+      </div>
+    } @else if (listedOutputs().length > 0) {
       <ul class="output-plan-list" aria-label="Planned outputs">
-        @for (output of visibleOutputs(); track output.outputPath) {
+        @for (output of listedOutputs(); track output.outputPath) {
           <li class="output-plan-item">
             <span class="output-plan-file">
-              <span class="output-plan-name" [title]="output.outputPath">{{ outputName(output) }}</span>
-              <span class="output-plan-directory mono">{{ outputDirectory(output) }}</span>
+              <span class="output-plan-name-line">
+                @if (isDirectory(output)) {
+                  <lucide-icon
+                    class="output-plan-folder-icon"
+                    [img]="outputFolderIcon"
+                    [size]="13"
+                    [strokeWidth]="1.75"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                }
+                <span class="output-plan-name" [title]="output.outputPath">{{ outputName(output) }}</span>
+              </span>
+              <span class="output-plan-directory mono" [title]="output.outputPath">{{ outputDirectory(output) }}</span>
             </span>
-            @if (output.adjusted) {
-              <span class="badge badge-warning">Adjusted</span>
-            }
+            <span class="output-plan-tags">
+              @if (isDirectory(output)) {
+                <span class="badge badge-neutral">Folder</span>
+                @if (outputCountLabel(output); as countLabel) {
+                  <span class="output-plan-count">{{ countLabel }}</span>
+                }
+              }
+              @if (output.adjusted) {
+                <span class="badge badge-warning">Adjusted</span>
+              }
+            </span>
           </li>
         }
         @if (remainingCount() > 0) {

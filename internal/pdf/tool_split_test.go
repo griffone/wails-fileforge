@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -42,6 +43,294 @@ func writePDFFixture(t *testing.T, path string) {
 	}
 }
 
+func splitTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
+	return models.JobRequestV1{
+		ToolID:     ToolIDPDFSplitV1,
+		Mode:       mode,
+		InputPaths: inputPaths,
+		Options:    options,
+	}
+}
+
+func TestSplitToolPlanAutoDirectoryNextToInput(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewSplitTool()
+	plan, planErr := tool.Plan(context.Background(), splitTestRequest("single", []string{input}, nil))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if !plan.Success {
+		t.Fatal("expected a successful plan")
+	}
+	if len(plan.Outputs) != 1 {
+		t.Fatalf("expected 1 planned output, got %d", len(plan.Outputs))
+	}
+
+	output := plan.Outputs[0]
+	want := filepath.Join(dir, "notes_pages")
+	if output.OutputPath != want {
+		t.Fatalf("expected output %q, got %q", want, output.OutputPath)
+	}
+	if output.OutputKind != "directory" {
+		t.Fatalf("expected directory output kind, got %q", output.OutputKind)
+	}
+	if output.OutputCount != 1 {
+		t.Fatalf("expected output count 1, got %d", output.OutputCount)
+	}
+	if output.Adjusted {
+		t.Fatal("expected a natural directory to be unadjusted")
+	}
+	if output.Exists {
+		t.Fatal("expected the planned directory to not exist yet")
+	}
+
+	if _, statErr := os.Stat(want); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("plan must not create the output directory, got %v", statErr)
+	}
+
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatalf("read input dir: %v", readErr)
+	}
+	if len(entries) != 1 || entries[0].Name() != "notes.pdf" {
+		t.Fatalf("plan must not write files, found %v", entryNames(entries))
+	}
+}
+
+func TestSplitToolPlanBatchPlansDirectoryPerInput(t *testing.T) {
+	dir := t.TempDir()
+	firstDir := filepath.Join(dir, "first-dir")
+	secondDir := filepath.Join(dir, "second-dir")
+	for _, inputDir := range []string{firstDir, secondDir} {
+		if err := os.MkdirAll(inputDir, 0o755); err != nil {
+			t.Fatalf("create input dir: %v", err)
+		}
+	}
+
+	first := filepath.Join(firstDir, "report.pdf")
+	second := filepath.Join(secondDir, "report.pdf")
+	writePDFFixture(t, first)
+	writePDFFixture(t, second)
+
+	tool := NewSplitTool()
+	plan, planErr := tool.Plan(context.Background(), splitTestRequest("batch", []string{first, second}, nil))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected 2 planned outputs, got %d", len(plan.Outputs))
+	}
+
+	if want := filepath.Join(firstDir, "report_pages"); plan.Outputs[0].OutputPath != want {
+		t.Fatalf("expected first output %q, got %q", want, plan.Outputs[0].OutputPath)
+	}
+	if want := filepath.Join(secondDir, "report_pages"); plan.Outputs[1].OutputPath != want {
+		t.Fatalf("expected second output %q, got %q", want, plan.Outputs[1].OutputPath)
+	}
+	for _, output := range plan.Outputs {
+		if output.OutputKind != "directory" {
+			t.Fatalf("expected directory output kind, got %q", output.OutputKind)
+		}
+		if output.OutputCount != 1 {
+			t.Fatalf("expected output count 1, got %d", output.OutputCount)
+		}
+		if output.Adjusted {
+			t.Fatal("expected natural directories to be unadjusted")
+		}
+	}
+}
+
+func TestSplitToolPlanUsesChosenOutputDir(t *testing.T) {
+	dir := t.TempDir()
+	outDir := filepath.Join(dir, "exports")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("create output dir: %v", err)
+	}
+
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewSplitTool()
+	req := splitTestRequest("single", []string{input}, nil)
+	req.OutputDir = outDir
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	want := filepath.Join(outDir, "notes_pages")
+	if plan.Outputs[0].OutputPath != want {
+		t.Fatalf("expected output %q, got %q", want, plan.Outputs[0].OutputPath)
+	}
+	if _, statErr := os.Stat(want); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("plan must not create the output directory, got %v", statErr)
+	}
+}
+
+func TestSplitToolPlanUsesLegacyOptionsOutputDir(t *testing.T) {
+	dir := t.TempDir()
+	outDir := filepath.Join(dir, "exports")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("create output dir: %v", err)
+	}
+
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewSplitTool()
+	plan, planErr := tool.Plan(context.Background(), splitTestRequest("single", []string{input}, map[string]any{
+		"outputDir": outDir,
+	}))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	want := filepath.Join(outDir, "notes_pages")
+	if plan.Outputs[0].OutputPath != want {
+		t.Fatalf("expected output %q, got %q", want, plan.Outputs[0].OutputPath)
+	}
+}
+
+func TestSplitToolPlanSuffixesExistingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	existing := filepath.Join(dir, "notes_pages")
+	if err := os.MkdirAll(existing, 0o755); err != nil {
+		t.Fatalf("create existing output dir: %v", err)
+	}
+
+	tool := NewSplitTool()
+	plan, planErr := tool.Plan(context.Background(), splitTestRequest("single", []string{input}, nil))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	output := plan.Outputs[0]
+	if want := filepath.Join(dir, "notes_pages-2"); output.OutputPath != want {
+		t.Fatalf("expected output %q, got %q", want, output.OutputPath)
+	}
+	if !output.Adjusted {
+		t.Fatal("expected adjusted flag when the natural directory exists")
+	}
+	if len(output.Warnings) == 0 {
+		t.Fatal("expected a warning explaining the suffix")
+	}
+	if len(plan.Warnings) == 0 {
+		t.Fatal("expected the plan to surface the output warning")
+	}
+}
+
+func TestSplitToolPlanRangesStrategy(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewSplitTool()
+	plan, planErr := tool.Plan(context.Background(), splitTestRequest("single", []string{input}, map[string]any{
+		"strategy": "ranges",
+		"ranges":   "1",
+	}))
+	if planErr != nil {
+		t.Fatalf("expected ranges plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 1 {
+		t.Fatalf("expected 1 planned output, got %d", len(plan.Outputs))
+	}
+	if plan.Outputs[0].OutputCount != 1 {
+		t.Fatalf("expected output count 1, got %d", plan.Outputs[0].OutputCount)
+	}
+
+	_, invalidErr := tool.Plan(context.Background(), splitTestRequest("single", []string{input}, map[string]any{
+		"strategy": "ranges",
+		"ranges":   "3-1",
+	}))
+	if invalidErr == nil {
+		t.Fatal("expected invalid ranges to fail the plan")
+	}
+	if invalidErr.DetailCode != "PDF_SPLIT_RANGES_INVALID" {
+		t.Fatalf("expected PDF_SPLIT_RANGES_INVALID, got %q", invalidErr.DetailCode)
+	}
+}
+
+func TestSplitToolExecuteSingleUsesPlannedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewSplitTool()
+	req := splitTestRequest("single", []string{input}, nil)
+
+	item, itemErr := tool.ExecuteSingle(context.Background(), req)
+	if itemErr != nil {
+		t.Fatalf("expected split to succeed, got %v", itemErr)
+	}
+	if !item.Success {
+		t.Fatalf("expected successful item, got %q", item.Message)
+	}
+
+	plannedDir := filepath.Join(dir, "notes_pages")
+	if item.OutputPath != plannedDir {
+		t.Fatalf("expected output directory %q, got %q", plannedDir, item.OutputPath)
+	}
+	if item.OutputCount != 1 || len(item.Outputs) != 1 {
+		t.Fatalf("expected 1 output file, got count=%d outputs=%v", item.OutputCount, item.Outputs)
+	}
+	if _, statErr := os.Stat(item.Outputs[0]); statErr != nil {
+		t.Fatalf("expected split output on disk: %v", statErr)
+	}
+
+	// A second run must use a new planned directory instead of overwriting.
+	secondItem, secondErr := tool.ExecuteSingle(context.Background(), req)
+	if secondErr != nil {
+		t.Fatalf("expected second split to succeed, got %v", secondErr)
+	}
+	if want := filepath.Join(dir, "notes_pages-2"); secondItem.OutputPath != want {
+		t.Fatalf("expected second output directory %q, got %q", want, secondItem.OutputPath)
+	}
+}
+
+func TestSplitToolExecuteBatchPlansNextToEachInput(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.pdf")
+	second := filepath.Join(dir, "second.pdf")
+	writePDFFixture(t, first)
+	writePDFFixture(t, second)
+
+	tool := NewSplitTool()
+	items, jobErr := tool.ExecuteBatch(context.Background(), splitTestRequest("batch", []string{first, second}, nil), nil)
+	if jobErr != nil {
+		t.Fatalf("expected batch to succeed, got %v", jobErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	wantDirs := []string{
+		filepath.Join(dir, "first_pages"),
+		filepath.Join(dir, "second_pages"),
+	}
+	for i, item := range items {
+		if !item.Success || item.Error != nil {
+			t.Fatalf("expected item %d to succeed, got %+v", i, item)
+		}
+		if item.OutputPath != wantDirs[i] {
+			t.Fatalf("expected item %d output %q, got %q", i, wantDirs[i], item.OutputPath)
+		}
+		if item.OutputCount != 1 || len(item.Outputs) != 1 {
+			t.Fatalf("expected item %d to expose 1 output, got %+v", i, item)
+		}
+		if _, statErr := os.Stat(item.Outputs[0]); statErr != nil {
+			t.Fatalf("expected item %d output on disk: %v", i, statErr)
+		}
+	}
+}
+
 func TestSplitToolExecuteBatchReportsPartialSuccess(t *testing.T) {
 	dir := t.TempDir()
 	inputDir := filepath.Join(dir, "in")
@@ -62,16 +351,11 @@ func TestSplitToolExecuteBatchReportsPartialSuccess(t *testing.T) {
 		t.Fatalf("write invalid pdf: %v", err)
 	}
 
-	req := models.JobRequestV1{
-		ToolID:     ToolIDPDFSplitV1,
-		Mode:       "batch",
-		InputPaths: []string{first, broken, second},
-		Options: map[string]any{
-			"outputDir":   outputDir,
-			"strategy":    "every_page",
-			"perInputDir": false,
-		},
-	}
+	req := splitTestRequest("batch", []string{first, broken, second}, map[string]any{
+		"outputDir": outputDir,
+		"strategy":  "every_page",
+	})
+	req.OutputDir = outputDir
 
 	tool := NewSplitTool()
 	items, jobErr := tool.ExecuteBatch(context.Background(), req, nil)
@@ -105,6 +389,9 @@ func TestSplitToolExecuteBatchReportsPartialSuccess(t *testing.T) {
 	if !items[0].Success || items[0].Error != nil {
 		t.Fatalf("expected first item to succeed, got %+v", items[0])
 	}
+	if want := filepath.Join(outputDir, "first_pages"); items[0].OutputPath != want {
+		t.Fatalf("expected first item directory %q, got %q", want, items[0].OutputPath)
+	}
 	if len(items[0].Outputs) != 1 || items[0].OutputCount != 1 {
 		t.Fatalf("expected first item to expose its output, got %+v", items[0])
 	}
@@ -115,11 +402,26 @@ func TestSplitToolExecuteBatchReportsPartialSuccess(t *testing.T) {
 	if items[1].Success || items[1].Error == nil {
 		t.Fatalf("expected second item to fail, got %+v", items[1])
 	}
+	if want := filepath.Join(outputDir, "broken_pages"); items[1].OutputPath != want {
+		t.Fatalf("expected failed item directory %q, got %q", want, items[1].OutputPath)
+	}
 
 	if !items[2].Success || items[2].Error != nil {
 		t.Fatalf("expected third item to succeed, got %+v", items[2])
 	}
+	if want := filepath.Join(outputDir, "second_pages"); items[2].OutputPath != want {
+		t.Fatalf("expected third item directory %q, got %q", want, items[2].OutputPath)
+	}
 	if len(items[2].Outputs) != 1 {
 		t.Fatalf("expected third item to expose its output, got %+v", items[2])
 	}
+}
+
+func entryNames(entries []os.DirEntry) []string {
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+
+	return names
 }

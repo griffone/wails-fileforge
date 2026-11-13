@@ -1,48 +1,181 @@
 import {
+  ComponentFixture,
   fakeAsync,
   flushMicrotasks,
   TestBed,
   tick,
 } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
-import * as pdfjsLib from 'pdfjs-dist';
+import { Subject } from 'rxjs';
 
+import { PdfCrop } from './pdf-crop';
 import {
-  PdfCrop,
-  computePreviewOverlayRect,
-  setPreviewWorkerInitializerForTests,
-} from './pdf-crop';
-import {
+  FileInfoV1,
+  JobProgressEventV1,
   JobRequestV1,
+  JobResultItemV1,
+  JobResultV1,
   JobStatusResponseV1,
-  RunJobResponseV1,
-  ValidateJobResponseV1,
+  PlanJobResponseV1,
   Wails,
 } from '../../services/wails';
 
 describe('PdfCrop', () => {
+  let fixture: ComponentFixture<PdfCrop>;
   let component: PdfCrop;
-  let fixture: any;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobProgressSubject: Subject<JobProgressEventV1>;
+
+  function fileInfo(path: string): FileInfoV1 {
+    const name = path.split(/[\\/]/).pop() ?? path;
+    return {
+      path,
+      name,
+      directory: '/tmp',
+      extension: 'pdf',
+      sizeBytes: 2 * 1024 * 1024,
+      kind: 'pdf',
+      pageCount: 4,
+      exists: true,
+    };
+  }
+
+  function firstDir(path: string): string {
+    const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return index > 0 ? path.slice(0, index) : '';
+  }
+
+  function fileStem(path: string): string {
+    const name = path.split(/[\\/]/).pop() ?? 'document';
+    return name.replace(/\.pdf$/i, '');
+  }
+
+  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+    const outputs = request.inputPaths.map((inputPath) => {
+      const dir = request.outputDir || firstDir(inputPath);
+      const name = `${fileStem(inputPath)}_cropped.pdf`;
+      return {
+        inputPath,
+        outputPath: dir ? `${dir}/${name}` : name,
+        outputKind: 'file',
+        outputCount: 1,
+        exists: false,
+        adjusted: false,
+      };
+    });
+
+    return {
+      success: true,
+      message: 'ok',
+      outputs,
+      effectiveOptions: request.options,
+      warnings: [],
+    };
+  }
+
+  function status(
+    jobId: string,
+    jobStatus: JobResultV1['status'],
+    items: JobResultItemV1[],
+  ): JobStatusResponseV1 {
+    return {
+      success: true,
+      message: jobStatus,
+      found: true,
+      result: {
+        jobId,
+        success: jobStatus === 'success',
+        message: jobStatus,
+        toolId: 'tool.pdf.crop',
+        status: jobStatus,
+        progress: {
+          current: jobStatus === 'running' ? 1 : items.length,
+          total: items.length || 1,
+          stage: jobStatus,
+          message: jobStatus,
+        },
+        items,
+        startedAt: 1,
+        endedAt: jobStatus === 'running' ? undefined : 2,
+      },
+    };
+  }
+
+  function inputEvent(value: string): Event {
+    return { target: { value } } as unknown as Event;
+  }
+
+  function lastPlanRequest(): JobRequestV1 {
+    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  }
+
+  function primaryButton(): HTMLButtonElement {
+    return fixture.nativeElement.querySelector(
+      '.action-primary',
+    ) as HTMLButtonElement;
+  }
 
   beforeEach(async () => {
-    setPreviewWorkerInitializerForTests(null);
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'validateJobV1',
+      'planJobV1',
+      'inspectFilesV1',
+      'getThumbnail',
       'runJobV1',
       'getJobStatusV1',
       'cancelJobV1',
-      'listToolsV1',
-      'openFileDialog',
+      'openPath',
+      'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
-      'getPdfPreviewSource',
       'isRuntimeAvailable',
+      'listToolsV1',
     ]);
+
+    jobProgressSubject = new Subject<JobProgressEventV1>();
+    (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
+      jobProgressSubject.asObservable();
+
+    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+      Promise.resolve(planResponse(request)),
+    );
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map(fileInfo),
+      }),
+    );
+    wailsSpy.getThumbnail.and.resolveTo(null);
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-1',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+      Promise.resolve(status(jobId, 'running', [])),
+    );
+    wailsSpy.cancelJobV1.and.resolveTo({
+      success: true,
+      message: 'cancelled',
+      jobId: 'job-1',
+    });
+    wailsSpy.openPath.and.resolveTo({ success: true, message: 'opened' });
+    wailsSpy.revealInFolder.and.resolveTo({
+      success: true,
+      message: 'revealed',
+    });
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.isRuntimeAvailable.and.returnValue(true);
+    wailsSpy.listToolsV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      tools: [],
+    });
 
     await TestBed.configureTestingModule({
       imports: [PdfCrop],
-      providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
+      providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(PdfCrop);
@@ -50,643 +183,284 @@ describe('PdfCrop', () => {
     fixture.detectChanges();
   });
 
-  it('unsubscribes form subscriptions on destroy', () => {
-    // spy on updateOverlayFromCurrentForm invoked by form.valueChanges
-    const compAny = component as any;
-    spyOn(compAny, 'updateOverlayFromCurrentForm');
-    spyOn(compAny, 'updatePageSelectionLiveMessage');
-
-    fixture.destroy();
-
-    component.form.patchValue({ cropPreset: 'none' });
-    component.form.controls.pageSelection.setValue('1');
-
-    expect(compAny.updateOverlayFromCurrentForm).not.toHaveBeenCalled();
-    expect(compAny.updatePageSelectionLiveMessage).not.toHaveBeenCalled();
-  });
-
   afterEach(() => {
-    setPreviewWorkerInitializerForTests(null);
+    fixture.destroy();
   });
 
-  it('shapes payload with preset and optional pageSelection', async () => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
+  it('plans one PDF as single with the default Small preset', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
 
-    component.selectedInputPath = '/tmp/in.pdf';
-    component.form.patchValue({
-      outputPath: '/tmp/out/cropped.pdf',
-      cropPreset: 'medium',
-      pageSelection: '1-3,5',
-    });
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    const request = lastPlanRequest();
+    expect(request.toolId).toBe('tool.pdf.crop');
+    expect(request.mode).toBe('single');
+    expect(request.inputPaths).toEqual(['/tmp/a.pdf']);
+    expect(request.outputDir).toBe('');
+    expect(request.options['cropPreset']).toBe('small');
+    expect(request.options['pageSelection']).toBe('');
+    expect(request.options['margins']).toBeUndefined();
 
-    await component.validate();
+    expect(component.plan()?.outputs[0]).toEqual(
+      jasmine.objectContaining({
+        outputPath: '/tmp/a_cropped.pdf',
+        outputKind: 'file',
+        outputCount: 1,
+      }),
+    );
+    expect(component.primaryLabel()).toBe('Crop 1 PDF');
+    expect(component.canRun()).toBeTrue();
+    expect(primaryButton().disabled).toBeFalse();
+  }));
 
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
-    expect(req.toolId).toBe('tool.pdf.crop');
-    expect(req.mode).toBe('single');
-    expect(req.inputPaths).toEqual(['/tmp/in.pdf']);
-    expect(req.options['outputPath']).toBe('/tmp/out/cropped.pdf');
-    expect(req.options['cropPreset']).toBe('medium');
-    expect(req.options['pageSelection']).toBe('1-3,5');
-    expect(req.options['margins']).toBeUndefined();
-  });
+  it('switches to batch automatically for two PDFs', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    component.onPathsSelected(['/tmp/b.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
 
-  it('shapes payload with custom margins', async () => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
+    const request = lastPlanRequest();
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+    expect(component.plan()?.outputs.map((output) => output.outputPath)).toEqual(
+      ['/tmp/a_cropped.pdf', '/tmp/b_cropped.pdf'],
+    );
+    expect(component.primaryLabel()).toBe('Crop 2 PDFs');
+    expect(primaryButton().disabled).toBeFalse();
+  }));
 
-    component.selectedInputPath = '/tmp/in.pdf';
-    component.form.patchValue({
-      outputPath: '/tmp/out/cropped.pdf',
-      cropPreset: 'custom',
-      marginTop: '12',
-      marginRight: '8',
-      marginBottom: '6',
-      marginLeft: '4',
-    });
+  it('refreshes the plan when the preset changes', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
 
-    await component.validate();
+    component.selectPreset('medium');
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    expect(lastPlanRequest().options['cropPreset']).toBe('medium');
 
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
-    expect(req.options['cropPreset']).toBe('custom');
-    expect(req.options['margins']).toEqual({
+    component.selectPreset('none');
+    flushMicrotasks();
+    expect(lastPlanRequest().options['cropPreset']).toBe('none');
+    expect(component.activePresetLabel()).toBe('None');
+    expect(component.canRun()).toBeTrue();
+  }));
+
+  it('blocks Custom without margins and sends valid margins', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectPreset('custom');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.isCustom()).toBeTrue();
+    expect(component.marginsValid()).toBeFalse();
+    expect(component.canRun()).toBeFalse();
+    expect(primaryButton().disabled).toBeTrue();
+    expect(component.actionHelper()).toContain('Enter all four margins');
+    expect(
+      fixture.nativeElement.querySelectorAll('.advanced-grid input').length,
+    ).toBe(4);
+
+    component.onMarginInput('top', inputEvent('12'));
+    component.onMarginInput('right', inputEvent('8'));
+    component.onMarginInput('bottom', inputEvent('6'));
+    component.onMarginInput('left', inputEvent('4'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.marginsValid()).toBeTrue();
+    expect(component.canRun()).toBeTrue();
+    expect(primaryButton().disabled).toBeFalse();
+    expect(lastPlanRequest().options['cropPreset']).toBe('custom');
+    expect(lastPlanRequest().options['margins']).toEqual({
       top: 12,
       right: 8,
       bottom: 6,
       left: 4,
     });
-  });
+  }));
 
-  it('shapes payload for tool.pdf.crop in batch mode', async () => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
+  it('sends all pages as an empty selection and custom ranges otherwise', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
 
-    component.selectedInputPaths = ['/tmp/in-a.pdf', '/tmp/in-b.pdf'];
-    component.form.patchValue({
-      jobMode: 'batch',
-      outputDir: '/tmp/out',
-      cropPreset: 'small',
-      pageSelection: '1-3',
-    });
+    expect(lastPlanRequest().options['pageSelection']).toBe('');
 
-    await component.validate();
+    component.selectPageMode('ranges');
+    flushMicrotasks();
+    expect(component.rangesRequired()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+    expect(component.plan()).toBeNull();
 
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
-    expect(req.toolId).toBe('tool.pdf.crop');
-    expect(req.mode).toBe('batch');
-    expect(req.inputPaths).toEqual(['/tmp/in-a.pdf', '/tmp/in-b.pdf']);
-    expect(req.outputDir).toBe('/tmp/out');
-    expect(req.options['outputDir']).toBe('/tmp/out');
-    expect(req.options['cropPreset']).toBe('small');
-    expect(req.options['pageSelection']).toBe('1-3');
-    expect(req.options['outputPath']).toBeUndefined();
-  });
+    component.onRangesInput(inputEvent('1-3,5'));
+    tick(250);
+    flushMicrotasks();
 
-  it('blocks locally when custom preset has missing margins', async () => {
-    component.selectedInputPath = '/tmp/in.pdf';
-    component.form.patchValue({
-      outputPath: '/tmp/out/cropped.pdf',
-      cropPreset: 'custom',
-      marginTop: '10',
-      marginRight: '',
-      marginBottom: '10',
-      marginLeft: '10',
-    });
+    expect(lastPlanRequest().options['pageSelection']).toBe('1-3,5');
+    expect(component.rangesRequired()).toBeFalse();
+    expect(component.canRun()).toBeTrue();
 
-    await component.validate();
+    component.onRangesInput(inputEvent(''));
+    flushMicrotasks();
+    expect(component.rangesRequired()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+    expect(component.plan()).toBeNull();
+  }));
 
-    expect(component.validationMessage).toContain('requires all margins');
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
-  });
+  it('plans and runs without a validation step, then polls', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
 
-  it('maps crop error codes to actionable message', async () => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'invalid',
-      valid: false,
-      error: {
-        code: 'PDF_CROP_PAGE_SELECTION_INVALID',
-        detail_code: 'PDF_CROP_PAGE_SELECTION_INVALID',
-        message: 'ranges contains empty token',
+    void component.run();
+    flushMicrotasks();
+
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.toolId).toBe('tool.pdf.crop');
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+    expect(request.options['cropPreset']).toBe('small');
+    expect(
+      (wailsSpy as unknown as { validateJobV1?: unknown }).validateJobV1,
+    ).toBeUndefined();
+    expect(wailsSpy.getJobStatusV1).toHaveBeenCalled();
+    expect(component.isPolling()).toBeTrue();
+    expect(component.activeJobId()).toBe('job-1');
+  }));
+
+  it('inspects terminal results and opens the cropped file', fakeAsync(() => {
+    const completed = status('job-2', 'success', [
+      {
+        inputPath: '/tmp/a.pdf',
+        outputPath: '/tmp/a_cropped.pdf',
+        outputs: ['/tmp/a_cropped.pdf'],
+        outputCount: 1,
+        success: true,
+        message: 'PDF crop successful',
       },
-    };
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
+    ]);
 
-    component.selectedInputPath = '/tmp/in.pdf';
-    component.form.patchValue({ outputPath: '/tmp/out/cropped.pdf', cropPreset: 'small' });
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-2',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.resolveTo(completed);
 
-    await component.validate();
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
 
-    expect(component.validationMessage).toContain('PDF_CROP_PAGE_SELECTION_INVALID');
-  });
-
-  it('shows page selection validation immediately on input change', async () => {
-    component.form.controls.pageSelection.setValue('1,,3');
-    await fixture.whenStable();
+    void component.run();
+    flushMicrotasks();
     fixture.detectChanges();
 
-    expect(component.pageSelectionLiveMessage).toContain('empty token');
+    expect(component.terminalJob()?.status).toBe('success');
+    expect(fixture.nativeElement.textContent).toContain('1 PDF cropped');
 
-    const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('Page selection format is invalid (empty token)');
+    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+      .allArgs()
+      .map((args) => args[0] as string[]);
+    expect(
+      inspectedPaths.some((paths) => paths.includes('/tmp/a_cropped.pdf')),
+    ).toBeTrue();
 
-    component.form.controls.pageSelection.setValue('1-3,5');
-    await fixture.whenStable();
-
-    expect(component.pageSelectionLiveMessage).toBe('');
-  });
-
-  it('runs and transitions basic state through polling', fakeAsync(() => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    const run: RunJobResponseV1 = {
-      success: true,
-      message: 'submitted',
-      jobId: 'crop-job-1',
-      status: 'queued',
-    };
-    const running: JobStatusResponseV1 = {
-      success: true,
-      message: 'running',
-      found: true,
-      result: {
-        jobId: 'crop-job-1',
-        success: false,
-        message: 'working',
-        toolId: 'tool.pdf.crop',
-        status: 'running',
-        progress: { current: 0, total: 1, stage: 'running', message: 'running' },
-        items: [],
-        startedAt: Date.now(),
-      },
-    };
-    const completed: JobStatusResponseV1 = {
-      success: true,
-      message: 'success',
-      found: true,
-      result: {
-        jobId: 'crop-job-1',
-        success: true,
-        message: 'done',
-        toolId: 'tool.pdf.crop',
-        status: 'success',
-        progress: { current: 1, total: 1, stage: 'success', message: 'done' },
-        items: [
-          {
-            inputPath: '/tmp/in.pdf',
-            outputPath: '/tmp/out/cropped.pdf',
-            outputs: ['/tmp/out/cropped.pdf'],
-            outputCount: 1,
-            success: true,
-            message: 'PDF crop successful',
-          },
-        ],
-        startedAt: Date.now(),
-        endedAt: Date.now(),
-      },
-    };
-
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
-    wailsSpy.runJobV1.and.returnValue(Promise.resolve(run));
-    wailsSpy.getJobStatusV1.and.returnValues(
-      Promise.resolve(running),
-      Promise.resolve(completed)
-    );
-
-    component.selectedInputPath = '/tmp/in.pdf';
-    component.form.patchValue({ outputPath: '/tmp/out/cropped.pdf', cropPreset: 'small' });
-
-    void component.run();
+    const openButton = fixture.nativeElement.querySelector(
+      '.result-open',
+    ) as HTMLButtonElement;
+    openButton.click();
     flushMicrotasks();
 
-    expect(component.showRunSummaryConfirmation).toBeTrue();
-    void component.confirmRunSummaryAndExecute();
-    flushMicrotasks();
-
-    expect(component.activeJobId).toBe('crop-job-1');
-    expect(component.isPolling).toBeTrue();
-
-    tick(1000);
-    flushMicrotasks();
-
-    expect(component.jobResult?.status).toBe('success');
-    expect(component.jobResult?.items.length).toBe(1);
-    expect(component.jobResult?.items[0].outputPath).toBe('/tmp/out/cropped.pdf');
-    expect(component.isPolling).toBeFalse();
-    expect(component.activeJobId).toBe('');
+    expect(wailsSpy.openPath).toHaveBeenCalledWith('/tmp/a_cropped.pdf');
   }));
 
-  it('runs batch and transitions state through polling with itemized results', fakeAsync(() => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    const run: RunJobResponseV1 = {
-      success: true,
-      message: 'submitted',
-      jobId: 'crop-batch-job-1',
-      status: 'queued',
-    };
-    const running: JobStatusResponseV1 = {
-      success: true,
-      message: 'running',
-      found: true,
-      result: {
-        jobId: 'crop-batch-job-1',
-        success: false,
-        message: 'working',
-        toolId: 'tool.pdf.crop',
-        status: 'running',
-        progress: { current: 1, total: 2, stage: 'running', message: 'running' },
-        items: [],
-        startedAt: Date.now(),
-      },
-    };
-    const completed: JobStatusResponseV1 = {
-      success: true,
-      message: 'success',
-      found: true,
-      result: {
-        jobId: 'crop-batch-job-1',
-        success: true,
-        message: 'done',
-        toolId: 'tool.pdf.crop',
-        status: 'success',
-        progress: { current: 2, total: 2, stage: 'success', message: 'done' },
-        items: [
-          {
-            inputPath: '/tmp/in-a.pdf',
-            outputPath: '/tmp/out/in-a_cropped.pdf',
-            outputs: ['/tmp/out/in-a_cropped.pdf'],
-            outputCount: 1,
-            success: true,
-            message: 'PDF crop successful',
-          },
-          {
-            inputPath: '/tmp/in-b.pdf',
-            outputPath: '/tmp/out/in-b_cropped.pdf',
-            outputs: ['/tmp/out/in-b_cropped.pdf'],
-            outputCount: 1,
-            success: true,
-            message: 'PDF crop successful',
-          },
-        ],
-        startedAt: Date.now(),
-        endedAt: Date.now(),
-      },
-    };
+  it('uses the chosen destination folder in the plan', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/out');
 
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
-    wailsSpy.runJobV1.and.returnValue(Promise.resolve(run));
-    wailsSpy.getJobStatusV1.and.returnValues(
-      Promise.resolve(running),
-      Promise.resolve(completed)
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    void component.chooseOutputFolder();
+    flushMicrotasks();
+
+    expect(component.outputDir()).toBe('/tmp/out');
+    expect(component.destinationLabel()).toBe('/tmp/out');
+    expect(component.isDefaultDestination()).toBeFalse();
+    expect(lastPlanRequest().outputDir).toBe('/tmp/out');
+    expect(component.plan()?.outputs[0].outputPath).toBe(
+      '/tmp/out/a_cropped.pdf',
     );
 
-    component.selectedInputPaths = ['/tmp/in-a.pdf', '/tmp/in-b.pdf'];
-    component.form.patchValue({ jobMode: 'batch', outputDir: '/tmp/out', cropPreset: 'small' });
-
-    void component.run();
+    component.useOriginalFolders();
     flushMicrotasks();
 
-    expect(component.showRunSummaryConfirmation).toBeTrue();
-    void component.confirmRunSummaryAndExecute();
-    flushMicrotasks();
-
-    expect(component.activeJobId).toBe('crop-batch-job-1');
-    expect(component.isPolling).toBeTrue();
-
-    tick(1000);
-    flushMicrotasks();
-
-    expect(component.jobResult?.status).toBe('success');
-    expect(component.jobResult?.items.length).toBe(2);
-    expect(component.jobResult?.items[0].outputPath).toBe('/tmp/out/in-a_cropped.pdf');
-    expect(component.jobResult?.items[1].outputPath).toBe('/tmp/out/in-b_cropped.pdf');
-    expect(component.isPolling).toBeFalse();
-    expect(component.activeJobId).toBe('');
+    expect(component.outputDir()).toBe('');
+    expect(component.destinationLabel()).toBe('Next to each PDF');
+    expect(lastPlanRequest().outputDir).toBe('');
   }));
 
-  it('requires summary confirmation before submitting run', async () => {
-    component.selectedInputPath = '/tmp/in.pdf';
-    component.form.patchValue({ outputPath: '/tmp/out/cropped.pdf', cropPreset: 'small' });
-
-    await component.run();
-
-    expect(component.showRunSummaryConfirmation).toBeTrue();
-    expect(component.runSummarySnapshot?.range).toBe('all pages');
-    expect(component.runSummarySnapshot?.marginsSummary).toContain('preset=small');
-    expect(component.runSummarySnapshot?.fileCount).toBe(1);
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
-  });
-
-  it('cancels summary confirmation without running', async () => {
-    component.selectedInputPath = '/tmp/in.pdf';
-    component.form.patchValue({ outputPath: '/tmp/out/cropped.pdf', cropPreset: 'small' });
-
-    await component.run();
-    component.cancelRunSummaryConfirmation();
-
-    expect(component.showRunSummaryConfirmation).toBeFalse();
-    expect(component.submitMessage).toContain('summary was not confirmed');
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
-  });
-
-  it('captures summary for batch custom margins before confirmation', async () => {
-    component.selectedInputPaths = ['/tmp/in-a.pdf', '/tmp/in-b.pdf', '/tmp/in-c.pdf'];
-    component.form.patchValue({
-      jobMode: 'batch',
-      outputDir: '/tmp/out',
-      pageSelection: '1-3,5',
-      cropPreset: 'custom',
-      marginTop: '12',
-      marginRight: '8',
-      marginBottom: '6',
-      marginLeft: '4',
-    });
-
-    await component.run();
-
-    expect(component.showRunSummaryConfirmation).toBeTrue();
-    expect(component.runSummarySnapshot?.range).toBe('1-3,5');
-    expect(component.runSummarySnapshot?.fileCount).toBe(3);
-    expect(component.runSummarySnapshot?.outputTarget).toBe('/tmp/out');
-    expect(component.runSummarySnapshot?.marginsSummary).toContain('preset=custom');
-    expect(component.runSummarySnapshot?.marginsSummary).toContain('top=12');
-  });
-
-  it('handles partial_success status with item errors and aggregated fileErrors', fakeAsync(() => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    const run: RunJobResponseV1 = {
-      success: true,
-      message: 'submitted',
-      jobId: 'crop-batch-partial-1',
-      status: 'queued',
-    };
-    const completed: JobStatusResponseV1 = {
-      success: true,
-      message: 'partial_success',
-      found: true,
-      result: {
-        jobId: 'crop-batch-partial-1',
-        success: false,
-        message: 'job partial success',
-        toolId: 'tool.pdf.crop',
-        status: 'partial_success',
-        progress: { current: 2, total: 2, stage: 'partial_success', message: 'job partial success' },
-        items: [
-          {
-            inputPath: '/tmp/short.pdf',
-            outputPath: '/tmp/out/short_cropped.pdf',
-            success: false,
-            message: 'range 3-4 exceeds PDF page count 2',
-            error: {
-              code: 'VALIDATION_INVALID_INPUT',
-              detail_code: 'PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS',
-              message: 'range 3-4 exceeds PDF page count 2',
-            },
-          },
-          {
-            inputPath: '/tmp/long.pdf',
-            outputPath: '/tmp/out/long_cropped.pdf',
-            outputs: ['/tmp/out/long_cropped.pdf'],
-            outputCount: 1,
-            success: true,
-            message: 'PDF crop successful',
-          },
-        ],
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'PDF_CROP_FAILED',
-          message: 'one or more files failed in batch crop',
-          details: {
-            fileErrors: [
-              {
-                path: '/tmp/short.pdf',
-                code: 'PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS',
-                message: 'range 3-4 exceeds PDF page count 2',
-              },
-            ],
-          },
-        },
-        startedAt: Date.now(),
-        endedAt: Date.now(),
-      },
-    };
-
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
-    wailsSpy.runJobV1.and.returnValue(Promise.resolve(run));
-    wailsSpy.getJobStatusV1.and.returnValue(Promise.resolve(completed));
-
-    component.selectedInputPaths = ['/tmp/short.pdf', '/tmp/long.pdf'];
-    component.form.patchValue({ jobMode: 'batch', outputDir: '/tmp/out', cropPreset: 'small' });
-
-    void component.run();
-    flushMicrotasks();
-    void component.confirmRunSummaryAndExecute();
+  it('rejects non-PDFs and duplicates with a notice', fakeAsync(() => {
+    component.onPathsSelected([
+      '/tmp/notes.txt',
+      '/tmp/a.pdf',
+      '/tmp/a.pdf',
+    ]);
     flushMicrotasks();
 
-    expect(component.jobResult?.status).toBe('partial_success');
-    expect(component.jobResult?.items.length).toBe(2);
-    expect(component.jobResult?.items[0].error?.detail_code).toBe('PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS');
-    expect(component.statusMessage).toContain('partial_success');
-    expect(component.statusMessage).toContain('PDF_CROP_FAILED');
-    expect(component.isPolling).toBeFalse();
-    expect(component.activeJobId).toBe('');
+    expect(component.selectedPaths()).toEqual(['/tmp/a.pdf']);
+    expect(component.notice()?.text).toContain('notes.txt');
+    expect(component.notice()?.text).toContain("isn't a PDF");
+    expect(component.notice()?.text).toContain(
+      'a.pdf is already in the queue.',
+    );
   }));
 
-  it('accepts case-insensitive filename collisions in batch validation', async () => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
-
-    component.selectedInputPaths = ['/tmp/a.pdf', '/tmp/A.pdf'];
-    component.form.patchValue({ jobMode: 'batch', outputDir: '/tmp/out', cropPreset: 'small' });
-
-    await component.validate();
-
-    expect(component.validationMessage).toContain('Validation OK');
-  });
-
-  it('computes preview overlay rectangle from margins and scale', () => {
-    const overlay = computePreviewOverlayRect(500, 700, 2, {
-      top: 10,
-      right: 15,
-      bottom: 20,
-      left: 5,
-    });
-
-    expect(overlay).toEqual({
-      left: 10,
-      top: 20,
-      width: 460,
-      height: 640,
-    });
-  });
-
-  it('updates overlay style when preset/margins change', async () => {
-    (component as any).previewMeta = {
-      pointsToPxScale: 1,
-      canvasWidthPx: 200,
-      canvasHeightPx: 300,
-    };
-
-    component.form.patchValue({ cropPreset: 'small' });
-    await fixture.whenStable();
-
-    expect(component.previewOverlayStyle['left']).toBe('10px');
-    expect(component.previewOverlayStyle['top']).toBe('10px');
-    expect(component.previewOverlayStyle['width']).toBe('180px');
-    expect(component.previewOverlayStyle['height']).toBe('280px');
-
-    component.form.patchValue({
-      cropPreset: 'custom',
-      marginTop: '12',
-      marginRight: '8',
-      marginBottom: '6',
-      marginLeft: '4',
-    });
-    await fixture.whenStable();
-
-    expect(component.previewOverlayStyle['left']).toBe('4px');
-    expect(component.previewOverlayStyle['top']).toBe('12px');
-    expect(component.previewOverlayStyle['width']).toBe('188px');
-    expect(component.previewOverlayStyle['height']).toBe('282px');
-  });
-
-  it('handles preview states empty/loading/error', async () => {
-    component.clearSelectedInput();
-    expect(component.previewStatus).toBe('empty');
-
-    component.selectedInputPath = '/tmp/sample.pdf';
-    wailsSpy.getPdfPreviewSource.and.returnValue(
-      Promise.resolve({ success: false, message: 'read failed' })
+  it('shows PDF metadata in the queue and an optional first-page preview', fakeAsync(() => {
+    wailsSpy.getThumbnail.and.callFake((_path: string, size?: number) =>
+      Promise.resolve(
+        size === 220 ? 'data:image/webp;base64,preview' : null,
+      ),
     );
 
-    const promise = component.refreshPreview();
-    expect(component.previewStatus).toBe('loading');
-    await promise;
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
 
-    expect(component.previewStatus).toBe('error');
-    expect(component.previewMessage).toContain('Could not read the PDF preview source');
-  });
+    expect(component.fileItems()[0].meta).toContain('2 MB');
+    expect(component.fileItems()[0].meta).toContain('4 pages');
+    expect(
+      fixture.nativeElement.querySelector('.preview-image'),
+    ).not.toBeNull();
+    expect(component.previewNote()).toContain('First page of a.pdf');
+  }));
 
-  it('configures pdf.js worker source before preview rendering', async () => {
-    component.selectedInputPath = '/tmp/sample.pdf';
-    wailsSpy.getPdfPreviewSource.and.returnValue(
-      Promise.resolve({ success: true, message: 'ok', dataBase64: 'AA==' })
-    );
-
-    await component.refreshPreview();
-
-    expect(pdfjsLib.GlobalWorkerOptions.workerSrc).toBe('assets/pdfjs/pdf.worker.min.mjs');
-    expect(component.previewStatus).toBe('error');
-    expect(component.previewMessage).toContain('Preview failed');
-    expect(component.previewMessage).toContain('PDF renderer failed to generate preview');
-  });
-
-  it('maps worker init failure into recoverable preview error', async () => {
-    setPreviewWorkerInitializerForTests(() => ({
-      ok: false,
-      error: {
-        code: 'PDF_PREVIEW_WORKER_MISCONFIG',
-        message: 'worker unavailable',
-        stage: 'worker-init',
-        recoverable: true,
-      } as any,
-    }));
-
-    component.selectedInputPath = '/tmp/sample.pdf';
-    wailsSpy.getPdfPreviewSource.and.returnValue(
-      Promise.resolve({ success: true, message: 'ok', dataBase64: 'AA==' })
-    );
-
-    await component.refreshPreview();
-
-    expect(component.previewStatus).toBe('error');
-    expect(component.previewMessage).toContain('Preview worker failed to initialize');
-  });
-
-  it('keeps latest preview result on rapid input changes (stale guard)', async () => {
-    component.selectedInputPath = '/tmp/old.pdf';
-
-    let resolveOld: ((value: any) => void) | undefined;
-    const oldPromise = new Promise((resolve) => {
-      resolveOld = resolve;
-    });
-
-    wailsSpy.getPdfPreviewSource.and.returnValues(
-      oldPromise as Promise<any>,
-      Promise.resolve({ success: false, message: 'latest failed', error: { code: 'PDF_PREVIEW_READ_FAILED', message: 'latest failed' } })
-    );
-
-    const first = component.refreshPreview();
-    component.selectedInputPath = '/tmp/new.pdf';
-    const second = component.refreshPreview();
-
-    resolveOld?.({ success: true, message: 'ok', dataBase64: 'AA==' });
-
-    await Promise.all([first, second]);
-
-    expect(component.previewStatus).toBe('error');
-    expect(component.previewMessage).toContain('Could not read the PDF preview source');
-  });
-
-  it('supports preview retry after recoverable backend error', async () => {
-    component.selectedInputPath = '/tmp/sample.pdf';
-
-    wailsSpy.getPdfPreviewSource.and.returnValues(
-      Promise.resolve({
-        success: false,
-        message: 'first fail',
-        error: { code: 'PDF_PREVIEW_READ_FAILED', message: 'first fail' },
-      }),
-      Promise.resolve({
-        success: false,
-        message: 'second fail',
-        error: { code: 'PDF_PREVIEW_NOT_PDF', message: 'second fail' },
-      })
-    );
-
-    await component.refreshPreview();
-    expect(component.previewStatus).toBe('error');
-    expect(component.previewMessage).toContain('Could not read the PDF preview source');
-
-    await component.refreshPreview();
-    expect(component.previewStatus).toBe('error');
-    expect(component.previewMessage).toContain('Only .pdf files are supported for preview');
-  });
-
-  it('renders the workbench header without page-level navigation links', () => {
+  it('renders the workbench header and no legacy confirmation flow', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.eyebrow')?.textContent).toContain('PDF');
     expect(element.querySelector('.page-title')?.textContent).toContain('PDF');
+    expect(element.querySelector('.page-title')?.textContent).toContain('Crop');
     expect(element.querySelectorAll('.page-head a').length).toBe(0);
+
+    const text = element.textContent as string;
+    expect(text).toContain(
+      'Trim page margins with presets or exact values. Everything runs on this machine.',
+    );
+    expect(element.querySelector('.modal-backdrop')).toBeNull();
+    expect(element.querySelector('.modal-card')).toBeNull();
+    expect(element.querySelector('#jobMode')).toBeNull();
+    expect(element.querySelector('#outputPath')).toBeNull();
+
+    const legacy = component as unknown as Record<string, unknown>;
+    expect(legacy['validate']).toBeUndefined();
+    expect(legacy['panelFields']).toBeUndefined();
+    expect(legacy['showRunSummaryConfirmation']).toBeUndefined();
   });
 });

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,6 +67,64 @@ func (e *CropError) Unwrap() error {
 func ValidateCropRequest(inputPath, outputPath, pageSelection, preset string, margins *CropMargins) *CropError {
 	_, _, err := buildCropPlan(inputPath, outputPath, pageSelection, preset, margins)
 	return err
+}
+
+// ValidateCropInput checks that inputPath is an existing .pdf file without
+// parsing the document. Planning uses it to stay cheap, so one unreadable PDF
+// cannot make an entire batch plan fail before its per-item execution.
+func ValidateCropInput(inputPath string) *CropError {
+	inputPath = strings.TrimSpace(inputPath)
+	if inputPath == "" {
+		return &CropError{Code: ErrorCodeValidation, Message: "inputPath is required"}
+	}
+
+	if !isPDFPath(inputPath) {
+		return &CropError{Code: ErrorCodeValidation, Message: fmt.Sprintf("input file must be .pdf: %s", inputPath)}
+	}
+
+	info, err := os.Stat(inputPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &CropError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("input PDF was not found: %s", filepath.Base(inputPath)), Cause: err}
+		}
+		return &CropError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("input PDF is not accessible: %s", filepath.Base(inputPath)), Cause: err}
+	}
+
+	if info.IsDir() {
+		return &CropError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("input path is a directory: %s", filepath.Base(inputPath))}
+	}
+
+	return nil
+}
+
+// ValidateCropOptions validates the page selection syntax and resolves the
+// preset without touching the filesystem.
+func ValidateCropOptions(pageSelection, preset string, margins *CropMargins) *CropError {
+	if _, selectionErr := parseCropPageSelectionSyntax(pageSelection); selectionErr != nil {
+		return selectionErr
+	}
+
+	if _, marginsErr := resolveCropMargins(strings.TrimSpace(preset), margins); marginsErr != nil {
+		return marginsErr
+	}
+
+	return nil
+}
+
+// ValidateCropDestination checks that dir exists, is a directory and accepts
+// writes, so a plan never promises an output path that cannot be created.
+func ValidateCropDestination(dir string) *CropError {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return &CropError{Code: ErrorCodeValidation, Message: "output directory is required"}
+	}
+
+	dir = filepath.Clean(dir)
+	if validationErr := validateOutputDir(filepath.Join(dir, "_crop_probe_.pdf")); validationErr != nil {
+		return &CropError{Code: validationErr.Code, Message: validationErr.Message, Cause: validationErr.Cause}
+	}
+
+	return nil
 }
 
 func Crop(ctx context.Context, inputPath, outputPath, pageSelection, preset string, margins *CropMargins) error {

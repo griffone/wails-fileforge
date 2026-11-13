@@ -74,12 +74,15 @@ func (e *SplitError) Unwrap() error {
 	return e.Cause
 }
 
+// Split validates the request and splits inputPath into outputDir. The output
+// directory is created at execution time when its parent is writable, so the
+// planner can show a destination before anything exists.
 func Split(ctx context.Context, inputPath, outputDir, strategy, rangesExpr string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: err}
 	}
 
-	planned, validationErr := buildSplitPlan(inputPath, outputDir, strategy, rangesExpr)
+	planned, validationErr := buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr, true)
 	if validationErr != nil {
 		return nil, validationErr
 	}
@@ -88,8 +91,58 @@ func Split(ctx context.Context, inputPath, outputDir, strategy, rangesExpr strin
 }
 
 func ValidateSplitRequest(inputPath, outputDir, strategy, rangesExpr string) *SplitError {
-	_, err := buildSplitPlan(inputPath, outputDir, strategy, rangesExpr)
+	_, err := buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr, true)
 	return err
+}
+
+// ValidateSplitInput checks that inputPath is an existing .pdf file without
+// parsing the document. Planning uses it to stay cheap, so one unreadable PDF
+// cannot make an entire batch plan fail before its per-item execution.
+func ValidateSplitInput(inputPath string) *SplitError {
+	inputPath = strings.TrimSpace(inputPath)
+	if inputPath == "" {
+		return &SplitError{Code: ErrorCodeValidation, Message: "inputPath is required"}
+	}
+
+	if !isPDFPath(inputPath) {
+		return &SplitError{Code: ErrorCodeValidation, Message: fmt.Sprintf("input file must be .pdf: %s", inputPath)}
+	}
+
+	info, err := os.Stat(inputPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &SplitError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("input PDF was not found: %s", filepath.Base(inputPath)), Cause: err}
+		}
+		return &SplitError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("input PDF is not accessible: %s", filepath.Base(inputPath)), Cause: err}
+	}
+
+	if info.IsDir() {
+		return &SplitError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("input path is a directory: %s", filepath.Base(inputPath))}
+	}
+
+	return nil
+}
+
+// ValidateSplitDestination validates the folder that will contain the planned
+// split directory. The planned directory itself must not exist yet.
+func ValidateSplitDestination(dir string) *SplitError {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return &SplitError{Code: ErrorCodeValidation, Message: "output directory is required"}
+	}
+
+	return validateOutputDirectory(dir, false)
+}
+
+// SplitPageCount returns the number of pages of a PDF, or 0 when the document
+// cannot be read. Planning uses 0 to mean "unknown count".
+func SplitPageCount(inputPath string) int {
+	count, err := api.PageCountFile(strings.TrimSpace(inputPath))
+	if err != nil {
+		return 0
+	}
+
+	return count
 }
 
 func ValidateSplitBatchRequest(inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) *SplitError {
@@ -151,10 +204,6 @@ func SplitBatch(ctx context.Context, inputPaths []string, outputDir, strategy, r
 	}
 
 	return results, nil
-}
-
-func buildSplitPlan(inputPath, outputDir, strategy, rangesExpr string) ([]splitPlannedOutput, *SplitError) {
-	return buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr, false)
 }
 
 func buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr string, allowCreateOutputDir bool) ([]splitPlannedOutput, *SplitError) {

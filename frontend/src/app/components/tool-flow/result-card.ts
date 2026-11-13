@@ -10,12 +10,15 @@ import {
 } from 'lucide-angular';
 import { FileInfoV1, JobErrorV1, JobResultV1 } from '../../services/wails';
 import { describeToolError } from '../../services/tool-error';
-import { fileName, formatBytes, formatCount } from '../../utils/format';
+import { fileDir, fileName, formatBytes, formatCount } from '../../utils/format';
+
+const GROUP_OUTPUT_LIMIT = 4;
 
 export interface ResultOutputRow {
   path: string;
   name: string;
   meta: string;
+  grouped?: boolean;
 }
 
 export interface ResultFailedRow {
@@ -37,6 +40,8 @@ export class ResultCard {
   @Input() job: JobResultV1 | null = null;
   @Input() fileInfos: Record<string, FileInfoV1> = {};
   @Input() toolLabel = 'file';
+  /** Past-tense verb for the success summary, e.g. `converted`, `split`. */
+  @Input() verbPast = 'converted';
 
   @Output() open = new EventEmitter<string>();
   @Output() reveal = new EventEmitter<string>();
@@ -57,9 +62,9 @@ export class ResultCard {
 
     switch (job.status) {
       case 'success':
-        return `${formatCount(this.successCount(), this.toolLabel)} converted`;
+        return `${formatCount(this.successCount(), this.toolLabel)} ${this.verbPast}`;
       case 'partial_success':
-        return `${this.successCount()} of ${this.totalCount()} converted`;
+        return `${this.successCount()} of ${this.totalCount()} ${this.verbPast}`;
       case 'failed':
         return "Couldn't finish the conversion";
       case 'cancelled':
@@ -126,9 +131,29 @@ export class ResultCard {
         continue;
       }
 
+      const outputs = (item.outputs ?? []).filter(
+        (path): path is string => !!path,
+      );
+      const outputCount = Math.max(item.outputCount ?? 0, outputs.length);
+
+      if (outputCount > GROUP_OUTPUT_LIMIT) {
+        const directory = item.outputPath || fileDir(outputs[0] ?? '');
+        if (!directory || seen.has(directory)) {
+          continue;
+        }
+        seen.add(directory);
+        rows.push({
+          path: directory,
+          name: `${formatCount(outputCount, 'file')} in ${fileName(directory)}`,
+          meta: '',
+          grouped: true,
+        });
+        continue;
+      }
+
       const paths =
-        item.outputs && item.outputs.length > 0
-          ? item.outputs
+        outputs.length > 0
+          ? outputs
           : item.outputPath
             ? [item.outputPath]
             : [];
@@ -138,10 +163,17 @@ export class ResultCard {
           continue;
         }
         seen.add(path);
+        // A directory summary has no file size to report; show its count.
+        const isDirectorySummary =
+          outputs.length === 0 &&
+          path === item.outputPath &&
+          (item.outputCount ?? 0) > 0;
         rows.push({
           path,
           name: fileName(path),
-          meta: this.sizeLabel(path),
+          meta: isDirectorySummary
+            ? formatCount(item.outputCount ?? 0, 'file')
+            : this.sizeLabel(path),
         });
       }
     }

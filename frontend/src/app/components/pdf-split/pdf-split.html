@@ -5,8 +5,7 @@
         <p class="eyebrow">PDF</p>
         <h1 class="page-title">PDF <em>Split</em></h1>
         <p class="page-sub">
-          Split a PDF into one file per page or into explicit page ranges, previewed before you
-          run — local-first, so your documents never leave this machine.
+          Split PDFs into one file per page or explicit ranges. Everything runs on this machine.
         </p>
       </div>
 
@@ -18,157 +17,184 @@
   </header>
 
   <div class="page-stack">
-    <section class="panel" aria-labelledby="split-input-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="split-input-title" class="panel-title">Input PDF</h2>
-          <p class="panel-sub">Choose a mode, then provide one or more input PDFs.</p>
-        </div>
-        <span class="badge badge-neutral">
-          {{ selectedInputPaths.length }} PDF{{ selectedInputPaths.length === 1 ? '' : 's' }}
-        </span>
-      </header>
-
-      <div class="panel-body">
-        <div class="field">
-          <label class="label" for="jobMode">Job mode</label>
-          <select id="jobMode" class="select" [formControl]="form.controls.jobMode">
-            <option *ngFor="let mode of jobModes" [value]="mode.value">
-              {{ mode.label }}
-            </option>
-          </select>
+    <div class="flow-grid">
+      <section class="panel intake-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">PDFs</h2>
+            <p class="panel-sub">Drop PDFs or choose them from your computer.</p>
+          </div>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
 
-        <div class="toolbar" role="group" aria-label="PDF selection actions">
-          <button type="button" class="btn btn-primary btn-sm" (click)="selectMultiplePdfsFromDialog()">
-            <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Browse PDFs
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" (click)="selectPdfFromDialog()">
-            Add one PDF
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" (click)="triggerFileInput()">
-            Use file input
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" (click)="selectOutputDirectory()">
-            <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Output folder
-          </button>
-        </div>
+        <div class="panel-body">
+          <app-file-drop
+            accept=".pdf,application/pdf"
+            title="Drop PDFs here"
+            hint="PDF files only"
+            ariaLabel="Drop or choose PDFs to split"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
 
-        <input
-          #fileInput
-          type="file"
-          multiple
-          accept=".pdf,application/pdf"
-          class="hidden"
-          (change)="onFileInputChange($event)"
-        />
-
-        <ul *ngIf="selectedInputPaths.length > 0; else emptyInputs" class="file-list" aria-label="Selected PDFs">
-          <li *ngFor="let inputPath of selectedInputPaths; let i = index" class="file-row">
-            <span class="file-index mono">{{ i + 1 }}</span>
-            <span class="file-path mono">{{ inputPath }}</span>
+          <div class="toolbar" role="group" aria-label="PDF selection actions">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+              <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Choose PDFs
+            </button>
             <button
               type="button"
-              class="icon-btn file-remove"
-              [attr.aria-label]="'Remove ' + inputPath"
-              (click)="removeInputPath(i)"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
             >
-              <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Clear
             </button>
-          </li>
-        </ul>
-
-        <ng-template #emptyInputs>
-          <div class="empty-state file-empty">
-            <strong>No PDF selected</strong>
-            <span>Add a PDF to build the split preview and validate the job.</span>
           </div>
-        </ng-template>
 
-        <div *ngIf="form.controls.outputDir.value" class="output-row">
-          <span class="file-path mono">Output: {{ form.controls.outputDir.value }}</span>
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ note.text }}</span>
+            </div>
+          }
+
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="panel" *ngIf="featureFlags.uiux_overhaul_v1" aria-labelledby="split-preview-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="split-preview-title" class="panel-title">Split preview</h2>
-          <p class="panel-sub">
-            Thumbnails show the first visible page of each block before execution.
-          </p>
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Output</h2>
+            <p class="panel-sub">Choose how to split and check where the files will go.</p>
+          </div>
+          <span class="badge badge-neutral">{{ activeStrategyLabel() }}</span>
         </div>
-        <span *ngIf="previewStatus === 'loading'" class="badge badge-info">Rendering</span>
-        <span *ngIf="previewStatus === 'ready'" class="badge badge-success">Ready</span>
-        <span *ngIf="previewStatus === 'error'" class="badge badge-danger">Unavailable</span>
-      </header>
 
-      <div class="panel-body">
-        <p class="panel-sub" role="status" aria-live="polite">{{ previewMessage }}</p>
+        <div class="panel-body">
+          <div class="preset-grid" role="group" aria-label="Split strategy">
+            @for (preset of strategies; track preset.id) {
+              <button
+                type="button"
+                class="preset-card strategy-card"
+                [class.is-active]="preset.id === strategy()"
+                [attr.aria-pressed]="preset.id === strategy()"
+                [attr.data-strategy]="preset.id"
+                (click)="selectStrategy(preset.id)"
+              >
+                <span class="preset-label">{{ preset.label }}</span>
+                <span class="preset-hint">{{ preset.hint }}</span>
+              </button>
+            }
+          </div>
 
-        <figure *ngIf="previewImageDataUrl" class="source-figure">
-          <figcaption class="preview-label">Source preview</figcaption>
-          <img
-            [src]="previewImageDataUrl"
-            alt="Source PDF first page preview"
-            draggable="false"
-          />
-        </figure>
-
-        <div *ngIf="splitPreviewBlocks.length > 0; else previewFallback" class="preview-grid">
-          <article *ngFor="let block of splitPreviewBlocks" class="preview-card">
-            <div class="split-preview-thumb-shell">
-              <img
-                *ngIf="splitPreviewUrls[block.key]; else previewPlaceholder"
-                [src]="splitPreviewUrls[block.key] || ''"
-                [alt]="block.label"
-                class="split-preview-thumb"
-                draggable="false"
+          @if (isRangesStrategy()) {
+            <div class="field">
+              <label class="label" for="pdf-split-ranges">Page ranges</label>
+              <input
+                id="pdf-split-ranges"
+                class="input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="1-3,5,8-10"
+                aria-describedby="pdf-split-ranges-help"
+                [value]="ranges()"
+                (input)="onRangesInput($event)"
               />
-              <ng-template #previewPlaceholder>
-                <div class="split-preview-placeholder">
-                  <span>{{ previewStatus === 'loading' ? 'Rendering…' : 'Preview pending' }}</span>
-                </div>
-              </ng-template>
+              <p id="pdf-split-ranges-help" class="field-help">
+                Use page numbers and ranges separated by commas. Duplicates and overlaps are not allowed.
+              </p>
             </div>
+          }
 
-            <div class="preview-card-foot">
-              <p class="preview-card-title">{{ block.label }}</p>
-              <p class="preview-card-meta mono">Range {{ block.pageRange }}</p>
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
+                Use original folders
+              </button>
             </div>
-          </article>
-        </div>
+          }
 
-        <ng-template #previewFallback>
-          <div class="empty-state file-empty">
-            <strong>No thumbnails yet</strong>
-            <span>Add a PDF and a valid range to render block previews.</span>
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (actionHelper(); as helper) {
+            <p class="action-helper">{{ helper }}</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun() || planBlocked()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            }
           </div>
-        </ng-template>
-      </div>
-    </section>
+        </div>
+      </section>
+    </div>
 
-    <app-tool-execution-panel
-      [title]="'Split settings'"
-      [subtitle]="'Output directory and split strategy.'"
-      [form]="form"
-      [fields]="panelFields"
-      [currentMode]="form.controls.strategy.value"
-      [validationMessage]="validationMessage"
-      [submitMessage]="submitMessage"
-      [statusMessage]="statusMessage"
-      [isSubmitting]="isSubmitting"
-      [isPolling]="isPolling"
-      [canCancel]="!!activeJobId"
-      [jobResult]="jobResult"
-      [runButtonText]="'Split PDF'"
-      [submittingButtonText]="'Splitting…'"
-      (validate)="validate()"
-      (run)="run()"
-      (cancel)="cancel()"
-    ></app-tool-execution-panel>
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Split progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="PDF"
+        verbPast="split"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
   </div>
 </div>

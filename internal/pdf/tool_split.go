@@ -8,10 +8,16 @@ import (
 	"strings"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/outputplan"
 	"fileforge-desktop/internal/pdf/engine"
 )
 
-const ToolIDPDFSplitV1 = "tool.pdf.split"
+const (
+	ToolIDPDFSplitV1 = "tool.pdf.split"
+
+	splitOutputKindDirectory = "directory"
+	splitDirSuffix           = "_pages"
+)
 
 type SplitTool struct{}
 
@@ -48,64 +54,73 @@ func (t *SplitTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
 	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
 }
 
-func (t *SplitTool) Validate(_ context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *SplitTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+	_, planErr := t.Plan(ctx, req)
+	return planErr
+}
+
+// Plan resolves one collision-safe <stem>_pages directory per input without
+// creating or writing anything. The directory is created when the job runs.
+func (t *SplitTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+
 	parsed, validationErr := splitReqFields(req)
 	if validationErr != nil {
-		return validationErr
+		return planFailure(plan, validationErr)
 	}
 
-	if parsed.Mode == "single" {
-		if splitErr := engine.ValidateSplitRequest(parsed.InputPath, parsed.OutputDir, parsed.Strategy, parsed.RangesExpr); splitErr != nil {
-			return mapSplitError(splitErr)
+	used := make(map[string]struct{}, len(parsed.InputPaths))
+	outputs := make([]models.PlannedOutputV1, 0, len(parsed.InputPaths))
+	warnings := make([]string, 0)
+	for _, inputPath := range parsed.InputPaths {
+		planned, planErr := planSplitDirectory(inputPath, parsed.BaseDir, parsed.Strategy, parsed.RangesExpr, used)
+		if planErr != nil {
+			if planned.OutputPath != "" {
+				outputs = append(outputs, planned)
+				plan.Outputs = outputs
+			}
+			return planFailure(plan, planErr)
 		}
 
-		return nil
+		outputs = append(outputs, planned)
+		warnings = append(warnings, planned.Warnings...)
 	}
 
-	if splitErr := engine.ValidateSplitBatchRequest(parsed.InputPaths, parsed.OutputDir, parsed.Strategy, parsed.RangesExpr, parsed.PerInputDir); splitErr != nil {
-		return mapSplitError(splitErr)
-	}
+	plan.Success = true
+	plan.Message = splitPlanMessage(len(outputs))
+	plan.Outputs = outputs
+	plan.Warnings = warnings
+	plan.EffectiveOptions = splitEffectiveOptions(parsed)
 
-	return nil
+	return plan, nil
 }
 
 func (t *SplitTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, validationErr := splitReqFields(req)
 	if validationErr != nil {
-		return models.JobResultItemV1{InputPath: parsed.InputPath, OutputPath: parsed.OutputDir, Success: false, Message: validationErr.Message, Error: validationErr}, validationErr
+		return splitFailureItem(parsed.InputPath, "", validationErr), validationErr
 	}
 
 	if parsed.Mode != "single" {
 		jobErr := &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "mode must be single"}
-		return models.JobResultItemV1{InputPath: parsed.InputPath, OutputPath: parsed.OutputDir, Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
+		return splitFailureItem(parsed.InputPath, "", jobErr), jobErr
 	}
 
-	if splitErr := engine.ValidateSplitRequest(parsed.InputPath, parsed.OutputDir, parsed.Strategy, parsed.RangesExpr); splitErr != nil {
-		jobErr := mapSplitError(splitErr)
-		return models.JobResultItemV1{
-			InputPath:  parsed.InputPath,
-			OutputPath: parsed.OutputDir,
-			Success:    false,
-			Message:    jobErr.Message,
-			Error:      jobErr,
-		}, jobErr
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return splitFailureItem(parsed.InputPath, splitPlannedOutputPath(plan), planErr), planErr
 	}
 
-	outputs, err := engine.Split(ctx, parsed.InputPath, parsed.OutputDir, parsed.Strategy, parsed.RangesExpr)
+	planned := plan.Outputs[0]
+	outputs, err := engine.Split(ctx, planned.InputPath, planned.OutputPath, parsed.Strategy, parsed.RangesExpr)
 	if err != nil {
 		jobErr := mapSplitError(err)
-		return models.JobResultItemV1{
-			InputPath:  parsed.InputPath,
-			OutputPath: parsed.OutputDir,
-			Success:    false,
-			Message:    jobErr.Message,
-			Error:      jobErr,
-		}, jobErr
+		return splitFailureItem(planned.InputPath, planned.OutputPath, jobErr), jobErr
 	}
 
 	return models.JobResultItemV1{
-		InputPath:   parsed.InputPath,
-		OutputPath:  parsed.OutputDir,
+		InputPath:   planned.InputPath,
+		OutputPath:  planned.OutputPath,
 		Outputs:     append([]string(nil), outputs...),
 		OutputCount: len(outputs),
 		Success:     true,
@@ -123,38 +138,41 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 		return nil, &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "mode must be batch"}
 	}
 
-	if splitErr := engine.ValidateSplitBatchRequest(parsed.InputPaths, parsed.OutputDir, parsed.Strategy, parsed.RangesExpr, parsed.PerInputDir); splitErr != nil {
-		return nil, mapSplitError(splitErr)
-	}
-
-	batchResults, err := engine.SplitBatch(ctx, parsed.InputPaths, parsed.OutputDir, parsed.Strategy, parsed.RangesExpr, parsed.PerInputDir)
-	if err != nil {
-		return nil, mapSplitError(err)
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return nil, planErr
 	}
 
 	fileErrors := make([]map[string]any, 0)
-	items := make([]models.JobResultItemV1, 0, len(batchResults))
-	for i, result := range batchResults {
-		item := models.JobResultItemV1{
-			InputPath:  result.InputPath,
-			OutputPath: result.OutputDir,
+	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
+	for i, planned := range plan.Outputs {
+		select {
+		case <-ctx.Done():
+			return items, &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
+		default:
 		}
 
-		if result.Error != nil {
-			jobErr := mapSplitError(result.Error)
+		item := models.JobResultItemV1{
+			InputPath:  planned.InputPath,
+			OutputPath: planned.OutputPath,
+		}
+
+		outputs, err := engine.Split(ctx, planned.InputPath, planned.OutputPath, parsed.Strategy, parsed.RangesExpr)
+		if err != nil {
+			jobErr := mapSplitError(err)
 			item.Success = false
 			item.Message = jobErr.Message
 			item.Error = jobErr
 			fileErrors = append(fileErrors, map[string]any{
-				"path":    result.InputPath,
+				"path":    planned.InputPath,
 				"code":    jobErr.DetailCode,
 				"message": jobErr.Message,
 			})
 		} else {
 			item.Success = true
-			item.Outputs = append([]string(nil), result.Outputs...)
-			item.OutputCount = len(result.Outputs)
-			item.Message = fmt.Sprintf("PDF split successful: generated %d files", len(result.Outputs))
+			item.Outputs = append([]string(nil), outputs...)
+			item.OutputCount = len(outputs)
+			item.Message = fmt.Sprintf("PDF split successful: generated %d files", len(outputs))
 		}
 
 		items = append(items, item)
@@ -162,9 +180,9 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 		if onProgress != nil {
 			onProgress(models.JobProgressV1{
 				Current: i + 1,
-				Total:   len(batchResults),
+				Total:   len(plan.Outputs),
 				Stage:   "running",
-				Message: fmt.Sprintf("processed %d/%d", i+1, len(batchResults)),
+				Message: fmt.Sprintf("processed %d/%d", i+1, len(plan.Outputs)),
 			})
 		}
 	}
@@ -179,13 +197,12 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 }
 
 type splitRequestFields struct {
-	Mode        string
-	InputPath   string
-	InputPaths  []string
-	OutputDir   string
-	Strategy    string
-	RangesExpr  string
-	PerInputDir bool
+	Mode       string
+	InputPath  string
+	InputPaths []string
+	BaseDir    string
+	Strategy   string
+	RangesExpr string
 }
 
 func splitReqFields(req models.JobRequestV1) (splitRequestFields, *models.JobErrorV1) {
@@ -195,46 +212,161 @@ func splitReqFields(req models.JobRequestV1) (splitRequestFields, *models.JobErr
 	}
 
 	if mode == "single" && len(req.InputPaths) != 1 {
-		return splitRequestFields{}, &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "exactly 1 input PDF is required"}
+		return splitRequestFields{Mode: mode}, &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "exactly 1 input PDF is required"}
 	}
 
 	if mode == "batch" && len(req.InputPaths) < 1 {
-		return splitRequestFields{}, &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "at least 1 input PDF is required"}
+		return splitRequestFields{Mode: mode}, &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "at least 1 input PDF is required"}
 	}
 
 	inputPaths := make([]string, 0, len(req.InputPaths))
 	for _, rawInput := range req.InputPaths {
 		inputPath := strings.TrimSpace(rawInput)
 		if inputPath == "" {
-			return splitRequestFields{}, &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "inputPath is required"}
+			return splitRequestFields{Mode: mode}, &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "inputPath is required"}
 		}
 		inputPaths = append(inputPaths, inputPath)
 	}
 
-	outputDir := strings.TrimSpace(optionString(req.Options, "outputDir"))
-	if outputDir == "" {
-		return splitRequestFields{Mode: mode, InputPath: firstInputPath(inputPaths), InputPaths: inputPaths}, &models.JobErrorV1{Code: engine.ErrorCodeValidation, Message: "options.outputDir is required"}
+	// The chosen folder is the base for <stem>_pages directories. It is
+	// optional: without it every input is split next to itself.
+	baseDir := strings.TrimSpace(req.OutputDir)
+	if baseDir == "" {
+		baseDir = optionString(req.Options, "outputDir")
+	}
+	if baseDir != "" {
+		baseDir = filepath.Clean(baseDir)
 	}
 
 	strategy := strings.TrimSpace(optionString(req.Options, "strategy"))
 	if strategy == "" {
 		strategy = engine.SplitStrategyEveryPage
 	}
+	if strategy != engine.SplitStrategyEveryPage && strategy != engine.SplitStrategyRanges {
+		return splitRequestFields{Mode: mode, InputPath: firstInputPath(inputPaths), InputPaths: inputPaths, BaseDir: baseDir, Strategy: strategy}, &models.JobErrorV1{
+			Code:       engine.ErrorCodeUnsupportedStrategy,
+			DetailCode: engine.ErrorCodeUnsupportedStrategy,
+			Message:    fmt.Sprintf("unsupported split strategy: %s", strategy),
+		}
+	}
 
 	rangesExpr := strings.TrimSpace(optionString(req.Options, "ranges"))
-	if strategy == engine.SplitStrategyRanges && rangesExpr == "" {
-		return splitRequestFields{Mode: mode, InputPath: firstInputPath(inputPaths), InputPaths: inputPaths, OutputDir: filepath.Clean(outputDir), Strategy: strategy}, &models.JobErrorV1{Code: engine.ErrorCodeSplitRangesRequired, Message: "options.ranges is required for strategy=ranges"}
+	if strategy == engine.SplitStrategyRanges {
+		if rangesExpr == "" {
+			return splitRequestFields{Mode: mode, InputPath: firstInputPath(inputPaths), InputPaths: inputPaths, BaseDir: baseDir, Strategy: strategy}, &models.JobErrorV1{Code: engine.ErrorCodeSplitRangesRequired, Message: "options.ranges is required for strategy=ranges"}
+		}
+
+		if _, rangesErr := engine.ParseSplitRanges(rangesExpr); rangesErr != nil {
+			return splitRequestFields{Mode: mode, InputPath: firstInputPath(inputPaths), InputPaths: inputPaths, BaseDir: baseDir, Strategy: strategy}, mapSplitError(rangesErr)
+		}
 	}
 
 	return splitRequestFields{
-		Mode:        mode,
-		InputPath:   firstInputPath(inputPaths),
-		InputPaths:  inputPaths,
-		OutputDir:   filepath.Clean(outputDir),
-		Strategy:    strategy,
-		RangesExpr:  rangesExpr,
-		PerInputDir: optionBool(req.Options, "perInputDir", mode == "batch"),
+		Mode:       mode,
+		InputPath:  firstInputPath(inputPaths),
+		InputPaths: inputPaths,
+		BaseDir:    baseDir,
+		Strategy:   strategy,
+		RangesExpr: rangesExpr,
 	}, nil
+}
+
+// planSplitDirectory resolves one collision-safe output directory. It never
+// creates anything: UniqueDirPath only probes the filesystem.
+func planSplitDirectory(inputPath, baseDir, strategy, rangesExpr string, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
+	planned := models.PlannedOutputV1{
+		InputPath:  inputPath,
+		OutputKind: splitOutputKindDirectory,
+	}
+
+	if splitErr := engine.ValidateSplitInput(inputPath); splitErr != nil {
+		return planned, mapSplitError(splitErr)
+	}
+
+	dir := strings.TrimSpace(baseDir)
+	if dir == "" {
+		dir = filepath.Dir(inputPath)
+	}
+	dir = filepath.Clean(dir)
+
+	if splitErr := engine.ValidateSplitDestination(dir); splitErr != nil {
+		return planned, mapSplitError(splitErr)
+	}
+
+	name := splitDirectoryName(inputPath)
+	outputPath, adjusted := outputplan.UniqueDirPath(dir, name, used)
+	planned.OutputPath = outputPath
+
+	if adjusted {
+		planned.Adjusted = true
+		planned.Warnings = append(planned.Warnings, fmt.Sprintf("%s already exists. Saving to %s.", name, filepath.Base(outputPath)))
+	}
+
+	// A directory plan cannot always know its file count (for example when the
+	// PDF is unreadable or page counts are unavailable). Leave 0 in that case.
+	planned.OutputCount = splitPlannedOutputCount(inputPath, strategy, rangesExpr)
+
+	return planned, nil
+}
+
+func splitDirectoryName(inputPath string) string {
+	stem := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	stem = strings.TrimSpace(stem)
+	if stem == "" {
+		stem = "document"
+	}
+
+	return stem + splitDirSuffix
+}
+
+func splitPlannedOutputCount(inputPath, strategy, rangesExpr string) int {
+	switch strategy {
+	case engine.SplitStrategyEveryPage:
+		return engine.SplitPageCount(inputPath)
+	case engine.SplitStrategyRanges:
+		ranges, rangesErr := engine.ParseSplitRanges(rangesExpr)
+		if rangesErr != nil {
+			return 0
+		}
+		return len(ranges)
+	default:
+		return 0
+	}
+}
+
+func splitEffectiveOptions(parsed splitRequestFields) map[string]any {
+	options := map[string]any{"strategy": parsed.Strategy}
+	if parsed.Strategy == engine.SplitStrategyRanges {
+		options["ranges"] = parsed.RangesExpr
+	}
+
+	return options
+}
+
+func splitPlanMessage(count int) string {
+	if count == 1 {
+		return "Ready to split 1 PDF."
+	}
+
+	return fmt.Sprintf("Ready to split %d PDFs.", count)
+}
+
+func splitFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
+	return models.JobResultItemV1{
+		InputPath:  inputPath,
+		OutputPath: outputPath,
+		Success:    false,
+		Message:    jobErr.Message,
+		Error:      jobErr,
+	}
+}
+
+func splitPlannedOutputPath(plan models.PlanJobResponseV1) string {
+	if len(plan.Outputs) == 0 {
+		return ""
+	}
+
+	return plan.Outputs[0].OutputPath
 }
 
 func optionString(options map[string]any, key string) string {
@@ -248,19 +380,6 @@ func optionString(options map[string]any, key string) string {
 	}
 
 	return strings.TrimSpace(v)
-}
-
-func optionBool(options map[string]any, key string, fallback bool) bool {
-	if options == nil {
-		return fallback
-	}
-
-	v, ok := options[key].(bool)
-	if !ok {
-		return fallback
-	}
-
-	return v
 }
 
 func firstInputPath(inputPaths []string) string {

@@ -51,6 +51,61 @@ describe('OutputPlanCard', () => {
     );
   });
 
+  it('renders directory outputs as folders with their file count', () => {
+    component.plan = planWith([
+      {
+        inputPath: '/tmp/in/a.pdf',
+        outputPath: '/tmp/in/a_pages',
+        outputKind: 'directory',
+        outputCount: 6,
+        exists: false,
+        adjusted: false,
+      },
+      {
+        inputPath: '/tmp/in/b.pdf',
+        outputPath: '/tmp/out/b_pages',
+        outputKind: 'directory',
+        outputCount: 1,
+        exists: false,
+        adjusted: false,
+      },
+    ]);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('a_pages');
+    expect(text).toContain('b_pages');
+    expect(fixture.nativeElement.querySelectorAll('.output-plan-item').length).toBe(2);
+    expect(
+      fixture.nativeElement.querySelectorAll('.output-plan-item .badge-neutral')
+        .length,
+    ).toBe(2);
+    expect(text).toContain('Folder');
+    expect(text).toContain('6 files');
+    expect(text).toContain('1 file');
+  });
+
+  it('makes a single output directory the primary line', () => {
+    component.plan = planWith([
+      {
+        inputPath: '/tmp/in/a.pdf',
+        outputPath: '/tmp/in/a_pages',
+        outputKind: 'directory',
+        outputCount: 12,
+        exists: false,
+        adjusted: false,
+      },
+    ]);
+    fixture.detectChanges();
+
+    const primary = fixture.nativeElement.querySelector('.output-plan-primary') as HTMLElement;
+    expect(primary).not.toBeNull();
+    expect(primary.textContent).toContain('a_pages');
+    expect(primary.textContent).toContain('/tmp/in');
+    expect(primary.textContent).toContain('12 files');
+    expect(fixture.nativeElement.querySelector('.output-plan-list')).toBeNull();
+  });
+
   it('collapses extra planned outputs', () => {
     component.plan = planWith(
       Array.from({ length: 6 }, (_, index) => ({

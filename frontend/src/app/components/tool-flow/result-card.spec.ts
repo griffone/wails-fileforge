@@ -129,6 +129,119 @@ describe('ResultCard', () => {
     );
   });
 
+  it('uses verbPast in the success summary', () => {
+    component.toolLabel = 'PDF';
+    component.verbPast = 'split';
+    component.job = job({
+      items: [
+        {
+          inputPath: '/tmp/a.pdf',
+          outputPath: '/tmp/a_pages',
+          outputs: ['/tmp/a_pages/page_001.pdf'],
+          outputCount: 1,
+          success: true,
+          message: 'ok',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.result-summary')?.textContent).toContain(
+      '1 PDF split',
+    );
+  });
+
+  it('groups large output sets into one folder row', () => {
+    const revealSpy = jasmine.createSpy('reveal');
+    const openSpy = jasmine.createSpy('open');
+    component.reveal.subscribe(revealSpy);
+    component.open.subscribe(openSpy);
+    component.toolLabel = 'PDF';
+    component.verbPast = 'split';
+    const outputs = Array.from(
+      { length: 6 },
+      (_, index) => `/tmp/out/a_pages/page_${index + 1}.pdf`,
+    );
+    component.job = job({
+      items: [
+        {
+          inputPath: '/tmp/a.pdf',
+          outputPath: '/tmp/out/a_pages',
+          outputs,
+          outputCount: 6,
+          success: true,
+          message: 'ok',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const rows = fixture.nativeElement.querySelectorAll('.result-row');
+    expect(rows.length).toBe(1);
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('6 files in a_pages');
+    expect(text).toContain('/tmp/out/a_pages');
+    expect(text).not.toContain('page_1.pdf');
+    expect(fixture.nativeElement.querySelector('.result-open')).toBeNull();
+
+    const showFolder = fixture.nativeElement.querySelector(
+      '.result-show-folder',
+    ) as HTMLButtonElement;
+    expect(showFolder.textContent).toContain('Show in folder');
+    showFolder.click();
+
+    expect(revealSpy).toHaveBeenCalledOnceWith('/tmp/out/a_pages');
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps individual rows for four or fewer outputs', () => {
+    component.toolLabel = 'PDF';
+    component.verbPast = 'split';
+    const outputs = Array.from(
+      { length: 4 },
+      (_, index) => `/tmp/out/a_pages/page_${index + 1}.pdf`,
+    );
+    component.job = job({
+      items: [
+        {
+          inputPath: '/tmp/a.pdf',
+          outputPath: '/tmp/out/a_pages',
+          outputs,
+          outputCount: 4,
+          success: true,
+          message: 'ok',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelectorAll('.result-row').length).toBe(4);
+    expect(fixture.nativeElement.querySelector('.result-show-folder')).toBeNull();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('page_1.pdf');
+    expect(text).toContain('page_4.pdf');
+  });
+
+  it('shows a directory count instead of a bogus size without file info', () => {
+    component.job = job({
+      items: [
+        {
+          inputPath: '/tmp/a.pdf',
+          outputPath: '/tmp/out/a_pages',
+          outputCount: 3,
+          success: true,
+          message: 'ok',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.result-meta')?.textContent).toContain(
+      '3 files',
+    );
+    expect(fixture.nativeElement.textContent).not.toContain('0 B');
+  });
+
   it('emits reset from Convert more', () => {
     const spy = jasmine.createSpy('reset');
     component.reset.subscribe(spy);

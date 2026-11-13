@@ -32,6 +32,34 @@
   color: var(--text);
 }
 
+.output-plan-primary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.output-plan-primary-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.output-plan-primary .output-plan-name {
+  font-size: 0.875rem;
+}
+
 .output-plan-list {
   display: flex;
   flex-direction: column;
@@ -68,6 +96,35 @@
   color: var(--text);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.output-plan-name-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.output-plan-folder-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.output-plan-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: none;
+}
+
+.output-plan-count {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .output-plan-directory {

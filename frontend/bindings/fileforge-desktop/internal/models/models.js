@@ -1370,6 +1370,13 @@ export class PlannedOutputV1 {
              */
             this["outputKind"] = "";
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["outputCount"] = undefined;
+        }
         if (!("exists" in $$source)) {
             /**
              * @member
@@ -1401,10 +1408,10 @@ export class PlannedOutputV1 {
      * @returns {PlannedOutputV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType7;
+        const $$createField6_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("warnings" in $$parsedSource) {
-            $$parsedSource["warnings"] = $$createField5_0($$parsedSource["warnings"]);
+            $$parsedSource["warnings"] = $$createField6_0($$parsedSource["warnings"]);
         }
         return new PlannedOutputV1(/** @type {Partial<PlannedOutputV1>} */($$parsedSource));
     }

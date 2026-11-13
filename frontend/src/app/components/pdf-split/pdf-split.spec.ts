@@ -1,339 +1,529 @@
 import {
+  ComponentFixture,
   fakeAsync,
   flushMicrotasks,
   TestBed,
   tick,
 } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Subject } from 'rxjs';
 
 import { PdfSplit } from './pdf-split';
 import {
+  FileInfoV1,
+  JobProgressEventV1,
+  JobRequestV1,
+  JobResultItemV1,
+  JobResultV1,
   JobStatusResponseV1,
-  RunJobResponseV1,
-  ValidateJobResponseV1,
+  PlanJobResponseV1,
   Wails,
 } from '../../services/wails';
-import { PdfRendererService } from '../../services/pdf-renderer.service';
 
 describe('PdfSplit', () => {
+  let fixture: ComponentFixture<PdfSplit>;
   let component: PdfSplit;
-  let fixture: any;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let pdfRendererSpy: jasmine.SpyObj<PdfRendererService>;
+  let jobProgressSubject: Subject<JobProgressEventV1>;
+
+  function fileInfo(path: string): FileInfoV1 {
+    const name = path.split(/[\\/]/).pop() ?? path;
+    return {
+      path,
+      name,
+      directory: '/tmp',
+      extension: 'pdf',
+      sizeBytes: 2 * 1024 * 1024,
+      kind: 'pdf',
+      pageCount: 4,
+      exists: true,
+    };
+  }
+
+  function firstDir(path: string): string {
+    const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return index > 0 ? path.slice(0, index) : '';
+  }
+
+  function fileStem(path: string): string {
+    const name = path.split(/[\\/]/).pop() ?? 'document';
+    return name.replace(/\.pdf$/i, '');
+  }
+
+  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+    const outputs = request.inputPaths.map((inputPath) => {
+      const dir = request.outputDir || firstDir(inputPath);
+      const name = `${fileStem(inputPath)}_pages`;
+      return {
+        inputPath,
+        outputPath: dir ? `${dir}/${name}` : name,
+        outputKind: 'directory',
+        outputCount: 3,
+        exists: false,
+        adjusted: false,
+      };
+    });
+
+    return {
+      success: true,
+      message: 'ok',
+      outputs,
+      effectiveOptions: request.options,
+      warnings: [],
+    };
+  }
+
+  function status(
+    jobId: string,
+    jobStatus: JobResultV1['status'],
+    items: JobResultItemV1[],
+  ): JobStatusResponseV1 {
+    return {
+      success: true,
+      message: jobStatus,
+      found: true,
+      result: {
+        jobId,
+        success: jobStatus === 'success',
+        message: jobStatus,
+        toolId: 'tool.pdf.split',
+        status: jobStatus,
+        progress: {
+          current: jobStatus === 'running' ? 1 : items.length,
+          total: items.length || 1,
+          stage: jobStatus,
+          message: jobStatus,
+        },
+        items,
+        startedAt: 1,
+        endedAt: jobStatus === 'running' ? undefined : 2,
+      },
+    };
+  }
 
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'validateJobV1',
+      'planJobV1',
+      'inspectFilesV1',
+      'getThumbnail',
       'runJobV1',
       'getJobStatusV1',
       'cancelJobV1',
-      'listToolsV1',
-      'openFileDialog',
+      'openPath',
+      'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'getPdfPreviewSource',
-      'StartPreview',
-      'GetPreviewStatus',
-      'GetPreview',
-      'CancelPreview',
+      'listToolsV1',
     ]);
-    pdfRendererSpy = jasmine.createSpyObj<PdfRendererService>(
-      'PdfRendererService',
-      [
-        'loadFromBytes',
-        'renderPageToCanvas',
-        'renderPageToCanvasWithFallback',
-        'destroy',
-      ],
+
+    jobProgressSubject = new Subject<JobProgressEventV1>();
+    (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
+      jobProgressSubject.asObservable();
+
+    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+      Promise.resolve(planResponse(request)),
     );
-    const fakePdfPage = {
-      getViewport: jasmine
-        .createSpy('getViewport')
-        .and.callFake(({ scale }: { scale: number }) => ({
-          width: 600 * scale,
-          height: 800 * scale,
-        })),
-      render: jasmine
-        .createSpy('render')
-        .and.returnValue({ promise: Promise.resolve() }),
-    };
-    const fakePdfDocument = {
-      numPages: 3,
-      getPage: jasmine
-        .createSpy('getPage')
-        .and.returnValue(Promise.resolve(fakePdfPage)),
-    };
-    pdfRendererSpy.loadFromBytes.and.callFake(
-      async () => fakePdfDocument as any,
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map(fileInfo),
+      }),
     );
-    pdfRendererSpy.renderPageToCanvasWithFallback.and.callFake(
-      async (_pdf, _pageNumber, canvas) => canvas,
+    wailsSpy.getThumbnail.and.resolveTo(null);
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-1',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+      Promise.resolve(status(jobId, 'running', [])),
     );
-    pdfRendererSpy.renderPageToCanvas.and.callFake(
-      async (_pdf, _pageNumber, canvas) => canvas,
-    );
-    pdfRendererSpy.destroy.and.returnValue(Promise.resolve());
+    wailsSpy.cancelJobV1.and.resolveTo({
+      success: true,
+      message: 'cancelled',
+      jobId: 'job-1',
+    });
+    wailsSpy.openPath.and.resolveTo({ success: true, message: 'opened' });
+    wailsSpy.revealInFolder.and.resolveTo({
+      success: true,
+      message: 'revealed',
+    });
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.isRuntimeAvailable.and.returnValue(true);
+    wailsSpy.listToolsV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      tools: [],
+    });
 
     await TestBed.configureTestingModule({
       imports: [PdfSplit],
-      providers: [
-        provideRouter([]),
-        { provide: Wails, useValue: wailsSpy },
-        { provide: PdfRendererService, useValue: pdfRendererSpy },
-      ],
+      providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(PdfSplit);
     component = fixture.componentInstance;
-    // enable feature flag for tests that exercise preview behavior
-    (component as any).featureFlags.uiux_overhaul_v1 = true;
     fixture.detectChanges();
   });
 
-  it('shapes payload for tool.pdf.split in single mode', async () => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
-
-    component.selectedInputPaths = ['/tmp/in.pdf'];
-    component.form.patchValue({
-      jobMode: 'single',
-      outputDir: '/tmp/out',
-      strategy: 'every_page',
-    });
-
-    await component.validate();
-
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0];
-    expect(req.toolId).toBe('tool.pdf.split');
-    expect(req.mode).toBe('single');
-    expect(req.inputPaths).toEqual(['/tmp/in.pdf']);
-    expect(req.outputDir).toBe('/tmp/out');
-    expect(req.options['outputDir']).toBe('/tmp/out');
-    expect(req.options['strategy']).toBe('every_page');
-    expect(req.options['perInputDir']).toBeFalse();
-    expect(req.options['ranges']).toBeUndefined();
+  afterEach(() => {
+    fixture.destroy();
   });
 
-  it('requests a single source preview and exposes rendered data url when feature flag enabled', async () => {
-    (component as any).featureFlags.uiux_overhaul_v1 = true;
-    const previewResponse = {
-      success: true,
-      message: 'ok',
-      dataBase64: 'JVBERi0xLjQKJSBmdW5ueSByZWFsIHBkZg==',
-      mimeType: 'application/pdf',
-    };
-    wailsSpy.getPdfPreviewSource.and.returnValue(
-      Promise.resolve(previewResponse as any),
+  it('plans one PDF as single and two PDFs as batch', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    let request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.toolId).toBe('tool.pdf.split');
+    expect(request.mode).toBe('single');
+    expect(request.inputPaths).toEqual(['/tmp/a.pdf']);
+    expect(request.outputDir).toBe('');
+    expect(request.options['strategy']).toBe('every_page');
+    expect(request.options['ranges']).toBeUndefined();
+    expect(component.plan()?.outputs[0]).toEqual(
+      jasmine.objectContaining({
+        outputPath: '/tmp/a_pages',
+        outputKind: 'directory',
+        outputCount: 3,
+      }),
     );
-
-    component.selectedInputPaths = ['/tmp/source.pdf'];
-    await (component as any).ensureSourcePreview();
-
-    expect(component.previewImageDataUrl).toContain('data:image/png;base64,');
-    expect(component.previewStatus).toBe('ready');
-    expect(component.splitPreviewBlocks.length).toBe(3);
-    expect(Object.keys(component.splitPreviewUrls).length).toBe(3);
-  });
-
-  it('renders block thumbnails from the first page of each range', async () => {
-    (component as any).featureFlags.uiux_overhaul_v1 = true;
-    const previewResponse = {
-      success: true,
-      message: 'ok',
-      dataBase64: 'JVBERi0xLjQKJSBmdW5ueSByZWFsIHBkZg==',
-      mimeType: 'application/pdf',
-    };
-    wailsSpy.getPdfPreviewSource.and.returnValue(
-      Promise.resolve(previewResponse as any),
-    );
-
-    component.selectedInputPaths = ['/tmp/source.pdf'];
-    component.form.patchValue({
-      strategy: 'ranges',
-      ranges: '1-3,5,8-10',
-    });
-
-    await (component as any).ensureSourcePreview();
-
+    expect(component.primaryLabel()).toBe('Split 1 PDF');
+    expect(component.canRun()).toBeTrue();
     expect(
-      component.splitPreviewBlocks.map(
-        (block: { pageRange: string }) => block.pageRange,
-      ),
-    ).toEqual(['1-3', '5', '8-10']);
-    expect(component.splitPreviewUrls['range-1-1-3']).toContain(
-      'data:image/png;base64,',
-    );
-    expect(component.splitPreviewUrls['range-2-5']).toContain(
-      'data:image/png;base64,',
-    );
-    expect(component.splitPreviewUrls['range-3-8-10']).toContain(
-      'data:image/png;base64,',
-    );
-  });
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeFalse();
 
-  it('shapes payload for tool.pdf.split in batch mode with ranges', async () => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
+    component.onPathsSelected(['/tmp/b.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
 
-    component.selectedInputPaths = ['/tmp/in-a.pdf', '/tmp/in-b.pdf'];
-    component.form.patchValue({
-      jobMode: 'batch',
-      outputDir: '/tmp/out',
-      strategy: 'ranges',
-      ranges: '1-3,5',
+    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+    expect(component.plan()?.outputs.length).toBe(2);
+    expect(component.plan()?.outputs[1].outputPath).toBe('/tmp/b_pages');
+    expect(component.primaryLabel()).toBe('Split 2 PDFs');
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeFalse();
+  }));
+
+  it('rejects non-PDFs and duplicates with a notice', fakeAsync(() => {
+    component.onPathsSelected([
+      '/tmp/notes.txt',
+      '/tmp/a.pdf',
+      '/tmp/a.pdf',
+    ]);
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual(['/tmp/a.pdf']);
+    expect(component.notice()?.text).toContain('notes.txt');
+    expect(component.notice()?.text).toContain("isn't a PDF");
+    expect(component.notice()?.text).toContain('a.pdf is already in the queue.');
+  }));
+
+  it('shows PDF metadata and thumbnails in the queue', fakeAsync(() => {
+    wailsSpy.getThumbnail.and.resolveTo('data:image/png;base64,abc');
+
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.fileItems()[0].meta).toContain('2 MB');
+    expect(component.fileItems()[0].meta).toContain('4 pages');
+    expect(fixture.nativeElement.querySelector('.file-queue-image')).not.toBeNull();
+  }));
+
+  it('sends the chosen strategy and ranges in the plan request', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('ranges');
+    flushMicrotasks();
+    expect(component.plan()).toBeNull();
+
+    component.onRangesInput({
+      target: { value: '1-3,5' },
+    } as unknown as Event);
+    tick(250);
+    flushMicrotasks();
+
+    let request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.mode).toBe('batch');
+    expect(request.options).toEqual(
+      jasmine.objectContaining({ strategy: 'ranges', ranges: '1-3,5' }),
+    );
+
+    component.selectStrategy('every_page');
+    flushMicrotasks();
+
+    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(request.options['strategy']).toBe('every_page');
+    expect(request.options['ranges']).toBeUndefined();
+  }));
+
+  it('disables the primary action until page ranges are entered', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('ranges');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.rangesRequired()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+    expect(component.actionHelper()).toContain('Enter the page ranges');
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeTrue();
+
+    component.onRangesInput({
+      target: { value: '1-2' },
+    } as unknown as Event);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.rangesRequired()).toBeFalse();
+    expect(component.canRun()).toBeTrue();
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeFalse();
+  }));
+
+  it('keeps the plan as the source of truth when ranges are rejected', fakeAsync(() => {
+    wailsSpy.planJobV1.and.resolveTo({
+      success: false,
+      message: 'range out of bounds',
+      outputs: [],
+      error: {
+        code: 'VALIDATION_INVALID_INPUT',
+        detail_code: 'PDF_SPLIT_RANGE_OUT_OF_BOUNDS',
+        message: 'Page range 9-12 is outside this PDF (4 pages).',
+      },
     });
 
-    await component.validate();
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
 
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0];
-    expect(req.toolId).toBe('tool.pdf.split');
-    expect(req.mode).toBe('batch');
-    expect(req.inputPaths).toEqual(['/tmp/in-a.pdf', '/tmp/in-b.pdf']);
-    expect(req.options['outputDir']).toBe('/tmp/out');
-    expect(req.options['strategy']).toBe('ranges');
-    expect(req.options['ranges']).toBe('1-3,5');
-    expect(req.options['perInputDir']).toBeTrue();
-  });
+    component.selectStrategy('ranges');
+    component.onRangesInput({
+      target: { value: '9-12' },
+    } as unknown as Event);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
 
-  it('runs batch and transitions state through polling with itemized results', fakeAsync(() => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    const run: RunJobResponseV1 = {
-      success: true,
-      message: 'submitted',
-      jobId: 'split-batch-job-1',
-      status: 'queued',
-    };
-    const running: JobStatusResponseV1 = {
-      success: true,
-      message: 'running',
-      found: true,
-      result: {
-        jobId: 'split-batch-job-1',
-        success: false,
-        message: 'working',
-        toolId: 'tool.pdf.split',
-        status: 'running',
-        progress: {
-          current: 1,
-          total: 2,
-          stage: 'running',
-          message: 'running',
-        },
-        items: [],
-        startedAt: Date.now(),
-      },
-    };
-    const completed: JobStatusResponseV1 = {
-      success: true,
-      message: 'success',
-      found: true,
-      result: {
-        jobId: 'split-batch-job-1',
-        success: true,
-        message: 'done',
-        toolId: 'tool.pdf.split',
-        status: 'success',
-        progress: { current: 2, total: 2, stage: 'success', message: 'done' },
-        items: [
-          {
-            inputPath: '/tmp/in-a.pdf',
-            outputPath: '/tmp/out/in-a',
-            outputs: [
-              '/tmp/out/in-a/in-a_page_001.pdf',
-              '/tmp/out/in-a/in-a_page_002.pdf',
-            ],
-            outputCount: 2,
-            success: true,
-            message: 'PDF split successful: generated 2 files',
-          },
-          {
-            inputPath: '/tmp/in-b.pdf',
-            outputPath: '/tmp/out/in-b',
-            outputs: ['/tmp/out/in-b/in-b_page_001.pdf'],
-            outputCount: 1,
-            success: true,
-            message: 'PDF split successful: generated 1 files',
-          },
-        ],
-        startedAt: Date.now(),
-        endedAt: Date.now(),
-      },
-    };
+    expect(component.plan()?.success).toBeFalse();
+    expect(component.planBlocked()).toBeTrue();
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeTrue();
 
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
-    wailsSpy.runJobV1.and.returnValue(Promise.resolve(run));
-    wailsSpy.getJobStatusV1.and.returnValues(
-      Promise.resolve(running),
-      Promise.resolve(completed),
-    );
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+  }));
 
-    component.selectedInputPaths = ['/tmp/in-a.pdf', '/tmp/in-b.pdf'];
-    component.form.patchValue({
-      jobMode: 'batch',
-      outputDir: '/tmp/out',
-      strategy: 'every_page',
-    });
+  it('plans and runs without a validation step, then polls', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
 
     void component.run();
     flushMicrotasks();
 
-    expect(component.activeJobId).toBe('split-batch-job-1');
-    expect(component.isPolling).toBeTrue();
-
-    tick(1000);
-    flushMicrotasks();
-
-    expect(component.jobResult?.status).toBe('success');
-    expect(component.jobResult?.items.length).toBe(2);
-    expect(component.jobResult?.items[0].outputPath).toBe('/tmp/out/in-a');
-    expect(component.jobResult?.items[0].outputCount).toBe(2);
-    expect(component.jobResult?.items[1].outputCount).toBe(1);
-    expect(component.isPolling).toBeFalse();
-    expect(component.activeJobId).toBe('');
+    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.toolId).toBe('tool.pdf.split');
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    expect(
+      (wailsSpy as unknown as { validateJobV1?: unknown }).validateJobV1,
+    ).toBeUndefined();
+    expect(wailsSpy.getJobStatusV1).toHaveBeenCalled();
+    expect(component.isPolling()).toBeTrue();
+    expect(component.activeJobId()).toBe('job-1');
   }));
 
-  it('maps batch error codes with actionable messages', async () => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'invalid',
-      valid: false,
-      error: {
-        code: 'VALIDATION_INVALID_INPUT',
-        message: 'batch planned outputs collide: /tmp/out/a and /tmp/out/A',
+  it('renders a grouped result for a large split and reveals the folder', fakeAsync(() => {
+    const outputs = Array.from(
+      { length: 6 },
+      (_, index) => `/tmp/a_pages/page_${index + 1}.pdf`,
+    );
+    const completed = status('job-2', 'success', [
+      {
+        inputPath: '/tmp/a.pdf',
+        outputPath: '/tmp/a_pages',
+        outputs,
+        outputCount: 6,
+        success: true,
+        message: 'PDF split successful: generated 6 files',
       },
-    };
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
+    ]);
 
-    component.selectedInputPaths = ['/tmp/a.pdf', '/tmp/A.pdf'];
-    component.form.patchValue({
-      jobMode: 'batch',
-      outputDir: '/tmp/out',
-      strategy: 'every_page',
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-2',
+      status: 'queued',
     });
+    wailsSpy.getJobStatusV1.and.resolveTo(completed);
 
-    await component.validate();
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
 
-    expect(component.validationMessage).toContain('Validation');
-  });
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
 
-  it('renders the workbench header without page-level navigation links', () => {
+    expect(component.terminalJob()?.status).toBe('success');
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('1 PDF split');
+    expect(text).toContain('6 files in a_pages');
+    expect(text).not.toContain('page_1.pdf');
+    expect(fixture.nativeElement.querySelectorAll('.result-row').length).toBe(1);
+
+    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+      .allArgs()
+      .map((args) => args[0] as string[]);
+    expect(
+      inspectedPaths.some((paths) =>
+        paths.includes('/tmp/a_pages/page_1.pdf'),
+      ),
+    ).toBeFalse();
+
+    const showFolder = fixture.nativeElement.querySelector(
+      '.result-show-folder',
+    ) as HTMLButtonElement;
+    showFolder.click();
+
+    expect(wailsSpy.revealInFolder).toHaveBeenCalledWith('/tmp/a_pages');
+  }));
+
+  it('uses the chosen destination folder in the plan', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/out');
+
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+
+    void component.chooseOutputFolder();
+    flushMicrotasks();
+
+    expect(component.outputDir()).toBe('/tmp/out');
+    expect(component.destinationLabel()).toBe('/tmp/out');
+    expect(component.isDefaultDestination()).toBeFalse();
+
+    let request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.outputDir).toBe('/tmp/out');
+    expect(component.plan()?.outputs.map((output) => output.outputPath)).toEqual([
+      '/tmp/out/a_pages',
+      '/tmp/out/b_pages',
+    ]);
+
+    component.useOriginalFolders();
+    flushMicrotasks();
+
+    expect(component.outputDir()).toBe('');
+    expect(component.destinationLabel()).toBe('Next to each PDF');
+    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(request.outputDir).toBe('');
+  }));
+
+  it('retries only failed inputs with the same strategy, ranges and folder', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/out');
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-3',
+      status: 'queued',
+    });
+    const partial = status('job-3', 'partial_success', [
+      {
+        inputPath: '/tmp/a.pdf',
+        outputPath: '/tmp/out/a_pages',
+        outputs: ['/tmp/out/a_pages/page_1.pdf'],
+        outputCount: 1,
+        success: true,
+        message: 'ok',
+      },
+      {
+        inputPath: '/tmp/b.pdf',
+        outputPath: '',
+        success: false,
+        message: 'The split failed.',
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PDF_SPLIT_FAILED',
+          message: 'The split failed.',
+        },
+      },
+    ]);
+    wailsSpy.getJobStatusV1.and.resolveTo(partial);
+
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('ranges');
+    component.onRangesInput({
+      target: { value: '1-3' },
+    } as unknown as Event);
+    tick(250);
+    flushMicrotasks();
+
+    void component.chooseOutputFolder();
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(component.terminalJob()?.status).toBe('partial_success');
+
+    void component.retryFailed();
+    flushMicrotasks();
+
+    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(2);
+    const retryRequest = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(retryRequest.inputPaths).toEqual(['/tmp/b.pdf']);
+    expect(retryRequest.mode).toBe('single');
+    expect(retryRequest.options).toEqual(
+      jasmine.objectContaining({ strategy: 'ranges', ranges: '1-3' }),
+    );
+    expect(retryRequest.outputDir).toBe('/tmp/out');
+  }));
+
+  it('renders the workbench header and no legacy validate step', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.eyebrow')?.textContent).toContain('PDF');
     expect(element.querySelector('.page-title')?.textContent).toContain('PDF');
+    expect(element.querySelector('.page-title')?.textContent).toContain('Split');
     expect(element.querySelectorAll('.page-head a').length).toBe(0);
+
+    const text = element.textContent as string;
+    expect(text).toContain(
+      'Split PDFs into one file per page or explicit ranges.',
+    );
+    expect(text).not.toContain('Split preview');
+
+    const legacy = component as unknown as Record<string, unknown>;
+    expect(legacy['validate']).toBeUndefined();
+    expect(legacy['panelFields']).toBeUndefined();
   });
 });

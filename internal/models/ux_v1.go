@@ -1,12 +1,13 @@
 package models
 
 type PlannedOutputV1 struct {
-	InputPath  string   `json:"inputPath"`
-	OutputPath string   `json:"outputPath"`
-	OutputKind string   `json:"outputKind"` // file | directory
-	Exists     bool     `json:"exists"`
-	Adjusted   bool     `json:"adjusted"`
-	Warnings   []string `json:"warnings,omitempty"`
+	InputPath   string   `json:"inputPath"`
+	OutputPath  string   `json:"outputPath"`
+	OutputKind  string   `json:"outputKind"` // file | directory
+	OutputCount int      `json:"outputCount,omitempty"`
+	Exists      bool     `json:"exists"`
+	Adjusted    bool     `json:"adjusted"`
+	Warnings    []string `json:"warnings,omitempty"`
 }
 
 type PlanJobResponseV1 struct {

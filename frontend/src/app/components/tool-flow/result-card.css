@@ -86,6 +86,21 @@
   color: var(--danger);
 }
 
+.result-row-grouped {
+  align-items: center;
+}
+
+.result-row-grouped .result-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-show-folder {
+  flex: none;
+  white-space: nowrap;
+}
+
 .result-file {
   display: flex;
   flex-direction: column;

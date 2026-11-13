@@ -1,1118 +1,747 @@
-import { CommonModule } from '@angular/common';
-import {
-  Component,
-  ElementRef,
-  OnDestroy,
-  OnInit,
-  ViewChild,
-} from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Component, OnDestroy, computed, signal } from '@angular/core';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import {
   FolderOpen,
   LucideAngularModule,
   ShieldCheck,
+  TriangleAlert,
   X,
 } from 'lucide-angular';
-import * as pdfjsLib from 'pdfjs-dist';
-import { Subscription, Subject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
 
+import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
+import { FileQueue } from '../tool-flow/file-queue';
+import { OutputPlanCard } from '../tool-flow/output-plan-card';
+import { ResultCard } from '../tool-flow/result-card';
+import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
-  ExecutionPanelField,
-  ToolExecutionPanel,
-} from '../tool-execution-panel/tool-execution-panel';
-import {
+  FileInfoV1,
+  InspectFilesResponseV1,
   JobErrorV1,
+  JobExecutionStatusV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
-  PDFPreviewSourceResponseV1,
+  PlanJobResponseV1,
+  RunJobResponseV1,
   Wails,
 } from '../../services/wails';
-import { PdfRendererService } from '../../services/pdf-renderer.service';
+import {
+  fileExtension,
+  fileName,
+  formatBytes,
+  formatCount,
+} from '../../utils/format';
 
 const PDF_CROP_TOOL_ID = 'tool.pdf.crop';
 const POLLING_INTERVAL_MS = 1000;
-const JOB_MODE_SINGLE = 'single';
-const JOB_MODE_BATCH = 'batch';
+const PLAN_DEBOUNCE_MS = 250;
+const THUMBNAIL_SIZE = 160;
+const PREVIEW_SIZE = 220;
+const MAX_MARGIN_PT = 720;
 
-const CROP_PRESETS = ['none', 'small', 'medium', 'large', 'custom'] as const;
-type CropPreset = (typeof CROP_PRESETS)[number];
+const CROP_PRESET_SMALL = 'small';
+const CROP_PRESET_CUSTOM = 'custom';
 
-const PDF_WORKER_PUBLIC_URL = 'assets/pdfjs/pdf.worker.min.mjs';
-const PDF_CMAP_PUBLIC_URL = 'assets/pdfjs/cmaps/';
-const PDF_STANDARD_FONT_PUBLIC_URL = 'assets/pdfjs/standard_fonts/';
-type PDFPreviewStatus = 'empty' | 'loading' | 'ready' | 'error';
-type PDFPreviewStage =
-  | 'input'
-  | 'backend'
-  | 'worker-init'
-  | 'pdf-load'
-  | 'render'
-  | 'canvas';
+type CropPresetId = 'none' | 'small' | 'medium' | 'large' | 'custom';
 
-export type PDFPreviewErrorCode =
-  | 'PDF_PREVIEW_INVALID_PATH'
-  | 'PDF_PREVIEW_NOT_PDF'
-  | 'PDF_PREVIEW_TOO_LARGE'
-  | 'PDF_PREVIEW_READ_FAILED'
-  | 'PDF_PREVIEW_WORKER_MISCONFIG'
-  | 'PDF_PREVIEW_RENDER_FAILED';
+const TERMINAL_STATUSES = new Set<string>([
+  'success',
+  'failed',
+  'partial_success',
+  'cancelled',
+  'interrupted',
+]);
 
-class PDFPreviewRuntimeError extends Error {
-  constructor(
-    readonly code: PDFPreviewErrorCode,
-    message: string,
-    readonly stage: PDFPreviewStage,
-    readonly recoverable: boolean = true,
-  ) {
-    super(message);
-  }
+interface CropPreset {
+  id: CropPresetId;
+  label: string;
+  hint: string;
 }
 
-interface WorkerInitResult {
-  ok: true;
+const CROP_PRESETS: CropPreset[] = [
+  {
+    id: CROP_PRESET_SMALL,
+    label: 'Small',
+    hint: '10 pt on each side',
+  },
+  {
+    id: 'medium',
+    label: 'Medium',
+    hint: '20 pt on each side',
+  },
+  {
+    id: 'large',
+    label: 'Large',
+    hint: '40 pt on each side',
+  },
+  {
+    id: 'none',
+    label: 'None',
+    hint: 'Keep page size',
+  },
+  {
+    id: CROP_PRESET_CUSTOM,
+    label: 'Custom',
+    hint: 'Exact margins',
+  },
+];
+
+type PageSelectionMode = 'all' | 'ranges';
+const PAGE_SELECTION_ALL: PageSelectionMode = 'all';
+const PAGE_SELECTION_RANGES: PageSelectionMode = 'ranges';
+
+type MarginSide = 'top' | 'right' | 'bottom' | 'left';
+
+const MARGIN_SIDES: readonly MarginSide[] = ['top', 'right', 'bottom', 'left'];
+
+interface MarginField {
+  key: MarginSide;
+  label: string;
 }
 
-interface WorkerInitFailure {
-  ok: false;
-  error: PDFPreviewRuntimeError;
+const MARGIN_FIELDS: MarginField[] = [
+  { key: 'top', label: 'Top' },
+  { key: 'right', label: 'Right' },
+  { key: 'bottom', label: 'Bottom' },
+  { key: 'left', label: 'Left' },
+];
+
+type MarginValues = Record<MarginSide, string>;
+
+interface ResolvedMargins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
 }
 
-type EnsurePdfJsWorkerConfigured = () => WorkerInitResult | WorkerInitFailure;
+const EMPTY_MARGINS: MarginValues = {
+  top: '',
+  right: '',
+  bottom: '',
+  left: '',
+};
 
-function defaultEnsurePdfJsWorkerConfigured():
-  | WorkerInitResult
-  | WorkerInitFailure {
-  try {
-    if (typeof window === 'undefined') {
-      return {
-        ok: false,
-        error: new PDFPreviewRuntimeError(
-          'PDF_PREVIEW_WORKER_MISCONFIG',
-          'Preview worker is unavailable in this runtime.',
-          'worker-init',
-        ),
-      };
-    }
-
-    if (pdfjsLib.GlobalWorkerOptions.workerSrc !== PDF_WORKER_PUBLIC_URL) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_PUBLIC_URL;
-    }
-
-    if (pdfjsLib.GlobalWorkerOptions.workerSrc !== PDF_WORKER_PUBLIC_URL) {
-      return {
-        ok: false,
-        error: new PDFPreviewRuntimeError(
-          'PDF_PREVIEW_WORKER_MISCONFIG',
-          'Unable to configure PDF preview worker source.',
-          'worker-init',
-        ),
-      };
-    }
-
-    return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      error: new PDFPreviewRuntimeError(
-        'PDF_PREVIEW_WORKER_MISCONFIG',
-        error instanceof Error
-          ? error.message
-          : 'Unexpected worker initialization failure.',
-        'worker-init',
-      ),
-    };
-  }
-}
-
-let ensurePdfJsWorkerConfigured: EnsurePdfJsWorkerConfigured =
-  defaultEnsurePdfJsWorkerConfigured;
-
-export function setPreviewWorkerInitializerForTests(
-  initializer: EnsurePdfJsWorkerConfigured | null,
-): void {
-  ensurePdfJsWorkerConfigured =
-    initializer ?? defaultEnsurePdfJsWorkerConfigured;
+interface Notice {
+  tone: 'warning' | 'danger';
+  text: string;
 }
 
 @Component({
   selector: 'app-pdf-crop',
   standalone: true,
   imports: [
-    CommonModule,
-    ReactiveFormsModule,
     LucideAngularModule,
-    ToolExecutionPanel,
+    FileDrop,
+    FileQueue,
+    OutputPlanCard,
+    ResultCard,
+    JobCard,
   ],
   templateUrl: './pdf-crop.html',
   styleUrl: './pdf-crop.css',
 })
-export class PdfCrop implements OnInit, OnDestroy {
-  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
-  @ViewChild('previewCanvas') previewCanvas?: ElementRef<HTMLCanvasElement>;
+export class PdfCrop implements OnDestroy {
+  private readonly destroy$ = new Subject<void>();
 
   readonly shieldIcon = ShieldCheck;
-  readonly folderOpenIcon = FolderOpen;
+  readonly folderIcon = FolderOpen;
   readonly closeIcon = X;
+  readonly alertIcon = TriangleAlert;
 
-  readonly form;
-  readonly panelFields: ExecutionPanelField[] = [
-    {
-      controlName: 'pageSelection',
-      label: 'Page selection (optional)',
-      type: 'text',
-      placeholder: '1-3,5,8-10',
-      helpText:
-        'Optional. Format: N or A-B, comma-separated. If empty, all pages are cropped.',
-    },
-    {
-      controlName: 'cropPreset',
-      label: 'Crop preset',
-      type: 'select',
-      options: CROP_PRESETS.map((preset) => ({ value: preset, label: preset })),
-      helpText: 'Required. none | small | medium | large | custom.',
-    },
-    {
-      controlName: 'marginTop',
-      label: 'Margin top (pt)',
-      type: 'text',
-      placeholder: '10',
-      visibleModes: ['custom'],
-    },
-    {
-      controlName: 'marginRight',
-      label: 'Margin right (pt)',
-      type: 'text',
-      placeholder: '10',
-      visibleModes: ['custom'],
-    },
-    {
-      controlName: 'marginBottom',
-      label: 'Margin bottom (pt)',
-      type: 'text',
-      placeholder: '10',
-      visibleModes: ['custom'],
-    },
-    {
-      controlName: 'marginLeft',
-      label: 'Margin left (pt)',
-      type: 'text',
-      placeholder: '10',
-      visibleModes: ['custom'],
-    },
-  ];
+  readonly presets = CROP_PRESETS;
+  readonly marginFields = MARGIN_FIELDS;
 
-  readonly jobModes = [
-    { value: JOB_MODE_SINGLE, label: 'Single input' },
-    { value: JOB_MODE_BATCH, label: 'Batch multi-input' },
-  ];
+  readonly selectedPaths = signal<string[]>([]);
+  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly cropPreset = signal<CropPresetId>(CROP_PRESET_SMALL);
+  readonly margins = signal<MarginValues>({ ...EMPTY_MARGINS });
+  readonly pageSelectionMode = signal<PageSelectionMode>(PAGE_SELECTION_ALL);
+  readonly ranges = signal('');
+  readonly outputDir = signal('');
+  readonly previewThumbnail = signal('');
+  readonly previewName = signal('');
 
-  selectedInputPath = '';
-  selectedInputFile: File | null = null;
-  selectedInputPaths: string[] = [];
-  validationMessage = '';
-  submitMessage = '';
-  statusMessage = '';
-  pageSelectionLiveMessage = '';
-  jobResult: JobResultV1 | null = null;
-  isSubmitting = false;
-  isPolling = false;
-  activeJobId = '';
-  showRunSummaryConfirmation = false;
-  runSummarySnapshot: {
-    mode: string;
-    range: string;
-    cropPreset: string;
-    marginsSummary: string;
-    fileCount: number;
-    outputTarget: string;
-  } | null = null;
+  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly planError = signal<JobErrorV1 | null>(null);
+  readonly planLoading = signal(false);
 
-  previewStatus: PDFPreviewStatus = 'empty';
-  previewMessage = 'Select a PDF to render crop preview.';
-  previewOverlayStyle: Record<string, string> = {
-    left: '0px',
-    top: '0px',
-    width: '0px',
-    height: '0px',
-  };
+  readonly jobResult = signal<JobResultV1 | null>(null);
+  readonly jobError = signal<JobErrorV1 | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
+
+  readonly isSubmitting = signal(false);
+  readonly isPolling = signal(false);
+  readonly activeJobId = signal('');
+
+  readonly notice = signal<Notice | null>(null);
+  readonly actionMessage = signal('');
+
+  readonly isCustom = computed(
+    () => this.cropPreset() === CROP_PRESET_CUSTOM,
+  );
+
+  readonly isRangesMode = computed(
+    () => this.pageSelectionMode() === PAGE_SELECTION_RANGES,
+  );
+
+  readonly rangesRequired = computed(
+    () => this.isRangesMode() && this.ranges().trim().length === 0,
+  );
+
+  readonly activePresetLabel = computed(
+    () =>
+      this.presets.find((preset) => preset.id === this.cropPreset())?.label ??
+      'Small',
+  );
+
+  readonly marginsValidInput = computed(() =>
+    MARGIN_SIDES.every((side) => this.isValidMargin(this.margins()[side])),
+  );
+
+  /** Presets have no local margin to validate, so they are always valid. */
+  readonly marginsValid = computed(
+    () => !this.isCustom() || this.marginsValidInput(),
+  );
+
+  readonly marginsError = computed(() => {
+    if (!this.isCustom() || this.marginsValidInput()) {
+      return '';
+    }
+
+    const empty = MARGIN_SIDES.every(
+      (side) => this.margins()[side].trim().length === 0,
+    );
+    if (empty) {
+      return 'Enter all four margins to use Custom.';
+    }
+
+    return `Use numbers from 0 to ${MAX_MARGIN_PT} pt for every margin.`;
+  });
+
+  readonly primaryLabel = computed(() => {
+    if (this.isSubmitting() || this.isPolling()) {
+      return 'Cropping…';
+    }
+    const count = this.selectedPaths().length;
+    if (count === 0) {
+      return 'Crop PDFs';
+    }
+    return count === 1 ? 'Crop 1 PDF' : `Crop ${count} PDFs`;
+  });
+
+  readonly destinationLabel = computed(
+    () => this.outputDir().trim() || 'Next to each PDF',
+  );
+
+  readonly isDefaultDestination = computed(
+    () => this.outputDir().trim().length === 0,
+  );
+
+  readonly previewNote = computed(() => {
+    const name = this.previewName();
+    if (!name) {
+      return '';
+    }
+    return this.selectedPaths().length > 1
+      ? `First page of ${name}. The same crop applies to every PDF.`
+      : `First page of ${name}. The crop is applied when you run it.`;
+  });
+
+  readonly canRun = computed(
+    () =>
+      this.selectedPaths().length > 0 &&
+      !this.rangesRequired() &&
+      this.marginsValid() &&
+      !this.isSubmitting() &&
+      !this.isPolling(),
+  );
+
+  /** A failed plan means the request cannot run as typed. */
+  readonly planBlocked = computed(() => this.plan()?.success === false);
+
+  readonly actionHelper = computed(() => {
+    if (this.selectedPaths().length === 0) {
+      return 'Add at least one PDF to crop.';
+    }
+    if (this.rangesRequired()) {
+      return 'Enter the page ranges to crop.';
+    }
+    return this.marginsError();
+  });
+
+  readonly terminalJob = computed<JobResultV1 | null>(() => {
+    const job = this.jobResult();
+    return job && this.isTerminalStatus(job.status) ? job : null;
+  });
+
+  readonly showProgress = computed(() => {
+    const job = this.jobResult();
+    return !!job && !this.isTerminalStatus(job.status);
+  });
+
+  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
+    const error = this.jobError();
+    return error
+      ? describeToolError(error, 'The crop could not start.')
+      : null;
+  });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
-  private formSubscriptions = new Subscription();
-  private readonly destroy$ = new Subject<void>();
-  private previewMeta: {
-    pointsToPxScale: number;
-    canvasWidthPx: number;
-    canvasHeightPx: number;
-  } | null = null;
-  private previewRequestID = 0;
-  private activePreviewCancel: (() => void) | null = null;
+  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private planToken = 0;
+  private fileItemsGeneration = 0;
+  private previewGeneration = 0;
 
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly wailsService: Wails,
-    private readonly pdfRenderer: PdfRendererService,
-  ) {
-    this.form = this.fb.nonNullable.group({
-      jobMode: [JOB_MODE_SINGLE, Validators.required],
-      outputPath: ['', Validators.required],
-      outputDir: ['', Validators.required],
-      pageSelection: [''],
-      cropPreset: ['small' as CropPreset, Validators.required],
-      marginTop: [''],
-      marginRight: [''],
-      marginBottom: [''],
-      marginLeft: [''],
-    });
-  }
+  constructor(private readonly wailsService: Wails) {
+    this.wailsService.jobProgress$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.activeJobId()) {
+          return;
+        }
 
-  ngOnInit(): void {
-    this.formSubscriptions.add(
-      this.form.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => {
-        this.updateOverlayFromCurrentForm();
-      }),
-    );
+        const current = this.jobResult();
+        if (!current) {
+          return;
+        }
 
-    this.formSubscriptions.add(
-      this.form.controls.pageSelection.valueChanges
-        .pipe(takeUntil(this.destroy$))
-        .subscribe((value) => {
-          this.updatePageSelectionLiveMessage(value);
-        }),
-    );
+        this.jobResult.set({
+          ...current,
+          message: event.progress.message,
+          progress: event.progress,
+          // Wait for the status endpoint to settle the final items. The event
+          // can arrive before the job store has the complete result.
+          status: this.isTerminalStatus(event.status)
+            ? current.status
+            : (event.status as JobExecutionStatusV1),
+        });
 
-    this.updatePageSelectionLiveMessage(this.form.controls.pageSelection.value);
+        if (this.isTerminalStatus(event.status)) {
+          void this.pollJobStatus();
+        }
+      });
   }
 
   ngOnDestroy(): void {
     this.stopPolling();
-    this.cancelActivePreviewTask();
-    this.formSubscriptions.unsubscribe();
+    this.clearPlanRefreshTimer();
     this.destroy$.next();
     this.destroy$.complete();
   }
 
-  async selectPdfFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = (await this.wailsService.openFileDialog()).trim();
-    if (!selected) {
+  fileCountLabel(): string {
+    return formatCount(this.selectedPaths().length, 'PDF', 'PDFs');
+  }
+
+  onPathsSelected(paths: string[]): void {
+    const incoming = (Array.isArray(paths) ? paths : [])
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (incoming.length === 0) {
       return;
     }
 
-    if (this.currentJobMode() === JOB_MODE_BATCH) {
-      this.addBatchInputPath(selected);
-      this.validationMessage = 'PDF input selected.';
-      return;
-    }
-
-    this.selectedInputPaths = [];
-    this.selectedInputFile = null;
-    this.selectedInputPath = selected;
-    this.validationMessage = 'PDF input selected.';
-    void this.refreshPreview();
-  }
-
-  async selectMultiplePdfsFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = await this.wailsService.openMultipleFilesDialog();
-    if (!selected || selected.length === 0) {
-      return;
-    }
-
-    for (const rawPath of selected) {
-      this.addBatchInputPath(rawPath);
-    }
-    this.validationMessage = `${selected.length} PDF input(s) selected.`;
-  }
-
-  async selectOutputDirectory(): Promise<void> {
-    const selected = (await this.wailsService.openDirectoryDialog()).trim();
-    if (!selected) {
-      return;
-    }
-
-    this.form.patchValue({ outputDir: selected });
-    this.validationMessage = 'Output directory selected.';
-  }
-
-  triggerFileInput(): void {
-    this.fileInput?.nativeElement.click();
-  }
-
-  onFileInputChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const files = target?.files;
-    if (!files || files.length === 0) {
-      return;
-    }
-
-    if (this.currentJobMode() === JOB_MODE_BATCH) {
-      for (let i = 0; i < files.length; i++) {
-        const file = files.item(i);
-        if (!file) {
-          continue;
-        }
-        const filePath = (file as File & { path?: string }).path ?? file.name;
-        this.addBatchInputPath(filePath);
-      }
-      this.validationMessage = `${files.length} PDF input(s) selected.`;
-    } else {
-      this.selectedInputPaths = [];
-      const file = files.item(0);
-      if (!file) {
-        return;
-      }
-
-      const filePath = (file as File & { path?: string }).path ?? file.name;
-      this.selectedInputFile = file;
-      this.selectedInputPath = filePath.trim();
-      this.validationMessage = 'PDF input selected.';
-      void this.refreshPreview();
-    }
-
-    if (target) {
-      target.value = '';
-    }
-  }
-
-  clearSelectedInput(): void {
-    this.previewRequestID++;
-    this.cancelActivePreviewTask();
-    this.selectedInputFile = null;
-    this.selectedInputPath = '';
-    this.previewMeta = null;
-    this.previewStatus = 'empty';
-    this.previewMessage = 'Select a PDF to render crop preview.';
-    this.previewOverlayStyle = {
-      left: '0px',
-      top: '0px',
-      width: '0px',
-      height: '0px',
-    };
-  }
-
-  clearBatchInputs(): void {
-    this.selectedInputPaths = [];
-  }
-
-  removeBatchInput(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length) {
-      return;
-    }
-
-    this.selectedInputPaths = this.selectedInputPaths.filter(
-      (_, i) => i !== index,
-    );
-  }
-
-  onJobModeChange(): void {
-    if (this.currentJobMode() === JOB_MODE_BATCH) {
-      this.previewRequestID++;
-      this.cancelActivePreviewTask();
-      this.selectedInputFile = null;
-      this.selectedInputPath = '';
-      this.previewMeta = null;
-      this.previewStatus = 'empty';
-      this.previewMessage = 'Preview available only in single mode.';
-      return;
-    }
-
-    if (this.selectedInputPath.trim()) {
-      void this.refreshPreview();
-    }
-  }
-
-  async refreshPreview(): Promise<void> {
-    if (this.currentJobMode() === JOB_MODE_BATCH) {
-      this.previewRequestID++;
-      this.cancelActivePreviewTask();
-      this.previewMeta = null;
-      this.previewStatus = 'empty';
-      this.previewMessage = 'Preview available only in single mode.';
-      return;
-    }
-
-    const hasFile = !!this.selectedInputFile;
-    const selectedPath = this.selectedInputPath.trim();
-    if (!hasFile && !selectedPath) {
-      this.previewRequestID++;
-      this.cancelActivePreviewTask();
-      this.previewMeta = null;
-      this.previewStatus = 'empty';
-      this.previewMessage = 'Select a PDF to render crop preview.';
-      return;
-    }
-
-    this.cancelActivePreviewTask();
-    this.previewStatus = 'loading';
-    this.previewMessage = 'Rendering preview...';
-    const requestID = ++this.previewRequestID;
-
-    try {
-      const bytes = await this.loadPreviewPDFBytes();
-      if (requestID !== this.previewRequestID) {
-        return;
-      }
-
-      const workerInit = ensurePdfJsWorkerConfigured();
-      if (!workerInit.ok) {
-        throw workerInit.error;
-      }
-
-      const loadingTask = pdfjsLib.getDocument({
-        data: bytes,
-        cMapUrl: PDF_CMAP_PUBLIC_URL,
-        cMapPacked: true,
-        standardFontDataUrl: PDF_STANDARD_FONT_PUBLIC_URL,
-        useWorkerFetch: true,
-        isImageDecoderSupported: false,
-        isOffscreenCanvasSupported: false,
-      });
-      this.activePreviewCancel = () => {
-        void loadingTask.destroy();
-      };
-
-      const pdfDocument = await loadingTask.promise.catch((error: unknown) => {
-        throw this.wrapRenderError(error, 'pdf-load');
-      });
-      if (requestID !== this.previewRequestID) {
-        try {
-          await pdfDocument.destroy();
-        } catch {
-          // no-op
-        }
-        return;
-      }
-
-      const canvas = await this.waitForPreviewCanvas();
-      if (!canvas) {
-        try {
-          await pdfDocument.destroy();
-        } catch {
-          // no-op
-        }
-        throw new PDFPreviewRuntimeError(
-          'PDF_PREVIEW_RENDER_FAILED',
-          'Preview canvas is not available.',
-          'canvas',
-        );
-      }
-
-      const maxPreviewWidthPx = 560;
-      const page = await pdfDocument.getPage(1);
-      const baseViewport = page.getViewport({ scale: 1 });
-      const scale = Math.min(
-        1.6,
-        maxPreviewWidthPx / Math.max(baseViewport.width, 1),
-      );
-
-      await this.pdfRenderer.renderPageToCanvasWithFallback(
-        pdfDocument,
-        1,
-        canvas,
-        scale,
-        selectedPath,
-      );
-
-      if (requestID !== this.previewRequestID) {
-        try {
-          await pdfDocument.destroy();
-        } catch {
-          // no-op
-        }
-        return;
-      }
-
-      try {
-        await pdfDocument.destroy();
-      } catch {
-        // no-op
-      }
-
-      this.previewMeta = {
-        pointsToPxScale: scale,
-        canvasWidthPx: canvas.width,
-        canvasHeightPx: canvas.height,
-      };
-
-      this.previewStatus = 'ready';
-      this.previewMessage =
-        'Preview approximate — final crop may vary slightly by renderer.';
-      this.updateOverlayFromCurrentForm();
-    } catch (error) {
-      if (requestID !== this.previewRequestID) {
-        return;
-      }
-
-      this.previewMeta = null;
-      this.previewStatus = 'error';
-      const mapped = this.mapPreviewError(error);
-      this.previewMessage = mapped.message;
-      this.logPreviewIssue(mapped.code, mapped.stage, mapped.internalMessage);
-    } finally {
-      if (requestID === this.previewRequestID) {
-        this.activePreviewCancel = null;
-      }
-    }
-  }
-
-  async validate(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.validationMessage = localError;
-      return;
-    }
-
-    const response = await this.wailsService.validateJobV1(this.buildRequest());
-    this.validationMessage = response.valid
-      ? 'Validation OK. Ready to run crop.'
-      : this.mapJobError(response.error, response.message);
-  }
-
-  async run(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.submitMessage = localError;
-      return;
-    }
-
-    const request = this.buildRequest();
-
-    this.runSummarySnapshot = {
-      mode: request.mode,
-      range:
-        (request.options['pageSelection'] as string | undefined)?.trim() ||
-        'all pages',
-      cropPreset: String(request.options['cropPreset'] ?? ''),
-      marginsSummary: this.cropSummaryMarginsText(request),
-      fileCount: request.inputPaths.length,
-      outputTarget:
-        request.mode === JOB_MODE_SINGLE
-          ? String(request.options['outputPath'] ?? '')
-          : String(request.options['outputDir'] ?? ''),
-    };
-    this.showRunSummaryConfirmation = true;
-  }
-
-  cancelRunSummaryConfirmation(): void {
-    this.showRunSummaryConfirmation = false;
-    this.submitMessage = 'Execution canceled: summary was not confirmed.';
-  }
-
-  async confirmRunSummaryAndExecute(): Promise<void> {
-    if (!this.showRunSummaryConfirmation) {
-      return;
-    }
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.showRunSummaryConfirmation = false;
-      this.submitMessage = localError;
-      return;
-    }
-
-    const request = this.buildRequest();
-    this.showRunSummaryConfirmation = false;
-
-    this.isSubmitting = true;
-    this.statusMessage = '';
-    this.jobResult = null;
-
-    const validation = await this.wailsService.validateJobV1(request);
-    if (!validation.valid) {
-      this.submitMessage = this.mapJobError(
-        validation.error,
-        validation.message,
-      );
-      this.isSubmitting = false;
-      return;
-    }
-
-    const runResponse = await this.wailsService.runJobV1(request);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.submitMessage = this.mapJobError(
-        runResponse.error,
-        runResponse.message,
-      );
-      this.isSubmitting = false;
-      return;
-    }
-
-    this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
-    this.startPolling();
-    this.isSubmitting = false;
-  }
-
-  private cropSummaryMarginsText(request: JobRequestV1): string {
-    const preset = String(request.options['cropPreset'] ?? '').trim();
-    if (preset !== 'custom') {
-      return `preset=${preset}`;
-    }
-
-    const margins = request.options['margins'];
-    if (!margins || typeof margins !== 'object') {
-      return 'preset=custom (margins missing)';
-    }
-
-    const m = margins as Record<string, unknown>;
-    return `preset=custom (top=${m['top']}, right=${m['right']}, bottom=${m['bottom']}, left=${m['left']})`;
-  }
-
-  async cancel(): Promise<void> {
-    if (!this.activeJobId) {
-      return;
-    }
-
-    const response = await this.wailsService.cancelJobV1(this.activeJobId);
-    this.statusMessage = response.success
-      ? 'Cancel requested.'
-      : this.mapJobError(response.error, response.message);
-  }
-
-  private localValidationError(): string {
-    const mode = this.currentJobMode();
-    const inputPath = this.selectedInputPath.trim();
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const outputDir = this.form.controls.outputDir.value.trim();
-    const pageSelection = this.form.controls.pageSelection.value.trim();
-    const cropPreset = this.form.controls.cropPreset.value.trim();
-
-    if (mode !== JOB_MODE_SINGLE && mode !== JOB_MODE_BATCH) {
-      return `Unsupported mode: ${mode}`;
-    }
-
-    if (mode === JOB_MODE_SINGLE) {
-      if (!inputPath) {
-        return 'Select one input PDF file.';
-      }
-      if (!this.isPDFPath(inputPath)) {
-        return `Input file must be .pdf: ${inputPath}`;
-      }
-
-      if (!outputPath) {
-        return 'Output path is required.';
-      }
-      if (outputPath.endsWith('/') || outputPath.endsWith('\\')) {
-        return 'Output path must include a .pdf filename, not only a directory.';
-      }
-      if (!this.isPDFPath(outputPath)) {
-        return 'Output path must end with .pdf';
-      }
-    }
-
-    if (mode === JOB_MODE_BATCH) {
-      if (this.selectedInputPaths.length < 1) {
-        return 'Select at least one PDF input file for batch mode.';
-      }
-      for (const batchInputPath of this.selectedInputPaths) {
-        if (!this.isPDFPath(batchInputPath)) {
-          return `Input file must be .pdf: ${batchInputPath}`;
-        }
-      }
-      if (!outputDir) {
-        return 'Output directory is required for batch mode.';
-      }
-    }
-
-    if (!CROP_PRESETS.includes(cropPreset as CropPreset)) {
-      return `Unsupported cropPreset: ${cropPreset}`;
-    }
-
-    const pageSelectionError = this.localPageSelectionError(pageSelection);
-    if (pageSelectionError) {
-      return pageSelectionError;
-    }
-
-    if (cropPreset === 'custom') {
-      const marginKeys: Array<keyof typeof this.form.controls> = [
-        'marginTop',
-        'marginRight',
-        'marginBottom',
-        'marginLeft',
-      ];
-
-      for (const key of marginKeys) {
-        const value = this.form.controls[key].value.trim();
-        if (!value) {
-          return 'Custom cropPreset requires all margins (top/right/bottom/left).';
-        }
-
-        const parsed = Number.parseFloat(value);
-        if (!Number.isFinite(parsed)) {
-          return `Margin ${key} must be a valid number.`;
-        }
-        if (parsed < 0) {
-          return `Margin ${key} must be >= 0.`;
-        }
-      }
-    }
-
-    return '';
-  }
-
-  private async loadPreviewPDFBytes(): Promise<Uint8Array> {
-    if (this.selectedInputFile) {
-      const arrayBuffer = await this.selectedInputFile.arrayBuffer();
-      return new Uint8Array(arrayBuffer);
-    }
-
-    const inputPath = this.selectedInputPath.trim();
-    if (!inputPath) {
-      throw new PDFPreviewRuntimeError(
-        'PDF_PREVIEW_INVALID_PATH',
-        'No PDF selected for preview.',
-        'input',
-      );
-    }
-
-    const response = await this.wailsService.getPdfPreviewSource(inputPath);
-    if (!response.success || !response.dataBase64) {
-      throw this.mapBackendPreviewError(response);
-    }
-
-    return this.decodeBase64ToBytes(response.dataBase64);
-  }
-
-  private decodeBase64ToBytes(base64: string): Uint8Array {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
-  }
-
-  private mapBackendPreviewError(
-    response: PDFPreviewSourceResponseV1,
-  ): PDFPreviewRuntimeError {
-    const backendCode = response.error?.code;
-    const backendMessage = response.error?.message || response.message;
-
-    switch (backendCode) {
-      case 'PDF_PREVIEW_INVALID_PATH':
-        return new PDFPreviewRuntimeError(
-          'PDF_PREVIEW_INVALID_PATH',
-          backendMessage || 'Selected path is invalid.',
-          'backend',
-        );
-      case 'PDF_PREVIEW_NOT_PDF':
-        return new PDFPreviewRuntimeError(
-          'PDF_PREVIEW_NOT_PDF',
-          backendMessage || 'Preview supports only PDF files.',
-          'backend',
-        );
-      case 'PDF_PREVIEW_TOO_LARGE':
-        return new PDFPreviewRuntimeError(
-          'PDF_PREVIEW_TOO_LARGE',
-          backendMessage || 'PDF is too large for preview.',
-          'backend',
-        );
-      case 'PDF_PREVIEW_READ_FAILED':
-        return new PDFPreviewRuntimeError(
-          'PDF_PREVIEW_READ_FAILED',
-          backendMessage || 'Failed to read PDF preview source.',
-          'backend',
-        );
-      default:
-        return new PDFPreviewRuntimeError(
-          'PDF_PREVIEW_READ_FAILED',
-          backendMessage || 'Failed to load PDF bytes from backend.',
-          'backend',
-        );
-    }
-  }
-
-  private mapPreviewError(error: unknown): {
-    code: PDFPreviewErrorCode;
-    stage: PDFPreviewStage;
-    internalMessage: string;
-    message: string;
-  } {
-    const runtimeError = this.coercePreviewRuntimeError(error);
-
-    const uxMessage = this.mapPreviewErrorToMessage(runtimeError.code);
-    return {
-      code: runtimeError.code,
-      stage: runtimeError.stage,
-      internalMessage: runtimeError.message,
-      message: `Preview failed: ${uxMessage}`,
-    };
-  }
-
-  private coercePreviewRuntimeError(error: unknown): PDFPreviewRuntimeError {
-    if (error instanceof PDFPreviewRuntimeError) {
-      return error;
-    }
-
-    if (this.isPreviewRuntimeErrorLike(error)) {
-      return new PDFPreviewRuntimeError(error.code, error.message, error.stage);
-    }
-
-    return new PDFPreviewRuntimeError(
-      'PDF_PREVIEW_RENDER_FAILED',
-      error instanceof Error ? error.message : 'Unknown preview error.',
-      'render',
-    );
-  }
-
-  private isPreviewRuntimeErrorLike(
-    error: unknown,
-  ): error is {
-    code: PDFPreviewErrorCode;
-    stage: PDFPreviewStage;
-    message: string;
-  } {
-    if (!error || typeof error !== 'object') {
-      return false;
-    }
-
-    const candidate = error as Record<string, unknown>;
-    return (
-      typeof candidate['code'] === 'string' &&
-      typeof candidate['stage'] === 'string' &&
-      typeof candidate['message'] === 'string'
-    );
-  }
-
-  private mapPreviewErrorToMessage(code: PDFPreviewErrorCode): string {
-    switch (code) {
-      case 'PDF_PREVIEW_INVALID_PATH':
-        return 'Selected path is invalid. Re-select the input PDF.';
-      case 'PDF_PREVIEW_NOT_PDF':
-        return 'Only .pdf files are supported for preview.';
-      case 'PDF_PREVIEW_TOO_LARGE':
-        return 'File is too large for preview transfer. Use a smaller PDF.';
-      case 'PDF_PREVIEW_READ_FAILED':
-        return 'Could not read the PDF preview source. Check file access and retry.';
-      case 'PDF_PREVIEW_WORKER_MISCONFIG':
-        return 'Preview worker failed to initialize. Retry preview or restart the app.';
-      case 'PDF_PREVIEW_RENDER_FAILED':
-        return 'PDF renderer failed to generate preview. Retry preview.';
-      default:
-        return 'Unknown preview error.';
-    }
-  }
-
-  private wrapRenderError(
-    error: unknown,
-    stage: PDFPreviewStage,
-  ): PDFPreviewRuntimeError {
-    const message =
-      error instanceof Error ? error.message : 'Unknown rendering error.';
-
-    if (message.toLowerCase().includes('workersrc')) {
-      return new PDFPreviewRuntimeError(
-        'PDF_PREVIEW_WORKER_MISCONFIG',
-        message,
-        stage,
-      );
-    }
-
-    return new PDFPreviewRuntimeError(
-      'PDF_PREVIEW_RENDER_FAILED',
-      message,
-      stage,
-    );
-  }
-
-  private cancelActivePreviewTask(): void {
-    try {
-      this.activePreviewCancel?.();
-    } catch {
-      // no-op
-    }
-    this.activePreviewCancel = null;
-  }
-
-  private logPreviewIssue(
-    code: PDFPreviewErrorCode,
-    stage: PDFPreviewStage,
-    detail: string,
-  ): void {
-    console.warn('[pdf-crop.preview]', { code, stage, detail });
-  }
-
-  private async waitForPreviewCanvas(): Promise<HTMLCanvasElement | undefined> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const canvas = this.previewCanvas?.nativeElement;
-      if (canvas) {
-        return canvas;
-      }
-      await Promise.resolve();
-    }
-    return this.previewCanvas?.nativeElement;
-  }
-
-  private updateOverlayFromCurrentForm(): void {
-    if (!this.previewMeta) {
-      return;
-    }
-
-    const cropPreset = this.form.controls.cropPreset.value as CropPreset;
-    const margins = this.resolvePreviewMargins(cropPreset);
-
-    const overlay = computePreviewOverlayRect(
-      this.previewMeta.canvasWidthPx,
-      this.previewMeta.canvasHeightPx,
-      this.previewMeta.pointsToPxScale,
-      margins,
+    const rejected: string[] = [];
+    const duplicates: string[] = [];
+    const added: string[] = [];
+    const known = new Set(
+      this.selectedPaths().map((path) => this.pathKey(path)),
     );
 
-    this.previewOverlayStyle = {
-      left: `${overlay.left}px`,
-      top: `${overlay.top}px`,
-      width: `${overlay.width}px`,
-      height: `${overlay.height}px`,
-    };
-  }
-
-  private resolvePreviewMargins(cropPreset: CropPreset): CropMargins {
-    if (cropPreset === 'custom') {
-      return {
-        top: this.parsePreviewMargin(this.form.controls.marginTop.value),
-        right: this.parsePreviewMargin(this.form.controls.marginRight.value),
-        bottom: this.parsePreviewMargin(this.form.controls.marginBottom.value),
-        left: this.parsePreviewMargin(this.form.controls.marginLeft.value),
-      };
-    }
-
-    switch (cropPreset) {
-      case 'none':
-        return { top: 0, right: 0, bottom: 0, left: 0 };
-      case 'small':
-        return { top: 10, right: 10, bottom: 10, left: 10 };
-      case 'medium':
-        return { top: 20, right: 20, bottom: 20, left: 20 };
-      case 'large':
-        return { top: 40, right: 40, bottom: 40, left: 40 };
-      default:
-        return { top: 0, right: 0, bottom: 0, left: 0 };
-    }
-  }
-
-  private parsePreviewMargin(raw: string): number {
-    const parsed = Number.parseFloat(raw.trim());
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return 0;
-    }
-    return parsed;
-  }
-
-  private buildRequest(): JobRequestV1 {
-    const jobMode = this.currentJobMode();
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const outputDir = this.form.controls.outputDir.value.trim();
-    const pageSelection = this.form.controls.pageSelection.value.trim();
-    const cropPreset = this.form.controls.cropPreset.value.trim();
-
-    const isSingle = jobMode === JOB_MODE_SINGLE;
-
-    return {
-      toolId: PDF_CROP_TOOL_ID,
-      mode: isSingle ? JOB_MODE_SINGLE : JOB_MODE_BATCH,
-      inputPaths: isSingle
-        ? [this.selectedInputPath.trim()]
-        : this.selectedInputPaths.map((path) => path.trim()),
-      outputDir: isSingle ? this.outputDirFromPath(outputPath) : outputDir,
-      options: {
-        ...(isSingle ? { outputPath } : { outputDir }),
-        cropPreset,
-        ...(pageSelection ? { pageSelection } : {}),
-        ...(cropPreset === 'custom'
-          ? {
-              margins: {
-                top: Number.parseFloat(
-                  this.form.controls.marginTop.value.trim(),
-                ),
-                right: Number.parseFloat(
-                  this.form.controls.marginRight.value.trim(),
-                ),
-                bottom: Number.parseFloat(
-                  this.form.controls.marginBottom.value.trim(),
-                ),
-                left: Number.parseFloat(
-                  this.form.controls.marginLeft.value.trim(),
-                ),
-              },
-            }
-          : {}),
-      },
-    };
-  }
-
-  private outputDirFromPath(outputPath: string): string {
-    const lastSlash = Math.max(
-      outputPath.lastIndexOf('/'),
-      outputPath.lastIndexOf('\\'),
-    );
-    if (lastSlash <= 0) {
-      return '';
-    }
-    return outputPath.slice(0, lastSlash);
-  }
-
-  private localPageSelectionError(pageSelection: string): string {
-    if (!pageSelection) {
-      return '';
-    }
-
-    const rawTokens = pageSelection.split(',');
-    if (rawTokens.some((token) => token.trim().length === 0)) {
-      return 'Page selection format is invalid (empty token). Use: 1-3,5,8-10';
-    }
-
-    const single = /^\d+$/;
-    const span = /^(\d+)\s*-\s*(\d+)$/;
-
-    for (const rawToken of rawTokens) {
-      const token = rawToken.trim();
-      if (single.test(token)) {
-        if (Number.parseInt(token, 10) <= 0) {
-          return `Page selection must be positive: ${token}`;
-        }
+    for (const path of incoming) {
+      if (fileExtension(path).toLowerCase() !== 'pdf') {
+        rejected.push(path);
         continue;
       }
 
-      const match = token.match(span);
-      if (!match) {
-        return `Page selection format is invalid: ${token}. Use N or A-B`;
+      const key = this.pathKey(path);
+      if (known.has(key)) {
+        duplicates.push(path);
+        continue;
       }
 
-      const start = Number.parseInt(match[1], 10);
-      const end = Number.parseInt(match[2], 10);
-      if (start <= 0 || end <= 0) {
-        return `Page selection must be positive: ${token}`;
-      }
-      if (start > end) {
-        return `Page selection start must be <= end: ${token}`;
-      }
+      known.add(key);
+      added.push(path);
     }
 
-    return '';
+    this.notice.set(this.intakeNotice(rejected, duplicates));
+
+    if (added.length === 0) {
+      return;
+    }
+
+    this.actionMessage.set('');
+    this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncFileItems();
+    void this.refreshPlan();
   }
 
-  private updatePageSelectionLiveMessage(rawPageSelection: string): void {
-    const pageSelection = rawPageSelection.trim();
-    this.pageSelectionLiveMessage = this.localPageSelectionError(pageSelection);
+  async chooseFiles(): Promise<void> {
+    const paths = await this.wailsService.openMultipleFilesDialog();
+    if (paths.length > 0) {
+      this.onPathsSelected(paths);
+    }
   }
 
-  private isPDFPath(path: string): boolean {
-    return path.toLowerCase().endsWith('.pdf');
+  clear(): void {
+    if (this.selectedPaths().length === 0) {
+      return;
+    }
+    this.selectedPaths.set([]);
+    this.notice.set(null);
+    this.actionMessage.set('');
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  removeFile(path: string): void {
+    const next = this.selectedPaths().filter((candidate) => candidate !== path);
+    if (next.length === this.selectedPaths().length) {
+      return;
+    }
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  selectPreset(presetId: CropPresetId): void {
+    if (presetId === this.cropPreset()) {
+      return;
+    }
+    this.cropPreset.set(presetId);
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  selectPageMode(mode: PageSelectionMode): void {
+    if (mode === this.pageSelectionMode()) {
+      return;
+    }
+    this.pageSelectionMode.set(mode);
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  onRangesInput(event: Event): void {
+    const value = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.ranges.set(value);
+    this.actionMessage.set('');
+
+    if (value.trim().length === 0) {
+      this.clearPlanRefreshTimer();
+      this.clearPlanState();
+      return;
+    }
+
+    this.schedulePlanRefresh();
+  }
+
+  onMarginInput(side: MarginSide, event: Event): void {
+    const value = (event.target as HTMLInputElement | null)?.value ?? '';
+    const current = this.margins();
+    this.margins.set({
+      top: side === 'top' ? value : current.top,
+      right: side === 'right' ? value : current.right,
+      bottom: side === 'bottom' ? value : current.bottom,
+      left: side === 'left' ? value : current.left,
+    });
+    this.actionMessage.set('');
+
+    if (!this.marginsValidInput()) {
+      this.clearPlanRefreshTimer();
+      this.clearPlanState();
+      return;
+    }
+
+    this.schedulePlanRefresh();
+  }
+
+  async chooseOutputFolder(): Promise<void> {
+    const directory = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!directory) {
+      return;
+    }
+    this.outputDir.set(directory);
+    this.actionMessage.set('');
+    await this.refreshPlan();
+  }
+
+  useOriginalFolders(): void {
+    if (this.outputDir() === '') {
+      return;
+    }
+    this.outputDir.set('');
+    void this.refreshPlan();
+  }
+
+  async run(): Promise<void> {
+    if (!this.canRun() || this.planBlocked()) {
+      return;
+    }
+
+    this.clearPlanRefreshTimer();
+    this.actionMessage.set('');
+
+    // The plan is the source of truth for destinations, so it is always
+    // refreshed with the current inputs before starting the job.
+    const planned = await this.refreshPlan();
+    if (!planned) {
+      return;
+    }
+
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(true);
+
+    const response: RunJobResponseV1 = await this.wailsService
+      .runJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The crop could not start.',
+        jobId: '',
+        status: 'failed' as const,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: 'The crop could not start.',
+        },
+      }));
+    if (!response.success || !response.jobId) {
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: response.message || 'The crop could not start.',
+        },
+      );
+      this.isSubmitting.set(false);
+      return;
+    }
+
+    const total = this.selectedPaths().length;
+    this.activeJobId.set(response.jobId);
+    this.jobResult.set({
+      jobId: response.jobId,
+      success: false,
+      message: 'Waiting to start',
+      toolId: PDF_CROP_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total,
+        stage: 'queued',
+        message: 'Waiting to start',
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isSubmitting.set(false);
+    this.isPolling.set(true);
+    this.startPolling();
+  }
+
+  async cancel(): Promise<void> {
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      return;
+    }
+    const response = await this.wailsService.cancelJobV1(jobId);
+    if (!response.success) {
+      this.actionMessage.set(
+        response.message || 'The job could not be cancelled.',
+      );
+    }
+  }
+
+  async onOpen(path: string): Promise<void> {
+    const response = await this.wailsService.openPath(path);
+    this.actionMessage.set(
+      response.success ? '' : response.message || 'The file could not be opened.',
+    );
+  }
+
+  async onReveal(path: string): Promise<void> {
+    const response = await this.wailsService.revealInFolder(path);
+    this.actionMessage.set(
+      response.success
+        ? ''
+        : response.message || 'The folder could not be opened.',
+    );
+  }
+
+  /** Retries only the failed inputs with the same preset, ranges and folder. */
+  async retryFailed(): Promise<void> {
+    const failed = (this.jobResult()?.items ?? [])
+      .filter((item) => !item.success)
+      .map((item) => item.inputPath)
+      .filter((path) => path.length > 0);
+
+    if (failed.length === 0) {
+      return;
+    }
+
+    this.selectedPaths.set([...new Set(failed)]);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+    this.syncFileItems();
+
+    await this.run();
+  }
+
+  reset(): void {
+    this.stopPolling();
+    this.clearPlanRefreshTimer();
+    this.planToken += 1;
+    this.fileItemsGeneration += 1;
+    this.previewGeneration += 1;
+
+    this.selectedPaths.set([]);
+    this.fileItems.set([]);
+    this.previewThumbnail.set('');
+    this.previewName.set('');
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(false);
+    this.activeJobId.set('');
+    this.notice.set(null);
+    this.actionMessage.set('');
+  }
+
+  private buildRequest(): JobRequestV1 {
+    const paths = this.selectedPaths();
+    const preset = this.cropPreset();
+    const pageSelection =
+      this.pageSelectionMode() === PAGE_SELECTION_RANGES
+        ? this.ranges().trim()
+        : '';
+
+    const options: Record<string, unknown> = {
+      cropPreset: preset,
+      pageSelection,
+    };
+
+    if (preset === CROP_PRESET_CUSTOM && this.marginsValidInput()) {
+      options['margins'] = this.resolvedMargins();
+    }
+
+    return {
+      toolId: PDF_CROP_TOOL_ID,
+      mode: paths.length > 1 ? 'batch' : 'single',
+      inputPaths: [...paths],
+      outputDir: this.outputDir(),
+      options,
+    };
+  }
+
+  private resolvedMargins(): ResolvedMargins {
+    const values = this.margins();
+    return {
+      top: Number(values.top.trim()),
+      right: Number(values.right.trim()),
+      bottom: Number(values.bottom.trim()),
+      left: Number(values.left.trim()),
+    };
+  }
+
+  private isValidMargin(raw: string): boolean {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      return false;
+    }
+    const value = Number(trimmed);
+    return Number.isFinite(value) && value >= 0 && value <= MAX_MARGIN_PT;
+  }
+
+  private async refreshPlan(): Promise<boolean> {
+    if (
+      this.selectedPaths().length === 0 ||
+      this.rangesRequired() ||
+      !this.marginsValid()
+    ) {
+      this.clearPlanState();
+      return false;
+    }
+
+    const token = (this.planToken += 1);
+    this.planLoading.set(true);
+    this.plan.set(null);
+    this.planError.set(null);
+
+    const response: PlanJobResponseV1 = await this.wailsService
+      .planJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The output could not be planned.',
+        outputs: [],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PLAN_JOB_FAILED',
+          message: 'The output could not be planned.',
+        },
+      }));
+    if (token !== this.planToken) {
+      return false;
+    }
+
+    this.planLoading.set(false);
+
+    if (response.success && !response.error) {
+      this.plan.set(response);
+      return true;
+    }
+
+    const error: JobErrorV1 = response.error ?? {
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PLAN_JOB_FAILED',
+      message: response.message || 'The output could not be planned.',
+    };
+    // Keep the failed plan so the shared plan card can show the range or
+    // destination problem next to the destination it belongs to.
+    this.plan.set({ ...response, success: false, error });
+    this.planError.set(error);
+    return false;
+  }
+
+  private clearPlanState(): void {
+    this.planToken += 1;
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+  }
+
+  private schedulePlanRefresh(): void {
+    this.clearPlanRefreshTimer();
+    this.planRefreshTimer = setTimeout(() => {
+      this.planRefreshTimer = null;
+      void this.refreshPlan();
+    }, PLAN_DEBOUNCE_MS);
+  }
+
+  private clearPlanRefreshTimer(): void {
+    if (this.planRefreshTimer) {
+      clearTimeout(this.planRefreshTimer);
+      this.planRefreshTimer = null;
+    }
   }
 
   private startPolling(): void {
     this.stopPolling();
-    this.isPolling = true;
+    this.isPolling.set(true);
+    void this.pollJobStatus();
     this.pollingTimer = setInterval(() => {
       void this.pollJobStatus();
     }, POLLING_INTERVAL_MS);
-    void this.pollJobStatus();
   }
 
   private stopPolling(): void {
@@ -1120,127 +749,234 @@ export class PdfCrop implements OnInit, OnDestroy {
       clearInterval(this.pollingTimer);
       this.pollingTimer = null;
     }
-    this.isPolling = false;
+    this.isPolling.set(false);
   }
 
   private async pollJobStatus(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       this.stopPolling();
       return;
     }
 
-    const response: JobStatusResponseV1 =
-      await this.wailsService.getJobStatusV1(this.activeJobId);
+    const response: JobStatusResponseV1 = await this.wailsService
+      .getJobStatusV1(jobId)
+      .catch(() => ({
+        success: false,
+        message: 'The job status could not be read.',
+        found: false,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_FAILED',
+          message: 'The job status could not be read.',
+        },
+      }));
+    if (this.activeJobId() !== jobId) {
+      return;
+    }
+
     if (!response.found || !response.result) {
-      this.statusMessage = this.mapJobError(response.error, response.message);
       this.stopPolling();
+      this.activeJobId.set('');
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_MISSING',
+          message: response.message || 'The job status could not be read.',
+        },
+      );
       return;
     }
 
-    this.jobResult = response.result;
-    this.statusMessage = `${response.result.status}: ${
-      response.result.error
-        ? this.mapJobError(response.result.error, response.result.message)
-        : response.result.message
-    }`;
-
-    if (
-      response.result.status === 'success' ||
-      response.result.status === 'failed' ||
-      response.result.status === 'partial_success' ||
-      response.result.status === 'cancelled' ||
-      response.result.status === 'interrupted'
-    ) {
+    this.jobResult.set(response.result);
+    if (this.isTerminalStatus(response.result.status)) {
       this.stopPolling();
-      this.activeJobId = '';
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
     }
   }
 
-  private clearMessages(): void {
-    this.validationMessage = '';
-    this.submitMessage = '';
-  }
-
-  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
-    if (!error) {
-      return fallback;
-    }
-
-    switch (error.code) {
-      case 'VALIDATION_INVALID_INPUT':
-        return `Validation: ${error.message}`;
-      case 'RUNTIME_DEP_MISSING':
-        return `Runtime dependency missing.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
-      case 'EXEC_IO_TRANSIENT':
-        return `Crop execution failed.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
-      case 'EXEC_TIMEOUT_TRANSIENT':
-        return `Crop execution timeout.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
-      case 'UNSUPPORTED_FORMAT':
-        return `Unsupported format.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
-      case 'CANCELLED_BY_USER':
-        return 'Job was canceled.';
-      default:
-        return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
-    }
-  }
-
-  private currentJobMode(): string {
-    return this.form.controls.jobMode.value.trim();
-  }
-
-  private addBatchInputPath(rawPath: string): void {
-    const inputPath = rawPath.trim();
-    if (!inputPath) {
+  private async loadOutputInfos(): Promise<void> {
+    const paths = this.collectOutputPaths();
+    if (paths.length === 0) {
+      this.outputInfos.set({});
       return;
     }
 
-    if (this.selectedInputPaths.includes(inputPath)) {
+    const response: InspectFilesResponseV1 = await this.wailsService
+      .inspectFilesV1(paths)
+      .catch(() => ({
+        success: false,
+        message: 'File sizes could not be read.',
+        files: [],
+      }));
+    if (!response.success) {
+      this.outputInfos.set({});
       return;
     }
 
-    this.selectedInputPaths = [...this.selectedInputPaths, inputPath];
-  }
-}
-
-interface CropMargins {
-  top: number;
-  right: number;
-  bottom: number;
-  left: number;
-}
-
-export interface PreviewOverlayRect {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-export function computePreviewOverlayRect(
-  canvasWidthPx: number,
-  canvasHeightPx: number,
-  pointsToPxScale: number,
-  marginsPt: CropMargins,
-): PreviewOverlayRect {
-  const clampPx = (value: number): number => {
-    if (!Number.isFinite(value) || value < 0) {
-      return 0;
+    const infos: Record<string, FileInfoV1> = {};
+    for (const info of response.files) {
+      if (info.path) {
+        infos[info.path] = info;
+      }
     }
-    return Math.round(value * 100) / 100;
-  };
+    this.outputInfos.set(infos);
+  }
 
-  const left = clampPx(marginsPt.left * pointsToPxScale);
-  const right = clampPx(marginsPt.right * pointsToPxScale);
-  const top = clampPx(marginsPt.top * pointsToPxScale);
-  const bottom = clampPx(marginsPt.bottom * pointsToPxScale);
+  private collectOutputPaths(): string[] {
+    const paths = new Set<string>();
+    for (const item of this.jobResult()?.items ?? []) {
+      if (!item.success) {
+        continue;
+      }
 
-  const width = Math.max(0, clampPx(canvasWidthPx - left - right));
-  const height = Math.max(0, clampPx(canvasHeightPx - top - bottom));
+      const outputs = (item.outputs ?? []).filter((path) => !!path);
+      if (outputs.length > 0) {
+        for (const output of outputs) {
+          paths.add(output);
+        }
+      } else if (item.outputPath) {
+        paths.add(item.outputPath);
+      }
+    }
+    return [...paths];
+  }
 
-  return {
-    left,
-    top,
-    width,
-    height,
-  };
+  private syncFileItems(): void {
+    const paths = this.selectedPaths();
+    const generation = (this.fileItemsGeneration += 1);
+    const existing = new Map(this.fileItems().map((item) => [item.path, item]));
+    this.fileItems.set(
+      paths.map(
+        (path) => existing.get(path) ?? { path, name: fileName(path) },
+      ),
+    );
+
+    this.refreshPreview();
+
+    if (paths.length > 0) {
+      void this.enrichFileItems(paths, generation);
+    }
+  }
+
+  private async enrichFileItems(
+    paths: string[],
+    generation: number,
+  ): Promise<void> {
+    try {
+      const response = await this.wailsService.inspectFilesV1(paths);
+      if (generation === this.fileItemsGeneration && response.success) {
+        const infos = new Map<string, FileInfoV1>();
+        for (const info of response.files) {
+          infos.set(info.path, info);
+        }
+
+        this.fileItems.update((items) =>
+          items.map((item) => {
+            const info = infos.get(item.path);
+            const meta = info ? this.describeFileInfo(info) : '';
+            return meta ? { ...item, meta } : item;
+          }),
+        );
+      }
+    } catch {
+      // Inspection is optional: the queue keeps the file name and path.
+    }
+
+    if (generation !== this.fileItemsGeneration) {
+      return;
+    }
+
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
+  }
+
+  private refreshPreview(): void {
+    const generation = (this.previewGeneration += 1);
+    const first = this.selectedPaths()[0] ?? '';
+    this.previewThumbnail.set('');
+    this.previewName.set(first ? fileName(first) : '');
+
+    if (!first) {
+      return;
+    }
+
+    void this.wailsService
+      .getThumbnail(first, PREVIEW_SIZE)
+      .then((thumbnailUrl) => {
+        if (thumbnailUrl && generation === this.previewGeneration) {
+          this.previewThumbnail.set(thumbnailUrl);
+        }
+      })
+      .catch(() => {
+        // The preview is optional; the flow never waits for it.
+      });
+  }
+
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the placeholder icon.
+      });
+  }
+
+  private describeFileInfo(info: FileInfoV1): string {
+    const parts: string[] = [];
+    if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
+      parts.push(formatBytes(info.sizeBytes));
+    }
+    if (typeof info.pageCount === 'number' && info.pageCount > 0) {
+      parts.push(formatCount(info.pageCount, 'page'));
+    }
+    return parts.join(' · ');
+  }
+
+  private intakeNotice(rejected: string[], duplicates: string[]): Notice | null {
+    const parts: string[] = [];
+
+    if (rejected.length === 1) {
+      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a PDF.`);
+    } else if (rejected.length > 1) {
+      const names = rejected.map((path) => fileName(path)).join(', ');
+      parts.push(`${names} weren't added because they aren't PDFs.`);
+    }
+
+    if (duplicates.length === 1) {
+      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+    } else if (duplicates.length > 1) {
+      parts.push(`${duplicates.length} PDFs are already in the queue.`);
+    }
+
+    return parts.length > 0
+      ? { tone: 'warning', text: parts.join(' ') }
+      : null;
+  }
+
+  /**
+   * Windows and UNC paths are case-insensitive, so the same file dropped with
+   * different casing is still a duplicate there.
+   */
+  private pathKey(path: string): string {
+    const normalized = path.trim().replace(/\\/g, '/');
+    return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//')
+      ? normalized.toLowerCase()
+      : normalized;
+  }
+
+  private isTerminalStatus(status: string): boolean {
+    return TERMINAL_STATUSES.has(status);
+  }
 }

@@ -23,40 +23,59 @@
       @if (outputRows().length > 0) {
         <ul class="result-list" aria-label="Converted files">
           @for (row of outputRows(); track row.path) {
-            <li class="result-row">
+            <li class="result-row" [class.result-row-grouped]="row.grouped">
               <span class="result-file">
                 <span class="result-name" [title]="row.path">{{ row.name }}</span>
-                @if (row.meta) {
+                @if (row.grouped) {
+                  <span class="result-meta mono" [title]="row.path">{{ row.path }}</span>
+                } @else if (row.meta) {
                   <span class="result-meta mono">{{ row.meta }}</span>
                 }
               </span>
               <span class="result-actions">
-                <button
-                  type="button"
-                  class="icon-btn result-open"
-                  [attr.aria-label]="'Open ' + row.name"
-                  (click)="open.emit(row.path)"
-                >
-                  <lucide-icon
-                    [img]="externalIcon"
-                    [size]="16"
-                    [strokeWidth]="1.75"
-                    aria-hidden="true"
-                  ></lucide-icon>
-                </button>
-                <button
-                  type="button"
-                  class="icon-btn result-reveal"
-                  [attr.aria-label]="'Show ' + row.name + ' in folder'"
-                  (click)="reveal.emit(row.path)"
-                >
-                  <lucide-icon
-                    [img]="folderIcon"
-                    [size]="16"
-                    [strokeWidth]="1.75"
-                    aria-hidden="true"
-                  ></lucide-icon>
-                </button>
+                @if (row.grouped) {
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm result-show-folder result-reveal"
+                    [attr.aria-label]="'Show ' + row.name + ' in folder'"
+                    (click)="reveal.emit(row.path)"
+                  >
+                    <lucide-icon
+                      [img]="folderIcon"
+                      [size]="14"
+                      [strokeWidth]="1.75"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                    Show in folder
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    class="icon-btn result-open"
+                    [attr.aria-label]="'Open ' + row.name"
+                    (click)="open.emit(row.path)"
+                  >
+                    <lucide-icon
+                      [img]="externalIcon"
+                      [size]="16"
+                      [strokeWidth]="1.75"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-btn result-reveal"
+                    [attr.aria-label]="'Show ' + row.name + ' in folder'"
+                    (click)="reveal.emit(row.path)"
+                  >
+                    <lucide-icon
+                      [img]="folderIcon"
+                      [size]="16"
+                      [strokeWidth]="1.75"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                  </button>
+                }
               </span>
             </li>
           }

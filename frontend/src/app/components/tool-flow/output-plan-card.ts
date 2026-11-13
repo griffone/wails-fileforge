@@ -1,11 +1,16 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { FolderOpen, LucideAngularModule, TriangleAlert } from 'lucide-angular';
+import {
+  Folder,
+  FolderOpen,
+  LucideAngularModule,
+  TriangleAlert,
+} from 'lucide-angular';
 import {
   PlannedOutputV1,
   PlanJobResponseV1,
 } from '../../services/wails';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
-import { fileDir, fileName } from '../../utils/format';
+import { fileDir, fileName, formatCount } from '../../utils/format';
 
 const VISIBLE_OUTPUT_LIMIT = 4;
 
@@ -25,6 +30,7 @@ export class OutputPlanCard {
   @Output() changeDestination = new EventEmitter<void>();
 
   readonly folderIcon = FolderOpen;
+  readonly outputFolderIcon = Folder;
   readonly alertIcon = TriangleAlert;
 
   visibleOutputs(): PlannedOutputV1[] {
@@ -56,11 +62,36 @@ export class OutputPlanCard {
     return this.plan?.error ? describeToolError(this.plan.error) : null;
   }
 
+  isDirectory(output: PlannedOutputV1): boolean {
+    return output.outputKind === 'directory';
+  }
+
   outputName(output: PlannedOutputV1): string {
     return fileName(output.outputPath);
   }
 
   outputDirectory(output: PlannedOutputV1): string {
     return fileDir(output.outputPath);
+  }
+
+  /** `N files` when the plan knows how many files the folder will contain. */
+  outputCountLabel(output: PlannedOutputV1): string {
+    const count = output.outputCount ?? 0;
+    return count > 0 ? formatCount(count, 'file') : '';
+  }
+
+  /**
+   * A single planned folder is the whole story, so it gets the primary line
+   * instead of a one-item list that repeats the destination.
+   */
+  primaryDirectory(): PlannedOutputV1 | null {
+    const outputs = this.plan?.outputs ?? [];
+    return outputs.length === 1 && this.isDirectory(outputs[0])
+      ? outputs[0]
+      : null;
+  }
+
+  listedOutputs(): PlannedOutputV1[] {
+    return this.primaryDirectory() ? [] : this.visibleOutputs();
   }
 }

@@ -1,568 +1,574 @@
-import { CommonModule } from '@angular/common';
-import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
-import { FEATURE_FLAGS } from '../../config/feature-flags';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Component, OnDestroy, computed, signal } from '@angular/core';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import {
   FolderOpen,
   LucideAngularModule,
   ShieldCheck,
+  TriangleAlert,
   X,
 } from 'lucide-angular';
-import { Subject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+
+import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
+import { FileQueue } from '../tool-flow/file-queue';
+import { OutputPlanCard } from '../tool-flow/output-plan-card';
+import { ResultCard } from '../tool-flow/result-card';
+import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
-  ExecutionPanelField,
-  ToolExecutionPanel,
-} from '../tool-execution-panel/tool-execution-panel';
-import { PdfRendererService } from '../../services/pdf-renderer.service';
-import {
+  FileInfoV1,
+  InspectFilesResponseV1,
   JobErrorV1,
+  JobExecutionStatusV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
+  PlanJobResponseV1,
+  RunJobResponseV1,
   Wails,
 } from '../../services/wails';
+import {
+  fileExtension,
+  fileName,
+  formatBytes,
+  formatCount,
+} from '../../utils/format';
 
 const PDF_SPLIT_TOOL_ID = 'tool.pdf.split';
 const STRATEGY_EVERY_PAGE = 'every_page';
 const STRATEGY_RANGES = 'ranges';
-const JOB_MODE_SINGLE = 'single';
-const JOB_MODE_BATCH = 'batch';
 const POLLING_INTERVAL_MS = 1000;
-const SOURCE_PREVIEW_MAX_WIDTH_PX = 560;
-const BLOCK_PREVIEW_MAX_WIDTH_PX = 240;
-const PREVIEW_SAMPLE_SCALE = 0.18;
+const PLAN_DEBOUNCE_MS = 250;
+const THUMBNAIL_SIZE = 160;
+// Matches ResultCard: larger sets collapse into one folder summary row.
+const GROUP_OUTPUT_LIMIT = 4;
 
-interface SplitPreviewBlock {
-  key: string;
+const TERMINAL_STATUSES = new Set<string>([
+  'success',
+  'failed',
+  'partial_success',
+  'cancelled',
+  'interrupted',
+]);
+
+type SplitStrategy = typeof STRATEGY_EVERY_PAGE | typeof STRATEGY_RANGES;
+
+interface StrategyPreset {
+  id: SplitStrategy;
   label: string;
-  pageRange: string;
-  pageNumber: number;
+  hint: string;
 }
 
-interface PreviewPdfDocument {
-  numPages: number;
-  getPage(pageNumber: number): Promise<any>;
-  destroy?(): Promise<void>;
+const SPLIT_STRATEGIES: StrategyPreset[] = [
+  {
+    id: STRATEGY_EVERY_PAGE,
+    label: 'Every page',
+    hint: 'One PDF for each page.',
+  },
+  {
+    id: STRATEGY_RANGES,
+    label: 'Page ranges',
+    hint: 'Split into the ranges you type.',
+  },
+];
+
+interface Notice {
+  tone: 'warning' | 'danger';
+  text: string;
 }
 
 @Component({
   selector: 'app-pdf-split',
   standalone: true,
   imports: [
-    CommonModule,
-    ReactiveFormsModule,
     LucideAngularModule,
-    ToolExecutionPanel,
+    FileDrop,
+    FileQueue,
+    OutputPlanCard,
+    ResultCard,
+    JobCard,
   ],
   templateUrl: './pdf-split.html',
   styleUrl: './pdf-split.css',
 })
 export class PdfSplit implements OnDestroy {
   private readonly destroy$ = new Subject<void>();
-  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
 
   readonly shieldIcon = ShieldCheck;
-  readonly folderOpenIcon = FolderOpen;
+  readonly folderIcon = FolderOpen;
   readonly closeIcon = X;
+  readonly alertIcon = TriangleAlert;
 
-  readonly form;
-  readonly panelFields: ExecutionPanelField[] = [
-    {
-      controlName: 'outputDir',
-      label: 'Output directory',
-      type: 'text',
-      placeholder: '/path/to/output/folder',
-      helpText: 'Required. The split files will be created in this directory.',
-    },
-    {
-      controlName: 'strategy',
-      label: 'Split strategy',
-      type: 'select',
-      options: [
-        { value: STRATEGY_EVERY_PAGE, label: 'Every page' },
-        { value: STRATEGY_RANGES, label: 'Ranges' },
-      ],
-      helpText:
-        'Choose every_page or ranges. Examples: 1-3,5,8-10. No overlaps or duplicates.',
-    },
-    {
-      controlName: 'ranges',
-      label: 'Page ranges',
-      type: 'text',
-      placeholder: '1-3,5,8-10',
-      helpText:
-        'Required only for strategy=ranges. Format: N or A-B, comma-separated. Example: 1-3,5,8-10',
-      visibleModes: [STRATEGY_RANGES],
-    },
-  ];
+  readonly strategies = SPLIT_STRATEGIES;
 
-  readonly jobModes = [
-    { value: JOB_MODE_SINGLE, label: 'Single input' },
-    { value: JOB_MODE_BATCH, label: 'Batch multi-input' },
-  ];
+  readonly selectedPaths = signal<string[]>([]);
+  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly strategy = signal<SplitStrategy>(STRATEGY_EVERY_PAGE);
+  readonly ranges = signal('');
+  readonly outputDir = signal('');
 
-  selectedInputPaths: string[] = [];
-  readonly featureFlags = FEATURE_FLAGS;
-  previewMessage = 'Select a PDF to generate split thumbnails.';
-  previewImageDataUrl: string | null = null;
-  splitPreviewBlocks: SplitPreviewBlock[] = [];
-  splitPreviewUrls: Record<string, string | null> = {};
-  private previewRequested = false;
-  private previewRequestGeneration = 0;
-  private previewSourceBytes: Uint8Array | null = null;
-  private previewSourcePageCount = 0;
-  private previewSourcePdf: PreviewPdfDocument | null = null;
-  private previewRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  previewStatus = '';
-  validationMessage = '';
-  submitMessage = '';
-  statusMessage = '';
-  jobResult: JobResultV1 | null = null;
-  isSubmitting = false;
-  isPolling = false;
-  activeJobId = '';
+  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly planError = signal<JobErrorV1 | null>(null);
+  readonly planLoading = signal(false);
+
+  readonly jobResult = signal<JobResultV1 | null>(null);
+  readonly jobError = signal<JobErrorV1 | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
+
+  readonly isSubmitting = signal(false);
+  readonly isPolling = signal(false);
+  readonly activeJobId = signal('');
+
+  readonly notice = signal<Notice | null>(null);
+  readonly actionMessage = signal('');
+
+  readonly isRangesStrategy = computed(
+    () => this.strategy() === STRATEGY_RANGES,
+  );
+
+  readonly activeStrategyLabel = computed(
+    () =>
+      this.strategies.find((preset) => preset.id === this.strategy())?.label ??
+      'Every page',
+  );
+
+  readonly rangesRequired = computed(
+    () => this.isRangesStrategy() && this.ranges().trim().length === 0,
+  );
+
+  readonly primaryLabel = computed(() => {
+    if (this.isSubmitting() || this.isPolling()) {
+      return 'Splitting…';
+    }
+    const count = this.selectedPaths().length;
+    if (count === 0) {
+      return 'Split PDFs';
+    }
+    return count === 1 ? 'Split 1 PDF' : `Split ${count} PDFs`;
+  });
+
+  readonly destinationLabel = computed(
+    () => this.outputDir().trim() || 'Next to each PDF',
+  );
+
+  readonly isDefaultDestination = computed(
+    () => this.outputDir().trim().length === 0,
+  );
+
+  readonly canRun = computed(
+    () =>
+      this.selectedPaths().length > 0 &&
+      !this.rangesRequired() &&
+      !this.isSubmitting() &&
+      !this.isPolling(),
+  );
+
+  /** A failed plan means the request cannot run as typed. */
+  readonly planBlocked = computed(() => this.plan()?.success === false);
+
+  readonly actionHelper = computed(() => {
+    if (this.selectedPaths().length === 0) {
+      return 'Add at least one PDF to split.';
+    }
+    if (this.rangesRequired()) {
+      return 'Enter the page ranges to split.';
+    }
+    return '';
+  });
+
+  readonly terminalJob = computed<JobResultV1 | null>(() => {
+    const job = this.jobResult();
+    return job && this.isTerminalStatus(job.status) ? job : null;
+  });
+
+  readonly showProgress = computed(() => {
+    const job = this.jobResult();
+    return !!job && !this.isTerminalStatus(job.status);
+  });
+
+  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
+    const error = this.jobError();
+    return error
+      ? describeToolError(error, 'The split could not start.')
+      : null;
+  });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private planToken = 0;
+  private fileItemsGeneration = 0;
 
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly pdfRenderer: PdfRendererService,
-    private readonly wailsService: Wails,
-  ) {
-    this.form = this.fb.nonNullable.group({
-      jobMode: [JOB_MODE_BATCH, Validators.required],
-      outputDir: ['', Validators.required],
-      strategy: [STRATEGY_EVERY_PAGE, Validators.required],
-      ranges: [''],
-    });
-
-    this.form.controls.jobMode.valueChanges
+  constructor(private readonly wailsService: Wails) {
+    this.wailsService.jobProgress$
       .pipe(takeUntil(this.destroy$))
-      .subscribe(() => {
-        this.scheduleSplitPreviewRefresh();
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.activeJobId()) {
+          return;
+        }
+
+        const current = this.jobResult();
+        if (!current) {
+          return;
+        }
+
+        this.jobResult.set({
+          ...current,
+          message: event.progress.message,
+          progress: event.progress,
+          // Wait for the status endpoint to settle the final items. The event
+          // can arrive before the job store has the complete result.
+          status: this.isTerminalStatus(event.status)
+            ? current.status
+            : (event.status as JobExecutionStatusV1),
+        });
+
+        if (this.isTerminalStatus(event.status)) {
+          void this.pollJobStatus();
+        }
       });
-    this.form.controls.strategy.valueChanges
-      .pipe(takeUntil(this.destroy$))
-      .subscribe(() => {
-        this.scheduleSplitPreviewRefresh();
-      });
-    this.form.controls.ranges.valueChanges
-      .pipe(takeUntil(this.destroy$))
-      .subscribe(() => {
-        this.scheduleSplitPreviewRefresh();
-      });
-  }
-
-  async ensureSourcePreview(): Promise<void> {
-    if (!this.featureFlags.uiux_overhaul_v1) return;
-    if (this.previewRequested) return;
-    if (this.selectedInputPaths.length === 0) return;
-
-    const requestGeneration = ++this.previewRequestGeneration;
-    const source = this.selectedInputPaths[0];
-    this.previewRequested = true;
-    this.previewStatus = 'loading';
-    this.previewMessage = 'Loading source PDF preview...';
-    try {
-      const resp = await this.wailsService.getPdfPreviewSource(source);
-      if (requestGeneration !== this.previewRequestGeneration) {
-        return;
-      }
-
-      if (!resp.success || !resp.dataBase64) {
-        throw new Error(resp.message || 'Preview source unavailable.');
-      }
-
-      this.previewSourceBytes = this.base64ToBytes(resp.dataBase64);
-      await this.loadPreviewPdf(source);
-      if (!this.previewSourcePdf) {
-        throw new Error('Unable to load preview PDF.');
-      }
-
-      if (requestGeneration !== this.previewRequestGeneration) {
-        return;
-      }
-
-      this.previewSourcePageCount = this.previewSourcePdf?.numPages ?? 0;
-      const previewPageNumber = await this.pickPreviewPageNumber(
-        this.previewSourcePdf,
-        this.buildPageNumbers(this.previewSourcePageCount),
-        source,
-        requestGeneration,
-      );
-      this.previewImageDataUrl = await this.renderPageToDataUrl(
-        this.previewSourcePdf,
-        previewPageNumber,
-        SOURCE_PREVIEW_MAX_WIDTH_PX,
-        source,
-      );
-      if (requestGeneration !== this.previewRequestGeneration) {
-        return;
-      }
-
-      this.previewStatus = 'ready';
-      this.previewMessage =
-        'Source preview ready. Building block thumbnails...';
-      await this.renderSplitPreviewBlocks(source, requestGeneration);
-    } catch (err) {
-      this.previewStatus = 'error';
-      const previewErrorMessage =
-        err instanceof Error ? err.message : 'Source preview unavailable.';
-      this.previewMessage = previewErrorMessage;
-      this.previewImageDataUrl = null;
-      this.previewSourceBytes = null;
-      this.previewSourcePageCount = 0;
-      this.splitPreviewBlocks = [];
-      this.splitPreviewUrls = {};
-      this.previewRequested = false;
-      await this.destroyPreviewPdf();
-      console.warn('[pdf-split.preview] preview request exception', err);
-    }
-  }
-
-  private scheduleSplitPreviewRefresh(): void {
-    if (!this.featureFlags.uiux_overhaul_v1) return;
-
-    if (this.previewRefreshTimer) {
-      clearTimeout(this.previewRefreshTimer);
-    }
-
-    this.previewRefreshTimer = setTimeout(() => {
-      this.previewRefreshTimer = null;
-      void this.refreshSplitPreviewBlocks();
-    }, 120);
-  }
-
-  private async refreshSplitPreviewBlocks(): Promise<void> {
-    if (!this.featureFlags.uiux_overhaul_v1) return;
-    if (this.selectedInputPaths.length === 0) {
-      this.resetPreviewState();
-      return;
-    }
-
-    if (!this.previewSourcePdf) {
-      if (!this.previewRequested) {
-        void this.ensureSourcePreview();
-      }
-      return;
-    }
-
-    await this.renderSplitPreviewBlocks(
-      this.selectedInputPaths[0],
-      this.previewRequestGeneration,
-    );
-  }
-
-  private async renderSplitPreviewBlocks(
-    sourcePath: string,
-    requestGeneration: number,
-  ): Promise<void> {
-    if (
-      !this.previewSourcePdf ||
-      requestGeneration !== this.previewRequestGeneration
-    ) {
-      return;
-    }
-
-    const blocks = this.buildSplitPreviewBlocks();
-    this.splitPreviewBlocks = blocks;
-    this.splitPreviewUrls = {};
-
-    if (blocks.length === 0) {
-      this.previewMessage =
-        this.form.controls.strategy.value.trim() === STRATEGY_RANGES
-          ? 'Enter valid page ranges to preview block thumbnails.'
-          : 'No pages available to preview.';
-      return;
-    }
-
-    this.previewMessage = `Rendering ${blocks.length} block thumbnail(s)...`;
-
-    for (const block of blocks) {
-      if (requestGeneration !== this.previewRequestGeneration) {
-        return;
-      }
-
-      await this.renderSplitPreviewBlock(
-        block.key,
-        sourcePath,
-        block.pageRange,
-        block.pageNumber,
-        requestGeneration,
-      );
-    }
-
-    if (requestGeneration === this.previewRequestGeneration) {
-      this.previewMessage = `${blocks.length} block thumbnail(s) ready.`;
-    }
   }
 
   ngOnDestroy(): void {
     this.stopPolling();
-    if (this.previewRefreshTimer) {
-      clearTimeout(this.previewRefreshTimer);
-      this.previewRefreshTimer = null;
-    }
-    void this.destroyPreviewPdf();
+    this.clearPlanRefreshTimer();
     this.destroy$.next();
     this.destroy$.complete();
   }
 
-  async selectPdfFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = (await this.wailsService.openFileDialog()).trim();
-    if (!selected) {
-      return;
-    }
-    this.addInputPath(selected);
-    this.validationMessage = 'PDF input selected.';
+  fileCountLabel(): string {
+    return formatCount(this.selectedPaths().length, 'PDF', 'PDFs');
   }
 
-  async selectMultiplePdfsFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = await this.wailsService.openMultipleFilesDialog();
-    if (!selected || selected.length === 0) {
+  onPathsSelected(paths: string[]): void {
+    const incoming = (Array.isArray(paths) ? paths : [])
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (incoming.length === 0) {
       return;
     }
 
-    for (const rawPath of selected) {
-      this.addInputPath(rawPath, false);
-    }
-    void this.ensureSourcePreview();
-    this.validationMessage = `${selected.length} PDF input(s) selected.`;
-  }
+    const rejected: string[] = [];
+    const duplicates: string[] = [];
+    const added: string[] = [];
+    const known = new Set(this.selectedPaths().map((path) => this.pathKey(path)));
 
-  async selectOutputDirectory(): Promise<void> {
-    const selected = (await this.wailsService.openDirectoryDialog()).trim();
-    if (!selected) {
-      return;
-    }
-
-    this.form.patchValue({ outputDir: selected });
-    this.validationMessage = 'Output directory selected.';
-  }
-
-  triggerFileInput(): void {
-    this.fileInput?.nativeElement.click();
-  }
-
-  onFileInputChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const files = target?.files;
-    if (!files || files.length === 0) {
-      return;
-    }
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files.item(i);
-      if (!file) {
+    for (const path of incoming) {
+      if (fileExtension(path).toLowerCase() !== 'pdf') {
+        rejected.push(path);
         continue;
       }
-      const filePath = (file as File & { path?: string }).path ?? file.name;
-      this.addInputPath(filePath, false);
-    }
-    void this.ensureSourcePreview();
-    this.validationMessage = `${files.length} PDF input(s) selected.`;
-    if (target) {
-      target.value = '';
-    }
-  }
 
-  removeInputPath(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length) {
+      const key = this.pathKey(path);
+      if (known.has(key)) {
+        duplicates.push(path);
+        continue;
+      }
+
+      known.add(key);
+      added.push(path);
+    }
+
+    this.notice.set(this.intakeNotice(rejected, duplicates));
+
+    if (added.length === 0) {
       return;
     }
 
-    this.selectedInputPaths = this.selectedInputPaths.filter(
-      (_, i) => i !== index,
-    );
-    this.resetPreviewState();
-    if (this.selectedInputPaths.length > 0) {
-      void this.ensureSourcePreview();
+    this.actionMessage.set('');
+    this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  async chooseFiles(): Promise<void> {
+    const paths = await this.wailsService.openMultipleFilesDialog();
+    if (paths.length > 0) {
+      this.onPathsSelected(paths);
     }
   }
 
-  async validate(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.validationMessage = localError;
+  clear(): void {
+    if (this.selectedPaths().length === 0) {
       return;
     }
+    this.selectedPaths.set([]);
+    this.notice.set(null);
+    this.actionMessage.set('');
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
 
-    const response = await this.wailsService.validateJobV1(this.buildRequest());
-    this.validationMessage = response.valid
-      ? 'Validation OK. Ready to run split.'
-      : this.mapJobError(response.error, response.message);
+  removeFile(path: string): void {
+    const next = this.selectedPaths().filter((candidate) => candidate !== path);
+    if (next.length === this.selectedPaths().length) {
+      return;
+    }
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  selectStrategy(strategyId: SplitStrategy): void {
+    if (strategyId === this.strategy()) {
+      return;
+    }
+    this.strategy.set(strategyId);
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  onRangesInput(event: Event): void {
+    const value = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.ranges.set(value);
+    this.actionMessage.set('');
+    this.schedulePlanRefresh();
+  }
+
+  async chooseOutputFolder(): Promise<void> {
+    const directory = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!directory) {
+      return;
+    }
+    this.outputDir.set(directory);
+    this.actionMessage.set('');
+    await this.refreshPlan();
+  }
+
+  useOriginalFolders(): void {
+    if (this.outputDir() === '') {
+      return;
+    }
+    this.outputDir.set('');
+    void this.refreshPlan();
   }
 
   async run(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.submitMessage = localError;
+    if (!this.canRun() || this.planBlocked()) {
       return;
     }
 
-    const request = this.buildRequest();
-    this.isSubmitting = true;
-    this.statusMessage = '';
-    this.jobResult = null;
+    this.clearPlanRefreshTimer();
+    this.actionMessage.set('');
 
-    const validation = await this.wailsService.validateJobV1(request);
-    if (!validation.valid) {
-      this.submitMessage = this.mapJobError(
-        validation.error,
-        validation.message,
+    // The plan is the source of truth for ranges and destinations, so it is
+    // always refreshed with the current inputs before starting the job.
+    const planned = await this.refreshPlan();
+    if (!planned) {
+      return;
+    }
+
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(true);
+
+    const response: RunJobResponseV1 = await this.wailsService
+      .runJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The split could not start.',
+        jobId: '',
+        status: 'failed' as const,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: 'The split could not start.',
+        },
+      }));
+    if (!response.success || !response.jobId) {
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: response.message || 'The split could not start.',
+        },
       );
-      this.isSubmitting = false;
+      this.isSubmitting.set(false);
       return;
     }
 
-    const runResponse = await this.wailsService.runJobV1(request);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.submitMessage = this.mapJobError(
-        runResponse.error,
-        runResponse.message,
-      );
-      this.isSubmitting = false;
-      return;
-    }
-
-    this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
+    const total = this.selectedPaths().length;
+    this.activeJobId.set(response.jobId);
+    this.jobResult.set({
+      jobId: response.jobId,
+      success: false,
+      message: 'Waiting to start',
+      toolId: PDF_SPLIT_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total,
+        stage: 'queued',
+        message: 'Waiting to start',
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isSubmitting.set(false);
+    this.isPolling.set(true);
     this.startPolling();
-    this.isSubmitting = false;
   }
 
   async cancel(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      return;
+    }
+    const response = await this.wailsService.cancelJobV1(jobId);
+    if (!response.success) {
+      this.actionMessage.set(
+        response.message || 'The job could not be cancelled.',
+      );
+    }
+  }
+
+  async onOpen(path: string): Promise<void> {
+    const response = await this.wailsService.openPath(path);
+    this.actionMessage.set(
+      response.success ? '' : response.message || 'The file could not be opened.',
+    );
+  }
+
+  async onReveal(path: string): Promise<void> {
+    const response = await this.wailsService.revealInFolder(path);
+    this.actionMessage.set(
+      response.success
+        ? ''
+        : response.message || 'The folder could not be opened.',
+    );
+  }
+
+  /** Retries only the failed inputs with the same strategy, ranges and folder. */
+  async retryFailed(): Promise<void> {
+    const failed = (this.jobResult()?.items ?? [])
+      .filter((item) => !item.success)
+      .map((item) => item.inputPath)
+      .filter((path) => path.length > 0);
+
+    if (failed.length === 0) {
       return;
     }
 
-    const response = await this.wailsService.cancelJobV1(this.activeJobId);
-    this.statusMessage = response.success
-      ? 'Cancel requested.'
-      : this.mapJobError(response.error, response.message);
+    this.selectedPaths.set([...new Set(failed)]);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+    this.syncFileItems();
+
+    await this.run();
   }
 
-  private localValidationError(): string {
-    const mode = this.form.controls.jobMode.value.trim();
-    const outputDir = this.form.controls.outputDir.value.trim();
-    const strategy = this.form.controls.strategy.value.trim();
-    const ranges = this.form.controls.ranges.value.trim();
+  reset(): void {
+    this.stopPolling();
+    this.clearPlanRefreshTimer();
+    this.planToken += 1;
+    this.fileItemsGeneration += 1;
 
-    if (mode !== JOB_MODE_SINGLE && mode !== JOB_MODE_BATCH) {
-      return `Unsupported mode: ${mode}`;
-    }
-
-    if (mode === JOB_MODE_SINGLE && this.selectedInputPaths.length !== 1) {
-      return 'Select exactly one PDF input file.';
-    }
-
-    if (mode === JOB_MODE_BATCH && this.selectedInputPaths.length < 1) {
-      return 'Select at least one PDF input file for batch mode.';
-    }
-
-    for (const inputPath of this.selectedInputPaths) {
-      if (!this.isPDFPath(inputPath)) {
-        return `Input file must be .pdf: ${inputPath}`;
-      }
-    }
-
-    if (!outputDir) {
-      return 'Output directory is required.';
-    }
-
-    if (strategy !== STRATEGY_EVERY_PAGE && strategy !== STRATEGY_RANGES) {
-      return `Unsupported strategy: ${strategy}`;
-    }
-
-    if (strategy === STRATEGY_RANGES) {
-      const rangesError = this.localRangesValidationError(ranges);
-      if (rangesError) {
-        return rangesError;
-      }
-    }
-
-    return '';
+    this.selectedPaths.set([]);
+    this.fileItems.set([]);
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(false);
+    this.activeJobId.set('');
+    this.notice.set(null);
+    this.actionMessage.set('');
   }
 
   private buildRequest(): JobRequestV1 {
-    const jobMode = this.form.controls.jobMode.value.trim();
-    const outputDir = this.form.controls.outputDir.value.trim();
-    const strategy = this.form.controls.strategy.value.trim();
-    const ranges = this.form.controls.ranges.value.trim();
+    const paths = this.selectedPaths();
+    const strategy = this.strategy();
+    const options: Record<string, unknown> = { strategy };
+    const ranges = this.ranges().trim();
+    if (strategy === STRATEGY_RANGES && ranges) {
+      options['ranges'] = ranges;
+    }
 
     return {
       toolId: PDF_SPLIT_TOOL_ID,
-      mode: jobMode === JOB_MODE_SINGLE ? JOB_MODE_SINGLE : JOB_MODE_BATCH,
-      inputPaths: this.selectedInputPaths.map((path) => path.trim()),
-      outputDir,
-      options: {
-        outputDir,
-        strategy,
-        ...(strategy === STRATEGY_RANGES ? { ranges } : {}),
-        perInputDir: jobMode === JOB_MODE_BATCH,
-      },
+      mode: paths.length > 1 ? 'batch' : 'single',
+      inputPaths: [...paths],
+      outputDir: this.outputDir(),
+      options,
     };
   }
 
-  private localRangesValidationError(ranges: string): string {
-    if (!ranges) {
-      return 'Ranges are required when strategy is ranges.';
+  private async refreshPlan(): Promise<boolean> {
+    if (this.selectedPaths().length === 0 || this.rangesRequired()) {
+      this.planToken += 1;
+      this.plan.set(null);
+      this.planError.set(null);
+      this.planLoading.set(false);
+      return false;
     }
 
-    const rawTokens = ranges.split(',');
-    if (rawTokens.some((token) => token.trim().length === 0)) {
-      return 'Ranges format is invalid (empty token). Use: 1-3,5,8-10';
+    const token = (this.planToken += 1);
+    this.planLoading.set(true);
+    this.plan.set(null);
+    this.planError.set(null);
+
+    const response: PlanJobResponseV1 = await this.wailsService
+      .planJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The output could not be planned.',
+        outputs: [],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PLAN_JOB_FAILED',
+          message: 'The output could not be planned.',
+        },
+      }));
+    if (token !== this.planToken) {
+      return false;
     }
 
-    const single = /^\d+$/;
-    const span = /^(\d+)\s*-\s*(\d+)$/;
+    this.planLoading.set(false);
 
-    for (const rawToken of rawTokens) {
-      const token = rawToken.trim();
-      if (single.test(token)) {
-        const n = Number.parseInt(token, 10);
-        if (n <= 0) {
-          return `Ranges must be positive: ${token}`;
-        }
-        continue;
-      }
-
-      const match = span.exec(token);
-      if (!match) {
-        return `Ranges format is invalid: ${token}. Use N or A-B`;
-      }
-
-      const start = Number.parseInt(match[1], 10);
-      const end = Number.parseInt(match[2], 10);
-      if (start <= 0 || end <= 0) {
-        return `Ranges must be positive: ${token}`;
-      }
-      if (start > end) {
-        return `Range start must be <= end: ${token}`;
-      }
+    if (response.success && !response.error) {
+      this.plan.set(response);
+      return true;
     }
 
-    return '';
+    const error: JobErrorV1 = response.error ?? {
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PLAN_JOB_FAILED',
+      message: response.message || 'The output could not be planned.',
+    };
+    // Keep the failed plan so the shared plan card can show the range or
+    // destination problem next to the destination it belongs to.
+    this.plan.set({ ...response, success: false, error });
+    this.planError.set(error);
+    return false;
   }
 
-  private isPDFPath(path: string): boolean {
-    return path.toLowerCase().endsWith('.pdf');
+  private schedulePlanRefresh(): void {
+    this.clearPlanRefreshTimer();
+    this.planRefreshTimer = setTimeout(() => {
+      this.planRefreshTimer = null;
+      void this.refreshPlan();
+    }, PLAN_DEBOUNCE_MS);
+  }
+
+  private clearPlanRefreshTimer(): void {
+    if (this.planRefreshTimer) {
+      clearTimeout(this.planRefreshTimer);
+      this.planRefreshTimer = null;
+    }
   }
 
   private startPolling(): void {
     this.stopPolling();
-    this.isPolling = true;
+    this.isPolling.set(true);
+    void this.pollJobStatus();
     this.pollingTimer = setInterval(() => {
       void this.pollJobStatus();
     }, POLLING_INTERVAL_MS);
-    void this.pollJobStatus();
   }
 
   private stopPolling(): void {
@@ -570,416 +576,220 @@ export class PdfSplit implements OnDestroy {
       clearInterval(this.pollingTimer);
       this.pollingTimer = null;
     }
-    this.isPolling = false;
+    this.isPolling.set(false);
   }
 
   private async pollJobStatus(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       this.stopPolling();
       return;
     }
 
-    const response: JobStatusResponseV1 =
-      await this.wailsService.getJobStatusV1(this.activeJobId);
+    const response: JobStatusResponseV1 = await this.wailsService
+      .getJobStatusV1(jobId)
+      .catch(() => ({
+        success: false,
+        message: 'The job status could not be read.',
+        found: false,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_FAILED',
+          message: 'The job status could not be read.',
+        },
+      }));
+    if (this.activeJobId() !== jobId) {
+      return;
+    }
+
     if (!response.found || !response.result) {
-      this.statusMessage = this.mapJobError(response.error, response.message);
       this.stopPolling();
+      this.activeJobId.set('');
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_MISSING',
+          message: response.message || 'The job status could not be read.',
+        },
+      );
       return;
     }
 
-    this.jobResult = response.result;
-    const resultMessage = response.result.error
-      ? this.mapJobError(response.result.error, response.result.message)
-      : response.result.message;
-    this.statusMessage = `${response.result.status}: ${resultMessage}`;
-
-    if (
-      response.result.status === 'success' ||
-      response.result.status === 'failed' ||
-      response.result.status === 'partial_success' ||
-      response.result.status === 'cancelled' ||
-      response.result.status === 'interrupted'
-    ) {
+    this.jobResult.set(response.result);
+    if (this.isTerminalStatus(response.result.status)) {
       this.stopPolling();
-      this.activeJobId = '';
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
     }
   }
 
-  private clearMessages(): void {
-    this.validationMessage = '';
-    this.submitMessage = '';
-  }
-
-  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
-    if (!error) {
-      return fallback;
-    }
-
-    const detail = error.detail_code ? ` [${error.detail_code}]` : '';
-
-    switch (error.code) {
-      case 'VALIDATION_INVALID_INPUT':
-        return `Validation: ${error.message}`;
-      case 'RUNTIME_DEP_MISSING':
-        return `Runtime dependency missing.${detail} ${error.message}`;
-      case 'EXEC_IO_TRANSIENT':
-        return `Split execution failed.${detail} ${error.message}`;
-      case 'EXEC_TIMEOUT_TRANSIENT':
-        return `Split execution timeout.${detail} ${error.message}`;
-      case 'UNSUPPORTED_FORMAT':
-        return `Unsupported format.${detail} ${error.message}`;
-      case 'CANCELLED_BY_USER':
-        return 'Job was canceled.';
-      default:
-        return `${error.code}${detail}: ${error.message}`;
-    }
-  }
-
-  private addInputPath(rawPath: string, refreshPreview = true): void {
-    const inputPath = rawPath.trim();
-    if (!inputPath) {
+  private async loadOutputInfos(): Promise<void> {
+    const paths = this.collectOutputPaths();
+    if (paths.length === 0) {
+      this.outputInfos.set({});
       return;
     }
 
-    if (this.selectedInputPaths.includes(inputPath)) {
+    const response: InspectFilesResponseV1 = await this.wailsService
+      .inspectFilesV1(paths)
+      .catch(() => ({
+        success: false,
+        message: 'File sizes could not be read.',
+        files: [],
+      }));
+    if (!response.success) {
+      this.outputInfos.set({});
       return;
     }
 
-    this.selectedInputPaths = [...this.selectedInputPaths, inputPath];
-    this.resetPreviewState();
-    if (refreshPreview) {
-      void this.ensureSourcePreview();
+    const infos: Record<string, FileInfoV1> = {};
+    for (const info of response.files) {
+      if (info.path) {
+        infos[info.path] = info;
+      }
+    }
+    this.outputInfos.set(infos);
+  }
+
+  private collectOutputPaths(): string[] {
+    const paths = new Set<string>();
+    for (const item of this.jobResult()?.items ?? []) {
+      if (!item.success) {
+        continue;
+      }
+
+      const outputs = item.outputs ?? [];
+      const count = Math.max(item.outputCount ?? 0, outputs.length);
+      // Grouped results show a folder summary; individual sizes are not used.
+      if (count > GROUP_OUTPUT_LIMIT) {
+        continue;
+      }
+
+      const candidates =
+        outputs.length > 0
+          ? outputs
+          : item.outputPath
+            ? [item.outputPath]
+            : [];
+      for (const output of candidates) {
+        if (output) {
+          paths.add(output);
+        }
+      }
+    }
+    return [...paths];
+  }
+
+  private syncFileItems(): void {
+    const paths = this.selectedPaths();
+    const generation = (this.fileItemsGeneration += 1);
+    const existing = new Map(this.fileItems().map((item) => [item.path, item]));
+    this.fileItems.set(
+      paths.map(
+        (path) => existing.get(path) ?? { path, name: fileName(path) },
+      ),
+    );
+
+    if (paths.length > 0) {
+      void this.enrichFileItems(paths, generation);
     }
   }
 
-  private async renderSplitPreviewBlock(
-    splitKey: string,
-    inputPath: string,
-    pageRange: string | undefined,
-    pageNumber: number,
-    requestGeneration: number,
+  private async enrichFileItems(
+    paths: string[],
+    generation: number,
   ): Promise<void> {
-    if (this.splitPreviewUrls[splitKey]) {
-      return;
-    }
-
     try {
-      const pdf = await this.loadPreviewPdf(inputPath);
-      if (!pdf || requestGeneration !== this.previewRequestGeneration) {
-        return;
-      }
-
-      const previewPageNumber = await this.pickPreviewPageNumber(
-        pdf,
-        this.buildBlockCandidatePageNumbers(pageRange, pageNumber),
-        inputPath,
-        requestGeneration,
-      );
-      const targetPage =
-        previewPageNumber > 0
-          ? previewPageNumber
-          : this.pageNumberFromRange(pageRange);
-      const previewUrl = await this.renderPageToDataUrl(
-        pdf,
-        targetPage,
-        BLOCK_PREVIEW_MAX_WIDTH_PX,
-        inputPath,
-      );
-      if (requestGeneration !== this.previewRequestGeneration) {
-        return;
-      }
-
-      this.splitPreviewUrls[splitKey] = previewUrl;
-    } catch (err) {
-      if (requestGeneration !== this.previewRequestGeneration) {
-        return;
-      }
-
-      console.warn('[pdf-split.preview] split preview task failed', err);
-      this.splitPreviewUrls[splitKey] = this.previewImageDataUrl;
-    }
-  }
-
-  private buildSplitPreviewBlocks(): SplitPreviewBlock[] {
-    const pageCount = this.previewSourcePageCount;
-    if (pageCount <= 0) {
-      return [];
-    }
-
-    const strategy = this.form.controls.strategy.value.trim();
-    if (strategy === STRATEGY_EVERY_PAGE) {
-      return Array.from({ length: pageCount }, (_, index) => {
-        const pageNumber = index + 1;
-        return {
-          key: `page-${pageNumber}`,
-          label: `Page ${pageNumber}`,
-          pageRange: `${pageNumber}`,
-          pageNumber,
-        };
-      });
-    }
-
-    const ranges = this.parsePreviewRanges(
-      this.form.controls.ranges.value.trim(),
-    );
-    if (!ranges) {
-      return [];
-    }
-
-    return ranges.map((range, index) => {
-      const pageRange =
-        range.from === range.to ? `${range.from}` : `${range.from}-${range.to}`;
-      return {
-        key: `range-${index + 1}-${pageRange}`,
-        label: `Block ${index + 1}`,
-        pageRange,
-        pageNumber: range.from,
-      };
-    });
-  }
-
-  private parsePreviewRanges(
-    ranges: string,
-  ): Array<{ from: number; to: number }> | null {
-    if (!ranges) {
-      return null;
-    }
-
-    const parsed: Array<{ from: number; to: number }> = [];
-    const rawTokens = ranges.split(',');
-    const single = /^\d+$/;
-    const span = /^(\d+)\s*-\s*(\d+)$/;
-
-    for (const rawToken of rawTokens) {
-      const token = rawToken.trim();
-      if (!token) {
-        return null;
-      }
-
-      if (single.test(token)) {
-        const value = Number.parseInt(token, 10);
-        if (value <= 0) {
-          return null;
+      const response = await this.wailsService.inspectFilesV1(paths);
+      if (generation === this.fileItemsGeneration && response.success) {
+        const infos = new Map<string, FileInfoV1>();
+        for (const info of response.files) {
+          infos.set(info.path, info);
         }
-        parsed.push({ from: value, to: value });
-        continue;
-      }
 
-      const match = span.exec(token);
-      if (!match) {
-        return null;
-      }
-
-      const from = Number.parseInt(match[1], 10);
-      const to = Number.parseInt(match[2], 10);
-      if (from <= 0 || to <= 0 || from > to) {
-        return null;
-      }
-
-      parsed.push({ from, to });
-    }
-
-    return parsed;
-  }
-
-  private pageNumberFromRange(pageRange: string | undefined): number {
-    if (!pageRange) {
-      return 1;
-    }
-
-    const [startToken] = pageRange.split('-');
-    const pageNumber = Number.parseInt(startToken.trim(), 10);
-    return Number.isFinite(pageNumber) && pageNumber > 0 ? pageNumber : 1;
-  }
-
-  private buildPageNumbers(pageCount: number): number[] {
-    return Array.from(
-      { length: Math.max(0, pageCount) },
-      (_, index) => index + 1,
-    );
-  }
-
-  private buildBlockCandidatePageNumbers(
-    pageRange: string | undefined,
-    fallbackPageNumber: number,
-  ): number[] {
-    if (!pageRange) {
-      return [fallbackPageNumber];
-    }
-
-    const rangePattern = /^(\d+)(?:\s*-\s*(\d+))?$/;
-    const match = rangePattern.exec(pageRange);
-    if (!match) {
-      return [fallbackPageNumber];
-    }
-
-    const from = Number.parseInt(match[1], 10);
-    const to = Number.parseInt(match[2] ?? match[1], 10);
-    if (
-      !Number.isFinite(from) ||
-      !Number.isFinite(to) ||
-      from <= 0 ||
-      to < from
-    ) {
-      return [fallbackPageNumber];
-    }
-
-    const pages: number[] = [];
-    for (let pageNumber = from; pageNumber <= to; pageNumber++) {
-      pages.push(pageNumber);
-    }
-
-    return pages.length > 0 ? pages : [fallbackPageNumber];
-  }
-
-  private async pickPreviewPageNumber(
-    pdf: PreviewPdfDocument,
-    candidatePages: number[],
-    sourcePath: string,
-    requestGeneration: number,
-  ): Promise<number> {
-    const pages = candidatePages.filter(
-      (pageNumber) => Number.isFinite(pageNumber) && pageNumber > 0,
-    );
-
-    if (pages.length === 0) {
-      return 1;
-    }
-
-    for (const pageNumber of pages) {
-      if (requestGeneration !== this.previewRequestGeneration) {
-        return pages[0] ?? 1;
-      }
-
-      const sampleCanvas = document.createElement('canvas');
-      try {
-        await this.pdfRenderer.renderPageToCanvasWithFallback(
-          pdf,
-          pageNumber,
-          sampleCanvas,
-          PREVIEW_SAMPLE_SCALE,
-          sourcePath,
+        this.fileItems.update((items) =>
+          items.map((item) => {
+            const info = infos.get(item.path);
+            const meta = info ? this.describeFileInfo(info) : '';
+            return meta ? { ...item, meta } : item;
+          }),
         );
-      } catch {
-        continue;
       }
-
-      if (this.canvasHasVisibleContent(sampleCanvas)) {
-        return pageNumber;
-      }
+    } catch {
+      // Inspection is optional: the queue keeps the file name and path.
     }
 
-    return pages[0] ?? 1;
-  }
-
-  private canvasHasVisibleContent(canvas: HTMLCanvasElement): boolean {
-    const context = canvas.getContext('2d');
-    if (!context || canvas.width === 0 || canvas.height === 0) {
-      return false;
-    }
-
-    const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
-    let visibleSamples = 0;
-
-    for (let offset = 0; offset < data.length; offset += 16) {
-      const alpha = data[offset + 3] ?? 0;
-      if (
-        alpha > 32 &&
-        ((data[offset] ?? 255) < 245 ||
-          (data[offset + 1] ?? 255) < 245 ||
-          (data[offset + 2] ?? 255) < 245)
-      ) {
-        visibleSamples++;
-        if (visibleSamples >= 2) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  private async renderPageToDataUrl(
-    pdf: PreviewPdfDocument,
-    pageNumber: number,
-    maxWidthPx: number,
-    sourcePath: string,
-  ): Promise<string> {
-    const page = await pdf.getPage(pageNumber);
-    const baseViewport = page.getViewport({ scale: 1 });
-    const scale = Math.min(1.6, maxWidthPx / Math.max(baseViewport.width, 1));
-    const viewport = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    if (!context) {
-      throw new Error('Unable to create preview canvas.');
-    }
-
-    canvas.width = Math.max(1, Math.round(viewport.width));
-    canvas.height = Math.max(1, Math.round(viewport.height));
-    canvas.style.width = `${canvas.width}px`;
-    canvas.style.height = `${canvas.height}px`;
-
-    await this.pdfRenderer.renderPageToCanvasWithFallback(
-      pdf,
-      pageNumber,
-      canvas,
-      scale,
-      sourcePath,
-    );
-    return canvas.toDataURL('image/png');
-  }
-
-  private async loadPreviewPdf(
-    inputPath: string,
-  ): Promise<PreviewPdfDocument | null> {
-    if (this.previewSourcePdf) {
-      return this.previewSourcePdf;
-    }
-
-    if (!this.previewSourceBytes) {
-      const resp = await this.wailsService.getPdfPreviewSource(inputPath);
-      if (!resp.success || !resp.dataBase64) {
-        return null;
-      }
-
-      this.previewSourceBytes = this.base64ToBytes(resp.dataBase64);
-    }
-
-    this.previewSourcePdf = await this.pdfRenderer.loadFromBytes(
-      this.previewSourceBytes,
-    );
-    return this.previewSourcePdf;
-  }
-
-  private async destroyPreviewPdf(): Promise<void> {
-    const previewPdf = this.previewSourcePdf;
-    this.previewSourcePdf = null;
-    if (!previewPdf) {
+    if (generation !== this.fileItemsGeneration) {
       return;
     }
 
-    await this.pdfRenderer.destroy(previewPdf);
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
   }
 
-  private resetPreviewState(): void {
-    this.previewRequestGeneration++;
-    this.previewRequested = false;
-    this.previewStatus = '';
-    this.previewMessage = 'Select a PDF to generate split thumbnails.';
-    this.previewImageDataUrl = null;
-    this.previewSourceBytes = null;
-    this.previewSourcePageCount = 0;
-    this.splitPreviewBlocks = [];
-    this.splitPreviewUrls = {};
-    void this.destroyPreviewPdf();
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the placeholder icon.
+      });
   }
 
-  private base64ToBytes(dataBase64: string): Uint8Array {
-    const binary = globalThis.atob(dataBase64);
-    return Uint8Array.from(
-      binary,
-      (character) => character.codePointAt(0) ?? 0,
-    );
+  private describeFileInfo(info: FileInfoV1): string {
+    const parts: string[] = [];
+    if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
+      parts.push(formatBytes(info.sizeBytes));
+    }
+    if (typeof info.pageCount === 'number' && info.pageCount > 0) {
+      parts.push(formatCount(info.pageCount, 'page'));
+    }
+    return parts.join(' · ');
+  }
+
+  private intakeNotice(rejected: string[], duplicates: string[]): Notice | null {
+    const parts: string[] = [];
+
+    if (rejected.length === 1) {
+      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a PDF.`);
+    } else if (rejected.length > 1) {
+      const names = rejected.map((path) => fileName(path)).join(', ');
+      parts.push(`${names} weren't added because they aren't PDFs.`);
+    }
+
+    if (duplicates.length === 1) {
+      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+    } else if (duplicates.length > 1) {
+      parts.push(`${duplicates.length} PDFs are already in the queue.`);
+    }
+
+    return parts.length > 0
+      ? { tone: 'warning', text: parts.join(' ') }
+      : null;
+  }
+
+  /**
+   * Windows and UNC paths are case-insensitive, so the same file dropped with
+   * different casing is still a duplicate there.
+   */
+  private pathKey(path: string): string {
+    const normalized = path.trim().replace(/\\/g, '/');
+    return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//')
+      ? normalized.toLowerCase()
+      : normalized;
+  }
+
+  private isTerminalStatus(status: string): boolean {
+    return TERMINAL_STATUSES.has(status);
   }
 }

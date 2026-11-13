@@ -5,8 +5,7 @@
         <p class="eyebrow">PDF</p>
         <h1 class="page-title">PDF <em>Crop</em></h1>
         <p class="page-sub">
-          Trim page margins with presets or exact values and preview the result before running —
-          local-first, so your documents never leave this machine.
+          Trim page margins with presets or exact values. Everything runs on this machine.
         </p>
       </div>
 
@@ -18,286 +17,257 @@
   </header>
 
   <div class="page-stack">
-    <section class="panel" aria-labelledby="pdf-crop-input-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="pdf-crop-input-title" class="panel-title">Input PDF</h2>
-          <p class="panel-sub">Single file or batch, with an explicit output destination.</p>
-        </div>
-        <span class="badge badge-neutral">{{ form.controls.jobMode.value }}</span>
-      </header>
-
-      <div class="panel-body">
-        <div class="field panel-mode">
-          <label class="label" for="jobMode">Mode</label>
-          <select
-            id="jobMode"
-            class="select"
-            [formControl]="form.controls.jobMode"
-            (change)="onJobModeChange()"
-          >
-            <option *ngFor="let mode of jobModes" [value]="mode.value">{{ mode.label }}</option>
-          </select>
+    <div class="flow-grid">
+      <section class="panel intake-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">PDFs</h2>
+            <p class="panel-sub">Drop PDFs or choose them from your computer.</p>
+          </div>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
 
-        <ng-container *ngIf="form.controls.jobMode.value === 'single'; else batchInputBlock">
+        <div class="panel-body">
+          <app-file-drop
+            accept=".pdf,application/pdf"
+            title="Drop PDFs here"
+            hint="PDF files only"
+            ariaLabel="Drop or choose PDFs to crop"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
           <div class="toolbar" role="group" aria-label="PDF selection actions">
-            <button type="button" class="btn btn-primary btn-sm" (click)="selectPdfFromDialog()">
-              <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Select PDF
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" (click)="triggerFileInput()">
-              Use file input
+            <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+              <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Choose PDFs
             </button>
             <button
               type="button"
               class="btn btn-ghost btn-sm toolbar-end"
-              [disabled]="!selectedInputPath"
-              (click)="clearSelectedInput()"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
               Clear
             </button>
           </div>
 
-          <input
-            #fileInput
-            type="file"
-            accept=".pdf,application/pdf"
-            class="hidden"
-            (change)="onFileInputChange($event)"
-          />
-
-          <div *ngIf="selectedInputPath; else noInput" class="file-row">
-            <span class="file-path mono">{{ selectedInputPath }}</span>
-            <button
-              type="button"
-              class="icon-btn file-remove"
-              aria-label="Remove selected PDF"
-              (click)="clearSelectedInput()"
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
             >
-              <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            </button>
-          </div>
-
-          <ng-template #noInput>
-            <div class="empty-state file-empty">
-              <strong>No PDF selected</strong>
-              <span>Pick a file with the native dialog or with a browser file input.</span>
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ note.text }}</span>
             </div>
-          </ng-template>
+          }
 
-          <div class="field">
-            <label class="label" for="outputPath">Output path (.pdf)</label>
-            <input
-              id="outputPath"
-              class="input mono"
-              type="text"
-              [formControl]="form.controls.outputPath"
-              placeholder="/path/to/output/cropped.pdf"
-              spellcheck="false"
-              autocomplete="off"
-              aria-describedby="output-path-help"
-            />
-            <p id="output-path-help" class="panel-sub">
-              Required in single mode. The output PDF must not exist yet.
-            </p>
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
+        </div>
+      </section>
+
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Output</h2>
+            <p class="panel-sub">Pick a crop preset, page range and destination.</p>
           </div>
-        </ng-container>
+          <span class="badge badge-neutral">{{ activePresetLabel() }}</span>
+        </div>
 
-        <ng-template #batchInputBlock>
-          <div class="stack">
-            <div class="toolbar" role="group" aria-label="Batch PDF selection actions">
-              <button type="button" class="btn btn-primary btn-sm" (click)="selectMultiplePdfsFromDialog()">
-                <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Select PDFs
+        <div class="panel-body">
+          <div class="preset-grid" role="group" aria-label="Crop preset">
+            @for (preset of presets; track preset.id) {
+              <button
+                type="button"
+                class="preset-card"
+                [class.is-active]="preset.id === cropPreset()"
+                [attr.aria-pressed]="preset.id === cropPreset()"
+                [attr.data-preset]="preset.id"
+                (click)="selectPreset(preset.id)"
+              >
+                <span class="preset-label">{{ preset.label }}</span>
+                <span class="preset-hint">{{ preset.hint }}</span>
               </button>
-              <button type="button" class="btn btn-secondary btn-sm" (click)="selectPdfFromDialog()">
-                Add one PDF
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" (click)="triggerFileInput()">
-                Use file input
+            }
+          </div>
+
+          <div class="field page-selection">
+            <span class="label" id="pdf-crop-pages-label">Pages</span>
+            <div class="page-mode" role="group" aria-labelledby="pdf-crop-pages-label">
+              <button
+                type="button"
+                class="chip"
+                [attr.aria-pressed]="pageSelectionMode() === 'all'"
+                (click)="selectPageMode('all')"
+              >
+                All pages
               </button>
               <button
                 type="button"
-                class="btn btn-ghost btn-sm toolbar-end"
-                [disabled]="selectedInputPaths.length === 0"
-                (click)="clearBatchInputs()"
+                class="chip"
+                [attr.aria-pressed]="pageSelectionMode() === 'ranges'"
+                (click)="selectPageMode('ranges')"
               >
-                <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Clear all
+                Custom range
               </button>
             </div>
 
-            <input
-              #fileInput
-              type="file"
-              accept=".pdf,application/pdf"
-              multiple
-              class="hidden"
-              (change)="onFileInputChange($event)"
-            />
-
-            <ul *ngIf="selectedInputPaths.length > 0; else noBatchInputs" class="file-list" aria-label="Selected PDFs">
-              <li *ngFor="let inputPath of selectedInputPaths; let i = index" class="file-row">
-                <span class="file-index mono">{{ i + 1 }}</span>
-                <span class="file-path mono">{{ inputPath }}</span>
-                <button
-                  type="button"
-                  class="icon-btn file-remove"
-                  [attr.aria-label]="'Remove ' + inputPath"
-                  (click)="removeBatchInput(i)"
-                >
-                  <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                </button>
-              </li>
-            </ul>
-
-            <ng-template #noBatchInputs>
-              <div class="empty-state file-empty">
-                <strong>No PDFs selected</strong>
-                <span>Add the files you want to crop with the same preset.</span>
-              </div>
-            </ng-template>
-
-            <div class="field">
-              <label class="label" for="outputDir">Output directory</label>
-              <div class="input-row">
-                <input
-                  id="outputDir"
-                  class="input mono"
-                  type="text"
-                  [formControl]="form.controls.outputDir"
-                  placeholder="/path/to/output/folder"
-                  spellcheck="false"
-                  autocomplete="off"
-                  aria-describedby="output-dir-help"
-                />
-                <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">
-                  <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                  Browse
-                </button>
-              </div>
-              <p id="output-dir-help" class="panel-sub">
-                Required in batch mode. Output names are deterministic: &lt;base&gt;_cropped.pdf.
+            @if (isRangesMode()) {
+              <label class="label ranges-label" for="pdf-crop-ranges">Page ranges</label>
+              <input
+                id="pdf-crop-ranges"
+                class="input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="1-3,5,8-10"
+                aria-describedby="pdf-crop-ranges-help"
+                [value]="ranges()"
+                (input)="onRangesInput($event)"
+              />
+              <p id="pdf-crop-ranges-help" class="field-help">
+                Use page numbers and ranges separated by commas.
               </p>
-            </div>
-          </div>
-        </ng-template>
-      </div>
-    </section>
-
-    <section class="panel" *ngIf="form.controls.jobMode.value === 'single'" aria-labelledby="pdf-crop-preview-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="pdf-crop-preview-title" class="panel-title">Crop preview</h2>
-          <p class="panel-sub">
-            Preview is approximate — the final crop may vary slightly depending on the PDF renderer.
-          </p>
-        </div>
-        <span *ngIf="previewStatus === 'loading'" class="badge badge-info">Rendering</span>
-        <span *ngIf="previewStatus === 'ready'" class="badge badge-success">Ready</span>
-        <span *ngIf="previewStatus === 'error'" class="badge badge-danger">Unavailable</span>
-        <span *ngIf="previewStatus === 'empty'" class="badge badge-neutral">Idle</span>
-      </header>
-
-      <div class="panel-body">
-        <div class="preview-shell">
-          <div *ngIf="previewStatus === 'empty'" class="empty-state preview-empty">
-            <strong>No preview yet</strong>
-            <span>{{ previewMessage }}</span>
+            }
           </div>
 
-          <div *ngIf="previewStatus === 'error'" class="preview-error">
-            <div class="banner banner-danger" role="alert">
-              {{ previewMessage }}
+          @if (isCustom()) {
+            <details class="advanced" open>
+              <summary class="advanced-summary">
+                <span class="advanced-title">Advanced</span>
+                <span class="advanced-hint">Margins in points</span>
+              </summary>
+
+              <div class="advanced-body">
+                <div class="advanced-grid">
+                  @for (field of marginFields; track field.key) {
+                    <div class="field">
+                      <label class="label" [for]="'pdf-crop-margin-' + field.key">{{ field.label }} (pt)</label>
+                      <input
+                        [id]="'pdf-crop-margin-' + field.key"
+                        class="input"
+                        type="number"
+                        min="0"
+                        max="720"
+                        step="1"
+                        inputmode="decimal"
+                        [value]="margins()[field.key]"
+                        (input)="onMarginInput(field.key, $event)"
+                      />
+                    </div>
+                  }
+                </div>
+
+                @if (marginsError(); as error) {
+                  <p class="field-help margin-error" role="status">{{ error }}</p>
+                }
+              </div>
+            </details>
+          }
+
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
+                Use original folders
+              </button>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" (click)="refreshPreview()">
-              Retry preview
+          }
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (actionHelper(); as helper) {
+            <p class="action-helper">{{ helper }}</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun() || planBlocked()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
             </button>
-          </div>
 
-          <div *ngIf="previewStatus === 'loading' || previewStatus === 'ready'" class="preview-ready">
-            <div class="preview-stage">
-              <canvas
-                #previewCanvas
-                class="preview-canvas"
-                role="img"
-                aria-label="PDF crop preview"
-              >Your browser cannot display the preview canvas.</canvas>
-              <div
-                *ngIf="previewStatus === 'ready'"
-                class="preview-overlay"
-                [ngStyle]="previewOverlayStyle"
-              ></div>
-            </div>
-            <p class="panel-sub" role="status" aria-live="polite">{{ previewMessage }}</p>
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            }
           </div>
         </div>
-      </div>
-    </section>
-
-    <app-tool-execution-panel
-      [title]="'Crop settings'"
-      [subtitle]="'Output path, page selection and crop preset.'"
-      [form]="form"
-      [fields]="panelFields"
-      [currentMode]="form.controls.cropPreset.value"
-      [validationMessage]="validationMessage"
-      [inlineFieldErrors]="{ pageSelection: pageSelectionLiveMessage }"
-      [submitMessage]="submitMessage"
-      [statusMessage]="statusMessage"
-      [isSubmitting]="isSubmitting"
-      [isPolling]="isPolling"
-      [canCancel]="!!activeJobId"
-      [jobResult]="jobResult"
-      [runButtonText]="'Crop PDF'"
-      [submittingButtonText]="'Cropping…'"
-      (validate)="validate()"
-      (run)="run()"
-      (cancel)="cancel()"
-    ></app-tool-execution-panel>
-  </div>
-</div>
-
-<div *ngIf="showRunSummaryConfirmation && runSummarySnapshot" class="modal-backdrop" role="presentation">
-  <section
-    class="modal-card"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="pdf-crop-confirm-title"
-    aria-describedby="pdf-crop-confirm-desc"
-  >
-    <p class="eyebrow">SUMMARY</p>
-    <h2 id="pdf-crop-confirm-title" class="modal-title">Confirm crop summary</h2>
-    <p id="pdf-crop-confirm-desc" class="panel-sub">
-      Review the crop scope before submitting the job.
-    </p>
-
-    <dl class="modal-summary">
-      <div>
-        <dt>Range</dt>
-        <dd>{{ runSummarySnapshot.range }}</dd>
-      </div>
-      <div>
-        <dt>Preset / margins</dt>
-        <dd>{{ runSummarySnapshot.marginsSummary }}</dd>
-      </div>
-      <div>
-        <dt>Files</dt>
-        <dd>{{ runSummarySnapshot.fileCount }}</dd>
-      </div>
-      <div>
-        <dt>Output</dt>
-        <dd class="mono">{{ runSummarySnapshot.outputTarget }}</dd>
-      </div>
-    </dl>
-
-    <div class="modal-actions">
-      <button type="button" class="btn btn-ghost" (click)="cancelRunSummaryConfirmation()">Cancel</button>
-      <button type="button" class="btn btn-primary" (click)="confirmRunSummaryAndExecute()">
-        Confirm and run
-      </button>
+      </section>
     </div>
-  </section>
+
+    @if (previewThumbnail(); as thumbnail) {
+      <section class="panel preview-panel" aria-label="First page preview">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Preview</h2>
+            <p class="panel-sub">{{ previewNote() }}</p>
+          </div>
+        </div>
+
+        <div class="panel-body preview-body">
+          <img
+            class="preview-image"
+            [src]="thumbnail"
+            [alt]="'First page of ' + previewName()"
+          />
+        </div>
+      </section>
+    }
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Crop progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="PDF"
+        verbPast="cropped"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
+  </div>
 </div>
