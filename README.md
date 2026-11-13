@@ -87,7 +87,8 @@ The app is a single workbench shell with a persistent navigation rail, a command
 - **Tool registry:** `frontend/src/app/config/tools.ts` + `services/tool-registry.service.ts` — the single source of truth for routes, names, descriptions, icons, formats and keywords.
 - **Theme:** `frontend/src/app/services/theme.service.ts` — persists `ff-theme`, follows the OS on first load.
 - **Recent tools:** `frontend/src/app/services/recent-tools.service.ts` — last four destinations, persisted locally.
-- **Shared components:** `components/file-drop`, `components/job-card`, `components/tool-execution-panel`.
+- **Shared components:** `components/file-drop`, `components/file-queue`, `components/output-plan-card`, `components/result-card`, `components/job-card`.
+- **File-first tool flow:** drop/choose files → file cards → preset or advanced outcome → `OutputPlanCard` with the exact destination → one primary action → `ResultCard` with open/reveal/retry. Backend `PlanJobV1` is the source of truth; there is no separate Validate step and no free-text output path.
 - **Page recipe:** `.page` → `.page-head` (eyebrow, title, subtitle) → `.panel` sections → `.field`/`.input` forms → `.banner` messages → `.btn` actions.
 
 See [`docs/ui-ux.md`](docs/ui-ux.md) for the token contract, page conventions and a checklist for adding a tool.

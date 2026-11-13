@@ -176,9 +176,11 @@ you change Go-exposed APIs using the wails3 generate command above.
 - UI must follow `docs/ui-ux.md`:
   - Use the design tokens and component classes in `frontend/src/styles.css`. Do not hardcode gray/blue/hex colors in pages.
   - Compose pages with `.page` → `.page-head` → `.panel` → `.field`/`.banner`/`.btn`.
+  - Tool pages must use the file-first flow: `FileDrop`/`FileQueue` → presets/advanced → `OutputPlanCard` → one primary action → `ResultCard`. No mode selector, no free-text output path, no separate Validate step.
   - Use `ToolRegistryService` for navigation, titles, icons and routes; do not hardcode tool links.
   - Use tokens for both themes; no `dark:` utility variants. Theme is controlled by `data-theme` on `<html>`.
   - Use `lucide-angular` icons; icon-only buttons need `aria-label`.
+  - Backend tools should implement the optional `Planner` interface and reuse the plan resolver in execution.
   - All UI copy is English.
 - Testing: use Karma + Jasmine. Test files use `describe`/`it` blocks. Prefer small, isolated tests.
   If Puppeteer's Chromium is unavailable, run with `CHROME_BIN=/usr/bin/brave npx ng test --watch=false`.

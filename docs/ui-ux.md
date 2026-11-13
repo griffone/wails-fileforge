@@ -55,6 +55,29 @@ app-command-palette     overlay, opened by Ctrl/Cmd+K
 - At `<= 900px` the rail becomes a drawer with a backdrop; the top bar exposes the menu button.
 - The top bar shows `CATEGORY / Short name` using the registry's `navName`, not the full name.
 
+## File-first tool flow
+
+Every tool follows the same user task, not the backend job contract:
+
+> **Drop files → see the file cards → choose a simple outcome → see the exact output plan → one action → open/reveal the result.**
+
+- Intake: `FileDrop` (native Wails paths) + `FileQueue`. One file is single mode; 2+ becomes batch automatically. No mode selector.
+- Outcome: presets first (WebP/JPEG/PNG, MP4/WebM, crop size, page strategy); exact settings live under `Advanced`.
+- Output: `OutputPlanCard` shows the resolved destination and collision-safe name before running. Default is next to the original; never overwrite.
+- Run: one primary action (`Convert 3 images`, `Merge 2 PDFs`). There is no separate Validate button.
+- Result: `ResultCard` with open, show in folder, retry failed and "do another"; technical job ids/codes live in a Details disclosure.
+- Backend: `PlanJobV1` is the source of truth. The same resolver is used by planning and execution; explicit existing outputs are conflicts, auto-derived names get `-2`, `-3`.
+- Native desktop: `EnableFileDrop` + `data-file-drop-target` + `common:WindowFilesDropped`; `OpenPath` / `RevealInFolder` for results.
+
+Shared components:
+
+- `app-file-drop` — click, Enter/Space, native OS paths, drag state.
+- `app-file-queue` — file cards, optional reorder, remove.
+- `app-output-plan-card` — destination, resolved names, counts, adjusted warnings.
+- `app-result-card` — success/partial/failure, open/reveal, retry, details.
+- `app-job-card` — live progress.
+- `app-tool-execution-panel` — only for legacy/custom forms; new tool pages should compose their own panels.
+
 ## Page recipe
 
 Every tool page uses the same composition:
@@ -133,17 +156,18 @@ Rules:
 1. Add the route in `frontend/src/app/app.routes.ts`.
 2. Add a `ToolDefinition` in `frontend/src/app/config/tools.ts` (name, `navName`, description, route, category, icon, formats, keywords).
 3. The rail, command palette, Home grid and recents pick it up automatically.
-4. Build the page with the recipe above. Use `.page`, `.panel`, fields, banners and buttons.
-5. Add `Local only` once in the header; no back links.
-6. Add or update the spec, then run:
+4. Build the page with the file-first flow: `FileDrop`/`FileQueue` → presets/advanced → `OutputPlanCard` → one action → `ResultCard`. Use `.page`, `.panel`, fields, banners and buttons.
+5. Implement `Plan(ctx, req)` on the Go tool and reuse the same resolver in execution; never overwrite, and return planned outputs/counts/warnings. Expose it through the existing `PlanJobV1` path.
+6. Add `Local only` once in the header; no back links, no mode selector, no output-path typing, no Validate button.
+7. Add or update both Go and frontend specs, then run:
 
    ```bash
    cd frontend
    npm run build:dev
    CHROME_BIN=/usr/bin/brave npx ng test --watch=false
+   go test ./...
    ```
-
-7. If the tool needs a new backend API, update Go, regenerate bindings, and never edit `frontend/bindings/` by hand.
+8. If the tool needs a new backend API, update Go, regenerate bindings, and never edit `frontend/bindings/` by hand.
 
 ## Accessibility baseline
 
