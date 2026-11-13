@@ -6,68 +6,8 @@ import { JobResultV1 } from '../../services/wails';
   selector: 'app-job-card',
   standalone: true,
   imports: [CommonModule],
-  template: `
-    <div class="job-card">
-      <div class="flex justify-between items-center">
-        <div>
-          <p class="text-sm font-semibold">Stage: {{ stageLabel() }}</p>
-          <p class="text-xs text-gray-600">{{ stageMessage() }}</p>
-        </div>
-        <div class="text-sm">{{ overallPercent() }}%</div>
-      </div>
-
-      <div class="mt-2">
-        <ng-container [ngSwitch]="currentStage()">
-          <div *ngSwitchCase="'uploading'">
-            <div *ngIf="bytesInfo(); else indetUpload">
-              <p class="text-xs">{{ bytesInfo() }}</p>
-              <div class="h-2 w-full overflow-hidden rounded bg-gray-200">
-                <div class="h-full bg-blue-500" role="progressbar" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="overallPercent()" [style.width.%]="overallPercent()"></div>
-              </div>
-            </div>
-            <ng-template #indetUpload>
-              <div role="status">Uploading…</div>
-            </ng-template>
-          </div>
-
-          <div *ngSwitchCase="'processing'">
-            <p class="text-xs">{{ processingInfo() }}</p>
-            <div class="h-2 w-full overflow-hidden rounded bg-gray-200">
-              <div class="h-full bg-green-500" role="progressbar" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="overallPercent()" [style.width.%]="overallPercent()"></div>
-            </div>
-          </div>
-
-          <div *ngSwitchCase="'finalizing'">
-            <div role="status" class="flex items-center gap-2">
-              <div class="spinner" aria-hidden="true"></div>
-              <span class="text-xs">{{ stageMessage() || 'Finalizing…' }}</span>
-            </div>
-          </div>
-
-          <div *ngSwitchCase="'done'">
-            <p class="text-xs">Done. {{ stageMessage() }}</p>
-          </div>
-
-          <div *ngSwitchCase="'failed'">
-            <p class="text-xs text-red-700">Failed. {{ stageMessage() }}</p>
-          </div>
-
-          <div *ngSwitchCase="'cancelled'">
-            <p class="text-xs">Cancelled.</p>
-          </div>
-
-          <div *ngSwitchDefault>
-            <p class="text-xs">{{ stageMessage() || 'Pending' }}</p>
-          </div>
-        </ng-container>
-      </div>
-
-      <div *ngIf="etaText()" class="mt-2 text-xs text-gray-500">ETA: {{ etaText() }}</div>
-    </div>
-  `,
-  styles: [
-    `.spinner { width: 16px; height: 16px; border: 2px solid rgba(0,0,0,0.1); border-top-color: rgba(0,0,0,0.6); border-radius: 50%; animation: spin 1s linear infinite } @keyframes spin { to { transform: rotate(360deg) } }`,
-  ],
+  templateUrl: './job-card.html',
+  styleUrl: './job-card.css',
 })
 export class JobCard {
   @Input() job: JobResultV1 | null = null;
@@ -91,6 +31,16 @@ export class JobCard {
         return 'Failed';
       case 'cancelled':
         return 'Cancelled';
+      case 'queued':
+        return 'Queued';
+      case 'running':
+        return 'Running';
+      case 'success':
+        return 'Done';
+      case 'partial_success':
+        return 'Partial success';
+      case 'interrupted':
+        return 'Interrupted';
       default:
         return s;
     }
@@ -100,10 +50,69 @@ export class JobCard {
     return this.job?.progress?.message ?? this.job?.message ?? '';
   }
 
+  /** Human copy for the status line; falls back to stage-specific wording. */
+  messageText(): string {
+    const message = this.stageMessage().trim();
+    if (message) {
+      return message;
+    }
+
+    switch (this.currentStage()) {
+      case 'queued':
+        return 'Waiting in the queue';
+      case 'uploading':
+        return 'Sending files to the engine';
+      case 'processing':
+        return 'Working on your files';
+      case 'finalizing':
+        return 'Finalizing output';
+      case 'done':
+        return 'Job completed';
+      case 'failed':
+        return 'Job failed';
+      case 'cancelled':
+        return 'Job cancelled';
+      default:
+        return 'Pending';
+    }
+  }
+
   overallPercent(): number {
     const p = this.job?.progress;
     if (!p || typeof p.current !== 'number' || typeof p.total !== 'number' || p.total <= 0) return 0;
     return Math.round((p.current / p.total) * 100);
+  }
+
+  /** Stage + percent announced by the progressbar. */
+  progressValueText(): string {
+    return `${this.stageLabel()} ${this.overallPercent()}%`;
+  }
+
+  isFinalizing(): boolean {
+    return this.currentStage() === 'finalizing';
+  }
+
+  /** Active stages with no measurable progress render a moving bar. */
+  isIndeterminate(): boolean {
+    if (this.overallPercent() > 0) {
+      return false;
+    }
+
+    return ['queued', 'uploading', 'processing', 'finalizing'].includes(this.currentStage());
+  }
+
+  /** Secondary line: byte counts, item counts or the finalizing hint. */
+  detailText(): string {
+    switch (this.currentStage()) {
+      case 'uploading':
+        return this.bytesInfo() ?? '';
+      case 'processing':
+        return this.processingInfo();
+      case 'finalizing':
+        return 'Writing results';
+      default:
+        return '';
+    }
   }
 
   bytesInfo(): string | null {

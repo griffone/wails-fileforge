@@ -229,7 +229,9 @@ describe('ToolExecutionPanel', () => {
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Item status: failed');
-    expect(text).toContain('El rango de páginas excede la cantidad disponible en el PDF. (range exceeds page count)');
+    expect(text).toContain(
+      'The page range exceeds the number of pages available in the PDF. (range exceeds page count)',
+    );
     expect(text).toContain('Batch file errors (aggregated)');
     expect(text).toContain('/tmp/a.pdf');
   });
@@ -277,11 +279,35 @@ describe('ToolExecutionPanel', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('Resumen batch');
-    expect(text).toContain('Éxitos: 1 · Fallos: 1 · Reintentos: 3');
-    expect(text).toContain('Interrumpido por reinicio');
-    expect(text).toContain('reanudación automática queda para un roadmap futuro');
-    expect(text).toContain('1 reintento(s), 2 intento(s) total');
-    expect(text).toContain('2 reintento(s), 3 intento(s) total');
+    expect(text).toContain('Batch summary');
+    expect(text).toContain('Success');
+    expect(text).toContain('Retries');
+
+    const stats = Array.from(
+      fixture.nativeElement.querySelectorAll('.job-stat dd') as NodeListOf<HTMLElement>,
+    ).map((entry) => entry.textContent?.trim());
+    expect(stats).toEqual(['1', '1', '3']);
+    expect(text).toContain('Interrupted');
+    expect(text).toContain('v1 does not auto-resume');
+    expect(text).toContain('1 retry, 2 attempts total');
+    expect(text).toContain('2 retries, 3 attempts total');
+  });
+
+  it('associates help and error copy with the field', () => {
+    component.fields = [
+      {
+        controlName: 'outputDir',
+        label: 'Output',
+        type: 'text',
+        helpText: 'Folder that receives the result files.',
+      },
+    ];
+    component.inlineFieldErrors = { outputDir: 'Output folder is required.' };
+    fixture.detectChanges();
+
+    const input = fixture.nativeElement.querySelector('#outputDir') as HTMLInputElement;
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(input.getAttribute('aria-describedby')).toContain(component.helpId(component.fields[0]));
+    expect(input.getAttribute('aria-describedby')).toContain(component.errorId(component.fields[0]));
   });
 });

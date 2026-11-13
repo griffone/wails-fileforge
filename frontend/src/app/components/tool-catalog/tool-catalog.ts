@@ -1,21 +1,41 @@
-import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Component, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import {
+  Activity,
+  ArrowUpRight,
+  Inbox,
+  LucideAngularModule,
+  RefreshCw,
+  type LucideIconData,
+} from 'lucide-angular';
+
+import type { ToolDefinition } from '../../config/tools';
+import { ToolRegistryService } from '../../services/tool-registry.service';
 import { ToolCatalogEntryV1, Wails } from '../../services/wails';
 
 @Component({
   selector: 'app-tool-catalog',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, LucideAngularModule],
   templateUrl: './tool-catalog.html',
   styleUrl: './tool-catalog.css',
 })
 export class ToolCatalog implements OnInit {
+  readonly activityIcon = Activity;
+  readonly refreshIcon = RefreshCw;
+  readonly emptyIcon = Inbox;
+  readonly arrowIcon = ArrowUpRight;
+  readonly skeletonRows = [0, 1, 2, 3];
+
   tools: ToolCatalogEntryV1[] = [];
   loading = false;
   errorMessage = '';
 
-  constructor(public readonly wailsService: Wails) {}
+  constructor(
+    public readonly wailsService: Wails,
+    public readonly registry: ToolRegistryService,
+  ) {}
 
   async ngOnInit(): Promise<void> {
     await this.loadTools();
@@ -42,61 +62,48 @@ export class ToolCatalog implements OnInit {
   getStatusClass(status: string): string {
     switch (status) {
       case 'enabled':
-        return 'bg-green-100 text-green-800';
+        return 'badge badge-success';
       case 'degraded':
-        return 'bg-amber-100 text-amber-800';
+        return 'badge badge-warning';
       case 'disabled':
-        return 'bg-red-100 text-red-800';
+        return 'badge badge-danger';
       default:
-        return 'bg-gray-100 text-gray-700';
+        return 'badge badge-neutral';
     }
   }
 
+  /** Registry definition for a backend tool id, when one exists. */
+  toolDefinition(tool: ToolCatalogEntryV1): ToolDefinition | null {
+    return this.registry.findById(tool.manifest.toolId);
+  }
+
+  toolIcon(tool: ToolCatalogEntryV1): LucideIconData {
+    return this.toolDefinition(tool)?.icon ?? this.activityIcon;
+  }
+
+  categoryTone(tool: ToolCatalogEntryV1): string {
+    return this.toolDefinition(tool)?.category ?? 'system';
+  }
+
   routeForTool(toolId: string): string | null {
-    if (toolId === 'tool.image.convert') {
-      return '/image-converter';
-    }
+    return this.registry.findById(toolId)?.route ?? null;
+  }
 
-    if (toolId === 'tool.image.crop') {
-      return '/image-crop';
-    }
+  ioLabel(tool: ToolCatalogEntryV1): string {
+    const input = tool.manifest.inputExtensions.join(', ') || '—';
+    const output = tool.manifest.outputExtensions.join(', ') || '—';
+    return `${input} → ${output}`;
+  }
 
-    if (toolId === 'tool.image.annotate') {
-      return '/image-annotate';
-    }
+  modeLabel(tool: ToolCatalogEntryV1): string {
+    const modes = [
+      tool.manifest.supportsSingle ? 'single' : '',
+      tool.manifest.supportsBatch ? 'batch' : '',
+    ].filter(Boolean);
+    return modes.length > 0 ? modes.join(' + ') : 'n/a';
+  }
 
-    if (toolId === 'tool.pdf.merge') {
-      return '/pdf-merge';
-    }
-
-    if (toolId === 'tool.pdf.split') {
-      return '/pdf-split';
-    }
-
-    if (toolId === 'tool.pdf.crop') {
-      return '/pdf-crop';
-    }
-
-    if (toolId === 'tool.doc.md_to_pdf') {
-      return '/doc-md-to-pdf';
-    }
-
-    if (toolId === 'tool.doc.docx_to_pdf') {
-      return '/doc-docx-to-pdf';
-    }
-
-    if (toolId === 'tool.video.convert') {
-      return '/video-convert';
-    }
-
-    if (toolId === 'tool.video.trim') {
-      return '/video-trim';
-    }
-
-    if (toolId === 'tool.video.merge') {
-      return '/video-merge';
-    }
-
-    return null;
+  trackByToolId(_index: number, tool: ToolCatalogEntryV1): string {
+    return tool.manifest.toolId;
   }
 }

@@ -1,21 +1,89 @@
+:host {
+  display: block;
+}
+
 .file-drop {
-  border: 2px dashed var(--primary, #0B6FFF);
-  border-radius: 8px;
-  padding: 16px;
-  text-align: center;
-  cursor: pointer;
-}
-.file-drop:focus {
-  outline: 3px solid rgba(11,111,255,0.12);
-}
-.file-drop .file-drop-inner {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
+  min-height: 212px;
+  padding: 38px 28px;
+  border: 2px dashed var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 170ms ease,
+    background-color 170ms ease,
+    box-shadow 170ms ease;
 }
-.file-drop.drag-over {
-  background: rgba(11,111,255,0.04);
+
+.file-drop:hover {
+  border-color: var(--accent-line);
+  background: var(--surface-2);
 }
+
+.file-drop:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-color: var(--accent);
+}
+
+.file-drop.is-dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow:
+    0 0 0 4px var(--accent-soft),
+    inset 0 1px 0 var(--edge-highlight);
+}
+
+.file-drop-icon {
+  width: 46px;
+  height: 46px;
+  margin-bottom: 10px;
+  border-radius: 13px;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+.file-drop:hover .file-drop-icon,
+.file-drop.is-dragging .file-drop-icon {
+  transform: translateY(-2px);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .file-drop-title {
-  font-weight: 600;
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.file-drop-sub {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.file-drop-hint {
+  margin: 10px 0 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.07em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.file-drop-input {
+  display: none;
 }

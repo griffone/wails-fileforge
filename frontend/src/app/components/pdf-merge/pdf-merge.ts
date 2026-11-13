@@ -1,7 +1,23 @@
-import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  OnDestroy,
+  ViewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import {
+  ArrowDown,
+  ArrowUp,
+  FolderOpen,
+  GripVertical,
+  ListOrdered,
+  LucideAngularModule,
+  ShieldCheck,
+  Trash2,
+  X,
+} from 'lucide-angular';
 import {
   JobErrorV1,
   JobRequestV1,
@@ -18,12 +34,22 @@ const POLLING_INTERVAL_MS = 1000;
 @Component({
   selector: 'app-pdf-merge',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, FileDrop, JobCard],
+  imports: [CommonModule, ReactiveFormsModule, LucideAngularModule, FileDrop, JobCard],
   templateUrl: './pdf-merge.html',
   styleUrl: './pdf-merge.css',
 })
 export class PdfMerge implements OnDestroy {
-  // FileDrop will emit File[]; we listen with onFilesAdded
+  @ViewChild('runButton') runButton?: ElementRef<HTMLButtonElement>;
+  @ViewChild('confirmButton') confirmButton?: ElementRef<HTMLButtonElement>;
+
+  readonly arrowUpIcon = ArrowUp;
+  readonly arrowDownIcon = ArrowDown;
+  readonly closeIcon = X;
+  readonly folderOpenIcon = FolderOpen;
+  readonly gripIcon = GripVertical;
+  readonly listOrderedIcon = ListOrdered;
+  readonly shieldIcon = ShieldCheck;
+  readonly trashIcon = Trash2;
 
   readonly form;
   selectedInputPaths: string[] = [];
@@ -35,7 +61,6 @@ export class PdfMerge implements OnDestroy {
   isSubmitting = false;
   isPolling = false;
   activeJobId = '';
-  dragOver = false;
   draggedIndex: number | null = null;
   showRunOrderConfirmation = false;
   confirmedOrderSnapshot: string[] = [];
@@ -52,13 +77,22 @@ export class PdfMerge implements OnDestroy {
     });
   }
 
+  /** FileDrop emits the selected files; the native path wins when available. */
   onFilesAdded(files: File[]): void {
-    const paths = this.extractPathsFromFileList(files as unknown as FileList);
+    const paths = files.map((file) => (file as File & { path?: string }).path ?? file.name);
     this.appendInputPaths(paths);
   }
 
   ngOnDestroy(): void {
     this.stopPolling();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (!this.showRunOrderConfirmation) {
+      return;
+    }
+    this.cancelRunOrderConfirmation();
   }
 
   async validate(): Promise<void> {
@@ -92,11 +126,13 @@ export class PdfMerge implements OnDestroy {
     this.confirmedOrderSnapshot = [...this.selectedInputPaths];
     this.confirmedOutputPath = this.form.controls.outputPath.value.trim();
     this.showRunOrderConfirmation = true;
+    setTimeout(() => this.confirmButton?.nativeElement.focus(), 0);
   }
 
   cancelRunOrderConfirmation(): void {
     this.showRunOrderConfirmation = false;
-    this.submitMessage = 'Ejecución cancelada: no se confirmó el orden final.';
+    this.submitMessage = 'Run cancelled: the final order was not confirmed.';
+    this.restoreRunFocus();
   }
 
   async confirmRunOrderAndExecute(): Promise<void> {
@@ -108,6 +144,7 @@ export class PdfMerge implements OnDestroy {
     if (localError) {
       this.showRunOrderConfirmation = false;
       this.submitMessage = localError;
+      this.restoreRunFocus();
       return;
     }
 
@@ -115,6 +152,7 @@ export class PdfMerge implements OnDestroy {
     this.showRunOrderConfirmation = false;
 
     await this.executeRunRequest(request);
+    this.restoreRunFocus();
   }
 
   private async executeRunRequest(request: JobRequestV1): Promise<void> {
@@ -188,11 +226,8 @@ export class PdfMerge implements OnDestroy {
     this.form.patchValue({
       outputPath: this.joinPathLikeHostOS(selectedDir, outputName),
     });
-    this.validationMessage = 'Carpeta de salida seleccionada. Revisá o ajustá el nombre final del archivo.';
+    this.validationMessage = 'Output folder selected. Review or adjust the final file name.';
   }
-
-  // FileDrop replaces the browser file input and native drag handlers.
-  // onFilesAdded(files: File[]) is used as the single entrypoint for new files.
 
   moveUp(index: number): void {
     if (index <= 0 || index >= this.selectedInputPaths.length) {
@@ -250,41 +285,55 @@ export class PdfMerge implements OnDestroy {
     return idx >= 0 ? normalized.slice(idx + 1) : normalized;
   }
 
+  /** Two-digit queue position, matching the mono index in the list. */
+  formatPosition(index: number): string {
+    return String(index + 1).padStart(2, '0');
+  }
+
+  /** Badge copy for the queue panel header. */
+  fileCountLabel(): string {
+    const count = this.selectedInputPaths.length;
+    if (count === 0) {
+      return '0 files';
+    }
+    return count === 1 ? '1 file' : `${count} files`;
+  }
+
   private localValidationError(): string {
     const outputPath = this.form.controls.outputPath.value.trim();
     const inputPaths = this.selectedInputPaths.map((path) => path.trim());
 
     if (inputPaths.length < 2) {
-      return 'Seleccioná al menos 2 PDFs para poder hacer merge.';
+      return 'Select at least 2 PDFs to merge.';
     }
 
     const invalidInput = inputPaths.find((path) => !this.isPDFPath(path));
     if (invalidInput) {
-      return `Archivo inválido en la lista: ${invalidInput}. Solo se permiten .pdf.`;
+      return `Invalid file in the queue: ${invalidInput}. Only .pdf files are allowed.`;
     }
 
     const duplicate = this.findDuplicatePath(inputPaths);
     if (duplicate) {
-      return `Archivo duplicado detectado: ${duplicate}. Eliminá el duplicado o reordená la lista.`;
+      return `Duplicate file detected: ${duplicate}. Remove the duplicate or reorder the queue.`;
     }
 
     if (!outputPath) {
-      return 'Indicá un outputPath para guardar el PDF merged.';
+      return 'Enter an output path to save the merged PDF.';
     }
 
     if (outputPath.endsWith('/') || outputPath.endsWith('\\')) {
-      return 'El outputPath debe incluir nombre de archivo (ejemplo: merged.pdf), no solo carpeta.';
+      return 'The output path must include a file name (for example, merged.pdf), not just a folder.';
     }
 
     if (!this.isPDFPath(outputPath)) {
-      return 'El outputPath debe terminar en .pdf';
+      return 'The output path must end in .pdf.';
     }
 
     const collision = inputPaths.find(
       (path) => this.normalizePathKey(path) === this.normalizePathKey(outputPath)
     );
     if (collision) {
-      return `El outputPath colisiona con un input: ${collision}. Elegí otro archivo de salida.`;
+      return `The output path matches an input file: ${collision}. Choose a different output file.`;
     }
 
     return '';
@@ -383,21 +432,23 @@ export class PdfMerge implements OnDestroy {
       return fallback;
     }
 
+    const tech = error.detail_code ? ` [${error.detail_code}]` : '';
+
     switch (error.code) {
       case 'VALIDATION_INVALID_INPUT':
-        return `Validación${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
+        return `Validation error${tech}: ${error.message}`;
       case 'RUNTIME_DEP_MISSING':
-        return `Falta dependencia de runtime.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+        return `Runtime dependency missing.${tech} ${error.message}`;
       case 'EXEC_IO_TRANSIENT':
-        return `No se pudo completar el merge por un error de ejecución.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+        return `The merge could not finish because of an execution error.${tech} ${error.message}`;
       case 'EXEC_TIMEOUT_TRANSIENT':
-        return `La ejecución agotó tiempo.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+        return `The merge timed out.${tech} ${error.message}`;
       case 'UNSUPPORTED_FORMAT':
-        return `Formato no soportado.${error.detail_code ? ` [${error.detail_code}]` : ''} ${error.message}`;
+        return `Unsupported format.${tech} ${error.message}`;
       case 'CANCELLED_BY_USER':
-        return 'El job fue cancelado.';
+        return `The job was cancelled.${tech}`;
       default:
-        return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
+        return `${error.code}${tech}: ${error.message}`;
     }
   }
 
@@ -432,25 +483,12 @@ export class PdfMerge implements OnDestroy {
     }
 
     if (added.length > 0) {
-      this.validationMessage = `${added.length} archivo(s) agregado(s) a la cola.`;
+      this.validationMessage = `${added.length} file(s) added to the queue.`;
     }
 
     if (ignored.length > 0) {
-      this.submitMessage = `Se ignoraron ${ignored.length} archivo(s) por extensión inválida o duplicado.`;
+      this.submitMessage = `Ignored ${ignored.length} file(s) with an invalid extension or duplicate path.`;
     }
-  }
-
-  private extractPathsFromFileList(files: FileList): string[] {
-    const paths: string[] = [];
-    for (let index = 0; index < files.length; index += 1) {
-      const file = files.item(index);
-      if (!file) {
-        continue;
-      }
-      const nativePath = (file as File & { path?: string }).path;
-      paths.push(nativePath ?? file.name);
-    }
-    return paths;
   }
 
   private findDuplicatePath(paths: string[]): string {
@@ -540,6 +578,10 @@ export class PdfMerge implements OnDestroy {
     }
 
     return absolute ? `/${joined}` : joined;
+  }
+
+  private restoreRunFocus(): void {
+    setTimeout(() => this.runButton?.nativeElement.focus(), 0);
   }
 
   private swap(leftIndex: number, rightIndex: number): void {

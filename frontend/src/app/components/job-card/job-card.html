@@ -1,0 +1,33 @@
+<div class="job-card" [attr.data-stage]="currentStage()">
+  <div class="job-card-head">
+    <span class="job-card-stage">{{ stageLabel() }}</span>
+    <span class="job-card-percent mono" aria-hidden="true">
+      {{ overallPercent() }}<span class="job-card-percent-unit">%</span>
+    </span>
+  </div>
+
+  <p class="job-card-message" role="status" aria-live="polite" aria-atomic="true">
+    <span class="sr-only">{{ stageLabel() }}: </span>{{ messageText() }}
+  </p>
+
+  <div
+    class="progress job-card-progress"
+    [class.is-indeterminate]="isIndeterminate()"
+    role="progressbar"
+    aria-label="Job progress"
+    aria-valuemin="0"
+    aria-valuemax="100"
+    [attr.aria-valuenow]="overallPercent()"
+    [attr.aria-valuetext]="progressValueText()"
+  >
+    <div class="progress-fill" [style.width.%]="isIndeterminate() ? 34 : overallPercent()"></div>
+  </div>
+
+  <div class="job-card-meta" *ngIf="isFinalizing() || detailText() || etaText()">
+    <span class="job-card-detail">
+      <span *ngIf="isFinalizing()" class="spinner" aria-hidden="true"></span>
+      <span class="mono">{{ detailText() }}</span>
+    </span>
+    <span class="job-card-eta mono" *ngIf="etaText() as eta">ETA {{ eta }}</span>
+  </div>
+</div>

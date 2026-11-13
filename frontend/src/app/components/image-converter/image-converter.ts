@@ -1,16 +1,22 @@
-import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import { Component, OnDestroy } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import {
+  FolderOpen,
+  FolderOutput,
+  Image,
+  LucideAngularModule,
+  ShieldCheck,
+  X,
+} from 'lucide-angular';
 
 import {
   ExecutionPanelField,
   ToolExecutionPanel,
 } from '../tool-execution-panel/tool-execution-panel';
 import { FileDrop } from '../file-drop/file-drop';
-import { FEATURE_FLAGS } from '../../config/feature-flags';
 import {
   JobErrorV1,
   JobRequestV1,
@@ -25,15 +31,24 @@ const POLLING_INTERVAL_MS = 1000;
 @Component({
   selector: 'app-image-converter',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, ToolExecutionPanel, FileDrop],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    LucideAngularModule,
+    ToolExecutionPanel,
+    FileDrop,
+  ],
   templateUrl: './image-converter.html',
   styleUrl: './image-converter.css',
 })
 export class ImageConverter implements OnDestroy {
-  readonly featureFlags = FEATURE_FLAGS;
-  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
-
   private readonly destroy$ = new Subject<void>();
+
+  readonly folderOpenIcon = FolderOpen;
+  readonly folderOutputIcon = FolderOutput;
+  readonly imageIcon = Image;
+  readonly shieldIcon = ShieldCheck;
+  readonly closeIcon = X;
 
   readonly form;
   readonly panelFields: ExecutionPanelField[] = [
@@ -42,13 +57,13 @@ export class ImageConverter implements OnDestroy {
       label: 'Mode',
       type: 'select',
       options: [
-        { value: 'single', label: 'single' },
-        { value: 'batch', label: 'batch' },
+        { value: 'single', label: 'Single file' },
+        { value: 'batch', label: 'Batch' },
       ],
     },
     {
       controlName: 'outputPath',
-      label: 'Output path',
+      label: 'Output file',
       type: 'text',
       placeholder: '/path/to/output.webp',
       visibleModes: ['single'],
@@ -62,30 +77,30 @@ export class ImageConverter implements OnDestroy {
     },
     {
       controlName: 'format',
-      label: 'Target format',
+      label: 'Format',
       type: 'select',
       options: [
-        { value: 'webp', label: 'webp' },
-        { value: 'jpeg', label: 'jpeg' },
-        { value: 'png', label: 'png' },
-        { value: 'gif', label: 'gif' },
+        { value: 'webp', label: 'WebP' },
+        { value: 'jpeg', label: 'JPEG' },
+        { value: 'png', label: 'PNG' },
+        { value: 'gif', label: 'GIF' },
       ],
     },
     {
       controlName: 'quality',
-      label: 'Quality (1-100)',
+      label: 'Quality (1–100)',
       type: 'text',
       placeholder: '80',
     },
     {
       controlName: 'resizeWidth',
-      label: 'Resize width (optional)',
+      label: 'Resize width',
       type: 'text',
       placeholder: '1024',
     },
     {
       controlName: 'resizeHeight',
-      label: 'Resize height (optional)',
+      label: 'Resize height',
       type: 'text',
       placeholder: '768',
     },
@@ -148,11 +163,10 @@ export class ImageConverter implements OnDestroy {
     }
   }
 
-  // New FileDrop file selected handler (accepts File[] and converts to local paths)
+  // FileDrop emits File[]; keep local-only handling and fall back to the
+  // browser file name when the runtime does not expose a native path.
   onFileDropFiles(files: File[]): void {
-    // Preserve local-only handling: use file.name as placeholder path for now
-    // Phase2: implement thumbnail previews via local object URLs or backend preview endpoint
-    const paths = files.map((f) => ((f as unknown as { path?: string }).path) ?? f.name);
+    const paths = files.map((file) => (file as File & { path?: string }).path ?? file.name);
     this.onFileDropPaths(paths);
   }
 
@@ -221,6 +235,22 @@ export class ImageConverter implements OnDestroy {
 
   clearInputs(): void {
     this.selectedInputPaths = [];
+  }
+
+  /** Badge copy for the input panel header. */
+  fileCountLabel(): string {
+    const count = this.selectedInputPaths.length;
+    if (count === 0) {
+      return '0 files';
+    }
+    return count === 1 ? '1 file' : `${count} files`;
+  }
+
+  /** Last path segment, safe for both POSIX and Windows separators. */
+  filenameFromPath(path: string): string {
+    const normalized = path.replace(/\\/g, '/');
+    const index = normalized.lastIndexOf('/');
+    return index >= 0 ? normalized.slice(index + 1) : normalized;
   }
 
   async validate(): Promise<void> {

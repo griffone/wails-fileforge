@@ -78,7 +78,7 @@ describe('PdfMerge', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('al menos 2 PDFs');
+    expect(component.validationMessage).toContain('at least 2 PDFs');
     expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
   });
 
@@ -88,12 +88,12 @@ describe('PdfMerge', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('inválido');
+    expect(component.validationMessage).toContain('Invalid file');
     expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
 
     component.selectedInputPaths = ['/tmp/a.pdf', '/tmp/a.pdf'];
     await component.validate();
-    expect(component.validationMessage).toContain('duplicado');
+    expect(component.validationMessage).toContain('Duplicate file');
   });
 
   it('blocks output path collision with input path locally', async () => {
@@ -102,7 +102,7 @@ describe('PdfMerge', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('colisiona con un input');
+    expect(component.validationMessage).toContain('matches an input file');
     expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
   });
 
@@ -112,7 +112,7 @@ describe('PdfMerge', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('duplicado');
+    expect(component.validationMessage).toContain('Duplicate file');
     expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
 
     component.selectedInputPaths = ['\\\\Server\\Share\\A.pdf', '\\\\Server\\Share\\B.pdf'];
@@ -120,7 +120,7 @@ describe('PdfMerge', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('colisiona con un input');
+    expect(component.validationMessage).toContain('matches an input file');
     expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
   });
 
@@ -130,7 +130,7 @@ describe('PdfMerge', () => {
 
     await component.validate();
 
-    expect(component.validationMessage).toContain('nombre de archivo');
+    expect(component.validationMessage).toContain('file name');
     expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
   });
 
@@ -141,7 +141,7 @@ describe('PdfMerge', () => {
     await component.selectOutputDirectory();
 
     expect(component.form.controls.outputPath.value).toBe('C:\\OutDir\\existing.pdf');
-    expect(component.validationMessage).toContain('Carpeta de salida seleccionada');
+    expect(component.validationMessage).toContain('Output folder selected');
   });
 
   it('appends valid files and ignores duplicates/extensions', () => {
@@ -156,7 +156,7 @@ describe('PdfMerge', () => {
     component.onFilesAdded(files);
 
     expect(component.selectedInputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
-    expect(component.submitMessage).toContain('ignoraron');
+    expect(component.submitMessage).toContain('Ignored');
   });
 
   it("shows 'Uploading' in JobCard when job progress stage is 'uploading'", () => {
@@ -192,6 +192,39 @@ describe('PdfMerge', () => {
     ]);
   });
 
+  it('moves queue entries up and down and removes them', () => {
+    component.selectedInputPaths = ['/tmp/1.pdf', '/tmp/2.pdf', '/tmp/3.pdf'];
+
+    component.moveDown(0);
+    expect(component.selectedInputPaths).toEqual(['/tmp/2.pdf', '/tmp/1.pdf', '/tmp/3.pdf']);
+
+    component.moveUp(2);
+    expect(component.selectedInputPaths).toEqual(['/tmp/2.pdf', '/tmp/3.pdf', '/tmp/1.pdf']);
+
+    component.moveUp(0);
+    component.moveDown(component.selectedInputPaths.length - 1);
+    expect(component.selectedInputPaths).toEqual(['/tmp/2.pdf', '/tmp/3.pdf', '/tmp/1.pdf']);
+
+    component.removeAt(1);
+    expect(component.selectedInputPaths).toEqual(['/tmp/2.pdf', '/tmp/1.pdf']);
+  });
+
+  it('closes the confirmation modal on Escape without submitting', async () => {
+    component.selectedInputPaths = ['/tmp/2.pdf', '/tmp/1.pdf'];
+    component.form.patchValue({ outputPath: '/tmp/out/merged.pdf' });
+
+    await component.run();
+    fixture.detectChanges();
+    expect(component.showRunOrderConfirmation).toBeTrue();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(component.showRunOrderConfirmation).toBeFalse();
+    expect(component.submitMessage).toContain('final order was not confirmed');
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+  });
+
   it('requires explicit modal confirmation before execute', async () => {
     component.selectedInputPaths = ['/tmp/2.pdf', '/tmp/1.pdf'];
     component.form.patchValue({ outputPath: '/tmp/out/merged.pdf' });
@@ -212,7 +245,7 @@ describe('PdfMerge', () => {
     component.cancelRunOrderConfirmation();
 
     expect(component.showRunOrderConfirmation).toBeFalse();
-    expect(component.submitMessage).toContain('no se confirmó el orden final');
+    expect(component.submitMessage).toContain('final order was not confirmed');
     expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
   });
 
@@ -419,7 +452,7 @@ describe('PdfMerge', () => {
     void component.confirmRunOrderAndExecute();
     flushMicrotasks();
 
-    expect(component.statusMessage).toContain('error de ejecución');
+    expect(component.statusMessage).toContain('execution error');
     expect(component.isPolling).toBeFalse();
   }));
 
@@ -468,7 +501,7 @@ describe('PdfMerge', () => {
     void component.confirmRunOrderAndExecute();
     flushMicrotasks();
 
-    expect(component.statusMessage).toContain('Validación');
+    expect(component.statusMessage).toContain('Validation error');
     expect(component.isPolling).toBeFalse();
   }));
 

@@ -1,155 +1,235 @@
-<div class="min-h-screen bg-gray-50 p-6">
-  <div class="max-w-3xl mx-auto">
-    <div class="mb-6 flex items-center justify-between">
-      <div>
-        <h1 class="text-3xl font-bold text-gray-900">PDF Merge</h1>
-        <p class="text-gray-600 mt-1">
-          Mergeá múltiples PDFs con orden explícito y validaciones previas.
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">PDF</p>
+        <h1 class="page-title">PDF <em>merge</em></h1>
+        <p class="page-sub">
+          Combine PDFs in an explicit order you control, with validation before every run —
+          local-first, so your documents never leave this machine.
         </p>
       </div>
-      <div class="flex gap-2">
-        <a routerLink="/" class="btn btn-secondary">Home</a>
-        <a routerLink="/tool-catalog" class="btn btn-secondary">Catalog</a>
-      </div>
-    </div>
 
-    <section class="card space-y-4">
-      <header>
-        <h2 class="text-xl font-semibold text-gray-900">PDF Merge Execution</h2>
-        <p class="mt-1 text-sm text-gray-600">
-          El orden visual de esta lista se envía tal cual en <code>inputPaths</code>.
-        </p>
+      <span class="badge badge-neutral page-local">
+        <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <section class="panel queue-panel" aria-labelledby="pdf-queue-title">
+      <header class="panel-head">
+        <div class="queue-heading">
+          <h2 id="pdf-queue-title" class="panel-title">PDF queue</h2>
+          <p class="panel-sub">The order below is sent exactly as shown</p>
+        </div>
+        <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
       </header>
 
-      <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn btn-secondary" (click)="selectFilesFromDialog()">
-          Select PDFs (Wails)
-        </button>
-        <!-- Browser file input removed: replaced by FileDrop component for a unified UX -->
-        <button
-          type="button"
-          class="btn btn-secondary"
-          [disabled]="selectedInputPaths.length === 0"
-          (click)="clearInputList()"
-        >
-          Clear list
-        </button>
-        <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">
-          Select output folder
-        </button>
-      </div>
+      <div class="panel-body">
+        <app-file-drop
+          accept=".pdf,application/pdf"
+          hint="PDF only"
+          ariaLabel="Drop or select PDFs to merge"
+          (filesSelected)="onFilesAdded($event)"
+        ></app-file-drop>
 
-      <app-file-drop (filesSelected)="onFilesAdded($event)" accept=".pdf,application/pdf" aria-label="PDF file drop zone"></app-file-drop>
-
-      <div class="space-y-2">
-        <h3 class="text-sm font-semibold text-gray-900">Input queue ({{ selectedInputPaths.length }})</h3>
-
-        <div *ngIf="selectedInputPaths.length === 0" class="rounded-lg border border-dashed border-gray-300 p-3 text-sm text-gray-600">
-          No hay archivos cargados.
+        <div class="toolbar" role="group" aria-label="PDF selection actions">
+          <button type="button" class="btn btn-secondary btn-sm" (click)="selectFilesFromDialog()">
+            <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            Browse PDFs
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm toolbar-end"
+            [disabled]="selectedInputPaths.length === 0"
+            (click)="clearInputList()"
+          >
+            <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            Clear
+          </button>
         </div>
 
-        <ul *ngIf="selectedInputPaths.length > 0" class="space-y-2">
+        <ol
+          *ngIf="selectedInputPaths.length > 0; else emptyQueue"
+          class="queue-list"
+          aria-label="PDF merge order"
+        >
           <li
             *ngFor="let path of selectedInputPaths; let index = index"
+            class="queue-row"
+            [class.is-dragging]="draggedIndex === index"
             draggable="true"
-            class="queue-item"
             (dragstart)="onReorderDragStart(index)"
             (dragover)="onReorderDragOver($event)"
             (drop)="onReorderDrop(index)"
             (dragend)="onReorderDragEnd()"
           >
-            <div class="flex min-w-0 flex-1 flex-col">
-              <span class="font-mono text-xs text-gray-500">#{{ index + 1 }}</span>
-              <span class="truncate text-sm font-medium text-gray-900">{{ filenameFromPath(path) }}</span>
-              <span class="truncate text-xs text-gray-500">{{ path }}</span>
-            </div>
+            <span class="queue-grip" aria-hidden="true">
+              <lucide-icon [img]="gripIcon" [size]="14" [strokeWidth]="1.75"></lucide-icon>
+            </span>
 
-            <div class="flex gap-2">
-              <button type="button" class="btn btn-secondary btn-mini" [disabled]="index === 0" (click)="moveUp(index)">↑</button>
+            <span class="queue-index mono">{{ formatPosition(index) }}</span>
+
+            <span class="queue-copy">
+              <span class="queue-name">{{ filenameFromPath(path) }}</span>
+              <span class="queue-path mono">{{ path }}</span>
+            </span>
+
+            <span class="queue-actions">
               <button
                 type="button"
-                class="btn btn-secondary btn-mini"
+                class="icon-btn queue-action"
+                [disabled]="index === 0"
+                [attr.aria-label]="'Move ' + filenameFromPath(path) + ' up from position ' + (index + 1)"
+                (click)="moveUp(index)"
+              >
+                <lucide-icon [img]="arrowUpIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              </button>
+              <button
+                type="button"
+                class="icon-btn queue-action"
                 [disabled]="index === selectedInputPaths.length - 1"
+                [attr.aria-label]="'Move ' + filenameFromPath(path) + ' down from position ' + (index + 1)"
                 (click)="moveDown(index)"
               >
-                ↓
+                <lucide-icon [img]="arrowDownIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
               </button>
-              <button type="button" class="btn btn-secondary btn-mini" (click)="removeAt(index)">Remove</button>
-            </div>
+              <button
+                type="button"
+                class="icon-btn queue-action queue-remove"
+                [attr.aria-label]="'Remove ' + filenameFromPath(path) + ' from position ' + (index + 1)"
+                (click)="removeAt(index)"
+              >
+                <lucide-icon [img]="trashIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              </button>
+            </span>
           </li>
-        </ul>
-      </div>
+        </ol>
 
-      <form [formGroup]="form" class="space-y-4" (ngSubmit)="run()">
-        <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700" for="outputPath">
-            Output Path (.pdf)
-          </label>
-          <input
-            id="outputPath"
-            type="text"
-            formControlName="outputPath"
-            placeholder="Ej: /ruta/salida/merged.pdf"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2"
-          />
-          <p class="mt-1 text-xs text-gray-500">Requerido. Debe terminar en .pdf.</p>
-          <p class="mt-1 text-xs text-gray-500">
-            Tip: usá “Select output folder” para evitar errores de ruta entre macOS/Linux/Windows.
-          </p>
+        <ng-template #emptyQueue>
+          <div class="empty-state queue-empty">
+            <lucide-icon [img]="listOrderedIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
+            <strong>No PDFs queued</strong>
+            <span>Add at least two PDFs. The order here becomes the merge order.</span>
+          </div>
+        </ng-template>
+      </div>
+    </section>
+
+    <section class="panel output-panel" aria-labelledby="pdf-output-title">
+      <header class="panel-head">
+        <div class="queue-heading">
+          <h2 id="pdf-output-title" class="panel-title">Output</h2>
+          <p class="panel-sub">Destination file and run controls.</p>
+        </div>
+      </header>
+
+      <div class="panel-body">
+        <form class="output-form" [formGroup]="form" (ngSubmit)="run()">
+          <div class="field">
+            <label class="label" for="outputPath">Output file</label>
+            <div class="output-path-row">
+              <input
+                id="outputPath"
+                class="input"
+                type="text"
+                formControlName="outputPath"
+                placeholder="e.g. /path/to/merged.pdf"
+                autocomplete="off"
+                spellcheck="false"
+                aria-describedby="output-path-help"
+              />
+              <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">
+                <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Choose folder
+              </button>
+            </div>
+            <p id="output-path-help" class="field-help">Required. Must end in .pdf.</p>
+          </div>
+
+          <div class="actions">
+            <button type="button" class="btn btn-secondary" (click)="validate()">
+              Check settings
+            </button>
+            <button #runButton type="submit" class="btn btn-primary" [disabled]="isSubmitting">
+              {{ isSubmitting ? 'Merging…' : 'Merge PDFs' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-cancel"
+              [disabled]="!activeJobId || !isPolling"
+              (click)="cancel()"
+            >
+              Cancel job
+            </button>
+          </div>
+        </form>
+
+        <div *ngIf="validationMessage" class="banner banner-info" role="alert">
+          {{ validationMessage }}
         </div>
 
-        <div class="flex flex-wrap gap-2">
-          <button type="button" class="btn btn-secondary" (click)="validate()">Validate</button>
-          <button type="submit" class="btn btn-primary" [disabled]="isSubmitting">
-            {{ isSubmitting ? 'Submitting PDF Merge...' : 'Run PDF Merge' }}
-          </button>
-          <button type="button" class="btn btn-secondary" (click)="cancel()" [disabled]="!activeJobId || !isPolling">
-            Cancel Job
-          </button>
+        <div *ngIf="submitMessage" class="banner banner-info" role="status" aria-live="polite">
+          {{ submitMessage }}
         </div>
-      </form>
 
-      <div *ngIf="validationMessage" class="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
-        {{ validationMessage }}
-      </div>
+        <div *ngIf="statusMessage" class="banner banner-warning" role="status" aria-live="polite">
+          {{ statusMessage }}
+        </div>
 
-      <div *ngIf="submitMessage" class="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700">
-        {{ submitMessage }}
-      </div>
-
-      <div *ngIf="jobResult" class="rounded-lg border border-gray-200 bg-gray-50 p-4" role="region" aria-live="polite">
-        <h3 class="text-base font-semibold text-gray-900">Job Status</h3>
-        <p class="mt-2 text-sm text-gray-700">ID: {{ jobResult.jobId }}</p>
-        <!-- Use shared JobCard for progress/stage display -->
-        <app-job-card [job]="jobResult" role="status" aria-live="polite" tabindex="0"></app-job-card>
-      </div>
-
-      <div *ngIf="statusMessage" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-        {{ statusMessage }}
+        <section *ngIf="jobResult" class="job-block" aria-labelledby="pdf-job-title">
+          <div class="job-block-head">
+            <h3 id="pdf-job-title" class="panel-title">Job status</h3>
+            <span class="badge badge-neutral">{{ jobResult.status }}</span>
+          </div>
+          <p class="job-id mono">{{ jobResult.jobId }}</p>
+          <app-job-card [job]="jobResult"></app-job-card>
+        </section>
       </div>
     </section>
   </div>
 </div>
 
-<div *ngIf="showRunOrderConfirmation" class="modal-backdrop" role="presentation">
-  <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="pdf-merge-confirm-title">
-    <h2 id="pdf-merge-confirm-title" class="text-lg font-semibold text-gray-900">Confirmar orden final</h2>
-    <p class="mt-2 text-sm text-gray-700">
-      Este será el orden exacto enviado al backend para <code>tool.pdf.merge</code>.
+<div
+  *ngIf="showRunOrderConfirmation"
+  class="modal-backdrop"
+  role="presentation"
+  (click)="cancelRunOrderConfirmation()"
+>
+  <section
+    class="modal-card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="pdf-merge-confirm-title"
+    aria-describedby="pdf-merge-confirm-desc"
+    (click)="$event.stopPropagation()"
+  >
+    <p class="eyebrow">ORDER CHECK</p>
+    <h2 id="pdf-merge-confirm-title" class="modal-title">Confirm merge order</h2>
+    <p id="pdf-merge-confirm-desc" class="modal-sub">
+      This exact order will be sent to the backend.
     </p>
 
-    <ol class="mt-3 max-h-56 list-decimal space-y-1 overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-3 pl-7 text-sm text-gray-800">
+    <ol class="modal-order">
       <li *ngFor="let path of confirmedOrderSnapshot; let index = index">
-        <span class="font-mono text-xs text-gray-500 mr-2">#{{ index + 1 }}</span>
-        <span>{{ filenameFromPath(path) }}</span>
+        <span class="modal-order-index mono">{{ formatPosition(index) }}</span>
+        <span class="modal-order-name">{{ filenameFromPath(path) }}</span>
       </li>
     </ol>
 
-    <p class="mt-3 text-xs text-gray-600">Salida: <span class="font-mono">{{ confirmedOutputPath }}</span></p>
+    <p class="modal-output">
+      Output: <span class="mono">{{ confirmedOutputPath }}</span>
+    </p>
 
-    <div class="mt-4 flex justify-end gap-2">
-      <button type="button" class="btn btn-secondary" (click)="cancelRunOrderConfirmation()">Cancelar</button>
-      <button type="button" class="btn btn-primary" (click)="confirmRunOrderAndExecute()">Confirmar y ejecutar</button>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" (click)="cancelRunOrderConfirmation()">
+        Cancel
+      </button>
+      <button #confirmButton type="button" class="btn btn-primary" (click)="confirmRunOrderAndExecute()">
+        Confirm and merge
+      </button>
     </div>
   </section>
 </div>

@@ -4,7 +4,6 @@ import {
   TestBed,
   tick,
 } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
 
 import { ImageConverter } from './image-converter';
 import { JobRequestV1, JobStatusResponseV1, Wails, JobProgressEventV1 } from '../../services/wails';
@@ -14,6 +13,7 @@ describe('ImageConverter', () => {
   let component: ImageConverter;
   let fixture: any;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobProgressSubject: Subject<JobProgressEventV1>;
 
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
@@ -28,17 +28,18 @@ describe('ImageConverter', () => {
       'isRuntimeAvailable',
     ]);
 
-    // Provide a small Subject to simulate jobProgress$ events used by the component
-    const jobProgressSubj = new Subject<JobProgressEventV1>();
-    (wailsSpy as any).jobProgress$ = jobProgressSubj.asObservable();
+    // Keep the Subject itself so specs can emit progress events; expose its
+    // observable on the service spy the way the real Wails service does.
+    jobProgressSubject = new Subject<JobProgressEventV1>();
+    (wailsSpy as any).jobProgress$ = jobProgressSubject.asObservable();
     (wailsSpy as any).subscribeJobProgressV1 = jasmine.createSpy('subscribeJobProgressV1').and.callFake((cb: any) => {
-      const s = jobProgressSubj.subscribe(cb);
+      const s = jobProgressSubject.subscribe(cb);
       return () => s.unsubscribe();
     });
 
     await TestBed.configureTestingModule({
       imports: [ImageConverter],
-      providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
+      providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ImageConverter);
@@ -46,12 +47,9 @@ describe('ImageConverter', () => {
     fixture.detectChanges();
   });
 
-  it('honors feature flag and handles file drop File[] -> paths mapping', () => {
-    // default feature flag is false so toggle for test
-    (component as any).featureFlags.uiux_overhaul_v1 = true;
-
+  it('maps dropped File[] to local input paths', () => {
     const fakeFiles = [new File(['x'], 'a.png')];
-    component.onFileDropFiles(fakeFiles as any);
+    component.onFileDropFiles(fakeFiles);
 
     expect(component.selectedInputPaths.length).toBe(1);
     expect(component.selectedInputPaths[0]).toContain('a.png');
@@ -137,15 +135,13 @@ describe('ImageConverter', () => {
 
     wailsSpy.getJobStatusV1.and.returnValues(Promise.resolve(running), Promise.resolve(done));
 
-    // Push progress events through the jobProgress$ subject we attached in beforeEach
-    const jobProgressSubj = (wailsSpy as any).jobProgress$ as Subject<JobProgressEventV1>;
-    // emit a running event then a done event
+    // Push progress events through the Subject exposed by the service spy
     setTimeout(() =>
-      (jobProgressSubj as any).next({ jobId: 'img-job', toolId: 'tool.image.convert', status: 'running', progress: running.result!.progress }),
+      jobProgressSubject.next({ jobId: 'img-job', toolId: 'tool.image.convert', status: 'running', progress: running.result!.progress }),
       0
     );
     setTimeout(() =>
-      (jobProgressSubj as any).next({ jobId: 'img-job', toolId: 'tool.image.convert', status: 'success', progress: done.result!.progress }),
+      jobProgressSubject.next({ jobId: 'img-job', toolId: 'tool.image.convert', status: 'success', progress: done.result!.progress }),
       500
     );
 

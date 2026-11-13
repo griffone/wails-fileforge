@@ -1,3 +1,265 @@
 :host {
   display: block;
 }
+
+.catalog-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding: 16px 18px;
+}
+
+.catalog-runtime {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.catalog-runtime-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.catalog-runtime-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.catalog-runtime-sub {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.catalog-runtime-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.catalog-count {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+}
+
+.catalog-count-value {
+  font-size: 1.375rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.catalog-count-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.catalog-error {
+  margin-bottom: 16px;
+}
+
+.catalog-error-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.catalog-error-message {
+  margin: 0;
+}
+
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.catalog-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.catalog-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.catalog-card-head > :last-child {
+  flex: none;
+  margin-left: auto;
+}
+
+.catalog-card-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.catalog-tool-name {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  color: var(--text);
+}
+
+.catalog-tool-id {
+  margin: 0;
+  font-size: 0.625rem;
+  line-height: 1.4;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.catalog-tool-desc {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.catalog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.catalog-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.625rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.catalog-chip-wide {
+  white-space: normal;
+}
+
+.catalog-reason {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--warning);
+}
+
+.catalog-open {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.catalog-open:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-line);
+}
+
+.catalog-empty {
+  margin-top: 4px;
+}
+
+.catalog-empty p {
+  margin: 0;
+}
+
+.catalog-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 176px;
+  padding: 16px;
+}
+
+.skeleton-line {
+  display: block;
+  height: 10px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2));
+  background-size: 200% 100%;
+  animation: catalog-shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.skeleton-title {
+  width: 45%;
+  height: 14px;
+}
+
+.skeleton-text {
+  width: 90%;
+}
+
+.skeleton-text.short {
+  width: 60%;
+}
+
+.is-spinning {
+  animation: catalog-spin 0.9s linear infinite;
+}
+
+@keyframes catalog-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes catalog-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 880px) {
+  .catalog-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

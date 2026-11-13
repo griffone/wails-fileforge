@@ -30,7 +30,11 @@ export interface ExecutionPanelField {
   styleUrl: './tool-execution-panel.css',
 })
 export class ToolExecutionPanel {
+  private static nextId = 0;
+
   readonly featureFlags = FEATURE_FLAGS;
+  private readonly instanceId = `execution-${(ToolExecutionPanel.nextId += 1)}`;
+  readonly jobHeadingId = `${this.instanceId}-job-status`;
   @Input() title = 'Tool Execution';
   @Input() subtitle = '';
   @Input() form: FormGroup = new FormGroup({});
@@ -65,6 +69,28 @@ export class ToolExecutionPanel {
     return this.inlineFieldErrors[controlName] ?? '';
   }
 
+  /** Stable id for a field's help line, used by aria-describedby. */
+  helpId(field: ExecutionPanelField): string {
+    return `${this.instanceId}-${field.controlName}-help`;
+  }
+
+  /** Stable id for a field's error line, used by aria-describedby. */
+  errorId(field: ExecutionPanelField): string {
+    return `${this.instanceId}-${field.controlName}-error`;
+  }
+
+  /** Joins the ids of the help and error text that are actually rendered. */
+  describedBy(field: ExecutionPanelField): string | null {
+    const ids: string[] = [];
+    if (field.helpText) {
+      ids.push(this.helpId(field));
+    }
+    if (this.fieldError(field.controlName)) {
+      ids.push(this.errorId(field));
+    }
+    return ids.length > 0 ? ids.join(' ') : null;
+  }
+
   progressPercent(): number {
     if (!this.jobResult || this.jobResult.progress.total <= 0) {
       return 0;
@@ -93,21 +119,21 @@ export class ToolExecutionPanel {
     const status = this.jobResult?.status;
     switch (status) {
       case 'queued':
-        return 'En cola';
+        return 'Queued';
       case 'running':
-        return 'En ejecución';
+        return 'Running';
       case 'success':
-        return 'Completado';
+        return 'Completed';
       case 'failed':
-        return 'Falló';
+        return 'Failed';
       case 'partial_success':
-        return 'Completado con fallos';
+        return 'Completed with errors';
       case 'cancelled':
-        return 'Cancelado';
+        return 'Cancelled';
       case 'interrupted':
-        return 'Interrumpido por reinicio';
+        return 'Interrupted';
       default:
-        return status ?? 'Desconocido';
+        return status ?? 'Unknown';
     }
   }
 
@@ -115,17 +141,17 @@ export class ToolExecutionPanel {
     const status = this.jobResult?.status;
     switch (status) {
       case 'success':
-        return 'badge-success';
+        return 'badge badge-success';
       case 'partial_success':
-        return 'badge-warning';
+        return 'badge badge-warning';
       case 'failed':
       case 'cancelled':
       case 'interrupted':
-        return 'badge-danger';
+        return 'badge badge-danger';
       case 'running':
       case 'queued':
       default:
-        return 'badge-neutral';
+        return 'badge badge-neutral';
     }
   }
 
@@ -133,9 +159,9 @@ export class ToolExecutionPanel {
     const attempts = item.attempts ?? 1;
     const retries = item.retryCount ?? Math.max(0, attempts - 1);
     if (retries <= 0) {
-      return 'sin reintentos';
+      return 'none';
     }
-    return `${retries} reintento(s), ${attempts} intento(s) total`;
+    return retries === 1 ? `1 retry, ${attempts} attempts total` : `${retries} retries, ${attempts} attempts total`;
   }
 
   summaryCounts(): { success: number; failed: number; retries: number } {
@@ -158,7 +184,7 @@ export class ToolExecutionPanel {
     if (this.jobResult?.status !== 'interrupted') {
       return '';
     }
-    return 'Este job quedó interrumpido por reinicio de la app. La reanudación automática queda para un roadmap futuro (v1 no auto-resume).';
+    return 'This job was interrupted by an app restart. Automatic resume is planned for a future roadmap release; v1 does not auto-resume.';
   }
 
   itemErrorText(item: JobResultItemV1): string {
@@ -168,12 +194,12 @@ export class ToolExecutionPanel {
 
     const detailCode = (item.error.detail_code ?? '').toUpperCase();
     const friendlyByDetail: Record<string, string> = {
-      PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS: 'El rango de páginas excede la cantidad disponible en el PDF.',
-      PDF_CROP_PAGE_SELECTION_INVALID: 'El rango de páginas tiene formato inválido.',
-      PDF_INVALID_INPUTS: 'Uno o más PDFs de entrada son inválidos o no se pudieron leer.',
-      PDF_MERGE_OUTPUT_ALREADY_EXISTS: 'El archivo de salida ya existe. Elija otro nombre para continuar.',
-      DOC_DOCX_TO_PDF_INPUT_UNSUPPORTED: 'El archivo no es un DOCX soportado.',
-      DOC_MD_TO_PDF_INPUT_UNSUPPORTED: 'El archivo no es Markdown soportado.',
+      PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS: 'The page range exceeds the number of pages available in the PDF.',
+      PDF_CROP_PAGE_SELECTION_INVALID: 'The page range is not formatted correctly.',
+      PDF_INVALID_INPUTS: 'One or more input PDFs are invalid or could not be read.',
+      PDF_MERGE_OUTPUT_ALREADY_EXISTS: 'The output file already exists. Choose another name to continue.',
+      DOC_DOCX_TO_PDF_INPUT_UNSUPPORTED: 'The file is not a supported DOCX document.',
+      DOC_MD_TO_PDF_INPUT_UNSUPPORTED: 'The file is not supported Markdown.',
     };
 
     const friendlyMessage = friendlyByDetail[detailCode];

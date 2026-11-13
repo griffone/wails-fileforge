@@ -1,16 +1,36 @@
-<div class="file-drop" role="button" [attr.aria-label]="ariaLabel" tabindex="0"
-     (click)="triggerFileInput()" (keydown.enter)="triggerFileInput()"
-     (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
-  <input type="file" #fileInput [attr.accept]="accept" [attr.multiple]="multiple ? '' : null" hidden (change)="onFileInputChange($event)" />
-  <ng-container *ngIf="!dragOver">
-    <div class="file-drop-inner">
-      <p class="file-drop-title">Arrastrá o hacé click para seleccionar archivos</p>
-      <p class="file-drop-sub">Soportado: {{ accept || 'todos los tipos' }}</p>
-    </div>
-  </ng-container>
-  <ng-container *ngIf="dragOver">
-    <div class="file-drop-inner drag-over">
-      <p class="file-drop-title">Soltá para agregar archivos</p>
-    </div>
-  </ng-container>
+<div
+  class="file-drop"
+  [class.is-dragging]="dragOver"
+  role="button"
+  tabindex="0"
+  [attr.aria-label]="ariaLabel"
+  [attr.aria-describedby]="hintId"
+  (click)="triggerFileInput()"
+  (keydown.enter)="onEnter($event)"
+  (keydown.space)="onSpace($event)"
+  (dragenter)="onDragEnter($event)"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  <input
+    #fileInput
+    class="file-drop-input"
+    type="file"
+    hidden
+    tabindex="-1"
+    aria-hidden="true"
+    [attr.accept]="accept || null"
+    [attr.multiple]="multiple ? '' : null"
+    (click)="$event.stopPropagation()"
+    (change)="onFileInputChange($event)"
+  />
+
+  <span class="tool-icon file-drop-icon" aria-hidden="true">
+    <lucide-icon [img]="uploadIcon" [size]="22" [strokeWidth]="1.5"></lucide-icon>
+  </span>
+
+  <p class="file-drop-title">{{ dragOver ? 'Drop to add files' : 'Drop files here' }}</p>
+  <p class="file-drop-sub">{{ dragOver ? 'Release to queue them' : 'or click to browse' }}</p>
+  <p class="file-drop-hint mono" [id]="hintId">{{ displayHint() }}</p>
 </div>
