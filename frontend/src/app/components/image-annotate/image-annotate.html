@@ -252,7 +252,29 @@
               <h2 id="annot-operations-title" class="panel-title">Annotations</h2>
               <p class="panel-sub">Reorder, remove or fine-tune each shape.</p>
             </div>
-            <span class="badge badge-neutral">{{ operations().length }}</span>
+            <div class="toolbar">
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="Undo annotation change"
+                title="Undo (Ctrl+Z)"
+                [disabled]="!canUndo()"
+                (click)="undo()"
+              >
+                <lucide-icon [img]="undoIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="Redo annotation change"
+                title="Redo (Ctrl+Shift+Z)"
+                [disabled]="!canRedo()"
+                (click)="redo()"
+              >
+                <lucide-icon [img]="redoIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              </button>
+              <span class="badge badge-neutral">{{ operations().length }}</span>
+            </div>
           </div>
 
           <div class="panel-body">
@@ -359,6 +381,7 @@
                     spellcheck="false"
                     [value]="operationForm().color"
                     (input)="onOperationField('color', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -372,6 +395,7 @@
                     inputmode="numeric"
                     [value]="operationForm().x"
                     (input)="onOperationField('x', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -385,6 +409,7 @@
                     inputmode="numeric"
                     [value]="operationForm().y"
                     (input)="onOperationField('y', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -399,6 +424,7 @@
                     inputmode="numeric"
                     [value]="operationForm().width"
                     (input)="onOperationField('width', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -413,6 +439,7 @@
                     inputmode="numeric"
                     [value]="operationForm().height"
                     (input)="onOperationField('height', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -426,6 +453,7 @@
                     inputmode="numeric"
                     [value]="operationForm().x2"
                     (input)="onOperationField('x2', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -439,6 +467,7 @@
                     inputmode="numeric"
                     [value]="operationForm().y2"
                     (input)="onOperationField('y2', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -454,6 +483,7 @@
                     inputmode="decimal"
                     [value]="operationForm().opacity"
                     (input)="onOperationField('opacity', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -469,6 +499,7 @@
                     inputmode="numeric"
                     [value]="operationForm().strokeWidth"
                     (input)="onOperationField('strokeWidth', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -484,6 +515,7 @@
                     inputmode="numeric"
                     [value]="operationForm().fontSize"
                     (input)="onOperationField('fontSize', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -499,6 +531,7 @@
                     inputmode="numeric"
                     [value]="operationForm().blurIntensity"
                     (input)="onOperationField('blurIntensity', $event)"
+                    (change)="applyOperationEdit()"
                   />
                 </div>
 
@@ -510,6 +543,7 @@
                     rows="2"
                     [value]="operationForm().text"
                     (input)="onOperationField('text', $event)"
+                    (change)="applyOperationEdit()"
                   ></textarea>
                 </div>
               </div>
@@ -518,6 +552,26 @@
                 <button type="button" class="btn btn-primary btn-sm" (click)="addOperation()">
                   Add operation
                 </button>
+                @if (selectedOperationIndex() >= 0) {
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    [disabled]="!formDirty()"
+                    (click)="applyOperationEdit()"
+                  >
+                    Apply changes
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    aria-label="Duplicate selected annotation"
+                    title="Duplicate (Ctrl+D)"
+                    (click)="duplicateOperation()"
+                  >
+                    <lucide-icon [img]="duplicateIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                    Duplicate
+                  </button>
+                }
                 <p class="field-help">Drawing a shape adds it to the list with these values.</p>
               </div>
             </div>

@@ -99,4 +99,9 @@
   - **Video Trim editor**: secure `/media/<token>` streaming with Range support; video stage, play/pause, playhead, selected range, draggable in/out handles, Set start/end, Play selection, track seek, keyboard (Space/I/O/arrows, Shift nudge), synced time inputs, batch shorter-clip warning. Fallback to time-only mode if preview is unavailable.
   - **Incomplete fixes**: dead `wails.getPdfBytes`/`splitPdfBackend` wrappers removed; unused `tool-execution-panel` removed; Image Crop batch plans now validate bounds against every readable input and name the offending file (corrupt files still fail per item); Video Trim warns when a batch clip is shorter than the selected end.
   - **Verification**: Go build/tests pass (including media registry and crop batch tests); frontend build passes; 235/235 Karma specs. Visual checks via `npx agent-browser` (PDF Split page/range thumbnails, Video Trim editor populated/fallback, dark/light, 1440/1000). Real video playback/Range streaming must be verified in `task dev`; the Angular dev server has no `/media` endpoint and intentionally shows the fallback.
-  - **Next**: Phase 2 feature matrix — image preserve/metadata/rotate/undo, PDF page selection/overlay/merge ranges, docs page size/orientation, video resolution/bitrate/previews, global drop/recent conversions/preferences.
+- 2026-11-13: Image domain complete.
+  - **Image Convert**: preserve-original (`format:auto`), AVIF/TIFF output, longest-edge resize, strip metadata, rotate/flip, before/after size summary, advanced format select, Original preset.
+  - **Image Crop**: output width/height, rotate/flip after crop, batch bound validation, advanced transforms and reset; preview hint for transforms.
+  - **Image Annotate**: bounded undo/redo history, duplicate/delete actions, Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z / Ctrl+Y, Ctrl/Cmd+D, Delete/Backspace; form edits commit on apply/blur.
+  - **Verification**: Go tests pass (image package 63 tests), frontend 251/251 specs, build passes; advanced states visually checked with `npx agent-browser`.
+  - **Next**: PDF domain — selectable split pages/dividers, live crop overlay, per-file merge page ranges.

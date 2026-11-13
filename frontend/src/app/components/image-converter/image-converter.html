@@ -5,7 +5,7 @@
         <p class="eyebrow">IMAGE</p>
         <h1 class="page-title">Image <em>Convert</em></h1>
         <p class="page-sub">
-          Turn images into WebP, JPEG, PNG or GIF. Everything runs on this machine.
+          Turn images into WebP, JPEG, PNG, GIF, TIFF or AVIF. Original keeps every source format. Everything runs on this machine.
         </p>
       </div>
 
@@ -81,7 +81,7 @@
             <h2 class="panel-title">Output</h2>
             <p class="panel-sub">Pick a format and check where the files will go.</p>
           </div>
-          <span class="badge badge-neutral">{{ selectedPreset().label }}</span>
+          <span class="badge badge-neutral">{{ outputBadgeLabel() }}</span>
         </div>
 
         <div class="panel-body">
@@ -90,8 +90,8 @@
               <button
                 type="button"
                 class="preset-card"
-                [class.is-active]="preset.id === selectedPresetId()"
-                [attr.aria-pressed]="preset.id === selectedPresetId()"
+                [class.is-active]="isPresetActive(preset)"
+                [attr.aria-pressed]="isPresetActive(preset)"
                 (click)="selectPreset(preset.id)"
               >
                 <span class="preset-label">{{ preset.label }}</span>
@@ -119,11 +119,30 @@
           <details class="advanced" (toggle)="onAdvancedToggle($event)">
             <summary class="advanced-summary">
               <span class="advanced-title">Advanced</span>
-              <span class="advanced-hint">Quality and size</span>
+              <span class="advanced-hint">Format, size, metadata and transforms</span>
             </summary>
 
             <div class="advanced-body">
               <div class="advanced-grid">
+                <div class="field advanced-format">
+                  <label class="label" for="image-format">Format</label>
+                  <select
+                    id="image-format"
+                    class="select"
+                    [value]="format()"
+                    (change)="onFormatChange($event)"
+                  >
+                    @for (option of formatOptions; track option.value) {
+                      <option [value]="option.value">{{ option.label }}</option>
+                    }
+                  </select>
+                  @if (isAutoFormat()) {
+                    <p class="field-help">Keeps each input format and falls back to PNG when a source can't be encoded.</p>
+                  } @else {
+                    <p class="field-help">Overrides the preset above for every image.</p>
+                  }
+                </div>
+
                 <div class="field">
                   <label class="label" for="image-quality">Quality</label>
                   <div class="quality-row">
@@ -153,25 +172,112 @@
                   </div>
                   @if (isPng()) {
                     <p class="field-help">PNG is lossless, so quality doesn't apply.</p>
+                  } @else if (isAutoFormat()) {
+                    <p class="field-help">Applies to lossy formats; some encoders ignore it.</p>
                   } @else {
                     <p class="field-help">Lower quality makes smaller files.</p>
                   }
                 </div>
 
                 <div class="field">
-                  <label class="label" for="image-max-width">Max width (px)</label>
-                  <input
-                    id="image-max-width"
-                    class="input"
-                    type="number"
-                    min="1"
-                    step="1"
-                    inputmode="numeric"
-                    placeholder="Original size"
-                    [value]="maxWidth() ?? ''"
-                    (input)="onMaxWidthInput($event)"
-                  />
-                  <p class="field-help">Leave empty to keep the original size.</p>
+                  <label class="label" for="image-resize-mode">Resize</label>
+                  <select
+                    id="image-resize-mode"
+                    class="select"
+                    [value]="resizeMode()"
+                    (change)="onResizeModeChange($event)"
+                  >
+                    @for (mode of resizeModes; track mode.value) {
+                      <option [value]="mode.value">{{ mode.label }}</option>
+                    }
+                  </select>
+                  <p class="field-help">Keep the original dimensions unless you pick a size.</p>
+                </div>
+
+                @if (resizeMode() === 'longestEdge') {
+                  <div class="field">
+                    <label class="label" for="image-longest-edge">Longest edge (px)</label>
+                    <input
+                      id="image-longest-edge"
+                      class="input"
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputmode="numeric"
+                      placeholder="Original size"
+                      [value]="longestEdge() ?? ''"
+                      (input)="onLongestEdgeInput($event)"
+                    />
+                    <p class="field-help">Scales down so the larger side fits. Never enlarges.</p>
+                  </div>
+                }
+
+                @if (resizeMode() === 'width') {
+                  <div class="field">
+                    <label class="label" for="image-width">Width (px)</label>
+                    <input
+                      id="image-width"
+                      class="input"
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputmode="numeric"
+                      placeholder="Original width"
+                      [value]="width() ?? ''"
+                      (input)="onWidthInput($event)"
+                    />
+                    <p class="field-help">Keeps the aspect ratio. Leave empty to keep the original width.</p>
+                  </div>
+                }
+
+                <div class="field">
+                  <label class="label" for="image-rotate">Rotate</label>
+                  <select
+                    id="image-rotate"
+                    class="select"
+                    [value]="rotate()"
+                    (change)="onRotateChange($event)"
+                  >
+                    @for (option of rotateOptions; track option.value) {
+                      <option [value]="option.value">{{ option.label }}</option>
+                    }
+                  </select>
+                </div>
+
+                <div class="field">
+                  <span class="label">Flip</span>
+                  <label class="check-row" for="image-flip-h">
+                    <input
+                      id="image-flip-h"
+                      type="checkbox"
+                      [checked]="flipH()"
+                      (change)="onFlipToggle('h', $event)"
+                    />
+                    Horizontal
+                  </label>
+                  <label class="check-row" for="image-flip-v">
+                    <input
+                      id="image-flip-v"
+                      type="checkbox"
+                      [checked]="flipV()"
+                      (change)="onFlipToggle('v', $event)"
+                    />
+                    Vertical
+                  </label>
+                </div>
+
+                <div class="field">
+                  <span class="label">Metadata</span>
+                  <label class="check-row" for="image-strip-metadata">
+                    <input
+                      id="image-strip-metadata"
+                      type="checkbox"
+                      [checked]="stripMetadata()"
+                      (change)="onStripMetadataToggle($event)"
+                    />
+                    Strip metadata
+                  </label>
+                  <p class="field-help">Removes EXIF, GPS and color profiles.</p>
                 </div>
               </div>
 
@@ -230,6 +336,10 @@
     }
 
     @if (terminalJob(); as job) {
+      @if (savingsSummary(); as savings) {
+        <p class="savings-summary" role="status">{{ savings }}</p>
+      }
+
       <app-result-card
         [job]="job"
         [fileInfos]="outputInfos()"

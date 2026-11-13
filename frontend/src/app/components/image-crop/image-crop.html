@@ -203,7 +203,7 @@
           <details class="advanced" [open]="advancedOpen()" (toggle)="onAdvancedToggle($event)">
             <summary class="advanced-summary">
               <span class="advanced-title">Advanced</span>
-              <span class="advanced-hint">Exact crop area and format</span>
+              <span class="advanced-hint">Crop area, output size, transforms and format</span>
             </summary>
 
             <div class="advanced-body">
@@ -264,6 +264,72 @@
                   />
                 </div>
 
+                <div class="field">
+                  <label class="label" for="image-crop-output-width">Output width (px)</label>
+                  <input
+                    id="image-crop-output-width"
+                    class="input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="Cropped width"
+                    [value]="outputWidth() ?? ''"
+                    (input)="onOutputSizeInput('width', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="image-crop-output-height">Output height (px)</label>
+                  <input
+                    id="image-crop-output-height"
+                    class="input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="Cropped height"
+                    [value]="outputHeight() ?? ''"
+                    (input)="onOutputSizeInput('height', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="image-crop-rotate">Rotate</label>
+                  <select
+                    id="image-crop-rotate"
+                    class="select"
+                    [value]="rotate()"
+                    (change)="onRotateChange($event)"
+                  >
+                    @for (option of rotateOptions; track option.value) {
+                      <option [value]="option.value">{{ option.label }}</option>
+                    }
+                  </select>
+                </div>
+
+                <div class="field">
+                  <span class="label">Flip</span>
+                  <label class="check-row" for="image-crop-flip-h">
+                    <input
+                      id="image-crop-flip-h"
+                      type="checkbox"
+                      [checked]="flipH()"
+                      (change)="onFlipToggle('h', $event)"
+                    />
+                    Horizontal
+                  </label>
+                  <label class="check-row" for="image-crop-flip-v">
+                    <input
+                      id="image-crop-flip-v"
+                      type="checkbox"
+                      [checked]="flipV()"
+                      (change)="onFlipToggle('v', $event)"
+                    />
+                    Vertical
+                  </label>
+                </div>
+
                 <div class="field advanced-format">
                   <label class="label" for="image-crop-format">Output format</label>
                   <select
@@ -279,6 +345,13 @@
                   <p class="field-help">Preserve original keeps each source format.</p>
                 </div>
               </div>
+
+              <p class="field-help">Transforms apply after cropping. Preview shows the crop.</p>
+
+              <button type="button" class="btn btn-ghost btn-sm advanced-reset" (click)="resetTransforms()">
+                <lucide-icon [img]="resetIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Reset transforms
+              </button>
             </div>
           </details>
 

@@ -29,27 +29,47 @@ var imageMimeByFormat = map[string]string{
 type CropTool struct{}
 
 type cropRequest struct {
-	mode        string
-	inputPaths  []string
-	outputPath  string
-	outputDir   string
-	x           int
-	y           int
-	width       int
-	height      int
-	ratioPreset string
-	format      string
+	mode         string
+	inputPaths   []string
+	outputPath   string
+	outputDir    string
+	x            int
+	y            int
+	width        int
+	height       int
+	ratioPreset  string
+	format       string
+	outputWidth  int
+	outputHeight int
+	rotate       int
+	flipH        bool
+	flipV        bool
 }
 
 type preparedCrop struct {
-	inputPath   string
-	outputPath  string
-	outputFmt   string
-	x           int
-	y           int
-	width       int
-	height      int
-	ratioPreset string
+	inputPath    string
+	outputPath   string
+	outputFmt    string
+	x            int
+	y            int
+	width        int
+	height       int
+	ratioPreset  string
+	outputWidth  int
+	outputHeight int
+	rotate       int
+	flipH        bool
+	flipV        bool
+}
+
+// cropTransform groups the optional operations applied after the crop: rotate,
+// flips and the output resize. A zero value keeps the cropped pixels as-is.
+type cropTransform struct {
+	outputWidth  int
+	outputHeight int
+	rotate       int
+	flipH        bool
+	flipV        bool
 }
 
 func NewCropTool() *CropTool {
@@ -369,7 +389,7 @@ func (t *CropTool) GetImageCropPreview(req models.ImageCropPreviewRequestV1) mod
 		return models.ImageCropPreviewResponseV1{Success: false, Message: fmtErr.Message, Error: fmtErr}
 	}
 
-	croppedBytes, err := cropInMemory(bytes, req.X, req.Y, req.Width, req.Height, outputFmt)
+	croppedBytes, err := cropInMemory(bytes, req.X, req.Y, req.Width, req.Height, outputFmt, cropTransform{})
 	if err != nil {
 		jobErr := models.NewCanonicalJobError("IMAGE_CROP_PREVIEW_EXECUTION", err.Error(), nil)
 		return models.ImageCropPreviewResponseV1{Success: false, Message: "Failed to generate preview.", Error: jobErr}
@@ -447,22 +467,60 @@ func parseCropRequest(req models.JobRequestV1) (cropRequest, *models.JobErrorV1)
 		return cropRequest{}, ratioErr
 	}
 
+	outputWidth, owErr := cropOptionalInt(req.Options, "outputWidth")
+	if owErr != nil {
+		return cropRequest{}, owErr
+	}
+	outputHeight, ohErr := cropOptionalInt(req.Options, "outputHeight")
+	if ohErr != nil {
+		return cropRequest{}, ohErr
+	}
+	if outputWidth < 0 || outputHeight < 0 {
+		return cropRequest{}, models.NewCanonicalJobError(
+			"IMAGE_CROP_OUTPUT_SIZE_INVALID",
+			"outputWidth and outputHeight must be >= 0 (0 keeps the cropped size)",
+			nil,
+		)
+	}
+
+	rotate, rotateErr := cropOptionalInt(req.Options, "rotate")
+	if rotateErr != nil {
+		return cropRequest{}, rotateErr
+	}
+	if _, angleErr := rotateAngle(rotate); angleErr != nil {
+		return cropRequest{}, models.NewCanonicalJobError("IMAGE_CROP_ROTATE_INVALID", angleErr.Error(), nil)
+	}
+
+	flipH, flipHErr := cropOptionalBool(req.Options, "flipH")
+	if flipHErr != nil {
+		return cropRequest{}, flipHErr
+	}
+	flipV, flipVErr := cropOptionalBool(req.Options, "flipV")
+	if flipVErr != nil {
+		return cropRequest{}, flipVErr
+	}
+
 	outputDir := strings.TrimSpace(req.OutputDir)
 	if outputDir == "" {
 		outputDir = strings.TrimSpace(cropOptionString(req.Options, "outputDir"))
 	}
 
 	return cropRequest{
-		mode:        mode,
-		inputPaths:  inputs,
-		outputPath:  strings.TrimSpace(cropOptionString(req.Options, "outputPath")),
-		outputDir:   outputDir,
-		x:           x,
-		y:           y,
-		width:       width,
-		height:      height,
-		ratioPreset: ratioPreset,
-		format:      strings.ToLower(strings.TrimSpace(cropOptionString(req.Options, "format"))),
+		mode:         mode,
+		inputPaths:   inputs,
+		outputPath:   strings.TrimSpace(cropOptionString(req.Options, "outputPath")),
+		outputDir:    outputDir,
+		x:            x,
+		y:            y,
+		width:        width,
+		height:       height,
+		ratioPreset:  ratioPreset,
+		format:       strings.ToLower(strings.TrimSpace(cropOptionString(req.Options, "format"))),
+		outputWidth:  outputWidth,
+		outputHeight: outputHeight,
+		rotate:       rotate,
+		flipH:        flipH,
+		flipV:        flipV,
 	}, nil
 }
 
@@ -557,26 +615,52 @@ func preparedCropFromPlan(planned models.PlannedOutputV1, effective map[string]a
 	y, _ := numericOption(effective, "y")
 	width, _ := numericOption(effective, "width")
 	height, _ := numericOption(effective, "height")
+	outputWidth, _ := numericOption(effective, "outputWidth")
+	outputHeight, _ := numericOption(effective, "outputHeight")
+	rotate, _ := numericOption(effective, "rotate")
+	flipH, _ := boolOption(effective, "flipH")
+	flipV, _ := boolOption(effective, "flipV")
 
 	return preparedCrop{
-		inputPath:   planned.InputPath,
-		outputPath:  planned.OutputPath,
-		outputFmt:   plannedOutputFormat(planned, effective),
-		x:           x,
-		y:           y,
-		width:       width,
-		height:      height,
-		ratioPreset: convertOptionString(effective, "ratioPreset"),
+		inputPath:    planned.InputPath,
+		outputPath:   planned.OutputPath,
+		outputFmt:    plannedOutputFormat(planned, effective),
+		x:            x,
+		y:            y,
+		width:        width,
+		height:       height,
+		ratioPreset:  convertOptionString(effective, "ratioPreset"),
+		outputWidth:  outputWidth,
+		outputHeight: outputHeight,
+		rotate:       rotate,
+		flipH:        flipH,
+		flipV:        flipV,
+	}
+}
+
+// transform returns the post-crop operations described by the planned crop.
+func (p preparedCrop) transform() cropTransform {
+	return cropTransform{
+		outputWidth:  p.outputWidth,
+		outputHeight: p.outputHeight,
+		rotate:       p.rotate,
+		flipH:        p.flipH,
+		flipV:        p.flipV,
 	}
 }
 
 func cropEffectiveOptions(parsed cropRequest, formats []string) map[string]any {
 	effective := map[string]any{
-		"x":           parsed.x,
-		"y":           parsed.y,
-		"width":       parsed.width,
-		"height":      parsed.height,
-		"ratioPreset": parsed.ratioPreset,
+		"x":            parsed.x,
+		"y":            parsed.y,
+		"width":        parsed.width,
+		"height":       parsed.height,
+		"ratioPreset":  parsed.ratioPreset,
+		"outputWidth":  parsed.outputWidth,
+		"outputHeight": parsed.outputHeight,
+		"rotate":       parsed.rotate,
+		"flipH":        parsed.flipH,
+		"flipV":        parsed.flipV,
 	}
 	if format, ok := commonPlannedFormat(formats); ok {
 		effective["format"] = format
@@ -630,7 +714,7 @@ func executeCropToPath(ctx context.Context, prepared preparedCrop) error {
 		return fmt.Errorf("bounds validation failed: %s", err.Message)
 	}
 
-	cropped, err := cropInMemory(bytes, prepared.x, prepared.y, prepared.width, prepared.height, prepared.outputFmt)
+	cropped, err := cropInMemory(bytes, prepared.x, prepared.y, prepared.width, prepared.height, prepared.outputFmt, prepared.transform())
 	if err != nil {
 		return fmt.Errorf("crop failed: %w", err)
 	}
@@ -681,14 +765,40 @@ func readAndNormalize(inputPath string) ([]byte, string, int, int, error) {
 	return oriented, fmtName, size.Width, size.Height, nil
 }
 
-func cropInMemory(input []byte, x, y, width, height int, outputFmt string) ([]byte, error) {
-	img := bimg.NewImage(input)
-	extracted, err := img.Extract(y, x, width, height)
+// cropInMemory extracts the crop rectangle and then applies rotation, flips
+// and the optional output resize in one libvips pass. An explicit output size
+// is honored exactly, including when it is larger than the cropped area: the
+// user asked for that size. A single axis keeps the aspect ratio, both axes
+// scale to the exact box. Without an output size the cropped pixels are kept.
+func cropInMemory(input []byte, x, y, width, height int, outputFmt string, transform cropTransform) ([]byte, error) {
+	extracted, err := bimg.NewImage(input).Extract(y, x, width, height)
 	if err != nil {
 		return nil, err
 	}
 
-	return bimg.NewImage(extracted).Convert(mapFormatToImageType(outputFmt))
+	angle, angleErr := rotateAngle(transform.rotate)
+	if angleErr != nil {
+		return nil, angleErr
+	}
+
+	options := bimg.Options{
+		Type: mapFormatToImageType(outputFmt),
+		// bimg names the left-right mirror Flip and the top-bottom mirror Flop.
+		Flip:   transform.flipH,
+		Flop:   transform.flipV,
+		Rotate: angle,
+	}
+	if transform.outputWidth > 0 {
+		options.Width = transform.outputWidth
+	}
+	if transform.outputHeight > 0 {
+		options.Height = transform.outputHeight
+	}
+	// bimg skips the exact target size unless Force is set; without it a
+	// request larger than the crop would silently keep the cropped size.
+	options.Force = options.Width > 0 || options.Height > 0
+
+	return bimg.NewImage(extracted).Process(options)
 }
 
 func validateCropBoundsFromBytes(input []byte, x, y, width, height int) *models.JobErrorV1 {
@@ -861,4 +971,40 @@ func cropOptionString(options map[string]any, key string) string {
 	}
 	value, _ := options[key].(string)
 	return strings.TrimSpace(value)
+}
+
+// cropOptionalInt reads an optional integer option and returns 0 when the
+// option is absent. Supplied values of the wrong type are rejected so a typo
+// never silently changes the output size.
+func cropOptionalInt(options map[string]any, key string) (int, *models.JobErrorV1) {
+	if !optionSupplied(options, key) {
+		return 0, nil
+	}
+
+	if floatValue, isFloat := options[key].(float64); isFloat && floatValue != float64(int(floatValue)) {
+		return 0, models.NewCanonicalJobError("IMAGE_CROP_OPTION_INVALID", fmt.Sprintf("options.%s must be an integer", key), nil)
+	}
+
+	value, ok := numericOption(options, key)
+	if !ok {
+		return 0, models.NewCanonicalJobError("IMAGE_CROP_OPTION_INVALID", fmt.Sprintf("options.%s must be numeric", key), nil)
+	}
+
+	return value, nil
+}
+
+// cropOptionalBool reads an optional boolean option and returns false when the
+// option is absent. Textual values are accepted because some callers serialize
+// checkboxes as strings.
+func cropOptionalBool(options map[string]any, key string) (bool, *models.JobErrorV1) {
+	if !optionSupplied(options, key) {
+		return false, nil
+	}
+
+	value, ok := boolOption(options, key)
+	if !ok {
+		return false, models.NewCanonicalJobError("IMAGE_CROP_OPTION_INVALID", fmt.Sprintf("options.%s must be a boolean", key), nil)
+	}
+
+	return value, nil
 }

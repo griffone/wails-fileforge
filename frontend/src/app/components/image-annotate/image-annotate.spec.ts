@@ -121,6 +121,21 @@ describe('ImageAnnotate', () => {
     return { target: { value } } as unknown as Event;
   }
 
+  function pressKey(
+    key: string,
+    init: KeyboardEventInit = {},
+    target: EventTarget = document.body,
+  ): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    });
+    target.dispatchEvent(event);
+    return event;
+  }
+
   function lastPlanRequest(): JobRequestV1 {
     return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
   }
@@ -300,6 +315,7 @@ describe('ImageAnnotate', () => {
     expect(added[0]['height']).toBe(24);
 
     component.onOperationField('width', inputEvent('55'));
+    component.applyOperationEdit();
     flushMicrotasks();
     expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
 
@@ -343,6 +359,7 @@ describe('ImageAnnotate', () => {
     });
 
     component.onOperationField('width', inputEvent('50'));
+    component.applyOperationEdit();
     tick(250);
     flushMicrotasks();
     fixture.detectChanges();
@@ -551,7 +568,7 @@ describe('ImageAnnotate', () => {
     expect(operation.height).toBe(40);
   });
 
-  it('updates the selected operation from the compact form', () => {
+  it('updates the selected operation when the form edit is applied', () => {
     addDefaultOperation();
     component.selectOperation(0);
 
@@ -559,10 +576,217 @@ describe('ImageAnnotate', () => {
     component.onOperationField('height', inputEvent('11'));
     component.onOperationField('color', inputEvent('#00ff00'));
 
+    expect(component.operations()[0].width).toBe(40);
+    expect(component.formDirty()).toBeTrue();
+
+    component.applyOperationEdit();
+
     expect(component.operations()[0].width).toBe(22);
     expect(component.operations()[0].height).toBe(11);
     expect(component.operations()[0].color).toBe('#00ff00');
+    expect(component.formDirty()).toBeFalse();
   });
+
+  it('undoes and redoes an added operation', () => {
+    addDefaultOperation();
+    expect(component.operations().length).toBe(1);
+    expect(component.canUndo()).toBeTrue();
+    expect(component.canRedo()).toBeFalse();
+
+    component.undo();
+
+    expect(component.operations().length).toBe(0);
+    expect(component.selectedOperationIndex()).toBe(-1);
+    expect(component.canUndo()).toBeFalse();
+    expect(component.canRedo()).toBeTrue();
+
+    component.redo();
+
+    expect(component.operations().length).toBe(1);
+    expect(component.operations()[0].type).toBe('rect');
+    expect(component.selectedOperationIndex()).toBe(0);
+    expect(component.canUndo()).toBeTrue();
+    expect(component.canRedo()).toBeFalse();
+  });
+
+  it('caps the undo history at 50 snapshots', () => {
+    for (let i = 0; i < 55; i += 1) {
+      component.addOperation();
+    }
+
+    for (let i = 0; i < 55; i += 1) {
+      component.undo();
+    }
+
+    expect(component.operations().length).toBe(5);
+    expect(component.canUndo()).toBeFalse();
+    expect(component.canRedo()).toBeTrue();
+  });
+
+  it('undoes removals, reorders and clear all', () => {
+    const xs = (): Array<number | undefined> =>
+      component.operations().map((operation) => operation.x);
+
+    component.onOperationField('x', inputEvent('10'));
+    component.addOperation();
+    component.onOperationField('x', inputEvent('20'));
+    component.addOperation();
+    component.onOperationField('x', inputEvent('30'));
+    component.addOperation();
+    expect(xs()).toEqual([10, 20, 30]);
+
+    component.removeOperation(1);
+    expect(xs()).toEqual([10, 30]);
+    component.undo();
+    expect(xs()).toEqual([10, 20, 30]);
+    component.redo();
+    expect(xs()).toEqual([10, 30]);
+    component.undo();
+    expect(xs()).toEqual([10, 20, 30]);
+
+    component.moveOperationUp(2);
+    expect(xs()).toEqual([10, 30, 20]);
+    component.undo();
+    expect(xs()).toEqual([10, 20, 30]);
+
+    component.moveOperationDown(0);
+    expect(xs()).toEqual([20, 10, 30]);
+    component.undo();
+    expect(xs()).toEqual([10, 20, 30]);
+
+    component.clearOperations();
+    expect(component.operations().length).toBe(0);
+    expect(component.selectedOperationIndex()).toBe(-1);
+
+    component.undo();
+    expect(xs()).toEqual([10, 20, 30]);
+  });
+
+  it('drops the redo stack when a new edit happens after undo', () => {
+    component.onOperationField('x', inputEvent('10'));
+    component.addOperation();
+    component.undo();
+    expect(component.canRedo()).toBeTrue();
+
+    component.onOperationField('x', inputEvent('20'));
+    component.addOperation();
+
+    expect(component.canRedo()).toBeFalse();
+    expect(component.operations().length).toBe(1);
+    expect(component.operations()[0].x).toBe(20);
+
+    component.redo();
+    expect(component.operations().length).toBe(1);
+    expect(component.operations()[0].x).toBe(20);
+  });
+
+  it('duplicates the selected operation with a small offset', () => {
+    component.onOperationField('x', inputEvent('5'));
+    component.onOperationField('y', inputEvent('6'));
+    component.addOperation();
+
+    component.duplicateOperation();
+
+    const [source, copy] = component.operations();
+    expect(component.operations().length).toBe(2);
+    expect(copy.type).toBe(source.type);
+    expect(copy.width).toBe(source.width);
+    expect(copy.x).toBe(15);
+    expect(copy.y).toBe(16);
+    expect(copy.x2).toBe((source.x2 ?? 0) + 10);
+    expect(copy.y2).toBe((source.y2 ?? 0) + 10);
+    expect(component.selectedOperationIndex()).toBe(1);
+
+    component.undo();
+    expect(component.operations().length).toBe(1);
+  });
+
+  it('handles annotation shortcuts outside form fields', () => {
+    addDefaultOperation();
+
+    const undo = pressKey('z', { ctrlKey: true });
+    expect(undo.defaultPrevented).toBeTrue();
+    expect(component.operations().length).toBe(0);
+    expect(component.canRedo()).toBeTrue();
+
+    pressKey('z', { metaKey: true, shiftKey: true });
+    expect(component.operations().length).toBe(1);
+
+    pressKey('z', { ctrlKey: true });
+    pressKey('y', { ctrlKey: true });
+    expect(component.operations().length).toBe(1);
+
+    const duplicate = pressKey('d', { ctrlKey: true });
+    expect(duplicate.defaultPrevented).toBeTrue();
+    expect(component.operations().length).toBe(2);
+    expect(component.selectedOperationIndex()).toBe(1);
+
+    pressKey('Delete');
+    expect(component.operations().length).toBe(1);
+    expect(component.selectedOperationIndex()).toBe(-1);
+
+    component.selectOperation(0);
+    pressKey('Backspace');
+    expect(component.operations().length).toBe(0);
+
+    addDefaultOperation();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    const ignoredUndo = pressKey('z', { ctrlKey: true }, input);
+    expect(ignoredUndo.defaultPrevented).toBeFalse();
+    expect(component.operations().length).toBe(1);
+
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    const ignoredDelete = pressKey('Delete', {}, textarea);
+    expect(ignoredDelete.defaultPrevented).toBeFalse();
+
+    const editable = document.createElement('div');
+    editable.contentEditable = 'true';
+    document.body.appendChild(editable);
+    const ignoredDuplicate = pressKey('d', { ctrlKey: true }, editable);
+    expect(ignoredDuplicate.defaultPrevented).toBeFalse();
+    expect(component.operations().length).toBe(1);
+
+    input.remove();
+    textarea.remove();
+    editable.remove();
+  });
+
+  it('refreshes the plan after undo and redo', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    addDefaultOperation();
+    tick(250);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+
+    addDefaultOperation();
+    tick(250);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+
+    component.undo();
+    tick(250);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(3);
+    expect(
+      (lastPlanRequest().options['operations'] as unknown[]).length,
+    ).toBe(1);
+
+    component.redo();
+    tick(250);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(4);
+    expect(
+      (lastPlanRequest().options['operations'] as unknown[]).length,
+    ).toBe(2);
+
+    component.reset();
+    flushMicrotasks();
+  }));
 
   it('retries only failed inputs with the same annotations and folder', fakeAsync(() => {
     wailsSpy.runJobV1.and.resolveTo({

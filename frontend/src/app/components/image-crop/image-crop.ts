@@ -13,6 +13,7 @@ import {
   Crop,
   FolderOpen,
   LucideAngularModule,
+  RotateCcw,
   ShieldCheck,
   TriangleAlert,
   X,
@@ -106,6 +107,20 @@ type BoundsAxis = 'x' | 'y' | 'width' | 'height';
 
 type BoundsInput = Record<BoundsAxis, string>;
 
+type RotateAngle = 0 | 90 | 180 | 270;
+
+interface RotateOption {
+  value: RotateAngle;
+  label: string;
+}
+
+const ROTATE_OPTIONS: readonly RotateOption[] = [
+  { value: 0, label: '0°' },
+  { value: 90, label: '90°' },
+  { value: 180, label: '180°' },
+  { value: 270, label: '270°' },
+];
+
 type DragMode =
   | 'draw'
   | 'move'
@@ -165,9 +180,11 @@ export class ImageCrop implements OnDestroy {
   readonly closeIcon = X;
   readonly alertIcon = TriangleAlert;
   readonly cropIcon = Crop;
+  readonly resetIcon = RotateCcw;
 
   readonly ratioPresets = RATIO_PRESETS;
   readonly formatOptions = FORMAT_OPTIONS;
+  readonly rotateOptions = ROTATE_OPTIONS;
 
   readonly selectedPaths = signal<string[]>([]);
   readonly fileItems = signal<FileQueueItem[]>([]);
@@ -177,6 +194,11 @@ export class ImageCrop implements OnDestroy {
   readonly ratioPreset = signal<RatioPresetId>('free');
   readonly bounds = signal<BoundsInput>({ ...EMPTY_BOUNDS });
   readonly format = signal('');
+  readonly outputWidth = signal<number | null>(null);
+  readonly outputHeight = signal<number | null>(null);
+  readonly rotate = signal<RotateAngle>(0);
+  readonly flipH = signal(false);
+  readonly flipV = signal(false);
   readonly outputDir = signal('');
   readonly advancedOpen = signal(false);
 
@@ -560,6 +582,51 @@ export class ImageCrop implements OnDestroy {
     void this.refreshPlan();
   }
 
+  onOutputSizeInput(axis: 'width' | 'height', event: Event): void {
+    const value = this.readNumber(event);
+    const normalized =
+      value === null || value <= 0 ? null : Math.max(1, Math.round(value));
+
+    if (axis === 'width') {
+      this.outputWidth.set(normalized);
+    } else {
+      this.outputHeight.set(normalized);
+    }
+    this.actionMessage.set('');
+    this.schedulePlanRefresh();
+  }
+
+  onRotateChange(event: Event): void {
+    const value = Number.parseInt(this.readEventValue(event), 10);
+    if (!ROTATE_OPTIONS.some((option) => option.value === value)) {
+      return;
+    }
+
+    this.rotate.set(value as RotateAngle);
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  onFlipToggle(axis: 'h' | 'v', event: Event): void {
+    const checked = !!(event.target as HTMLInputElement | null)?.checked;
+    if (axis === 'h') {
+      this.flipH.set(checked);
+    } else {
+      this.flipV.set(checked);
+    }
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  resetTransforms(): void {
+    this.outputWidth.set(null);
+    this.outputHeight.set(null);
+    this.rotate.set(0);
+    this.flipH.set(false);
+    this.flipV.set(false);
+    void this.refreshPlan();
+  }
+
   onAdvancedToggle(event: Event): void {
     const target = event.target as HTMLDetailsElement | null;
     this.advancedOpen.set(!!target?.open);
@@ -831,6 +898,11 @@ export class ImageCrop implements OnDestroy {
     this.imageHeight.set(0);
     this.bounds.set({ ...EMPTY_BOUNDS });
     this.selectionRectPx.set({ ...EMPTY_RECT });
+    this.outputWidth.set(null);
+    this.outputHeight.set(null);
+    this.rotate.set(0);
+    this.flipH.set(false);
+    this.flipV.set(false);
     this.previewLoading.set(false);
     this.previewError.set('');
     this.cropPreviewUrl.set('');
@@ -861,6 +933,24 @@ export class ImageCrop implements OnDestroy {
     };
     if (format) {
       options['format'] = format;
+    }
+
+    const outputWidth = this.outputWidth();
+    if (outputWidth && outputWidth > 0) {
+      options['outputWidth'] = outputWidth;
+    }
+    const outputHeight = this.outputHeight();
+    if (outputHeight && outputHeight > 0) {
+      options['outputHeight'] = outputHeight;
+    }
+    if (this.rotate() !== 0) {
+      options['rotate'] = this.rotate();
+    }
+    if (this.flipH()) {
+      options['flipH'] = true;
+    }
+    if (this.flipV()) {
+      options['flipV'] = true;
     }
 
     return {
@@ -1614,6 +1704,15 @@ export class ImageCrop implements OnDestroy {
 
   private readEventValue(event: Event): string {
     return (event.target as HTMLInputElement | null)?.value ?? '';
+  }
+
+  private readNumber(event: Event): number | null {
+    const raw = this.readEventValue(event);
+    if (raw.trim() === '') {
+      return null;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   private isTerminalStatus(status: string): boolean {

@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { ImageConverter } from './image-converter';
+import { IMAGE_PRESETS } from '../../config/image-presets';
 import {
   FileInfoV1,
   JobProgressEventV1,
@@ -29,31 +30,50 @@ describe('ImageConverter', () => {
     return {
       success: true,
       message: 'ok',
-      outputs: request.inputPaths.map((inputPath) => ({
-        inputPath,
-        outputPath: inputPath.replace(/\.[^./\\]+$/, `.${format}`),
-        outputKind: 'file',
-        exists: false,
-        adjusted: false,
-      })),
+      outputs: request.inputPaths.map((inputPath) => {
+        const extension = format === 'auto'
+          ? (inputPath.split('.').pop() ?? 'png').toLowerCase()
+          : format === 'jpeg'
+            ? 'jpeg'
+            : format;
+        return {
+          inputPath,
+          outputPath: inputPath.replace(/\.[^./\\]+$/, `.${extension}`),
+          outputKind: 'file',
+          exists: false,
+          adjusted: false,
+        };
+      }),
       effectiveOptions: request.options,
       warnings: [],
     };
   }
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string, sizeBytes = 2048): FileInfoV1 {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
       name,
       directory: '/tmp',
       extension: name.split('.').pop() ?? '',
-      sizeBytes: 2048,
+      sizeBytes,
       kind: 'image',
       width: 640,
       height: 480,
       exists: true,
     };
+  }
+
+  function inputEvent(value: string): Event {
+    return { target: { value } } as unknown as Event;
+  }
+
+  function checkedEvent(checked: boolean): Event {
+    return { target: { checked } } as unknown as Event;
+  }
+
+  function lastPlanRequest(): JobRequestV1 {
+    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
   }
 
   function runningStatus(jobId: string): JobStatusResponseV1 {
@@ -135,7 +155,7 @@ describe('ImageConverter', () => {
       Promise.resolve({
         success: true,
         message: 'ok',
-        files: paths.map(fileInfo),
+        files: paths.map((path) => fileInfo(path)),
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
@@ -199,6 +219,12 @@ describe('ImageConverter', () => {
     expect(request.outputDir).toBe('');
     expect(request.options['format']).toBe('webp');
     expect(request.options['quality']).toBe(80);
+    expect(request.options['width']).toBeUndefined();
+    expect(request.options['longestEdge']).toBeUndefined();
+    expect(request.options['rotate']).toBeUndefined();
+    expect(request.options['flipH']).toBeUndefined();
+    expect(request.options['flipV']).toBeUndefined();
+    expect(request.options['stripMetadata']).toBeUndefined();
     expect(component.fileItems()[0].name).toBe('photo.jpg');
     expect(component.fileItems()[0].meta).toBe('2 KB · 640 × 480');
   }));
@@ -327,19 +353,176 @@ describe('ImageConverter', () => {
     expect(wailsSpy.planJobV1.calls.count()).toBe(callsBefore + 1);
   }));
 
-  it('adds the advanced max width to the plan options', fakeAsync(() => {
+  it('keeps each input format with the Original preset', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.png']);
     flushMicrotasks();
 
-    component.onMaxWidthInput({
-      target: { value: '1200' },
-    } as unknown as Event);
+    component.selectPreset('original');
+    flushMicrotasks();
+
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['format']).toBe('auto');
+    expect(request.options['quality']).toBe(85);
+    expect(component.format()).toBe('auto');
+    expect(component.outputBadgeLabel()).toBe('Original');
+  }));
+
+  it('overrides the preset with the advanced format select', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+
+    component.onFormatChange(inputEvent('avif'));
+    flushMicrotasks();
+
+    expect(lastPlanRequest().options['format']).toBe('avif');
+    expect(component.outputBadgeLabel()).toBe('AVIF');
+
+    component.onFormatChange(inputEvent('tiff'));
+    flushMicrotasks();
+
+    expect(lastPlanRequest().options['format']).toBe('tiff');
+    expect(component.outputBadgeLabel()).toBe('TIFF');
+
+    component.onFormatChange(inputEvent('webp'));
+    flushMicrotasks();
+
+    expect(component.isPresetActive(IMAGE_PRESETS[1])).toBeTrue();
+  }));
+
+  it('sends longestEdge only for the longest edge resize mode', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+
+    component.onResizeModeChange(inputEvent('longestEdge'));
+    flushMicrotasks();
+    component.onLongestEdgeInput(inputEvent('1600'));
     tick(200);
     flushMicrotasks();
 
-    expect(component.maxWidth()).toBe(1200);
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
-    expect(request.options['width']).toBe(1200);
+    let request = lastPlanRequest();
+    expect(request.options['longestEdge']).toBe(1600);
+    expect(request.options['width']).toBeUndefined();
+
+    component.onResizeModeChange(inputEvent('none'));
+    flushMicrotasks();
+
+    request = lastPlanRequest();
+    expect(request.options['longestEdge']).toBeUndefined();
+    expect(request.options['width']).toBeUndefined();
+  }));
+
+  it('sends width only for the exact width resize mode', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+
+    component.onResizeModeChange(inputEvent('width'));
+    flushMicrotasks();
+    component.onWidthInput(inputEvent('800'));
+    tick(200);
+    flushMicrotasks();
+
+    let request = lastPlanRequest();
+    expect(request.options['width']).toBe(800);
+    expect(request.options['longestEdge']).toBeUndefined();
+
+    component.onResizeModeChange(inputEvent('none'));
+    flushMicrotasks();
+
+    request = lastPlanRequest();
+    expect(request.options['width']).toBeUndefined();
+  }));
+
+  it('sends metadata and transform options only when enabled', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+
+    component.onStripMetadataToggle(checkedEvent(true));
+    component.onRotateChange(inputEvent('90'));
+    component.onFlipToggle('h', checkedEvent(true));
+    component.onFlipToggle('v', checkedEvent(true));
+    flushMicrotasks();
+
+    let request = lastPlanRequest();
+    expect(request.options['stripMetadata']).toBeTrue();
+    expect(request.options['rotate']).toBe(90);
+    expect(request.options['flipH']).toBeTrue();
+    expect(request.options['flipV']).toBeTrue();
+
+    component.resetAdvanced();
+    tick(200);
+    flushMicrotasks();
+
+    request = lastPlanRequest();
+    expect(request.options['stripMetadata']).toBeUndefined();
+    expect(request.options['rotate']).toBeUndefined();
+    expect(request.options['flipH']).toBeUndefined();
+    expect(request.options['flipV']).toBeUndefined();
+    expect(request.options['format']).toBe('webp');
+  }));
+
+  it('summarizes the saved bytes after a terminal job', fakeAsync(() => {
+    const inputPath = '/tmp/in/photo.png';
+    const outputPath = '/tmp/in/photo.webp';
+    const inputBytes = 200 * 1024;
+    const outputBytes = 136 * 1024;
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map((path) =>
+          fileInfo(path, path === outputPath ? outputBytes : inputBytes),
+        ),
+      }),
+    );
+    wailsSpy.getJobStatusV1.and.resolveTo(
+      terminalStatus('job-savings', inputPath, outputPath),
+    );
+
+    component.onPathsSelected([inputPath]);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+    tick(1000);
+    flushMicrotasks();
+
+    expect(component.inputTotalBytes()).toBe(inputBytes);
+    expect(component.outputTotalBytes()).toBe(outputBytes);
+    expect(component.savingsSummary()).toBe('Saved 64 KB (32%)');
+
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Saved 64 KB (32%)',
+    );
+  }));
+
+  it('reports when the output is larger than the input', fakeAsync(() => {
+    const inputPath = '/tmp/in/photo.png';
+    const outputPath = '/tmp/in/photo.webp';
+    const inputBytes = 200 * 1024;
+    const outputBytes = 240 * 1024;
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map((path) =>
+          fileInfo(path, path === outputPath ? outputBytes : inputBytes),
+        ),
+      }),
+    );
+    wailsSpy.getJobStatusV1.and.resolveTo(
+      terminalStatus('job-growth', inputPath, outputPath),
+    );
+
+    component.onPathsSelected([inputPath]);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+    tick(1000);
+    flushMicrotasks();
+
+    expect(component.savingsSummary()).toBe('Output is 40 KB larger');
   }));
 });

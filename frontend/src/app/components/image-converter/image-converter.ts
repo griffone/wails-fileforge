@@ -16,7 +16,12 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { IMAGE_PRESETS, ImagePreset } from '../../config/image-presets';
+import {
+  IMAGE_FORMAT_OPTIONS,
+  IMAGE_PRESETS,
+  ImageOutputFormat,
+  ImagePreset,
+} from '../../config/image-presets';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
   FileInfoV1,
@@ -66,6 +71,26 @@ interface Notice {
   text: string;
 }
 
+type ResizeMode = 'none' | 'longestEdge' | 'width';
+
+interface SelectOption<T extends string | number> {
+  value: T;
+  label: string;
+}
+
+const RESIZE_MODES: readonly SelectOption<ResizeMode>[] = [
+  { value: 'none', label: 'None' },
+  { value: 'longestEdge', label: 'Longest edge' },
+  { value: 'width', label: 'Exact width' },
+];
+
+const ROTATE_OPTIONS: readonly SelectOption<number>[] = [
+  { value: 0, label: '0°' },
+  { value: 90, label: '90°' },
+  { value: 180, label: '180°' },
+  { value: 270, label: '270°' },
+];
+
 @Component({
   selector: 'app-image-converter',
   standalone: true,
@@ -90,14 +115,25 @@ export class ImageConverter implements OnDestroy {
   readonly resetIcon = RotateCcw;
 
   readonly presets = IMAGE_PRESETS;
+  readonly formatOptions = IMAGE_FORMAT_OPTIONS;
+  readonly resizeModes = RESIZE_MODES;
+  readonly rotateOptions = ROTATE_OPTIONS;
 
   readonly selectedPaths = signal<string[]>([]);
   readonly fileItems = signal<FileQueueItem[]>([]);
   readonly selectedPresetId = signal('webp');
+  readonly format = signal<ImageOutputFormat>('webp');
   readonly outputDir = signal('');
   readonly advancedOpen = signal(false);
   readonly quality = signal<number | null>(null);
-  readonly maxWidth = signal<number | null>(null);
+  readonly resizeMode = signal<ResizeMode>('none');
+  readonly longestEdge = signal<number | null>(null);
+  readonly width = signal<number | null>(null);
+  readonly stripMetadata = signal(false);
+  readonly rotate = signal(0);
+  readonly flipH = signal(false);
+  readonly flipV = signal(false);
+  readonly inputInfos = signal<Record<string, FileInfoV1>>({});
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
   readonly planError = signal<JobErrorV1 | null>(null);
@@ -119,10 +155,59 @@ export class ImageConverter implements OnDestroy {
       IMAGE_PRESETS.find((preset) => preset.id === this.selectedPresetId()) ??
       IMAGE_PRESETS[0],
   );
-  readonly isPng = computed(() => this.selectedPreset().format === 'png');
-  readonly qualityValue = computed(
-    () => this.quality() ?? this.selectedPreset().quality,
+  readonly isPng = computed(() => this.format() === 'png');
+  readonly isAutoFormat = computed(() => this.format() === 'auto');
+  readonly presetQuality = computed(
+    () =>
+      IMAGE_PRESETS.find((preset) => preset.format === this.format())
+        ?.quality ?? 85,
   );
+  readonly qualityValue = computed(
+    () => this.quality() ?? this.presetQuality(),
+  );
+  readonly outputBadgeLabel = computed(() => {
+    const format = this.format();
+    const preset = IMAGE_PRESETS.find(
+      (candidate) => candidate.format === format,
+    );
+    return preset?.label ?? this.formatLabel(format);
+  });
+
+  readonly inputTotalBytes = computed(() => {
+    const infos = this.inputInfos();
+    let total = 0;
+    for (const path of this.selectedPaths()) {
+      const size = infos[path]?.sizeBytes;
+      if (typeof size === 'number' && size > 0) {
+        total += size;
+      }
+    }
+    return total;
+  });
+
+  readonly outputTotalBytes = computed(() => {
+    let total = 0;
+    for (const info of Object.values(this.outputInfos())) {
+      if (typeof info.sizeBytes === 'number' && info.sizeBytes > 0) {
+        total += info.sizeBytes;
+      }
+    }
+    return total;
+  });
+
+  readonly savingsSummary = computed<string | null>(() => {
+    const input = this.inputTotalBytes();
+    const output = this.outputTotalBytes();
+    if (input <= 0 || output <= 0 || input === output) {
+      return null;
+    }
+    if (output < input) {
+      const saved = input - output;
+      const percent = Math.max(1, Math.round((saved / input) * 100));
+      return `Saved ${formatBytes(saved)} (${percent}%)`;
+    }
+    return `Output is ${formatBytes(output - input)} larger`;
+  });
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
@@ -269,6 +354,7 @@ export class ImageConverter implements OnDestroy {
     this.selectedPaths.set([]);
     this.notice.set(null);
     this.actionMessage.set('');
+    this.inputInfos.set({});
     this.syncFileItems();
     void this.refreshPlan();
   }
@@ -284,12 +370,21 @@ export class ImageConverter implements OnDestroy {
   }
 
   selectPreset(presetId: string): void {
-    if (presetId === this.selectedPresetId()) {
+    const preset = IMAGE_PRESETS.find((candidate) => candidate.id === presetId);
+    if (!preset) {
+      return;
+    }
+    if (presetId === this.selectedPresetId() && preset.format === this.format()) {
       return;
     }
     this.selectedPresetId.set(presetId);
+    this.format.set(preset.format);
     this.quality.set(null);
     void this.refreshPlan();
+  }
+
+  isPresetActive(preset: ImagePreset): boolean {
+    return preset.format === this.format();
   }
 
   async chooseOutputFolder(): Promise<void> {
@@ -326,17 +421,75 @@ export class ImageConverter implements OnDestroy {
     this.schedulePlanRefresh();
   }
 
-  onMaxWidthInput(event: Event): void {
-    const value = this.readNumber(event);
-    this.maxWidth.set(
-      value === null || value <= 0 ? null : Math.max(1, Math.round(value)),
-    );
+  onFormatChange(event: Event): void {
+    const value = this.readValue(event) as ImageOutputFormat;
+    if (
+      !IMAGE_FORMAT_OPTIONS.some((option) => option.value === value) ||
+      value === this.format()
+    ) {
+      return;
+    }
+    this.format.set(value);
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  onResizeModeChange(event: Event): void {
+    const value = this.readValue(event) as ResizeMode;
+    if (!RESIZE_MODES.some((mode) => mode.value === value)) {
+      return;
+    }
+    this.resizeMode.set(value);
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  onLongestEdgeInput(event: Event): void {
+    this.longestEdge.set(this.readPositiveInteger(event));
     this.schedulePlanRefresh();
+  }
+
+  onWidthInput(event: Event): void {
+    this.width.set(this.readPositiveInteger(event));
+    this.schedulePlanRefresh();
+  }
+
+  onStripMetadataToggle(event: Event): void {
+    this.stripMetadata.set(this.readChecked(event));
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  onRotateChange(event: Event): void {
+    const value = Number.parseInt(this.readValue(event), 10);
+    if (!ROTATE_OPTIONS.some((option) => option.value === value)) {
+      return;
+    }
+    this.rotate.set(value);
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  onFlipToggle(axis: 'h' | 'v', event: Event): void {
+    if (axis === 'h') {
+      this.flipH.set(this.readChecked(event));
+    } else {
+      this.flipV.set(this.readChecked(event));
+    }
+    this.actionMessage.set('');
+    void this.refreshPlan();
   }
 
   resetAdvanced(): void {
     this.quality.set(null);
-    this.maxWidth.set(null);
+    this.format.set(this.selectedPreset().format);
+    this.resizeMode.set('none');
+    this.longestEdge.set(null);
+    this.width.set(null);
+    this.stripMetadata.set(false);
+    this.rotate.set(0);
+    this.flipH.set(false);
+    this.flipV.set(false);
     this.schedulePlanRefresh();
   }
 
@@ -470,6 +623,7 @@ export class ImageConverter implements OnDestroy {
     this.jobResult.set(null);
     this.jobError.set(null);
     this.outputInfos.set({});
+    this.inputInfos.set({});
     this.isSubmitting.set(false);
     this.activeJobId.set('');
     this.notice.set(null);
@@ -477,15 +631,34 @@ export class ImageConverter implements OnDestroy {
   }
 
   private buildRequest(): JobRequestV1 {
-    const preset = this.selectedPreset();
     const options: Record<string, unknown> = {
-      format: preset.format,
-      quality: this.quality() ?? preset.quality,
+      format: this.format(),
+      quality: this.qualityValue(),
     };
 
-    const width = this.maxWidth();
-    if (width && width > 0) {
-      options['width'] = width;
+    if (this.resizeMode() === 'longestEdge') {
+      const longestEdge = this.longestEdge();
+      if (longestEdge && longestEdge > 0) {
+        options['longestEdge'] = longestEdge;
+      }
+    } else if (this.resizeMode() === 'width') {
+      const width = this.width();
+      if (width && width > 0) {
+        options['width'] = width;
+      }
+    }
+
+    if (this.stripMetadata()) {
+      options['stripMetadata'] = true;
+    }
+    if (this.rotate() !== 0) {
+      options['rotate'] = this.rotate();
+    }
+    if (this.flipH()) {
+      options['flipH'] = true;
+    }
+    if (this.flipV()) {
+      options['flipV'] = true;
     }
 
     const paths = this.selectedPaths();
@@ -692,9 +865,14 @@ export class ImageConverter implements OnDestroy {
       const response = await this.wailsService.inspectFilesV1(paths);
       if (generation === this.fileItemsGeneration && response.success) {
         const infos = new Map<string, FileInfoV1>();
+        const inputInfos: Record<string, FileInfoV1> = {};
         for (const info of response.files) {
           infos.set(info.path, info);
+          if (info.path) {
+            inputInfos[info.path] = info;
+          }
         }
+        this.inputInfos.set(inputInfos);
 
         this.fileItems.update((items) =>
           items.map((item) => {
@@ -777,6 +955,26 @@ export class ImageConverter implements OnDestroy {
     }
     const parsed = Number.parseInt(raw, 10);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private readPositiveInteger(event: Event): number | null {
+    const value = this.readNumber(event);
+    return value === null || value <= 0 ? null : Math.max(1, Math.round(value));
+  }
+
+  private readValue(event: Event): string {
+    return (event.target as HTMLInputElement | null)?.value ?? '';
+  }
+
+  private readChecked(event: Event): boolean {
+    return !!(event.target as HTMLInputElement | null)?.checked;
+  }
+
+  private formatLabel(format: ImageOutputFormat): string {
+    return (
+      IMAGE_FORMAT_OPTIONS.find((option) => option.value === format)?.label ??
+      format
+    );
   }
 
   private isTerminalStatus(status: string): boolean {

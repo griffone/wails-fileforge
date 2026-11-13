@@ -121,6 +121,10 @@ describe('ImageCrop', () => {
     return { target: { value } } as unknown as Event;
   }
 
+  function checkedEvent(checked: boolean): Event {
+    return { target: { checked } } as unknown as Event;
+  }
+
   function lastPlanRequest(): JobRequestV1 {
     return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
   }
@@ -244,6 +248,11 @@ describe('ImageCrop', () => {
     expect(request.options['height']).toBe(80);
     expect(request.options['ratioPreset']).toBe('free');
     expect(request.options['format']).toBeUndefined();
+    expect(request.options['outputWidth']).toBeUndefined();
+    expect(request.options['outputHeight']).toBeUndefined();
+    expect(request.options['rotate']).toBeUndefined();
+    expect(request.options['flipH']).toBeUndefined();
+    expect(request.options['flipV']).toBeUndefined();
 
     expect(component.previewUrl()).toContain('data:image/png;base64,');
     expect(component.imageWidth()).toBe(100);
@@ -344,6 +353,89 @@ describe('ImageCrop', () => {
     flushMicrotasks();
     expect(component.format()).toBe('');
     expect(lastPlanRequest().options['format']).toBeUndefined();
+  }));
+
+  it('adds output size, rotation and flips to the plan', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    component.onOutputSizeInput('width', inputEvent('240'));
+    component.onOutputSizeInput('height', inputEvent('160'));
+    tick(200);
+    flushMicrotasks();
+
+    let request = lastPlanRequest();
+    expect(request.options['outputWidth']).toBe(240);
+    expect(request.options['outputHeight']).toBe(160);
+    expect(request.options['rotate']).toBeUndefined();
+    expect(request.options['flipH']).toBeUndefined();
+
+    component.onRotateChange(inputEvent('90'));
+    component.onFlipToggle('h', checkedEvent(true));
+    component.onFlipToggle('v', checkedEvent(true));
+    flushMicrotasks();
+
+    request = lastPlanRequest();
+    expect(request.options['rotate']).toBe(90);
+    expect(request.options['flipH']).toBeTrue();
+    expect(request.options['flipV']).toBeTrue();
+    expect(request.options['outputWidth']).toBe(240);
+
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Transforms apply after cropping. Preview shows the crop.',
+    );
+  }));
+
+  it('omits empty output sizes and disabled transforms', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    component.onOutputSizeInput('width', inputEvent('0'));
+    component.onOutputSizeInput('height', inputEvent(''));
+    tick(200);
+    flushMicrotasks();
+
+    component.onRotateChange(inputEvent('0'));
+    component.onFlipToggle('h', checkedEvent(false));
+    component.onFlipToggle('v', checkedEvent(false));
+    flushMicrotasks();
+
+    const request = lastPlanRequest();
+    expect(request.options['outputWidth']).toBeUndefined();
+    expect(request.options['outputHeight']).toBeUndefined();
+    expect(request.options['rotate']).toBeUndefined();
+    expect(request.options['flipH']).toBeUndefined();
+    expect(request.options['flipV']).toBeUndefined();
+  }));
+
+  it('reset transforms clears the crop transform options', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    component.onOutputSizeInput('width', inputEvent('240'));
+    component.onOutputSizeInput('height', inputEvent('160'));
+    component.onRotateChange(inputEvent('270'));
+    component.onFlipToggle('h', checkedEvent(true));
+    component.onFlipToggle('v', checkedEvent(true));
+    tick(200);
+    flushMicrotasks();
+
+    component.resetTransforms();
+    flushMicrotasks();
+
+    expect(component.outputWidth()).toBeNull();
+    expect(component.outputHeight()).toBeNull();
+    expect(component.rotate()).toBe(0);
+    expect(component.flipH()).toBeFalse();
+    expect(component.flipV()).toBeFalse();
+
+    const request = lastPlanRequest();
+    expect(request.options['outputWidth']).toBeUndefined();
+    expect(request.options['outputHeight']).toBeUndefined();
+    expect(request.options['rotate']).toBeUndefined();
+    expect(request.options['flipH']).toBeUndefined();
+    expect(request.options['flipV']).toBeUndefined();
   }));
 
   it('blocks the action for an empty or out-of-bounds crop', fakeAsync(() => {

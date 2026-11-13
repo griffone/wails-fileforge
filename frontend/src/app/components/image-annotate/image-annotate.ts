@@ -1,6 +1,7 @@
 import {
   Component,
   ElementRef,
+  HostListener,
   OnDestroy,
   ViewChild,
   computed,
@@ -11,13 +12,16 @@ import { takeUntil } from 'rxjs/operators';
 import {
   ArrowDown,
   ArrowUp,
+  CopyPlus,
   FolderOpen,
   Layers,
   LucideAngularModule,
   PenTool,
+  Redo2,
   ShieldCheck,
   Trash2,
   TriangleAlert,
+  Undo2,
   X,
 } from 'lucide-angular';
 
@@ -57,6 +61,8 @@ const POLLING_INTERVAL_MS = 1000;
 const OPERATION_PLAN_DEBOUNCE_MS = 250;
 const ANNOTATE_PREVIEW_DEBOUNCE_MS = 200;
 const THUMBNAIL_SIZE = 160;
+const HISTORY_LIMIT = 50;
+const DUPLICATE_OFFSET_PX = 10;
 
 const OPERATION_TYPES: readonly ImageAnnotateOperationTypeV1[] = [
   'text',
@@ -172,6 +178,11 @@ interface Notice {
   text: string;
 }
 
+interface CommitOptions {
+  /** Operation to select after the change; -1 clears the selection. */
+  selection?: number;
+}
+
 @Component({
   selector: 'app-image-annotate',
   standalone: true,
@@ -199,6 +210,9 @@ export class ImageAnnotate implements OnDestroy {
   readonly trashIcon = Trash2;
   readonly penIcon = PenTool;
   readonly layersIcon = Layers;
+  readonly undoIcon = Undo2;
+  readonly redoIcon = Redo2;
+  readonly duplicateIcon = CopyPlus;
 
   readonly operationTypes = OPERATION_TYPES;
   readonly formatOptions = FORMAT_OPTIONS;
@@ -224,6 +238,10 @@ export class ImageAnnotate implements OnDestroy {
     ...DEFAULT_OPERATION_FORM,
   });
   readonly drawDraft = signal<DrawDraft | null>(null);
+  /** Form fields are a draft until the user applies them to the operation. */
+  readonly formDirty = signal(false);
+  readonly canUndo = signal(false);
+  readonly canRedo = signal(false);
 
   readonly outputFormat = signal('');
   readonly outputDir = signal('');
@@ -337,6 +355,12 @@ export class ImageAnnotate implements OnDestroy {
   private annotatePreviewToken = 0;
   private fileItemsGeneration = 0;
   private previewGeneration = 0;
+  /**
+   * Snapshots are deep copies so later mutations of the live operations
+   * cannot rewrite history.
+   */
+  private readonly undoStack: ImageAnnotateOperationV1[][] = [];
+  private readonly redoStack: ImageAnnotateOperationV1[][] = [];
 
   constructor(private readonly wailsService: Wails) {
     this.wailsService.jobProgress$
@@ -486,11 +510,60 @@ export class ImageAnnotate implements OnDestroy {
     const operations = this.operations();
     if (index < 0 || index >= operations.length) {
       this.selectedOperationIndex.set(-1);
+      this.formDirty.set(false);
       return;
     }
 
+    this.formDirty.set(false);
     this.selectedOperationIndex.set(index);
     this.patchOperationForm(operations[index]);
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(event: KeyboardEvent): void {
+    if (event.defaultPrevented || event.isComposing) {
+      return;
+    }
+    // Never hijack editing keys while the user is typing in a field.
+    if (this.isEditableTarget(event)) {
+      return;
+    }
+
+    const modifier = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+
+    if (modifier && key === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        this.redo();
+      } else {
+        this.undo();
+      }
+      return;
+    }
+
+    if (modifier && key === 'y') {
+      event.preventDefault();
+      this.redo();
+      return;
+    }
+
+    if (modifier && key === 'd') {
+      if (this.selectedOperationIndex() < 0) {
+        return;
+      }
+      event.preventDefault();
+      this.duplicateOperation();
+      return;
+    }
+
+    if (!modifier && (event.key === 'Delete' || event.key === 'Backspace')) {
+      if (this.selectedOperationIndex() < 0) {
+        return;
+      }
+      event.preventDefault();
+      this.removeSelectedOperation();
+    }
   }
 
   onOperationShapeClick(index: number, event: MouseEvent): void {
@@ -502,7 +575,9 @@ export class ImageAnnotate implements OnDestroy {
   onOperationField(key: OperationFieldKey, event: Event): void {
     const value = this.readEventValue(event);
     this.operationForm.update((form) => ({ ...form, [key]: value }));
-    this.applyFormToSelectedOperation();
+    if (this.selectedOperationIndex() >= 0) {
+      this.formDirty.set(true);
+    }
   }
 
   onOperationTypeChange(event: Event): void {
@@ -512,7 +587,23 @@ export class ImageAnnotate implements OnDestroy {
     }
 
     this.operationForm.update((form) => ({ ...form, type: value }));
-    this.applyFormToSelectedOperation();
+    if (this.selectedOperationIndex() >= 0) {
+      this.formDirty.set(true);
+      this.applyOperationEdit();
+    }
+  }
+
+  /** Applies the form draft to the selected operation as one history step. */
+  applyOperationEdit(): void {
+    const index = this.selectedOperationIndex();
+    const operations = this.operations();
+    if (index < 0 || index >= operations.length || !this.formDirty()) {
+      return;
+    }
+
+    const next = [...operations];
+    next[index] = this.readOperationFromForm();
+    this.commitOperations(next, { selection: index });
   }
 
   addOperation(): void {
@@ -522,10 +613,10 @@ export class ImageAnnotate implements OnDestroy {
       return;
     }
 
-    this.actionMessage.set('');
-    this.operations.update((operations) => [...operations, operation]);
-    this.selectOperation(this.operations().length - 1);
-    this.scheduleOperationRefresh();
+    const operations = this.operations();
+    this.commitOperations([...operations, operation], {
+      selection: operations.length,
+    });
   }
 
   removeOperation(index: number): void {
@@ -534,16 +625,51 @@ export class ImageAnnotate implements OnDestroy {
       return;
     }
 
-    this.operations.set(operations.filter((_, i) => i !== index));
-
     const selected = this.selectedOperationIndex();
+    let selection = selected;
     if (selected === index) {
-      this.selectedOperationIndex.set(-1);
+      selection = -1;
     } else if (selected > index) {
-      this.selectedOperationIndex.set(selected - 1);
+      selection = selected - 1;
     }
 
-    this.scheduleOperationRefresh();
+    this.commitOperations(
+      operations.filter((_, i) => i !== index),
+      { selection },
+    );
+  }
+
+  removeSelectedOperation(): void {
+    const index = this.selectedOperationIndex();
+    if (index < 0) {
+      return;
+    }
+    this.removeOperation(index);
+  }
+
+  /** Copies the selected operation with a small offset and selects the copy. */
+  duplicateOperation(index: number = this.selectedOperationIndex()): void {
+    const operations = this.operations();
+    if (index < 0 || index >= operations.length) {
+      return;
+    }
+
+    const copy = this.cloneOperations([operations[index]])[0];
+    copy.x = (copy.x ?? 0) + DUPLICATE_OFFSET_PX;
+    copy.y = (copy.y ?? 0) + DUPLICATE_OFFSET_PX;
+    if (typeof copy.x2 === 'number') {
+      copy.x2 += DUPLICATE_OFFSET_PX;
+    }
+    if (typeof copy.y2 === 'number') {
+      copy.y2 += DUPLICATE_OFFSET_PX;
+    }
+
+    const next = [
+      ...operations.slice(0, index + 1),
+      copy,
+      ...operations.slice(index + 1),
+    ];
+    this.commitOperations(next, { selection: index + 1 });
   }
 
   moveOperationUp(index: number): void {
@@ -554,16 +680,16 @@ export class ImageAnnotate implements OnDestroy {
 
     const next = [...operations];
     [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    this.operations.set(next);
 
     const selected = this.selectedOperationIndex();
+    let selection = selected;
     if (selected === index) {
-      this.selectedOperationIndex.set(index - 1);
+      selection = index - 1;
     } else if (selected === index - 1) {
-      this.selectedOperationIndex.set(index);
+      selection = index;
     }
 
-    this.scheduleOperationRefresh();
+    this.commitOperations(next, { selection });
   }
 
   moveOperationDown(index: number): void {
@@ -574,16 +700,16 @@ export class ImageAnnotate implements OnDestroy {
 
     const next = [...operations];
     [next[index], next[index + 1]] = [next[index + 1], next[index]];
-    this.operations.set(next);
 
     const selected = this.selectedOperationIndex();
+    let selection = selected;
     if (selected === index) {
-      this.selectedOperationIndex.set(index + 1);
+      selection = index + 1;
     } else if (selected === index + 1) {
-      this.selectedOperationIndex.set(index);
+      selection = index;
     }
 
-    this.scheduleOperationRefresh();
+    this.commitOperations(next, { selection });
   }
 
   clearOperations(): void {
@@ -591,10 +717,64 @@ export class ImageAnnotate implements OnDestroy {
       return;
     }
 
-    this.operations.set([]);
     this.drawDraft.set(null);
-    this.selectedOperationIndex.set(-1);
+    this.commitOperations([], { selection: -1 });
+  }
+
+  /**
+   * Single path for every annotation edit: snapshots the previous operations,
+   * discards redo, keeps the selection valid and refreshes the plan preview.
+   */
+  commitOperations(
+    next: ImageAnnotateOperationV1[],
+    options: CommitOptions = {},
+  ): void {
+    this.pushHistory(this.undoStack, this.operations());
+    this.redoStack.length = 0;
+    this.operations.set(next);
+
+    const requested = options.selection ?? this.selectedOperationIndex();
+    let selection = -1;
+    if (next.length > 0 && requested >= 0) {
+      selection = Math.min(requested, next.length - 1);
+    }
+    this.selectedOperationIndex.set(selection);
+    if (selection >= 0) {
+      this.patchOperationForm(next[selection]);
+    }
+    this.formDirty.set(false);
     this.actionMessage.set('');
+    this.refreshHistoryFlags();
+    this.scheduleOperationRefresh();
+  }
+
+  undo(): void {
+    const previous = this.undoStack.pop();
+    if (!previous) {
+      return;
+    }
+
+    this.pushHistory(this.redoStack, this.operations());
+    this.operations.set(this.cloneOperations(previous));
+    this.restoreHistorySelection();
+    this.formDirty.set(false);
+    this.actionMessage.set('');
+    this.refreshHistoryFlags();
+    this.scheduleOperationRefresh();
+  }
+
+  redo(): void {
+    const next = this.redoStack.pop();
+    if (!next) {
+      return;
+    }
+
+    this.pushHistory(this.undoStack, this.operations());
+    this.operations.set(this.cloneOperations(next));
+    this.restoreHistorySelection();
+    this.formDirty.set(false);
+    this.actionMessage.set('');
+    this.refreshHistoryFlags();
     this.scheduleOperationRefresh();
   }
 
@@ -701,9 +881,10 @@ export class ImageAnnotate implements OnDestroy {
       return;
     }
 
-    this.operations.update((operations) => [...operations, nextOperation]);
-    this.selectOperation(this.operations().length - 1);
-    this.scheduleOperationRefresh();
+    const operations = this.operations();
+    this.commitOperations([...operations, nextOperation], {
+      selection: operations.length,
+    });
   }
 
   async run(): Promise<void> {
@@ -846,9 +1027,12 @@ export class ImageAnnotate implements OnDestroy {
     this.imageHeight.set(0);
     this.previewLoading.set(false);
     this.previewError.set('');
+    // Reset clears the page, so history restarts with it.
     this.operations.set([]);
+    this.clearHistory();
     this.selectedOperationIndex.set(-1);
     this.operationForm.set({ ...DEFAULT_OPERATION_FORM });
+    this.formDirty.set(false);
     this.drawDraft.set(null);
     this.annotatePreviewUrl.set('');
     this.isAnnotatePreviewLoading.set(false);
@@ -1082,6 +1266,65 @@ export class ImageAnnotate implements OnDestroy {
     this.scheduleAnnotatePreviewRefresh();
   }
 
+  private pushHistory(
+    stack: ImageAnnotateOperationV1[][],
+    operations: readonly ImageAnnotateOperationV1[],
+  ): void {
+    stack.push(this.cloneOperations(operations));
+    if (stack.length > HISTORY_LIMIT) {
+      stack.splice(0, stack.length - HISTORY_LIMIT);
+    }
+  }
+
+  private cloneOperations(
+    operations: readonly ImageAnnotateOperationV1[],
+  ): ImageAnnotateOperationV1[] {
+    // Operations are plain data; a JSON round-trip keeps history independent
+    // from the live objects and their optional fields.
+    return JSON.parse(
+      JSON.stringify(operations),
+    ) as ImageAnnotateOperationV1[];
+  }
+
+  private restoreHistorySelection(): void {
+    const total = this.operations().length;
+    const selection =
+      total === 0
+        ? -1
+        : Math.min(
+            Math.max(this.selectedOperationIndex(), 0),
+            total - 1,
+          );
+    this.selectedOperationIndex.set(selection);
+    if (selection >= 0) {
+      this.patchOperationForm(this.operations()[selection]);
+    }
+  }
+
+  private refreshHistoryFlags(): void {
+    this.canUndo.set(this.undoStack.length > 0);
+    this.canRedo.set(this.redoStack.length > 0);
+  }
+
+  private clearHistory(): void {
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.refreshHistoryFlags();
+  }
+
+  private isEditableTarget(event: KeyboardEvent): boolean {
+    const target = event.target as HTMLElement | null;
+    if (!target || typeof target.closest !== 'function') {
+      return false;
+    }
+    if (target.isContentEditable) {
+      return true;
+    }
+    return !!target.closest(
+      'input, select, textarea, [contenteditable="true"], [contenteditable=""]',
+    );
+  }
+
   private schedulePlanRefresh(): void {
     this.clearPlanRefreshTimer();
     if (this.selectedPaths().length === 0) {
@@ -1266,20 +1509,6 @@ export class ImageAnnotate implements OnDestroy {
     };
   }
 
-  private applyFormToSelectedOperation(): void {
-    const index = this.selectedOperationIndex();
-    const operations = this.operations();
-    if (index < 0 || index >= operations.length) {
-      return;
-    }
-
-    const updated = [...operations];
-    updated[index] = this.readOperationFromForm();
-    this.operations.set(updated);
-    this.actionMessage.set('');
-    this.scheduleOperationRefresh();
-  }
-
   private patchOperationForm(operation: ImageAnnotateOperationV1): void {
     this.operationForm.set({
       type: operation.type,
@@ -1376,10 +1605,10 @@ export class ImageAnnotate implements OnDestroy {
       blurIntensity: this.readInt(form.blurIntensity, 40),
     };
 
-    this.operations.update((operations) => [...operations, operation]);
-    this.operationForm.update((current) => ({ ...current, text }));
-    this.selectOperation(this.operations().length - 1);
-    this.scheduleOperationRefresh();
+    const operations = this.operations();
+    this.commitOperations([...operations, operation], {
+      selection: operations.length,
+    });
   }
 
   private normalizeRect(
