@@ -143,6 +143,13 @@ export class FileInfoV1 {
              */
             this["pageCount"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["durationSeconds"] = undefined;
+        }
         if (!("exists" in $$source)) {
             /**
              * @member

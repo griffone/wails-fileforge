@@ -1,6 +1,8 @@
 package inspect
 
 import (
+	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -106,6 +108,112 @@ func TestInspectFileMissing(t *testing.T) {
 	}
 	if info.Name != "missing.png" {
 		t.Fatalf("expected name missing.png, got %q", info.Name)
+	}
+}
+
+func TestInspectFileVideoToleratesMissingDuration(t *testing.T) {
+	original := videoDurationCommand
+	t.Cleanup(func() {
+		videoDurationCommand = original
+	})
+	videoDurationCommand = func(context.Context, string) ([]byte, error) {
+		return nil, errors.New("ffprobe not found")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clip.mp4")
+	if err := os.WriteFile(path, []byte("not a real video"), 0o644); err != nil {
+		t.Fatalf("write fake video: %v", err)
+	}
+
+	info := InspectFile(path)
+	if !info.Exists {
+		t.Fatal("expected fake video to exist")
+	}
+	if info.Kind != "video" {
+		t.Fatalf("expected video kind, got %q", info.Kind)
+	}
+	if info.Error != "" {
+		t.Fatalf("expected inspection to stay tolerant, got %q", info.Error)
+	}
+	if info.DurationSeconds != 0 {
+		t.Fatalf("expected no readable duration for a fake video, got %v", info.DurationSeconds)
+	}
+}
+
+func TestInspectFileVideoSetsDuration(t *testing.T) {
+	original := videoDurationCommand
+	t.Cleanup(func() {
+		videoDurationCommand = original
+	})
+	videoDurationCommand = func(context.Context, string) ([]byte, error) {
+		return []byte("9.75\n"), nil
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clip.mp4")
+	if err := os.WriteFile(path, []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write fake video: %v", err)
+	}
+
+	info := InspectFile(path)
+	if info.DurationSeconds != 9.75 {
+		t.Fatalf("expected 9.75 seconds, got %v", info.DurationSeconds)
+	}
+}
+
+func TestProbeVideoDurationParsesFFprobeOutput(t *testing.T) {
+	original := videoDurationCommand
+	t.Cleanup(func() {
+		videoDurationCommand = original
+	})
+
+	videoDurationCommand = func(context.Context, string) ([]byte, error) {
+		return []byte("12.5\n"), nil
+	}
+
+	duration, ok := ProbeVideoDuration(context.Background(), "/videos/clip.mp4")
+	if !ok {
+		t.Fatal("expected duration to be parsed")
+	}
+	if duration != 12.5 {
+		t.Fatalf("expected 12.5 seconds, got %v", duration)
+	}
+}
+
+func TestProbeVideoDurationIsTolerant(t *testing.T) {
+	original := videoDurationCommand
+	t.Cleanup(func() {
+		videoDurationCommand = original
+	})
+
+	cases := []struct {
+		name   string
+		output []byte
+		err    error
+	}{
+		{name: "missing ffprobe", err: errors.New("executable file not found")},
+		{name: "empty output", output: []byte("\n")},
+		{name: "not a number", output: []byte("N/A\n")},
+		{name: "zero duration", output: []byte("0\n")},
+		{name: "negative duration", output: []byte("-1\n")},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			videoDurationCommand = func(context.Context, string) ([]byte, error) {
+				return testCase.output, testCase.err
+			}
+
+			if duration, ok := ProbeVideoDuration(context.Background(), "/videos/clip.mp4"); ok {
+				t.Fatalf("expected no duration, got %v", duration)
+			}
+		})
+	}
+
+	videoDurationCommand = original
+	if _, ok := ProbeVideoDuration(context.Background(), "  "); ok {
+		t.Fatal("expected empty path to report no duration")
 	}
 }
 

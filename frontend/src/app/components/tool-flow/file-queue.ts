@@ -1,5 +1,13 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { ArrowDown, ArrowUp, File, Image, LucideAngularModule, X } from 'lucide-angular';
+import {
+  ArrowDown,
+  ArrowUp,
+  File,
+  Image,
+  LucideAngularModule,
+  Video,
+  X,
+} from 'lucide-angular';
 import { fileExtension } from '../../utils/format';
 import { FileQueueItem } from './tool-flow.types';
 
@@ -15,6 +23,8 @@ const IMAGE_EXTENSIONS = new Set([
   'avif',
   'svg',
 ]);
+
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v']);
 
 @Component({
   selector: 'app-file-queue',
@@ -35,15 +45,21 @@ export class FileQueue {
   @Output() moveDown = new EventEmitter<string>();
 
   readonly imageIcon = Image;
+  readonly videoIcon = Video;
   readonly fileIcon = File;
   readonly removeIcon = X;
   readonly upIcon = ArrowUp;
   readonly downIcon = ArrowDown;
 
   itemIcon(item: FileQueueItem) {
-    return IMAGE_EXTENSIONS.has(fileExtension(item.name).toLowerCase())
-      ? this.imageIcon
-      : this.fileIcon;
+    const extension = fileExtension(item.name).toLowerCase();
+    if (IMAGE_EXTENSIONS.has(extension)) {
+      return this.imageIcon;
+    }
+    if (VIDEO_EXTENSIONS.has(extension)) {
+      return this.videoIcon;
+    }
+    return this.fileIcon;
   }
 
   removeLabel(item: FileQueueItem): string {

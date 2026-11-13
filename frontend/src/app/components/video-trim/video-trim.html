@@ -5,8 +5,7 @@
         <p class="eyebrow">VIDEO</p>
         <h1 class="page-title">Video <em>Trim</em></h1>
         <p class="page-sub">
-          Cut a precise time range out of one clip or a batch queue — local-first, so your videos never
-          leave this machine.
+          Cut a time range out of a video. Everything runs on this machine.
         </p>
       </div>
 
@@ -17,103 +16,252 @@
     </div>
   </header>
 
-  <div class="workspace">
-    <section class="panel" aria-labelledby="video-trim-input-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="video-trim-input-title" class="panel-title">Input videos</h2>
-          <p class="panel-sub">Single mode takes exactly one file; batch mode builds a queue.</p>
+  <div class="page-stack">
+    <div class="flow-grid">
+      <div class="flow-column">
+        <section class="panel intake-panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">Videos</h2>
+              <p class="panel-sub">Drop videos or choose them from your computer.</p>
+            </div>
+            <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+          </div>
+
+          <div class="panel-body">
+            <app-file-drop
+              accept="video/mp4,video/quicktime,video/x-matroska,video/webm,.mp4,.mov,.mkv,.webm"
+              title="Drop videos here"
+              hint="MP4 · MOV · MKV · WebM"
+              ariaLabel="Drop or choose videos to trim"
+              [nativePicker]="true"
+              (pathsSelected)="onPathsSelected($event)"
+              (browseRequested)="chooseFiles()"
+            ></app-file-drop>
+
+            <div class="toolbar" role="group" aria-label="Video selection actions">
+              <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+                <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Choose videos
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm toolbar-end"
+                [disabled]="selectedPaths().length === 0"
+                (click)="clear()"
+              >
+                <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Clear
+              </button>
+            </div>
+
+            @if (notice(); as note) {
+              <div
+                class="banner error-banner"
+                [class.banner-warning]="note.tone === 'warning'"
+                [class.banner-danger]="note.tone === 'danger'"
+                role="alert"
+              >
+                <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                <span>{{ note.text }}</span>
+              </div>
+            }
+
+            @if (fileItems().length > 0) {
+              <app-file-queue
+                [items]="fileItems()"
+                (remove)="removeFile($event)"
+              ></app-file-queue>
+            }
+          </div>
+        </section>
+
+        <section class="panel time-panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">Time range</h2>
+              <p class="panel-sub">Choose where the clip starts and ends.</p>
+            </div>
+            @if (sourceDurationLabel(); as duration) {
+              <span class="badge badge-neutral">Length {{ duration }}</span>
+            }
+          </div>
+
+          <div class="panel-body">
+            @if (isBatch()) {
+              <p class="order-hint">The time range applies to every video.</p>
+            }
+
+            <div class="time-grid">
+              <div class="field">
+                <label class="label" for="video-trim-start">Start</label>
+                <input
+                  id="video-trim-start"
+                  class="input"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="00:00"
+                  [value]="startInput()"
+                  (input)="onStartInput($event)"
+                  (blur)="onStartBlur($event)"
+                />
+              </div>
+
+              <div class="field">
+                <label class="label" for="video-trim-end">End</label>
+                <input
+                  id="video-trim-end"
+                  class="input"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="00:30"
+                  [value]="endInput()"
+                  (input)="onEndInput($event)"
+                  (blur)="onEndBlur($event)"
+                />
+              </div>
+            </div>
+
+            @if (timeError(); as error) {
+              <div class="banner banner-warning error-banner" role="alert">
+                <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                <span>{{ error }}</span>
+              </div>
+            }
+
+            <p class="field-help">
+              Use seconds or a time like 00:30. Times apply to every video in a batch.
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Output</h2>
+            <p class="panel-sub">Pick a preset and check where the files will go.</p>
+          </div>
+          <span class="badge badge-neutral">{{ outputSummary() }}</span>
         </div>
-        <span class="badge badge-neutral">{{ inputCountLabel() }}</span>
-      </header>
 
-      <div class="panel-body">
-        <div class="toolbar" role="group" aria-label="Video selection actions">
-          <button type="button" class="btn btn-secondary btn-sm" (click)="selectVideoFromDialog()">
-            <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Select one
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" (click)="selectMultipleVideosFromDialog()">
-            Select multiple
-          </button>
-          <button type="button" class="btn btn-ghost btn-sm" (click)="triggerFileInput()">
-            Use file input
-          </button>
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm toolbar-end"
-            [disabled]="selectedInputPaths.length === 0"
-            (click)="clearSelectedInput()"
-          >
-            <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Clear
-          </button>
-        </div>
+        <div class="panel-body">
+          <div class="preset-grid" role="group" aria-label="Output preset">
+            @for (preset of presets; track preset.id) {
+              <button
+                type="button"
+                class="preset-card"
+                [class.is-active]="preset.id === selectedPresetId()"
+                [attr.aria-pressed]="preset.id === selectedPresetId()"
+                (click)="selectPreset(preset.id)"
+              >
+                <span class="preset-label">{{ preset.label }}</span>
+                <span class="preset-hint">{{ preset.hint }}</span>
+              </button>
+            }
+          </div>
 
-        <input
-          #fileInput
-          type="file"
-          accept="video/mp4,video/quicktime,video/x-matroska,.mp4,.mov,.mkv"
-          class="hidden"
-          [attr.multiple]="form.controls.jobMode.value === 'batch' ? '' : null"
-          (change)="onFileInputChange($event)"
-        />
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
 
-        <ul
-          *ngIf="selectedInputPaths.length > 0; else emptyInputs"
-          class="file-list"
-          aria-label="Selected videos"
-        >
-          <li *ngFor="let input of selectedInputPaths; let i = index" class="file-row">
-            <span class="file-index mono">{{ i + 1 }}</span>
-            <span class="file-path mono">{{ input }}</span>
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
+                Use original folders
+              </button>
+            </div>
+          }
+
+          <details class="advanced" (toggle)="onAdvancedToggle($event)">
+            <summary class="advanced-summary">
+              <span class="advanced-title">Advanced</span>
+              <span class="advanced-hint">Trim mode</span>
+            </summary>
+
+            <div class="advanced-body">
+              <div class="field">
+                <label class="label" for="video-trim-mode">Trim mode</label>
+                <select
+                  id="video-trim-mode"
+                  class="select"
+                  [value]="trimMode()"
+                  (change)="onTrimModeChange($event)"
+                >
+                  <option value="auto">Auto</option>
+                  <option value="copy">Copy</option>
+                  <option value="reencode">Reencode</option>
+                </select>
+                <p class="field-help">{{ trimModeHelp() }}</p>
+              </div>
+            </div>
+          </details>
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (actionHelper(); as helper) {
+            <p class="action-helper">{{ helper }}</p>
+          }
+
+          <div class="action-row">
             <button
               type="button"
-              class="icon-btn file-remove"
-              [attr.aria-label]="'Remove ' + input"
-              (click)="removeInput(i)"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
             >
-              <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              {{ primaryLabel() }}
             </button>
-          </li>
-        </ul>
 
-        <ng-template #emptyInputs>
-          <div class="empty-state file-empty">
-            <strong>No videos selected</strong>
-            <span>Pick MP4, MOV or MKV files with a native dialog or the browser file input.</span>
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            }
           </div>
-        </ng-template>
-      </div>
-    </section>
-
-    <app-tool-execution-panel
-      [title]="'Trim setup'"
-      [subtitle]="'Time range, destination and encoding path.'"
-      [form]="form"
-      [fields]="panelFields"
-      [currentMode]="form.controls.jobMode.value"
-      [validationMessage]="validationMessage"
-      [submitMessage]="submitMessage"
-      [statusMessage]="statusMessage"
-      [isSubmitting]="isSubmitting"
-      [isPolling]="isPolling"
-      [canCancel]="!!activeJobId"
-      [jobResult]="jobResult"
-      [runButtonText]="'Trim video'"
-      [submittingButtonText]="'Submitting…'"
-      (validate)="validate()"
-      (run)="run()"
-      (cancel)="cancel()"
-    ></app-tool-execution-panel>
-
-    <div
-      *ngIf="fallbackInfoMessage"
-      class="banner banner-warning workspace-span"
-      role="status"
-      aria-live="polite"
-    >
-      {{ fallbackInfoMessage }}
+        </div>
+      </section>
     </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Trim progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="video"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
   </div>
 </div>

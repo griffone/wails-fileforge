@@ -19,19 +19,20 @@ type PlanJobResponseV1 struct {
 }
 
 type FileInfoV1 struct {
-	Path       string `json:"path"`
-	Name       string `json:"name"`
-	Directory  string `json:"directory"`
-	Extension  string `json:"extension"`
-	SizeBytes  int64  `json:"sizeBytes"`
-	ModifiedAt int64  `json:"modifiedAt,omitempty"`
-	MimeType   string `json:"mimeType,omitempty"`
-	Kind       string `json:"kind"` // image|pdf|video|document|other
-	Width      int    `json:"width,omitempty"`
-	Height     int    `json:"height,omitempty"`
-	PageCount  int    `json:"pageCount,omitempty"`
-	Exists     bool   `json:"exists"`
-	Error      string `json:"error,omitempty"`
+	Path            string  `json:"path"`
+	Name            string  `json:"name"`
+	Directory       string  `json:"directory"`
+	Extension       string  `json:"extension"`
+	SizeBytes       int64   `json:"sizeBytes"`
+	ModifiedAt      int64   `json:"modifiedAt,omitempty"`
+	MimeType        string  `json:"mimeType,omitempty"`
+	Kind            string  `json:"kind"` // image|pdf|video|document|other
+	Width           int     `json:"width,omitempty"`
+	Height          int     `json:"height,omitempty"`
+	PageCount       int     `json:"pageCount,omitempty"`
+	DurationSeconds float64 `json:"durationSeconds,omitempty"`
+	Exists          bool    `json:"exists"`
+	Error           string  `json:"error,omitempty"`
 }
 
 type InspectFilesResponseV1 struct {

@@ -1,46 +1,184 @@
 import {
+  ComponentFixture,
   fakeAsync,
   flushMicrotasks,
   TestBed,
-  tick,
 } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Subject } from 'rxjs';
 
 import { VideoMerge } from './video-merge';
 import {
+  FileInfoV1,
+  JobProgressEventV1,
   JobRequestV1,
+  JobResultV1,
   JobStatusResponseV1,
-  RunJobResponseV1,
-  ValidateJobResponseV1,
+  PlanJobResponseV1,
   Wails,
 } from '../../services/wails';
 
-function waitMicrotask(): Promise<void> {
-  return Promise.resolve();
-}
-
 describe('VideoMerge', () => {
+  let fixture: ComponentFixture<VideoMerge>;
   let component: VideoMerge;
-  let fixture: any;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobProgressSubject: Subject<JobProgressEventV1>;
+
+  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+    const format = String(request.options['targetFormat'] ?? 'mp4');
+    const first = request.inputPaths[0] ?? '/tmp/video';
+    const stem = (first.split(/[\\/]/).pop() ?? 'video').replace(
+      /\.[^./\\]+$/,
+      '',
+    );
+    const directory = request.outputDir || '/tmp';
+    return {
+      success: true,
+      message: 'ok',
+      outputs: [
+        {
+          inputPath: request.inputPaths.join(','),
+          outputPath: `${directory}/${stem}_merged.${format}`,
+          outputKind: 'file',
+          exists: false,
+          adjusted: false,
+        },
+      ],
+      effectiveOptions: request.options,
+      warnings: [],
+    };
+  }
+
+  function fileInfo(path: string): FileInfoV1 {
+    const name = path.split(/[\\/]/).pop() ?? path;
+    return {
+      path,
+      name,
+      directory: '/tmp',
+      extension: name.split('.').pop() ?? '',
+      sizeBytes: 2048,
+      durationSeconds: 83,
+      kind: 'video',
+      exists: true,
+    };
+  }
+
+  function runningStatus(jobId: string): JobStatusResponseV1 {
+    const result: JobResultV1 = {
+      jobId,
+      success: false,
+      message: 'running',
+      toolId: 'tool.video.merge',
+      status: 'running',
+      progress: {
+        current: 0,
+        total: 2,
+        stage: 'running',
+        message: 'Merging videos',
+      },
+      items: [],
+      startedAt: 1,
+    };
+    return { success: true, message: 'running', found: true, result };
+  }
+
+  function terminalStatus(
+    jobId: string,
+    inputPath: string,
+    outputPath: string,
+  ): JobStatusResponseV1 {
+    const result: JobResultV1 = {
+      jobId,
+      success: true,
+      message: 'done',
+      toolId: 'tool.video.merge',
+      status: 'success',
+      progress: {
+        current: 2,
+        total: 2,
+        stage: 'done',
+        message: 'Finished',
+      },
+      items: [
+        {
+          inputPath,
+          outputPath,
+          outputs: [outputPath],
+          success: true,
+          message: 'Video merge successful',
+        },
+      ],
+      startedAt: 1,
+      endedAt: 2,
+    };
+    return { success: true, message: 'done', found: true, result };
+  }
 
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'validateJobV1',
+      'planJobV1',
+      'inspectFilesV1',
       'runJobV1',
       'getJobStatusV1',
       'cancelJobV1',
-      'listToolsV1',
-      'openFileDialog',
+      'openPath',
+      'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
-      'getPdfPreviewSource',
       'isRuntimeAvailable',
+      'listToolsV1',
+      'validateJobV1',
     ]);
+
+    jobProgressSubject = new Subject<JobProgressEventV1>();
+    (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
+      jobProgressSubject.asObservable();
+
+    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+      Promise.resolve(planResponse(request)),
+    );
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map(fileInfo),
+      }),
+    );
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-default',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+      Promise.resolve(runningStatus(jobId)),
+    );
+    wailsSpy.cancelJobV1.and.resolveTo({
+      success: true,
+      message: 'cancelled',
+      jobId: 'job-1',
+    });
+    wailsSpy.openPath.and.resolveTo({ success: true, message: 'opened' });
+    wailsSpy.revealInFolder.and.resolveTo({
+      success: true,
+      message: 'revealed',
+    });
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.isRuntimeAvailable.and.returnValue(true);
+    wailsSpy.listToolsV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      tools: [],
+    });
+    wailsSpy.validateJobV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      valid: true,
+    });
 
     await TestBed.configureTestingModule({
       imports: [VideoMerge],
-      providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
+      providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(VideoMerge);
@@ -48,188 +186,139 @@ describe('VideoMerge', () => {
     fixture.detectChanges();
   });
 
-  it('shapes payload for tool.video.merge with mergeMode and ordered inputs', async () => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
-
-    component.selectedInputPaths = ['/tmp/a.mp4', '/tmp/b.mov', '/tmp/c.mkv'];
-    component.moveInputDown(0);
-    component.form.patchValue({
-      outputPath: '/tmp/out/merged.webm',
-      targetFormat: 'webm',
-      qualityPreset: 'high',
-      mergeMode: 'copy',
-    });
-
-    await component.validate();
-
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
-    expect(req.toolId).toBe('tool.video.merge');
-    expect(req.mode).toBe('single');
-    expect(req.inputPaths).toEqual(['/tmp/b.mov', '/tmp/a.mp4', '/tmp/c.mkv']);
-    expect(req.options['outputPath']).toBe('/tmp/out/merged.webm');
-    expect(req.options['targetFormat']).toBe('webm');
-    expect(req.options['qualityPreset']).toBe('high');
-    expect(req.options['mergeMode']).toBe('copy');
+  afterEach(() => {
+    fixture.destroy();
   });
 
-  it('blocks locally when fewer than 2 inputs are selected', async () => {
-    component.selectedInputPaths = ['/tmp/a.mp4'];
-    component.form.patchValue({
-      outputPath: '/tmp/out/merged.mp4',
-      targetFormat: 'mp4',
-      qualityPreset: 'medium',
-      mergeMode: 'auto',
-    });
+  it('requires at least two videos', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4']);
+    flushMicrotasks();
 
-    await component.validate();
+    expect(component.selectedPaths()).toEqual(['/tmp/a.mp4']);
+    expect(component.canRun()).toBeFalse();
+    expect(component.primaryLabel()).toBe('Merge videos');
+    expect(component.actionHelper()).toBe('Add one more video to merge.');
+    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+  }));
 
-    expect(component.validationMessage).toContain('Select at least 2 input video files');
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
-  });
+  it('plans a merge with the default preset', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
 
-  it('renders the merge queue in order with labelled reorder controls', () => {
-    component.selectedInputPaths = ['/tmp/first.mp4', '/tmp/second.mov'];
-    fixture.detectChanges();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.toolId).toBe('tool.video.merge');
+    expect(request.mode).toBe('single');
+    expect(request.inputPaths).toEqual(['/tmp/a.mp4', '/tmp/b.mov']);
+    expect(request.outputDir).toBe('');
+    expect(request.options['targetFormat']).toBe('mp4');
+    expect(request.options['qualityPreset']).toBe('medium');
+    expect(component.plan()?.outputs[0].outputPath).toBe('/tmp/a_merged.mp4');
+    expect(component.primaryLabel()).toBe('Merge 2 videos');
+    expect(component.fileItems()[0].meta).toBe('2 KB · 1:23');
+  }));
 
-    const rows = fixture.nativeElement.querySelectorAll('.queue-row') as NodeListOf<HTMLElement>;
-    expect(rows.length).toBe(2);
-    expect(rows[0].textContent).toContain('first.mp4');
-    expect(rows[0].querySelector('.queue-index')?.textContent?.trim()).toBe('1');
-    expect(rows[1].querySelector('.queue-index')?.textContent?.trim()).toBe('2');
+  it('reorders the queue and refreshes the plan input order', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov', '/tmp/c.mkv']);
+    flushMicrotasks();
 
-    const firstUp = rows[0].querySelector('[aria-label="Move first.mp4 up"]') as HTMLButtonElement;
-    const firstDown = rows[0].querySelector('[aria-label="Move first.mp4 down"]') as HTMLButtonElement;
-    const secondUp = rows[1].querySelector('[aria-label="Move second.mov up"]') as HTMLButtonElement;
-    const secondDown = rows[1].querySelector('[aria-label="Move second.mov down"]') as HTMLButtonElement;
+    component.moveDown('/tmp/a.mp4');
+    flushMicrotasks();
 
-    expect(firstUp.disabled).toBeTrue();
-    expect(firstDown.disabled).toBeFalse();
-    expect(secondUp.disabled).toBeFalse();
-    expect(secondDown.disabled).toBeTrue();
-  });
+    expect(component.selectedPaths()).toEqual([
+      '/tmp/b.mov',
+      '/tmp/a.mp4',
+      '/tmp/c.mkv',
+    ]);
 
-  it('maps merge error codes to actionable messages', () => {
-    const baseFallback = 'fallback';
-    const cases: Array<{ code: string; contains: string }> = [
-      { code: 'VALIDATION_INVALID_INPUT', contains: 'At least 2 input videos are required' },
-      { code: 'UNSUPPORTED_FORMAT', contains: 'Output format mismatch' },
-      { code: 'EXEC_IO_TRANSIENT', contains: 'Video merge execution failed' },
-      { code: 'EXEC_TIMEOUT_TRANSIENT', contains: 'execution timeout' },
-      { code: 'CANCELLED_BY_USER', contains: 'Job was canceled' },
-    ];
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.inputPaths).toEqual([
+      '/tmp/b.mov',
+      '/tmp/a.mp4',
+      '/tmp/c.mkv',
+    ]);
+    expect(component.primaryLabel()).toBe('Merge 3 videos');
+  }));
 
-    for (const testCase of cases) {
-      const message = (component as any).mapJobError(
-        { code: testCase.code, message: 'detail' },
-        baseFallback
-      ) as string;
-      expect(message).withContext(testCase.code).toContain(testCase.contains);
-    }
-  });
+  it('uses the selected preset and the chosen folder in the plan', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/out');
 
-  it('runs and transitions basic state through polling', fakeAsync(() => {
-    const validation: ValidateJobResponseV1 = {
-      success: true,
-      message: 'ok',
-      valid: true,
-    };
-    const run: RunJobResponseV1 = {
-      success: true,
-      message: 'submitted',
-      jobId: 'video-merge-job-1',
-      status: 'queued',
-    };
-    const running: JobStatusResponseV1 = {
-      success: true,
-      message: 'running',
-      found: true,
-      result: {
-        jobId: 'video-merge-job-1',
-        success: false,
-        message: 'working',
-        toolId: 'tool.video.merge',
-        status: 'running',
-        progress: { current: 0, total: 1, stage: 'running', message: 'running' },
-        items: [],
-        startedAt: Date.now(),
-      },
-    };
-    const completed: JobStatusResponseV1 = {
-      success: true,
-      message: 'success',
-      found: true,
-      result: {
-        jobId: 'video-merge-job-1',
-        success: true,
-        message: 'done',
-        toolId: 'tool.video.merge',
-        status: 'success',
-        progress: { current: 1, total: 1, stage: 'success', message: 'done' },
-        items: [
-          {
-            inputPath: '/tmp/a.mp4',
-            outputPath: '/tmp/out/merged.mp4',
-            outputs: ['/tmp/out/merged.mp4'],
-            outputCount: 1,
-            success: true,
-            message: 'Video merge successful',
-          },
-        ],
-        startedAt: Date.now(),
-        endedAt: Date.now(),
-      },
-    };
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
 
-    wailsSpy.validateJobV1.and.returnValue(Promise.resolve(validation));
-    wailsSpy.runJobV1.and.returnValue(Promise.resolve(run));
-    wailsSpy.getJobStatusV1.and.returnValues(
-      Promise.resolve(running),
-      Promise.resolve(completed)
+    component.selectPreset('webm-balanced');
+    flushMicrotasks();
+
+    let request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['targetFormat']).toBe('webm');
+    expect(request.options['qualityPreset']).toBe('medium');
+
+    void component.chooseOutputFolder();
+    flushMicrotasks();
+
+    expect(component.outputDir()).toBe('/tmp/out');
+    expect(component.destinationLabel()).toBe('/tmp/out');
+    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(request.outputDir).toBe('/tmp/out');
+    expect(component.plan()?.outputs[0].outputPath).toBe(
+      '/tmp/out/a_merged.webm',
     );
 
-    component.selectedInputPaths = ['/tmp/a.mp4', '/tmp/b.mp4'];
-    component.form.patchValue({
-      outputPath: '/tmp/out/merged.mp4',
-      targetFormat: 'mp4',
-      qualityPreset: 'medium',
-      mergeMode: 'auto',
+    component.useFirstVideoFolder();
+    flushMicrotasks();
+    expect(component.outputDir()).toBe('');
+    expect(component.destinationLabel()).toBe('Next to the first video');
+  }));
+
+  it('runs without a validate step and shows the terminal result', fakeAsync(() => {
+    const outputPath = '/tmp/a_merged.mp4';
+
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-2',
+      status: 'queued',
     });
+    wailsSpy.getJobStatusV1.and.resolveTo(
+      terminalStatus('job-2', '/tmp/a.mp4', outputPath),
+    );
+
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
 
     void component.run();
     flushMicrotasks();
 
-    expect(component.activeJobId).toBe('video-merge-job-1');
-    expect(component.isPolling).toBeTrue();
+    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.toolId).toBe('tool.video.merge');
+    expect(request.mode).toBe('single');
+    expect(request.inputPaths).toEqual(['/tmp/a.mp4', '/tmp/b.mov']);
+    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+    expect(component.isPolling()).toBeFalse();
+    expect(component.terminalJob()?.status).toBe('success');
+    expect(component.outputInfos()[outputPath].sizeBytes).toBe(2048);
 
-    tick(1000);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('1 video converted');
+
+    void component.onOpen(outputPath);
     flushMicrotasks();
-
-    expect(component.jobResult?.status).toBe('success');
-    expect(component.jobResult?.items.length).toBe(1);
-    expect(component.jobResult?.items[0].outputPath).toBe('/tmp/out/merged.mp4');
-    expect(component.isPolling).toBeFalse();
-    expect(component.activeJobId).toBe('');
+    expect(wailsSpy.openPath).toHaveBeenCalledWith(outputPath);
   }));
 
-  it('cancel transition reports backend failure explicitly', async () => {
-    component.activeJobId = 'video-merge-job-cancel';
-    wailsSpy.cancelJobV1.and.returnValue(
-      Promise.resolve({
-        success: false,
-        message: 'cancel failed',
-        jobId: 'video-merge-job-cancel',
-        error: { code: 'VALIDATION_INVALID_INPUT', message: 'cannot cancel' },
-      })
+  it('rejects non-video files with a plain notice', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/notes.txt', '/tmp/photo.png']);
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual([]);
+    expect(component.notice()?.text).toBe(
+      "notes.txt, photo.png weren't added because they aren't videos.",
     );
-
-    await component.cancel();
-    await waitMicrotask();
-
-    expect(component.statusMessage).toContain('At least 2 input videos are required to merge');
-  });
+    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+  }));
 });

@@ -70,3 +70,70 @@ export function formatCount(
   const label = count === 1 ? singular : (plural ?? `${singular}s`);
   return `${count} ${label}`;
 }
+
+function padTwo(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/**
+ * Clock-style duration: `0:07`, `1:23`, `1:02:03`. Invalid or non-positive
+ * values return an em dash so unknown durations never look like `0:00`.
+ */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return '—';
+  }
+
+  const total = Math.floor(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = total % 60;
+
+  return hours > 0
+    ? `${hours}:${padTwo(minutes)}:${padTwo(rest)}`
+    : `${minutes}:${padTwo(rest)}`;
+}
+
+const SECONDS_PART = /^\d+(?:\.\d+)?$/;
+
+/**
+ * Parses a user-typed time into seconds. Accepts `SS`, `MM:SS`, `HH:MM:SS`
+ * and decimal seconds. Returns null for empty, negative or malformed values.
+ */
+export function parseTimeToSeconds(value: string): number | null {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parts = trimmed.split(':');
+  if (parts.length < 1 || parts.length > 3) {
+    return null;
+  }
+  if (!parts.every((part) => SECONDS_PART.test(part))) {
+    return null;
+  }
+
+  const numbers = parts.map((part) => Number(part));
+  if (numbers.some((number) => !Number.isFinite(number) || number < 0)) {
+    return null;
+  }
+
+  if (parts.length === 1) {
+    return numbers[0];
+  }
+
+  if (parts.length === 2) {
+    const [minutes, seconds] = numbers;
+    if (seconds >= 60) {
+      return null;
+    }
+    return minutes * 60 + seconds;
+  }
+
+  const [hours, minutes, seconds] = numbers;
+  if (minutes >= 60 || seconds >= 60) {
+    return null;
+  }
+  return hours * 3600 + minutes * 60 + seconds;
+}

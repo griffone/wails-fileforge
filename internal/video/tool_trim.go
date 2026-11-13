@@ -3,15 +3,25 @@ package video
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"fileforge-desktop/internal/inspect"
 	"fileforge-desktop/internal/jobs"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/video/engine"
 )
 
-const ToolIDVideoTrimV1 = "tool.video.trim"
+const (
+	ToolIDVideoTrimV1 = "tool.video.trim"
+
+	videoTrimOutputSuffix = "_trimmed"
+)
+
+// probeVideoDuration is a package variable so tests can simulate source
+// durations without invoking ffprobe.
+var probeVideoDuration = inspect.ProbeVideoDuration
 
 type TrimTool struct {
 	probe  engine.RuntimeProbe
@@ -52,12 +62,7 @@ func (t *TrimTool) Manifest() models.ToolManifestV1 {
 }
 
 func (t *TrimTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 {
-	probe := t.probe
-	if probe == nil {
-		probe = engine.NewFFmpegRuntimeProbe()
-	}
-
-	if err := probe.Check(ctx); err != nil {
+	if err := resolveRuntimeProbe(t.probe).Check(ctx); err != nil {
 		return models.ToolRuntimeStateV1{Status: "degraded", Healthy: false, Reason: err.Error()}
 	}
 
@@ -65,40 +70,126 @@ func (t *TrimTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 {
 }
 
 func (t *TrimTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
-	probe := t.probe
-	if probe == nil {
-		probe = engine.NewFFmpegRuntimeProbe()
-	}
-	if runtimeErr := probe.Check(ctx); runtimeErr != nil {
-		return mapVideoError(runtimeErr)
+	_, planErr := t.Plan(ctx, req)
+	return planErr
+}
+
+// Plan resolves trim outputs without running ffmpeg. Explicit options.outputPath
+// keeps the classic contract; otherwise outputs default to
+// <stem>_trimmed.<format> and never overwrite an existing file.
+func (t *TrimTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+
+	if runtimeErr := checkVideoRuntime(ctx, t.probe); runtimeErr != nil {
+		return planFailure(plan, runtimeErr)
 	}
 
-	switch strings.TrimSpace(req.Mode) {
+	mode := strings.TrimSpace(req.Mode)
+	switch mode {
 	case "single":
-		trimReq, jobErr := parseTrimRequest(req)
-		if jobErr != nil {
-			return jobErr
-		}
-
-		if validationErr := engine.ValidateTrimRequest(trimReq); validationErr != nil {
-			return mapVideoError(validationErr)
+		if len(req.InputPaths) != 1 {
+			return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "exactly 1 input video is required"})
 		}
 	case "batch":
-		trimReqs, jobErr := parseTrimBatchRequests(req)
-		if jobErr != nil {
-			return jobErr
-		}
-
-		for _, trimReq := range trimReqs {
-			if validationErr := engine.ValidateTrimRequest(trimReq); validationErr != nil {
-				return mapVideoError(validationErr)
-			}
+		if len(req.InputPaths) < 1 {
+			return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "at least 1 input video is required"})
 		}
 	default:
-		return &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "mode must be single or batch"}
+		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "mode must be single or batch"})
 	}
 
-	return nil
+	startTime, ok := optionNumber(req.Options, "startTime")
+	if !ok {
+		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.startTime is required"})
+	}
+
+	endTime, ok := optionNumber(req.Options, "endTime")
+	if !ok {
+		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.endTime is required"})
+	}
+
+	if startTime < 0 {
+		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimInvalidTimeRange, Message: "startTime must be >= 0"})
+	}
+
+	if endTime <= startTime {
+		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimInvalidTimeRange, Message: "endTime must be greater than startTime"})
+	}
+
+	trimMode := strings.ToLower(optionString(req.Options, "trimMode"))
+	if trimMode == "" {
+		trimMode = engine.TrimModeAuto
+	}
+	switch trimMode {
+	case engine.TrimModeAuto, engine.TrimModeCopy, engine.TrimModeReencode:
+	default:
+		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimModeInvalid, Message: "trimMode must be auto, copy, or reencode"})
+	}
+
+	targetFormat, qualityPreset, optionsErr := resolveVideoOutputOptions(req.Options, engine.ErrorCodeVideoTrimValidation)
+	if optionsErr != nil {
+		return planFailure(plan, optionsErr)
+	}
+
+	outputDir := strings.TrimSpace(req.OutputDir)
+	explicitOutput := ""
+	if mode == "single" {
+		explicitOutput = optionString(req.Options, "outputPath")
+	}
+
+	used := reserveInputPaths(req.InputPaths)
+	outputs := make([]models.PlannedOutputV1, 0, len(req.InputPaths))
+	warnings := make([]string, 0, len(req.InputPaths))
+
+	for _, rawInputPath := range req.InputPaths {
+		inputPath := strings.TrimSpace(rawInputPath)
+		if inputPath == "" {
+			return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "inputPaths must not contain empty values"})
+		}
+
+		var planned models.PlannedOutputV1
+		var planErr *models.JobErrorV1
+		if explicitOutput != "" {
+			planned, planErr = planExplicitTrimOutput(inputPath, explicitOutput, startTime, endTime, targetFormat, qualityPreset, trimMode)
+		} else {
+			planned = planAutoVideoOutput(inputPath, outputDir, videoTrimOutputSuffix, targetFormat, used)
+			planErr = mapVideoError(engine.ValidateTrimRequest(engine.TrimRequest{
+				InputPath:     planned.InputPath,
+				OutputPath:    planned.OutputPath,
+				StartTime:     startTime,
+				EndTime:       endTime,
+				TargetFormat:  targetFormat,
+				QualityPreset: qualityPreset,
+				TrimMode:      trimMode,
+			}))
+		}
+
+		outputs = append(outputs, planned)
+		warnings = append(warnings, planned.Warnings...)
+		if planErr != nil {
+			plan.Outputs = outputs
+			return planFailure(plan, planErr)
+		}
+
+		if rangeErr := validateTrimRangeAgainstDuration(ctx, planned.InputPath, startTime); rangeErr != nil {
+			plan.Outputs = outputs
+			return planFailure(plan, rangeErr)
+		}
+	}
+
+	plan.Success = true
+	plan.Message = videoTrimPlanMessage(len(outputs))
+	plan.Outputs = outputs
+	plan.Warnings = warnings
+	plan.EffectiveOptions = map[string]any{
+		"targetFormat":  targetFormat,
+		"qualityPreset": qualityPreset,
+		"trimMode":      trimMode,
+		"startTime":     startTime,
+		"endTime":       endTime,
+	}
+
+	return plan, nil
 }
 
 func (t *TrimTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
@@ -110,11 +201,12 @@ func (t *TrimTool) ExecuteSingleWithProgress(ctx context.Context, req models.Job
 }
 
 func (t *TrimTool) executeSingle(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
-	trimReq, parseErr := parseTrimRequest(req)
-	if parseErr != nil {
-		return models.JobResultItemV1{InputPath: firstInputPath(req.InputPaths), OutputPath: optionString(req.Options, "outputPath"), Success: false, Message: parseErr.Message, Error: parseErr}, parseErr
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return videoPlanFailureItem(firstInputPath(req.InputPaths), firstPlannedOutputPath(plan), planErr), planErr
 	}
 
+	trimReq := trimRequestFromPlannedOutput(plan.Outputs[0], plan.EffectiveOptions)
 	var fallbackInfo string
 	trimErr := engine.TrimWithProgress(ctx, t.probe, t.runner, trimReq, func(evt engine.TrimProgressEvent) {
 		if onProgress != nil {
@@ -149,7 +241,7 @@ func (t *TrimTool) executeSingle(ctx context.Context, req models.JobRequestV1, o
 		if trimErr.Code == engine.ErrorCodeVideoTrimCopyFailed && trimReq.TrimMode == engine.TrimModeAuto {
 			jobErr.Details = map[string]any{"fallbackUsed": false}
 		}
-		return models.JobResultItemV1{InputPath: trimReq.InputPath, OutputPath: trimReq.OutputPath, Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
+		return videoPlanFailureItem(trimReq.InputPath, trimReq.OutputPath, jobErr), jobErr
 	}
 
 	message := "Video trim successful"
@@ -167,9 +259,14 @@ func (t *TrimTool) executeSingle(ctx context.Context, req models.JobRequestV1, o
 }
 
 func (t *TrimTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
-	trimReqs, parseErr := parseTrimBatchRequests(req)
-	if parseErr != nil {
-		return nil, parseErr
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return nil, planErr
+	}
+
+	trimReqs := make([]engine.TrimRequest, 0, len(plan.Outputs))
+	for _, planned := range plan.Outputs {
+		trimReqs = append(trimReqs, trimRequestFromPlannedOutput(planned, plan.EffectiveOptions))
 	}
 
 	items := make([]models.JobResultItemV1, 0, len(trimReqs))
@@ -188,7 +285,7 @@ func (t *TrimTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 			if firstErr == nil {
 				firstErr = jobErr
 			}
-			items = append(items, models.JobResultItemV1{InputPath: trimReq.InputPath, OutputPath: trimReq.OutputPath, Success: false, Message: jobErr.Message, Error: jobErr})
+			items = append(items, videoPlanFailureItem(trimReq.InputPath, trimReq.OutputPath, jobErr))
 		} else {
 			items = append(items, models.JobResultItemV1{InputPath: trimReq.InputPath, OutputPath: trimReq.OutputPath, Outputs: []string{trimReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video trim successful"})
 		}
@@ -205,129 +302,70 @@ func (t *TrimTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 	return items, nil
 }
 
-func parseTrimRequest(req models.JobRequestV1) (engine.TrimRequest, *models.JobErrorV1) {
-	if strings.TrimSpace(req.Mode) != "single" {
-		return engine.TrimRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "mode must be single"}
+func planExplicitTrimOutput(inputPath, outputPath string, startTime, endTime float64, targetFormat, qualityPreset, trimMode string) (models.PlannedOutputV1, *models.JobErrorV1) {
+	planned := models.PlannedOutputV1{
+		InputPath:  strings.TrimSpace(inputPath),
+		OutputPath: filepath.Clean(strings.TrimSpace(outputPath)),
+		OutputKind: videoOutputKindFile,
 	}
 
-	if len(req.InputPaths) != 1 {
-		return engine.TrimRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "exactly 1 input video is required"}
+	if _, err := os.Stat(planned.OutputPath); err == nil {
+		planned.Exists = true
 	}
 
-	outputPath := optionString(req.Options, "outputPath")
-	if outputPath == "" {
-		return engine.TrimRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.outputPath is required"}
-	}
-
-	startTime, ok := optionNumber(req.Options, "startTime")
-	if !ok {
-		return engine.TrimRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.startTime is required"}
-	}
-
-	endTime, ok := optionNumber(req.Options, "endTime")
-	if !ok {
-		return engine.TrimRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.endTime is required"}
-	}
-
-	targetFormat := strings.ToLower(optionString(req.Options, "targetFormat"))
-	if targetFormat == "" {
-		return engine.TrimRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.targetFormat is required"}
-	}
-
-	qualityPreset := strings.ToLower(optionString(req.Options, "qualityPreset"))
-	if qualityPreset == "" {
-		return engine.TrimRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.qualityPreset is required"}
-	}
-
-	trimMode := strings.ToLower(optionString(req.Options, "trimMode"))
-	if trimMode == "" {
-		trimMode = engine.TrimModeAuto
-	}
-
-	return engine.TrimRequest{
-		InputPath:     strings.TrimSpace(req.InputPaths[0]),
-		OutputPath:    outputPath,
+	validationErr := engine.ValidateTrimRequest(engine.TrimRequest{
+		InputPath:     planned.InputPath,
+		OutputPath:    planned.OutputPath,
 		StartTime:     startTime,
 		EndTime:       endTime,
 		TargetFormat:  targetFormat,
 		QualityPreset: qualityPreset,
 		TrimMode:      trimMode,
-	}, nil
+	})
+
+	return planned, mapVideoError(validationErr)
 }
 
-func parseTrimBatchRequests(req models.JobRequestV1) ([]engine.TrimRequest, *models.JobErrorV1) {
-	if strings.TrimSpace(req.Mode) != "batch" {
-		return nil, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "mode must be batch"}
-	}
+func trimRequestFromPlannedOutput(planned models.PlannedOutputV1, effectiveOptions map[string]any) engine.TrimRequest {
+	startTime, _ := effectiveOptions["startTime"].(float64)
+	endTime, _ := effectiveOptions["endTime"].(float64)
 
-	if len(req.InputPaths) < 1 {
-		return nil, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "at least 1 input video is required"}
+	return engine.TrimRequest{
+		InputPath:     planned.InputPath,
+		OutputPath:    planned.OutputPath,
+		StartTime:     startTime,
+		EndTime:       endTime,
+		TargetFormat:  optionString(effectiveOptions, "targetFormat"),
+		QualityPreset: optionString(effectiveOptions, "qualityPreset"),
+		TrimMode:      optionString(effectiveOptions, "trimMode"),
 	}
+}
 
-	outputDir := strings.TrimSpace(req.OutputDir)
-	if outputDir == "" {
-		return nil, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "outputDir is required for batch mode"}
-	}
-
-	startTime, ok := optionNumber(req.Options, "startTime")
+// validateTrimRangeAgainstDuration rejects a range that starts at or after the
+// end of the source. An endTime beyond the duration is intentionally allowed:
+// ffmpeg stops at EOF, and the current trim form defaults to a fixed end time.
+func validateTrimRangeAgainstDuration(ctx context.Context, inputPath string, startTime float64) *models.JobErrorV1 {
+	duration, ok := probeVideoDuration(ctx, inputPath)
 	if !ok {
-		return nil, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.startTime is required"}
+		return nil
 	}
 
-	endTime, ok := optionNumber(req.Options, "endTime")
-	if !ok {
-		return nil, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.endTime is required"}
-	}
-
-	targetFormat := strings.ToLower(optionString(req.Options, "targetFormat"))
-	if targetFormat == "" {
-		return nil, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.targetFormat is required"}
-	}
-
-	qualityPreset := strings.ToLower(optionString(req.Options, "qualityPreset"))
-	if qualityPreset == "" {
-		return nil, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "options.qualityPreset is required"}
-	}
-
-	trimMode := strings.ToLower(optionString(req.Options, "trimMode"))
-	if trimMode == "" {
-		trimMode = engine.TrimModeAuto
-	}
-
-	reqs := make([]engine.TrimRequest, 0, len(req.InputPaths))
-	plannedOutputs := make(map[string]struct{}, len(req.InputPaths))
-
-	for index, rawInputPath := range req.InputPaths {
-		inputPath := strings.TrimSpace(rawInputPath)
-		if inputPath == "" {
-			return nil, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "inputPaths must not contain empty values"}
+	if startTime >= duration {
+		return &models.JobErrorV1{
+			Code:       engine.ErrorCodeVideoTrimInvalidTimeRange,
+			DetailCode: engine.ErrorCodeVideoTrimInvalidTimeRange,
+			Message:    fmt.Sprintf("startTime must be before the video duration (%.1f s)", duration),
 		}
-
-		baseName := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
-		if baseName == "" {
-			baseName = fmt.Sprintf("video_%d", index+1)
-		}
-
-		outputFileName := fmt.Sprintf("%s_trimmed.%s", baseName, targetFormat)
-		outputPath := filepath.Join(outputDir, outputFileName)
-		normalizedOutputKey := strings.ToLower(filepath.Clean(outputPath))
-		if _, exists := plannedOutputs[normalizedOutputKey]; exists {
-			return nil, &models.JobErrorV1{Code: engine.ErrorCodeVideoTrimValidation, Message: "batch output collision detected; input filenames must be unique"}
-		}
-		plannedOutputs[normalizedOutputKey] = struct{}{}
-
-		reqs = append(reqs, engine.TrimRequest{
-			InputPath:     inputPath,
-			OutputPath:    outputPath,
-			StartTime:     startTime,
-			EndTime:       endTime,
-			TargetFormat:  targetFormat,
-			QualityPreset: qualityPreset,
-			TrimMode:      trimMode,
-		})
 	}
 
-	return reqs, nil
+	return nil
+}
+
+func videoTrimPlanMessage(count int) string {
+	if count == 1 {
+		return "Ready to trim 1 video."
+	}
+	return fmt.Sprintf("Ready to trim %d videos.", count)
 }
 
 func optionNumber(options map[string]any, key string) (float64, bool) {
@@ -335,15 +373,18 @@ func optionNumber(options map[string]any, key string) (float64, bool) {
 		return 0, false
 	}
 
-	v, ok := options[key]
-	if !ok || v == nil {
+	switch value := options[key].(type) {
+	case float64:
+		return value, true
+	case float32:
+		return float64(value), true
+	case int:
+		return float64(value), true
+	case int32:
+		return float64(value), true
+	case int64:
+		return float64(value), true
+	default:
 		return 0, false
 	}
-
-	n, ok := v.(float64)
-	if !ok {
-		return 0, false
-	}
-
-	return n, true
 }

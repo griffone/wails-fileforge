@@ -2,13 +2,20 @@ package video
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/video/engine"
 )
 
-const ToolIDVideoMergeV1 = "tool.video.merge"
+const (
+	ToolIDVideoMergeV1 = "tool.video.merge"
+
+	videoMergeOutputSuffix = "_merged"
+)
 
 type MergeTool struct {
 	probe  engine.RuntimeProbe
@@ -49,12 +56,7 @@ func (t *MergeTool) Manifest() models.ToolManifestV1 {
 }
 
 func (t *MergeTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 {
-	probe := t.probe
-	if probe == nil {
-		probe = engine.NewFFmpegRuntimeProbe()
-	}
-
-	if err := probe.Check(ctx); err != nil {
+	if err := resolveRuntimeProbe(t.probe).Check(ctx); err != nil {
 		return models.ToolRuntimeStateV1{Status: "degraded", Healthy: false, Reason: err.Error()}
 	}
 
@@ -62,83 +64,151 @@ func (t *MergeTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 
 }
 
 func (t *MergeTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
-	mergeReq, jobErr := parseMergeRequest(req)
-	if jobErr != nil {
-		return jobErr
-	}
-
-	probe := t.probe
-	if probe == nil {
-		probe = engine.NewFFmpegRuntimeProbe()
-	}
-	if runtimeErr := probe.Check(ctx); runtimeErr != nil {
-		return mapVideoError(runtimeErr)
-	}
-
-	if validationErr := engine.ValidateMergeRequest(mergeReq); validationErr != nil {
-		return mapVideoError(validationErr)
-	}
-
-	return nil
+	_, planErr := t.Plan(ctx, req)
+	return planErr
 }
 
-func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
-	mergeReq, parseErr := parseMergeRequest(req)
-	if parseErr != nil {
-		return models.JobResultItemV1{InputPath: firstInputPath(req.InputPaths), OutputPath: optionString(req.Options, "outputPath"), Success: false, Message: parseErr.Message, Error: parseErr}, parseErr
+// Plan resolves the merge destination without writing anything. An explicit
+// outputPath keeps the classic contract (it must not exist); otherwise the
+// output defaults to <firstStem>_merged.<format> next to the first input.
+func (t *MergeTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+
+	if runtimeErr := checkVideoRuntime(ctx, t.probe); runtimeErr != nil {
+		return planFailure(plan, runtimeErr)
 	}
 
-	if err := engine.Merge(ctx, t.probe, t.runner, mergeReq); err != nil {
-		jobErr := mapVideoError(err)
-		return models.JobResultItemV1{InputPath: firstInputPath(mergeReq.InputPaths), OutputPath: mergeReq.OutputPath, Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
-	}
-
-	return models.JobResultItemV1{InputPath: firstInputPath(mergeReq.InputPaths), OutputPath: mergeReq.OutputPath, Outputs: []string{mergeReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video merge successful"}, nil
-}
-
-func parseMergeRequest(req models.JobRequestV1) (engine.MergeRequest, *models.JobErrorV1) {
 	if strings.TrimSpace(req.Mode) != "single" {
-		return engine.MergeRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "mode must be single"}
+		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "mode must be single"})
 	}
 
 	if len(req.InputPaths) < 2 {
-		return engine.MergeRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeInsufficientInputs, Message: "at least 2 input videos are required"}
+		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeInsufficientInputs, Message: "at least 2 input videos are required"})
 	}
 
-	trimmedInputPaths := make([]string, 0, len(req.InputPaths))
-	for _, inputPath := range req.InputPaths {
-		trimmed := strings.TrimSpace(inputPath)
-		if trimmed == "" {
-			return engine.MergeRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "inputPaths must not contain empty values"}
+	inputPaths := make([]string, 0, len(req.InputPaths))
+	for _, rawInputPath := range req.InputPaths {
+		inputPath := strings.TrimSpace(rawInputPath)
+		if inputPath == "" {
+			return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "inputPaths must not contain empty values"})
 		}
-		trimmedInputPaths = append(trimmedInputPaths, trimmed)
+		inputPaths = append(inputPaths, inputPath)
 	}
 
-	outputPath := optionString(req.Options, "outputPath")
-	if outputPath == "" {
-		return engine.MergeRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "options.outputPath is required"}
-	}
-
-	targetFormat := strings.ToLower(optionString(req.Options, "targetFormat"))
-	if targetFormat == "" {
-		return engine.MergeRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "options.targetFormat is required"}
-	}
-
-	qualityPreset := strings.ToLower(optionString(req.Options, "qualityPreset"))
-	if qualityPreset == "" {
-		return engine.MergeRequest{}, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "options.qualityPreset is required"}
+	targetFormat, qualityPreset, optionsErr := resolveVideoOutputOptions(req.Options, engine.ErrorCodeVideoMergeValidation)
+	if optionsErr != nil {
+		return planFailure(plan, optionsErr)
 	}
 
 	mergeMode := strings.ToLower(optionString(req.Options, "mergeMode"))
 	if mergeMode == "" {
 		mergeMode = engine.MergeModeAuto
 	}
+	switch mergeMode {
+	case engine.MergeModeAuto, engine.MergeModeCopy, engine.MergeModeReencode:
+	default:
+		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeModeInvalid, Message: "mergeMode must be auto, copy, or reencode"})
+	}
 
-	return engine.MergeRequest{
-		InputPaths:    trimmedInputPaths,
-		OutputPath:    outputPath,
+	explicitOutput := optionString(req.Options, "outputPath")
+	var planned models.PlannedOutputV1
+	var planErr *models.JobErrorV1
+	if explicitOutput != "" {
+		planned, planErr = planExplicitMergeOutput(inputPaths, explicitOutput, targetFormat, qualityPreset, mergeMode)
+	} else {
+		planned = planAutoVideoOutput(inputPaths[0], req.OutputDir, videoMergeOutputSuffix, targetFormat, reserveInputPaths(inputPaths))
+		planErr = mapVideoError(engine.ValidateMergeRequest(engine.MergeRequest{
+			InputPaths:    inputPaths,
+			OutputPath:    planned.OutputPath,
+			TargetFormat:  targetFormat,
+			QualityPreset: qualityPreset,
+			MergeMode:     mergeMode,
+		}))
+	}
+
+	if planErr != nil {
+		if planned.OutputPath != "" {
+			plan.Outputs = []models.PlannedOutputV1{planned}
+		}
+		return planFailure(plan, planErr)
+	}
+
+	plan.Success = true
+	plan.Message = videoMergePlanMessage(len(inputPaths))
+	plan.Outputs = []models.PlannedOutputV1{planned}
+	plan.Warnings = append(plan.Warnings, planned.Warnings...)
+	plan.EffectiveOptions = map[string]any{
+		"targetFormat":  targetFormat,
+		"qualityPreset": qualityPreset,
+		"mergeMode":     mergeMode,
+	}
+
+	return plan, nil
+}
+
+func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+	inputPath := strings.Join(trimInputPaths(req.InputPaths), ",")
+
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return videoPlanFailureItem(inputPath, firstPlannedOutputPath(plan), planErr), planErr
+	}
+
+	mergeReq := mergeRequestFromPlan(plan, req.InputPaths)
+	if err := engine.Merge(ctx, t.probe, t.runner, mergeReq); err != nil {
+		jobErr := mapVideoError(err)
+		return videoPlanFailureItem(firstInputPath(mergeReq.InputPaths), mergeReq.OutputPath, jobErr), jobErr
+	}
+
+	return models.JobResultItemV1{InputPath: firstInputPath(mergeReq.InputPaths), OutputPath: mergeReq.OutputPath, Outputs: []string{mergeReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video merge successful"}, nil
+}
+
+func planExplicitMergeOutput(inputPaths []string, outputPath, targetFormat, qualityPreset, mergeMode string) (models.PlannedOutputV1, *models.JobErrorV1) {
+	planned := models.PlannedOutputV1{
+		InputPath:  strings.Join(inputPaths, ","),
+		OutputPath: filepath.Clean(strings.TrimSpace(outputPath)),
+		OutputKind: videoOutputKindFile,
+	}
+
+	if _, err := os.Stat(planned.OutputPath); err == nil {
+		planned.Exists = true
+	}
+
+	validationErr := engine.ValidateMergeRequest(engine.MergeRequest{
+		InputPaths:    inputPaths,
+		OutputPath:    planned.OutputPath,
 		TargetFormat:  targetFormat,
 		QualityPreset: qualityPreset,
 		MergeMode:     mergeMode,
-	}, nil
+	})
+
+	return planned, mapVideoError(validationErr)
+}
+
+func mergeRequestFromPlan(plan models.PlanJobResponseV1, inputPaths []string) engine.MergeRequest {
+	planned := plan.Outputs[0]
+	mergeMode := optionString(plan.EffectiveOptions, "mergeMode")
+	if mergeMode == "" {
+		mergeMode = engine.MergeModeAuto
+	}
+
+	return engine.MergeRequest{
+		InputPaths:    trimInputPaths(inputPaths),
+		OutputPath:    planned.OutputPath,
+		TargetFormat:  optionString(plan.EffectiveOptions, "targetFormat"),
+		QualityPreset: optionString(plan.EffectiveOptions, "qualityPreset"),
+		MergeMode:     mergeMode,
+	}
+}
+
+func trimInputPaths(inputPaths []string) []string {
+	trimmed := make([]string, 0, len(inputPaths))
+	for _, inputPath := range inputPaths {
+		trimmed = append(trimmed, strings.TrimSpace(inputPath))
+	}
+	return trimmed
+}
+
+func videoMergePlanMessage(count int) string {
+	return fmt.Sprintf("Ready to merge %d videos.", count)
 }

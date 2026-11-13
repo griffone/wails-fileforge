@@ -1,15 +1,20 @@
 package inspect
 
 import (
+	"context"
 	"errors"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"math"
 	"mime"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"fileforge-desktop/internal/models"
 
@@ -22,7 +27,22 @@ const (
 	kindVideo    = "video"
 	kindDocument = "document"
 	kindOther    = "other"
+
+	videoDurationTimeout = 2 * time.Second
 )
+
+// videoDurationCommand runs ffprobe for a single path. It is a package
+// variable so tests can simulate a missing or failing ffprobe.
+var videoDurationCommand = func(ctx context.Context, path string) ([]byte, error) {
+	return exec.CommandContext(
+		ctx,
+		"ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		path,
+	).Output()
+}
 
 // InspectFile describes a single path for UI file cards. It never returns an
 // error: missing or unreadable files are reported through Exists and Error.
@@ -76,7 +96,41 @@ func InspectFile(path string) models.FileInfoV1 {
 		}
 	}
 
+	if info.Kind == kindVideo {
+		if duration, ok := ProbeVideoDuration(context.Background(), info.Path); ok {
+			info.DurationSeconds = duration
+		}
+	}
+
 	return info
+}
+
+// ProbeVideoDuration reports the container duration in seconds. It never fails
+// the caller: a missing ffprobe, an unreadable file, or a missing duration all
+// return ok=false so file inspection can stay tolerant.
+func ProbeVideoDuration(ctx context.Context, path string) (float64, bool) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return 0, false
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, videoDurationTimeout)
+	defer cancel()
+
+	output, err := videoDurationCommand(probeCtx, trimmed)
+	if err != nil {
+		return 0, false
+	}
+
+	duration, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
+	if err != nil || math.IsNaN(duration) || math.IsInf(duration, 0) || duration <= 0 {
+		return 0, false
+	}
+
+	return duration, true
 }
 
 // InspectFiles describes every path in order. One bad file never fails the batch.

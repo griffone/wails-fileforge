@@ -5,6 +5,8 @@ import {
   fileStem,
   formatBytes,
   formatCount,
+  formatDuration,
+  parseTimeToSeconds,
 } from './format';
 
 describe('formatBytes', () => {
@@ -58,5 +60,53 @@ describe('formatCount', () => {
 
   it('supports an explicit plural', () => {
     expect(formatCount(2, 'PDF', 'PDFs')).toBe('2 PDFs');
+  });
+});
+
+describe('formatDuration', () => {
+  it('formats minutes and seconds', () => {
+    expect(formatDuration(7)).toBe('0:07');
+    expect(formatDuration(83)).toBe('1:23');
+    expect(formatDuration(600)).toBe('10:00');
+  });
+
+  it('adds hours only when needed', () => {
+    expect(formatDuration(3723)).toBe('1:02:03');
+    expect(formatDuration(3600)).toBe('1:00:00');
+  });
+
+  it('returns an em dash for unknown values', () => {
+    expect(formatDuration(0)).toBe('—');
+    expect(formatDuration(-5)).toBe('—');
+    expect(formatDuration(Number.NaN)).toBe('—');
+    expect(formatDuration(Number.POSITIVE_INFINITY)).toBe('—');
+  });
+});
+
+describe('parseTimeToSeconds', () => {
+  it('accepts seconds and decimal seconds', () => {
+    expect(parseTimeToSeconds('30')).toBe(30);
+    expect(parseTimeToSeconds('30.5')).toBe(30.5);
+    expect(parseTimeToSeconds('  0  ')).toBe(0);
+  });
+
+  it('accepts MM:SS and HH:MM:SS', () => {
+    expect(parseTimeToSeconds('00:30')).toBe(30);
+    expect(parseTimeToSeconds('1:23')).toBe(83);
+    expect(parseTimeToSeconds('1:02:03')).toBe(3723);
+    expect(parseTimeToSeconds('01:02:03.5')).toBe(3723.5);
+  });
+
+  it('rejects empty, negative and malformed values', () => {
+    expect(parseTimeToSeconds('')).toBeNull();
+    expect(parseTimeToSeconds('   ')).toBeNull();
+    expect(parseTimeToSeconds('-5')).toBeNull();
+    expect(parseTimeToSeconds('-1:00')).toBeNull();
+    expect(parseTimeToSeconds('abc')).toBeNull();
+    expect(parseTimeToSeconds('1:')).toBeNull();
+    expect(parseTimeToSeconds(':30')).toBeNull();
+    expect(parseTimeToSeconds('1:2:3:4')).toBeNull();
+    expect(parseTimeToSeconds('1:75')).toBeNull();
+    expect(parseTimeToSeconds('1:75:00')).toBeNull();
   });
 });

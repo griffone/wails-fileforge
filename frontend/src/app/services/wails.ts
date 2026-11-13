@@ -99,6 +99,7 @@ export interface FileInfoV1 {
   width?: number;
   height?: number;
   pageCount?: number;
+  durationSeconds?: number;
   exists: boolean;
   error?: string;
 }

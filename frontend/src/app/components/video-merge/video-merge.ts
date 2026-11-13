@@ -1,351 +1,517 @@
-import { CommonModule } from '@angular/common';
-import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Component, OnDestroy, computed, signal } from '@angular/core';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import {
-  ArrowDown,
-  ArrowUp,
   FolderOpen,
   LucideAngularModule,
   ShieldCheck,
-  Trash2,
+  TriangleAlert,
+  X,
 } from 'lucide-angular';
 
+import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
+import { FileQueue } from '../tool-flow/file-queue';
+import { OutputPlanCard } from '../tool-flow/output-plan-card';
+import { ResultCard } from '../tool-flow/result-card';
+import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
+import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
-  ExecutionPanelField,
-  ToolExecutionPanel,
-} from '../tool-execution-panel/tool-execution-panel';
-import {
+  FileInfoV1,
+  InspectFilesResponseV1,
   JobErrorV1,
+  JobExecutionStatusV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
+  PlanJobResponseV1,
+  RunJobResponseV1,
   Wails,
 } from '../../services/wails';
+import {
+  fileExtension,
+  fileName,
+  formatBytes,
+  formatCount,
+  formatDuration,
+} from '../../utils/format';
 
 const VIDEO_MERGE_TOOL_ID = 'tool.video.merge';
 const POLLING_INTERVAL_MS = 1000;
 
+const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm']);
+
+const TERMINAL_STATUSES = new Set<string>([
+  'success',
+  'failed',
+  'partial_success',
+  'cancelled',
+  'interrupted',
+]);
+
+interface Notice {
+  tone: 'warning' | 'danger';
+  text: string;
+}
+
 @Component({
   selector: 'app-video-merge',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, LucideAngularModule, ToolExecutionPanel],
+  imports: [
+    LucideAngularModule,
+    FileDrop,
+    FileQueue,
+    OutputPlanCard,
+    ResultCard,
+    JobCard,
+  ],
   templateUrl: './video-merge.html',
   styleUrl: './video-merge.css',
 })
 export class VideoMerge implements OnDestroy {
-  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
+  private readonly destroy$ = new Subject<void>();
 
   readonly shieldIcon = ShieldCheck;
-  readonly folderOpenIcon = FolderOpen;
-  readonly arrowUpIcon = ArrowUp;
-  readonly arrowDownIcon = ArrowDown;
-  readonly trashIcon = Trash2;
+  readonly folderIcon = FolderOpen;
+  readonly closeIcon = X;
+  readonly alertIcon = TriangleAlert;
 
-  readonly form;
-  readonly panelFields: ExecutionPanelField[] = [
-    {
-      controlName: 'outputPath',
-      label: 'Output path',
-      type: 'text',
-      placeholder: '/path/to/output.mp4',
-      helpText: 'Required. Must match selected target format extension.',
-    },
-    {
-      controlName: 'targetFormat',
-      label: 'Target format',
-      type: 'select',
-      options: [
-        { value: 'mp4', label: 'MP4' },
-        { value: 'webm', label: 'WebM' },
-      ],
-    },
-    {
-      controlName: 'qualityPreset',
-      label: 'Quality preset',
-      type: 'select',
-      options: [
-        { value: 'high', label: 'High' },
-        { value: 'medium', label: 'Medium' },
-        { value: 'low', label: 'Low' },
-      ],
-    },
-    {
-      controlName: 'mergeMode',
-      label: 'Merge mode',
-      type: 'select',
-      options: [
-        { value: 'auto', label: 'auto (copy → reencode)' },
-        { value: 'copy', label: 'copy (no fallback)' },
-        { value: 'reencode', label: 'reencode (direct)' },
-      ],
-      helpText:
-        'auto tries concat copy first and falls back to reencode only on eligible failures.',
-    },
-  ];
+  readonly presets = VIDEO_PRESETS;
 
-  selectedInputPaths: string[] = [];
-  validationMessage = '';
-  submitMessage = '';
-  statusMessage = '';
-  jobResult: JobResultV1 | null = null;
-  isSubmitting = false;
-  isPolling = false;
-  activeJobId = '';
+  readonly selectedPaths = signal<string[]>([]);
+  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly selectedPresetId = signal(VIDEO_PRESETS[0].id);
+  readonly outputDir = signal('');
+
+  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly planError = signal<JobErrorV1 | null>(null);
+  readonly planLoading = signal(false);
+
+  readonly jobResult = signal<JobResultV1 | null>(null);
+  readonly jobError = signal<JobErrorV1 | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
+
+  readonly isSubmitting = signal(false);
+  readonly isPolling = signal(false);
+  readonly activeJobId = signal('');
+
+  readonly notice = signal<Notice | null>(null);
+  readonly actionMessage = signal('');
+
+  readonly selectedPreset = computed<VideoPreset>(
+    () =>
+      VIDEO_PRESETS.find(
+        (preset) => preset.id === this.selectedPresetId(),
+      ) ?? VIDEO_PRESETS[0],
+  );
+
+  readonly canRun = computed(
+    () =>
+      this.selectedPaths().length >= 2 &&
+      !this.isSubmitting() &&
+      !this.isPolling(),
+  );
+
+  readonly primaryLabel = computed(() => {
+    if (this.isSubmitting() || this.isPolling()) {
+      return 'Merging…';
+    }
+    const count = this.selectedPaths().length;
+    return count >= 2 ? `Merge ${count} videos` : 'Merge videos';
+  });
+
+  readonly destinationLabel = computed(
+    () => this.outputDir().trim() || 'Next to the first video',
+  );
+
+  readonly isDefaultDestination = computed(
+    () => this.outputDir().trim().length === 0,
+  );
+
+  readonly actionHelper = computed(() => {
+    const count = this.selectedPaths().length;
+    if (count === 0) {
+      return 'Add at least two videos to merge.';
+    }
+    if (count === 1) {
+      return 'Add one more video to merge.';
+    }
+    return '';
+  });
+
+  readonly terminalJob = computed<JobResultV1 | null>(() => {
+    const job = this.jobResult();
+    return job && this.isTerminalStatus(job.status) ? job : null;
+  });
+
+  readonly showProgress = computed(() => {
+    const job = this.jobResult();
+    return !!job && !this.isTerminalStatus(job.status);
+  });
+
+  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
+    const error = this.jobError();
+    return error ? describeToolError(error, 'The merge could not start.') : null;
+  });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
-  private pollInFlight = false;
-  private terminalStatusSeen = false;
+  private planToken = 0;
+  private fileItemsGeneration = 0;
 
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly wailsService: Wails
-  ) {
-    this.form = this.fb.nonNullable.group({
-      outputPath: ['', Validators.required],
-      targetFormat: ['mp4', Validators.required],
-      qualityPreset: ['medium', Validators.required],
-      mergeMode: ['auto', Validators.required],
-    });
+  constructor(private readonly wailsService: Wails) {
+    this.wailsService.jobProgress$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.activeJobId()) {
+          return;
+        }
+
+        const current = this.jobResult();
+        if (!current) {
+          return;
+        }
+
+        this.jobResult.set({
+          ...current,
+          message: event.progress.message,
+          progress: event.progress,
+          // Wait for the status endpoint to settle the final items. The event
+          // can arrive before the job store has the complete result.
+          status: this.isTerminalStatus(event.status)
+            ? current.status
+            : (event.status as JobExecutionStatusV1),
+        });
+
+        if (this.isTerminalStatus(event.status)) {
+          void this.pollJobStatus();
+        }
+      });
   }
 
   ngOnDestroy(): void {
     this.stopPolling();
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
-  async selectVideosFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = await this.wailsService.openMultipleFilesDialog();
-    if (!selected || selected.length === 0) {
+  fileCountLabel(): string {
+    return formatCount(this.selectedPaths().length, 'video');
+  }
+
+  onPathsSelected(paths: string[]): void {
+    const incoming = (Array.isArray(paths) ? paths : [])
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (incoming.length === 0) {
       return;
     }
 
-    this.selectedInputPaths = selected
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
-    this.validationMessage = `Selected ${this.selectedInputPaths.length} video input(s).`;
-  }
+    const rejected: string[] = [];
+    const duplicates: string[] = [];
+    const added: string[] = [];
+    const known = new Set(this.selectedPaths().map((path) => this.pathKey(path)));
 
-  triggerFileInput(): void {
-    this.fileInput?.nativeElement.click();
-  }
-
-  onFileInputChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const files = target?.files;
-    if (!files || files.length === 0) {
-      return;
-    }
-
-    const next: string[] = [];
-    for (let index = 0; index < files.length; index += 1) {
-      const file = files.item(index);
-      if (!file) {
+    for (const path of incoming) {
+      if (!SUPPORTED_VIDEO_EXTENSIONS.has(fileExtension(path).toLowerCase())) {
+        rejected.push(path);
         continue;
       }
-      const path = (file as File & { path?: string }).path ?? file.name;
-      const trimmed = path.trim();
-      if (trimmed) {
-        next.push(trimmed);
+
+      const key = this.pathKey(path);
+      if (known.has(key)) {
+        duplicates.push(path);
+        continue;
       }
+
+      known.add(key);
+      added.push(path);
     }
 
-    this.selectedInputPaths = next;
-    this.validationMessage = `Selected ${this.selectedInputPaths.length} video input(s).`;
-    if (target) {
-      target.value = '';
-    }
-  }
+    this.notice.set(this.intakeNotice(rejected, duplicates));
 
-  removeInput(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length) {
-      return;
-    }
-    this.selectedInputPaths = this.selectedInputPaths.filter((_, i) => i !== index);
-  }
-
-  moveInputUp(index: number): void {
-    if (index <= 0 || index >= this.selectedInputPaths.length) {
-      return;
-    }
-    const next = [...this.selectedInputPaths];
-    const tmp = next[index - 1];
-    next[index - 1] = next[index];
-    next[index] = tmp;
-    this.selectedInputPaths = next;
-  }
-
-  moveInputDown(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length - 1) {
-      return;
-    }
-    const next = [...this.selectedInputPaths];
-    const tmp = next[index + 1];
-    next[index + 1] = next[index];
-    next[index] = tmp;
-    this.selectedInputPaths = next;
-  }
-
-  fileNameFromPath(path: string): string {
-    const normalized = path.replace(/\\/g, '/');
-    const idx = normalized.lastIndexOf('/');
-    return idx >= 0 ? normalized.slice(idx + 1) : normalized;
-  }
-
-  queueCountLabel(): string {
-    const count = this.selectedInputPaths.length;
-    return count === 0 ? 'Queue empty' : `${count} queued`;
-  }
-
-  async validate(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.validationMessage = localError;
+    if (added.length === 0) {
       return;
     }
 
-    const response = await this.wailsService.validateJobV1(this.buildRequest());
-    this.validationMessage = response.valid
-      ? 'Validation OK. Ready to run merge.'
-      : this.mapJobError(response.error, response.message);
+    this.actionMessage.set('');
+    this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  async chooseFiles(): Promise<void> {
+    const paths = await this.wailsService.openMultipleFilesDialog();
+    if (paths.length > 0) {
+      this.onPathsSelected(paths);
+    }
+  }
+
+  clear(): void {
+    if (this.selectedPaths().length === 0) {
+      return;
+    }
+    this.selectedPaths.set([]);
+    this.notice.set(null);
+    this.actionMessage.set('');
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  removeFile(path: string): void {
+    const next = this.selectedPaths().filter((candidate) => candidate !== path);
+    if (next.length === this.selectedPaths().length) {
+      return;
+    }
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  moveUp(path: string): void {
+    const index = this.selectedPaths().indexOf(path);
+    if (index <= 0) {
+      return;
+    }
+    this.swap(index, index - 1);
+  }
+
+  moveDown(path: string): void {
+    const index = this.selectedPaths().indexOf(path);
+    if (index < 0 || index >= this.selectedPaths().length - 1) {
+      return;
+    }
+    this.swap(index, index + 1);
+  }
+
+  selectPreset(presetId: string): void {
+    if (presetId === this.selectedPresetId()) {
+      return;
+    }
+    this.selectedPresetId.set(presetId);
+    void this.refreshPlan();
+  }
+
+  async chooseOutputFolder(): Promise<void> {
+    const directory = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!directory) {
+      return;
+    }
+    this.outputDir.set(directory);
+    this.actionMessage.set('');
+    await this.refreshPlan();
+  }
+
+  useFirstVideoFolder(): void {
+    if (this.outputDir() === '') {
+      return;
+    }
+    this.outputDir.set('');
+    void this.refreshPlan();
   }
 
   async run(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.submitMessage = localError;
+    if (!this.canRun()) {
       return;
     }
 
-    const request = this.buildRequest();
-    this.isSubmitting = true;
-    this.statusMessage = '';
-    this.jobResult = null;
-    this.terminalStatusSeen = false;
+    this.actionMessage.set('');
 
-    const validation = await this.wailsService.validateJobV1(request);
-    if (!validation.valid) {
-      this.submitMessage = this.mapJobError(validation.error, validation.message);
-      this.isSubmitting = false;
-      return;
-    }
-
-    const runResponse = await this.wailsService.runJobV1(request);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.submitMessage = this.mapJobError(runResponse.error, runResponse.message);
-      this.isSubmitting = false;
-      return;
-    }
-
-    this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
-    this.startPolling();
-    this.isSubmitting = false;
-  }
-
-  async cancel(): Promise<void> {
-    if (!this.activeJobId) {
-      return;
-    }
-
-    const response = await this.wailsService.cancelJobV1(this.activeJobId);
-    this.statusMessage = response.success
-      ? 'Cancel requested.'
-      : this.mapJobError(response.error, response.message);
-  }
-
-  private localValidationError(): string {
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const targetFormat = this.form.controls.targetFormat.value.trim();
-    const qualityPreset = this.form.controls.qualityPreset.value.trim();
-    const mergeMode = this.form.controls.mergeMode.value.trim();
-
-    if (this.selectedInputPaths.length < 2) {
-      return 'Select at least 2 input video files in the desired order.';
-    }
-
-    for (const inputPath of this.selectedInputPaths) {
-      if (!this.isSupportedVideoInput(inputPath)) {
-        return `Input video must be .mp4, .mov, .mkv or .webm: ${inputPath}`;
+    if (this.planLoading() || !this.plan()?.success) {
+      const planned = await this.refreshPlan();
+      if (!planned) {
+        return;
       }
     }
 
-    if (!outputPath) {
-      return 'Output path is required.';
-    }
-    if (outputPath.endsWith('/') || outputPath.endsWith('\\')) {
-      return 'Output path must include a filename.';
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(true);
+
+    const response: RunJobResponseV1 = await this.wailsService
+      .runJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The merge could not start.',
+        jobId: '',
+        status: 'failed' as const,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: 'The merge could not start.',
+        },
+      }));
+    if (!response.success || !response.jobId) {
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: response.message || 'The merge could not start.',
+        },
+      );
+      this.isSubmitting.set(false);
+      return;
     }
 
-    if (targetFormat !== 'mp4' && targetFormat !== 'webm') {
-      return `Unsupported targetFormat: ${targetFormat}`;
+    const total = this.selectedPaths().length;
+    this.activeJobId.set(response.jobId);
+    this.jobResult.set({
+      jobId: response.jobId,
+      success: false,
+      message: 'Waiting to start',
+      toolId: VIDEO_MERGE_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total,
+        stage: 'queued',
+        message: 'Waiting to start',
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isSubmitting.set(false);
+    this.isPolling.set(true);
+    this.startPolling();
+  }
+
+  async cancel(): Promise<void> {
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      return;
+    }
+    const response = await this.wailsService.cancelJobV1(jobId);
+    if (!response.success) {
+      this.actionMessage.set(
+        response.message || 'The job could not be cancelled.',
+      );
+    }
+  }
+
+  async onOpen(path: string): Promise<void> {
+    const response = await this.wailsService.openPath(path);
+    this.actionMessage.set(
+      response.success ? '' : response.message || 'The file could not be opened.',
+    );
+  }
+
+  async onReveal(path: string): Promise<void> {
+    const response = await this.wailsService.revealInFolder(path);
+    this.actionMessage.set(
+      response.success
+        ? ''
+        : response.message || 'The folder could not be opened.',
+    );
+  }
+
+  /** A failed merge has no partial queue to retry: rerun the same inputs. */
+  async retry(): Promise<void> {
+    if (!this.canRun()) {
+      return;
     }
 
-    if (!outputPath.toLowerCase().endsWith(`.${targetFormat}`)) {
-      return `Output extension must match target format .${targetFormat}`;
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+
+    const planned = await this.refreshPlan();
+    if (!planned) {
+      return;
     }
 
-    if (qualityPreset !== 'high' && qualityPreset !== 'medium' && qualityPreset !== 'low') {
-      return `Unsupported qualityPreset: ${qualityPreset}`;
-    }
+    await this.run();
+  }
 
-    if (mergeMode !== 'auto' && mergeMode !== 'copy' && mergeMode !== 'reencode') {
-      return `Unsupported mergeMode: ${mergeMode}`;
-    }
+  reset(): void {
+    this.stopPolling();
+    this.planToken += 1;
+    this.fileItemsGeneration += 1;
 
-    return '';
+    this.selectedPaths.set([]);
+    this.fileItems.set([]);
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(false);
+    this.activeJobId.set('');
+    this.notice.set(null);
+    this.actionMessage.set('');
   }
 
   private buildRequest(): JobRequestV1 {
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const targetFormat = this.form.controls.targetFormat.value.trim();
-    const qualityPreset = this.form.controls.qualityPreset.value.trim();
-    const mergeMode = this.form.controls.mergeMode.value.trim();
-
+    const preset = this.selectedPreset();
     return {
       toolId: VIDEO_MERGE_TOOL_ID,
       mode: 'single',
-      inputPaths: [...this.selectedInputPaths],
-      outputDir: this.outputDirFromPath(outputPath),
+      inputPaths: [...this.selectedPaths()],
+      outputDir: this.outputDir(),
       options: {
-        outputPath,
-        targetFormat,
-        qualityPreset,
-        mergeMode,
+        targetFormat: preset.targetFormat,
+        qualityPreset: preset.qualityPreset,
       },
     };
   }
 
-  private outputDirFromPath(outputPath: string): string {
-    const lastSlash = Math.max(outputPath.lastIndexOf('/'), outputPath.lastIndexOf('\\'));
-    if (lastSlash <= 0) {
-      return '';
+  private async refreshPlan(): Promise<boolean> {
+    if (this.selectedPaths().length < 2) {
+      this.planToken += 1;
+      this.plan.set(null);
+      this.planError.set(null);
+      this.planLoading.set(false);
+      return false;
     }
 
-    return outputPath.slice(0, lastSlash);
-  }
+    const token = (this.planToken += 1);
+    this.planLoading.set(true);
+    this.plan.set(null);
+    this.planError.set(null);
 
-  private isSupportedVideoInput(path: string): boolean {
-    const lower = path.toLowerCase();
-    return (
-      lower.endsWith('.mp4') ||
-      lower.endsWith('.mov') ||
-      lower.endsWith('.mkv') ||
-      lower.endsWith('.webm')
-    );
+    const response: PlanJobResponseV1 = await this.wailsService
+      .planJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The output could not be planned.',
+        outputs: [],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PLAN_JOB_FAILED',
+          message: 'The output could not be planned.',
+        },
+      }));
+    if (token !== this.planToken) {
+      return false;
+    }
+
+    this.planLoading.set(false);
+
+    if (response.success && !response.error) {
+      this.plan.set(response);
+      return true;
+    }
+
+    const error: JobErrorV1 = response.error ?? {
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PLAN_JOB_FAILED',
+      message: response.message || 'The output could not be planned.',
+    };
+    // Keep the failed plan so the shared plan card can show the error in
+    // context, next to the destination it belongs to.
+    this.plan.set({ ...response, success: false, error });
+    this.planError.set(error);
+    return false;
   }
 
   private startPolling(): void {
     this.stopPolling();
-    this.isPolling = true;
-    this.pollInFlight = false;
+    this.isPolling.set(true);
+    void this.pollJobStatus();
     this.pollingTimer = setInterval(() => {
       void this.pollJobStatus();
     }, POLLING_INTERVAL_MS);
-    void this.pollJobStatus();
   }
 
   private stopPolling(): void {
@@ -353,81 +519,197 @@ export class VideoMerge implements OnDestroy {
       clearInterval(this.pollingTimer);
       this.pollingTimer = null;
     }
-    this.isPolling = false;
-    this.pollInFlight = false;
+    this.isPolling.set(false);
   }
 
   private async pollJobStatus(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       this.stopPolling();
       return;
     }
 
-    if (this.terminalStatusSeen || this.pollInFlight) {
+    const response: JobStatusResponseV1 = await this.wailsService
+      .getJobStatusV1(jobId)
+      .catch(() => ({
+        success: false,
+        message: 'The job status could not be read.',
+        found: false,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_FAILED',
+          message: 'The job status could not be read.',
+        },
+      }));
+    if (this.activeJobId() !== jobId) {
       return;
     }
 
-    this.pollInFlight = true;
-
-    try {
-      const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(
-        this.activeJobId
+    if (!response.found || !response.result) {
+      this.stopPolling();
+      this.activeJobId.set('');
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_MISSING',
+          message: response.message || 'The job status could not be read.',
+        },
       );
-      if (!response.found || !response.result) {
-        this.statusMessage = this.mapJobError(response.error, response.message);
-        this.stopPolling();
-        this.activeJobId = '';
-        return;
-      }
+      return;
+    }
 
-      this.jobResult = response.result;
-      this.statusMessage = `${response.result.status}: ${
-        response.result.error
-          ? this.mapJobError(response.result.error, response.result.message)
-          : response.result.message
-      }`;
-
-      if (
-        response.result.status === 'success' ||
-        response.result.status === 'failed' ||
-        response.result.status === 'partial_success' ||
-        response.result.status === 'cancelled' ||
-        response.result.status === 'interrupted'
-      ) {
-        this.terminalStatusSeen = true;
-        this.stopPolling();
-        this.activeJobId = '';
-      }
-    } finally {
-      this.pollInFlight = false;
+    this.jobResult.set(response.result);
+    if (this.isTerminalStatus(response.result.status)) {
+      this.stopPolling();
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
     }
   }
 
-  private clearMessages(): void {
-    this.validationMessage = '';
-    this.submitMessage = '';
+  private async loadOutputInfos(): Promise<void> {
+    const paths = this.collectOutputPaths();
+    if (paths.length === 0) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const response: InspectFilesResponseV1 = await this.wailsService
+      .inspectFilesV1(paths)
+      .catch(() => ({
+        success: false,
+        message: 'File sizes could not be read.',
+        files: [],
+      }));
+    if (!response.success) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const infos: Record<string, FileInfoV1> = {};
+    for (const info of response.files) {
+      if (info.path) {
+        infos[info.path] = info;
+      }
+    }
+    this.outputInfos.set(infos);
   }
 
-  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
-    if (!error) {
-      return fallback;
+  private collectOutputPaths(): string[] {
+    const paths = new Set<string>();
+    for (const item of this.jobResult()?.items ?? []) {
+      if (!item.success) {
+        continue;
+      }
+      const outputs =
+        item.outputs && item.outputs.length > 0
+          ? item.outputs
+          : item.outputPath
+            ? [item.outputPath]
+            : [];
+      for (const output of outputs) {
+        if (output) {
+          paths.add(output);
+        }
+      }
+    }
+    return [...paths];
+  }
+
+  private swap(leftIndex: number, rightIndex: number): void {
+    const next = [...this.selectedPaths()];
+    const left = next[leftIndex];
+    next[leftIndex] = next[rightIndex];
+    next[rightIndex] = left;
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  private syncFileItems(): void {
+    const paths = this.selectedPaths();
+    const generation = (this.fileItemsGeneration += 1);
+    const existing = new Map(this.fileItems().map((item) => [item.path, item]));
+    this.fileItems.set(
+      paths.map((path) => existing.get(path) ?? { path, name: fileName(path) }),
+    );
+
+    if (paths.length > 0) {
+      void this.enrichFileItems(paths, generation);
+    }
+  }
+
+  private async enrichFileItems(
+    paths: string[],
+    generation: number,
+  ): Promise<void> {
+    try {
+      const response = await this.wailsService.inspectFilesV1(paths);
+      if (generation === this.fileItemsGeneration && response.success) {
+        const infos = new Map<string, FileInfoV1>();
+        for (const info of response.files) {
+          infos.set(info.path, info);
+        }
+
+        this.fileItems.update((items) =>
+          items.map((item) => {
+            const info = infos.get(item.path);
+            const meta = info ? this.describeFileInfo(info) : '';
+            return meta ? { ...item, meta } : item;
+          }),
+        );
+      }
+    } catch {
+      // Inspection is optional: the queue keeps the file name and path.
+    }
+  }
+
+  private describeFileInfo(info: FileInfoV1): string {
+    const parts: string[] = [];
+    if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
+      parts.push(formatBytes(info.sizeBytes));
+    }
+    if (
+      typeof info.durationSeconds === 'number' &&
+      info.durationSeconds > 0
+    ) {
+      parts.push(formatDuration(info.durationSeconds));
+    }
+    return parts.join(' · ');
+  }
+
+  private intakeNotice(rejected: string[], duplicates: string[]): Notice | null {
+    const parts: string[] = [];
+
+    if (rejected.length === 1) {
+      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a video.`);
+    } else if (rejected.length > 0) {
+      const names = rejected.map((path) => fileName(path)).join(', ');
+      parts.push(`${names} weren't added because they aren't videos.`);
     }
 
-    switch (error.code) {
-      case 'RUNTIME_DEP_MISSING':
-        return 'FFmpeg runtime is unavailable. Install/configure FFmpeg and retry.';
-      case 'VALIDATION_INVALID_INPUT':
-        return 'At least 2 input videos are required to merge.';
-      case 'UNSUPPORTED_FORMAT':
-        return `Output format mismatch: ${error.message}`;
-      case 'EXEC_IO_TRANSIENT':
-        return `Video merge execution failed: ${error.message}`;
-      case 'EXEC_TIMEOUT_TRANSIENT':
-        return `Video merge execution timeout: ${error.message}`;
-      case 'CANCELLED_BY_USER':
-        return 'Job was canceled.';
-      default:
-        return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
+    if (duplicates.length === 1) {
+      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+    } else if (duplicates.length > 1) {
+      parts.push(`${duplicates.length} videos are already in the queue.`);
     }
+
+    return parts.length > 0
+      ? { tone: 'warning', text: parts.join(' ') }
+      : null;
+  }
+
+  /**
+   * Windows and UNC paths are case-insensitive, so the same file dropped with
+   * different casing is still a duplicate there.
+   */
+  private pathKey(path: string): string {
+    const normalized = path.trim().replace(/\\/g, '/');
+    return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//')
+      ? normalized.toLowerCase()
+      : normalized;
+  }
+
+  private isTerminalStatus(status: string): boolean {
+    return TERMINAL_STATUSES.has(status);
   }
 }
