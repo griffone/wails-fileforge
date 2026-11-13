@@ -472,3 +472,23 @@ func TestCropExecutionReportsBatchItemFailures(t *testing.T) {
 		t.Fatalf("expected progress for both items, got %+v", progress)
 	}
 }
+
+func TestCropPlanBatchValidatesEveryInputBounds(t *testing.T) {
+	dir := t.TempDir()
+	large := filepath.Join(dir, "large.png")
+	small := filepath.Join(dir, "small.png")
+	writePlanPNG(t, large, 120, 90)
+	writePlanPNG(t, small, 40, 40)
+
+	tool := NewCropTool()
+	plan, planErr := tool.Plan(context.Background(), cropTestRequest("batch", []string{large, small}, cropOptions(10, 10, 60, 50)))
+	if planErr == nil {
+		t.Fatal("expected batch plan to fail when a crop does not fit every image")
+	}
+	if plan.Success {
+		t.Fatal("expected failure plan")
+	}
+	if !strings.Contains(planErr.Message, "small.png") {
+		t.Fatalf("expected error to name the offending file, got %q", planErr.Message)
+	}
+}

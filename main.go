@@ -4,6 +4,7 @@ import (
 	"log"
 
 	myapp "fileforge-desktop/internal/app"
+	"fileforge-desktop/internal/media"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -14,7 +15,8 @@ func main() {
 		Description: "Cross-platform file conversion toolkit",
 		Services:    []application.Service{application.NewService(myapp.New())},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler:    application.AssetFileServerFS(assets),
+			Middleware: media.Middleware,
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,

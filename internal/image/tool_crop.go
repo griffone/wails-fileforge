@@ -159,6 +159,32 @@ func planParsedCropRequest(parsed cropRequest) (models.PlanJobResponseV1, *model
 	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
 	warnings := make([]string, 0, len(parsed.inputPaths))
 	for index, inputPath := range parsed.inputPaths {
+		if boundsErr := validateCropBoundsForPlan(inputPath, parsed.x, parsed.y, parsed.width, parsed.height); boundsErr != nil {
+			// A corrupt/unreadable image still gets a per-item failure during
+			// execution (preserving batch partial-success semantics). A readable
+			// image that cannot fit the crop is an early plan error naming it.
+			if boundsErr.DetailCode == "IMAGE_CROP_READ_FAILED" {
+				targetDir := parsed.outputDir
+				if targetDir == "" {
+					targetDir = filepath.Dir(inputPath)
+				}
+				planned := planAutoCropOutput(inputPath, filepath.Clean(targetDir), formats[index], used)
+				outputs = append(outputs, planned)
+				warnings = append(warnings, planned.Warnings...)
+				continue
+			}
+
+			detailCode := boundsErr.DetailCode
+			if detailCode == "" {
+				detailCode = boundsErr.Code
+			}
+			return planFailure(plan, models.NewCanonicalJobError(
+				detailCode,
+				fmt.Sprintf("%s: %s", filepath.Base(inputPath), boundsErr.Message),
+				map[string]any{"inputPath": inputPath},
+			))
+		}
+
 		targetDir := parsed.outputDir
 		if targetDir == "" {
 			targetDir = filepath.Dir(inputPath)

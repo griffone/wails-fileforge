@@ -1,0 +1,113 @@
+@if (files().length > 0) {
+  <div class="preview-toolbar">
+    @if (files().length > 1) {
+      <div class="preview-file">
+        <label class="label" for="pdf-split-preview-file">Previewing</label>
+        <select
+          id="pdf-split-preview-file"
+          class="select"
+          [value]="selectedPath()"
+          (change)="onFileChange($event)"
+        >
+          @for (path of files(); track path) {
+            <option [value]="path">{{ fileLabel(path) }}</option>
+          }
+        </select>
+      </div>
+    } @else {
+      <p class="preview-file-name mono">{{ selectedFileName() }}</p>
+    }
+
+    @if (countLabel(); as count) {
+      <span class="badge badge-neutral preview-count">{{ count }}</span>
+    }
+  </div>
+
+  @if (loading()) {
+    <p class="preview-status" role="status">Loading PDF preview…</p>
+  } @else if (rendering()) {
+    <p class="preview-status" role="status">Rendering page thumbnails…</p>
+  }
+
+  @if (unavailable()) {
+    <div class="banner banner-warning preview-alert" role="alert">
+      <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+      <span>Preview unavailable for this PDF. The split will still work.</span>
+    </div>
+  } @else if (rangeError(); as error) {
+    <div class="banner banner-warning preview-alert" role="alert">
+      <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+      <span>{{ error }}</span>
+    </div>
+  } @else if (groups().length > 0) {
+    @if (strategy === 'every_page') {
+      <div class="page-grid" role="list" aria-label="Resulting pages">
+        @for (group of groups(); track group.key) {
+          @let pageNumber = group.pages[0].page;
+          <article class="page-card" role="listitem">
+            <div class="thumb-frame">
+              @if (thumbnail(pageNumber); as url) {
+                <img
+                  [src]="url"
+                  [alt]="'Page ' + pageNumber + ' preview'"
+                  width="140"
+                  height="181"
+                  loading="lazy"
+                />
+              } @else {
+                <span class="thumb-placeholder" aria-hidden="true"></span>
+              }
+            </div>
+            <p class="page-number">Page {{ pageNumber }}</p>
+            <p class="output-name">{{ group.outputName }}</p>
+          </article>
+        }
+      </div>
+    } @else {
+      <div class="range-grid" aria-label="Resulting parts">
+        @for (group of groups(); track group.key) {
+          <article class="range-card">
+            <header class="range-head">
+              <h3 class="range-title">{{ group.title }}</h3>
+              <p class="output-name">{{ group.outputName }}</p>
+            </header>
+
+            <div class="range-pages">
+              @for (page of group.pages; track page.page) {
+                <figure class="range-page">
+                  <div class="thumb-frame thumb-frame-sm">
+                    @if (thumbnail(page.page); as url) {
+                      <img
+                        [src]="url"
+                        [alt]="'Page ' + page.page + ' preview'"
+                        width="72"
+                        height="93"
+                        loading="lazy"
+                      />
+                    } @else {
+                      <span class="thumb-placeholder" aria-hidden="true"></span>
+                    }
+                  </div>
+                  <figcaption class="range-page-label">Page {{ page.page }}</figcaption>
+                </figure>
+              }
+            </div>
+
+            <p class="range-count">{{ fileCountLabel(group.pageCount) }}</p>
+          </article>
+        }
+      </div>
+    }
+
+    @if (limited()) {
+      <div class="preview-limit">
+        <p class="preview-limit-copy">
+          Showing first {{ pageLimit }} of {{ totalPages() }} pages
+        </p>
+        <button type="button" class="btn btn-secondary btn-sm" (click)="showAll()">
+          Show all
+        </button>
+      </div>
+    }
+  }
+}

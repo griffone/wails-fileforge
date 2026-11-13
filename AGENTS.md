@@ -124,7 +124,6 @@ frontend/
       home/                — Searchable tool launcher
       file-drop/           — Shared drop zone
       job-card/            — Shared job progress
-      tool-execution-panel/— Shared form/actions/job panel
       image-*/ pdf-*/ doc-*/ video-*/ tool-catalog/
     styles.css             — Design system, tokens, shell, page recipes
   bindings/                — Generated Wails bindings (DO NOT edit manually)

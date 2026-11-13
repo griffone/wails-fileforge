@@ -80,6 +80,25 @@ describe('Wails', () => {
     expect(revealed.message).toContain('ipc down');
   });
 
+  it('registers a media path and falls back safely when IPC fails', async () => {
+    const call = spyOn<any>(service, 'callByID').and.resolveTo({
+      success: true,
+      url: '/media/abc',
+      message: 'ok',
+    });
+
+    const registered = await service.registerMediaPath('/tmp/a.mp4');
+    expect(registered.success).toBeTrue();
+    expect(registered.url).toBe('/media/abc');
+    expect(call).toHaveBeenCalledWith(1853528726, '/tmp/a.mp4');
+
+    call.and.rejectWith(new Error('ipc down'));
+    const failed = await service.registerMediaPath('/tmp/a.mp4');
+    expect(failed.success).toBeFalse();
+    expect(failed.url).toBe('');
+    expect(failed.message).toContain('ipc down');
+  });
+
   it('returns a data URL thumbnail when the preview succeeds', async () => {
     spyOn(service, 'StartPreview').and.resolveTo({ success: true, jobID: 'preview-1' });
     spyOn(service, 'GetPreviewStatus').and.resolveTo({ status: 'succeeded' });

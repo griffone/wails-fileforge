@@ -174,6 +174,18 @@ export function PlanJobV1(req) {
 }
 
 /**
+ * RegisterMediaPath registers a local file for token-scoped streaming. The
+ * returned URL is relative so it resolves against the WebView origin.
+ * @param {string} path
+ * @returns {$CancellablePromise<models$0.MediaSourceResponseV1>}
+ */
+export function RegisterMediaPath(path) {
+    return $Call.ByID(1853528726, path).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType14($result);
+    }));
+}
+
+/**
  * RevealInFolder shows the given file or folder in the native file manager.
  * @param {string} path
  * @returns {$CancellablePromise<models$0.PathActionResponseV1>}
@@ -190,7 +202,7 @@ export function RevealInFolder(path) {
  */
 export function RunJobV1(req) {
     return $Call.ByID(162380599, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType14($result);
+        return $$createType15($result);
     }));
 }
 
@@ -226,7 +238,7 @@ export function StartPreview(req) {
  */
 export function ValidateJobV1(req) {
     return $Call.ByID(1505194326, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType15($result);
+        return $$createType16($result);
     }));
 }
 
@@ -245,5 +257,6 @@ const $$createType10 = models$0.ListToolsResponseV1.createFrom;
 const $$createType11 = $Create.Array($Create.Any);
 const $$createType12 = models$0.PathActionResponseV1.createFrom;
 const $$createType13 = models$0.PlanJobResponseV1.createFrom;
-const $$createType14 = models$0.RunJobResponseV1.createFrom;
-const $$createType15 = models$0.ValidateJobResponseV1.createFrom;
+const $$createType14 = models$0.MediaSourceResponseV1.createFrom;
+const $$createType15 = models$0.RunJobResponseV1.createFrom;
+const $$createType16 = models$0.ValidateJobResponseV1.createFrom;

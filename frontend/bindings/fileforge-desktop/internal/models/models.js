@@ -1168,6 +1168,48 @@ export class ListToolsResponseV1 {
     }
 }
 
+export class MediaSourceResponseV1 {
+    /**
+     * Creates a new MediaSourceResponseV1 instance.
+     * @param {Partial<MediaSourceResponseV1>} [$$source = {}] - The source object to create the MediaSourceResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["url"] = undefined;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new MediaSourceResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {MediaSourceResponseV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new MediaSourceResponseV1(/** @type {Partial<MediaSourceResponseV1>} */($$parsedSource));
+    }
+}
+
 export class PDFPreviewSourceResponseV1 {
     /**
      * Creates a new PDFPreviewSourceResponseV1 instance.

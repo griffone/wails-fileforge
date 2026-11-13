@@ -1,11 +1,21 @@
-import { Component, OnDestroy, computed, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  OnDestroy,
+  computed,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import {
   FolderOpen,
   LucideAngularModule,
+  Pause,
+  Play,
   ShieldCheck,
   TriangleAlert,
+  VideoOff,
   X,
 } from 'lucide-angular';
 
@@ -25,6 +35,7 @@ import {
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
+  MediaSourceResponseV1,
   PlanJobResponseV1,
   RunJobResponseV1,
   Wails,
@@ -41,6 +52,11 @@ import {
 const VIDEO_TRIM_TOOL_ID = 'tool.video.trim';
 const POLLING_INTERVAL_MS = 1000;
 const TIME_PLAN_DEBOUNCE_MS = 200;
+const MIN_TRIM_RANGE_SECONDS = 0.1;
+const SMALL_NUDGE_SECONDS = 0.1;
+const LARGE_NUDGE_SECONDS = 1;
+const PREVIEW_UNAVAILABLE_MESSAGE =
+  'Video preview unavailable. You can still trim by time.';
 
 const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm']);
 
@@ -66,6 +82,7 @@ const TERMINAL_STATUSES = new Set<string>([
 type TargetFormat = VideoPreset['targetFormat'];
 type QualityPreset = VideoPreset['qualityPreset'];
 type TrimMode = 'auto' | 'copy' | 'reencode';
+type TrimHandle = 'start' | 'end';
 
 interface Notice {
   tone: 'warning' | 'danger';
@@ -93,6 +110,9 @@ export class VideoTrim implements OnDestroy {
   readonly folderIcon = FolderOpen;
   readonly closeIcon = X;
   readonly alertIcon = TriangleAlert;
+  readonly playIcon = Play;
+  readonly pauseIcon = Pause;
+  readonly videoOffIcon = VideoOff;
 
   readonly presets = VIDEO_PRESETS;
 
@@ -106,6 +126,19 @@ export class VideoTrim implements OnDestroy {
   readonly startInput = signal('0');
   readonly endInput = signal('');
   readonly durationSeconds = signal<number | null>(null);
+
+  readonly mediaUrl = signal<string | null>(null);
+  readonly videoError = signal('');
+  readonly videoReady = signal(false);
+  readonly mediaDuration = signal<number | null>(null);
+  readonly currentTime = signal(0);
+  readonly isPlaying = signal(false);
+  readonly fileDurations = signal<Record<string, number>>({});
+
+  private readonly videoPreview =
+    viewChild<ElementRef<HTMLVideoElement>>('videoPreview');
+  private readonly timelineTrack =
+    viewChild<ElementRef<HTMLElement>>('timelineTrack');
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
   readonly planError = signal<JobErrorV1 | null>(null);
@@ -178,9 +211,71 @@ export class VideoTrim implements OnDestroy {
       this.endSeconds() !== null,
   );
 
+  readonly firstVideoDuration = computed<number | null>(() => {
+    const path = this.selectedPaths()[0];
+    if (!path) {
+      return null;
+    }
+    const duration = this.fileDurations()[path];
+    return typeof duration === 'number' && duration > 0 ? duration : null;
+  });
+
+  readonly previewDuration = computed<number | null>(() => {
+    const actual = this.mediaDuration();
+    if (actual !== null) {
+      return actual;
+    }
+    return this.firstVideoDuration() ?? this.durationSeconds();
+  });
+
   readonly sourceDurationLabel = computed(() => {
-    const duration = this.durationSeconds();
+    const duration = this.previewDuration();
     return duration !== null ? formatDuration(duration) : '';
+  });
+
+  readonly selectionStartPercent = computed(() =>
+    this.timePercent(this.startSeconds()),
+  );
+
+  readonly selectionEndPercent = computed(() => {
+    const end = this.endSeconds();
+    return this.timePercent(end ?? this.previewDuration());
+  });
+
+  readonly selectionWidthPercent = computed(() =>
+    Math.max(0, this.selectionEndPercent() - this.selectionStartPercent()),
+  );
+
+  readonly playheadPercent = computed(() =>
+    this.timePercent(this.currentTime()),
+  );
+
+  readonly batchDurationWarning = computed(() => {
+    if (!this.isBatch()) {
+      return '';
+    }
+
+    const end = this.endSeconds();
+    if (end === null) {
+      return '';
+    }
+
+    const durations = this.fileDurations();
+    for (const path of this.selectedPaths()) {
+      const duration = durations[path];
+      if (
+        typeof duration === 'number' &&
+        duration > 0 &&
+        duration < end
+      ) {
+        return (
+          `The end is longer than "${fileName(path)}" (${formatDuration(duration)}). ` +
+          "The cut will stop at that clip's end."
+        );
+      }
+    }
+
+    return '';
   });
 
   readonly isBatch = computed(() => this.selectedPaths().length > 1);
@@ -254,6 +349,11 @@ export class VideoTrim implements OnDestroy {
   private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private planToken = 0;
   private fileItemsGeneration = 0;
+  private mediaRequestToken = 0;
+  private mediaPath = '';
+  private dragHandle: TrimHandle | null = null;
+  private dragCleanup: (() => void) | null = null;
+  private selectionEndSeconds: number | null = null;
 
   constructor(private readonly wailsService: Wails) {
     this.wailsService.jobProgress$
@@ -286,6 +386,7 @@ export class VideoTrim implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.endHandleDrag();
     this.stopPolling();
     this.clearPlanRefreshTimer();
     this.destroy$.next();
@@ -428,6 +529,240 @@ export class VideoTrim implements OnDestroy {
     this.advancedOpen.set(!!target?.open);
   }
 
+  formatClock(seconds: number | null): string {
+    if (seconds === null || !Number.isFinite(seconds) || seconds <= 0) {
+      return '0:00';
+    }
+    return formatDuration(seconds);
+  }
+
+  timePercent(seconds: number | null): number {
+    const duration = this.previewDuration();
+    if (
+      duration === null ||
+      duration <= 0 ||
+      seconds === null ||
+      !Number.isFinite(seconds)
+    ) {
+      return 0;
+    }
+    return Math.min(100, Math.max(0, (seconds / duration) * 100));
+  }
+
+  onVideoMetadata(event: Event): void {
+    const target = event.target as HTMLVideoElement | null;
+    const raw = target?.duration ?? Number.NaN;
+    const duration =
+      Number.isFinite(raw) && raw > 0
+        ? raw
+        : (this.firstVideoDuration() ?? this.durationSeconds());
+
+    this.videoReady.set(true);
+    if (duration === null || !Number.isFinite(duration) || duration <= 0) {
+      return;
+    }
+
+    this.mediaDuration.set(duration);
+    if (this.selectedPaths().length === 1) {
+      this.durationSeconds.set(duration);
+    }
+    if (!this.endInput().trim()) {
+      this.endInput.set(this.toTimeInput(duration));
+      this.onTimeChanged();
+    }
+  }
+
+  onTimeUpdate(event: Event): void {
+    const video = event.target as HTMLVideoElement | null;
+    const time = video?.currentTime ?? 0;
+    if (!Number.isFinite(time)) {
+      return;
+    }
+
+    const selectionEnd = this.selectionEndSeconds;
+    if (selectionEnd !== null && time >= selectionEnd) {
+      this.selectionEndSeconds = null;
+      this.videoElement()?.pause();
+      this.seekTo(selectionEnd);
+      this.isPlaying.set(false);
+      return;
+    }
+
+    this.currentTime.set(Math.max(0, time));
+  }
+
+  onVideoEnded(): void {
+    this.selectionEndSeconds = null;
+    this.isPlaying.set(false);
+  }
+
+  onVideoPlay(): void {
+    this.isPlaying.set(true);
+  }
+
+  onVideoPause(): void {
+    this.isPlaying.set(false);
+  }
+
+  onVideoError(): void {
+    if (!this.mediaUrl()) {
+      return;
+    }
+    this.mediaUrl.set(null);
+    this.videoError.set(PREVIEW_UNAVAILABLE_MESSAGE);
+    this.videoReady.set(false);
+    this.isPlaying.set(false);
+    this.selectionEndSeconds = null;
+  }
+
+  togglePlay(): void {
+    const video = this.videoElement();
+    if (!video || !this.mediaUrl() || this.videoError()) {
+      return;
+    }
+
+    if (video.paused) {
+      this.selectionEndSeconds = null;
+      this.playVideo(video);
+      return;
+    }
+
+    video.pause();
+  }
+
+  playSelection(): void {
+    const start = this.startSeconds();
+    const end = this.endSeconds();
+    if (start === null || end === null || end <= start) {
+      return;
+    }
+
+    this.selectionEndSeconds = end;
+    this.seekTo(start);
+
+    const video = this.videoElement();
+    if (video) {
+      this.playVideo(video);
+    }
+  }
+
+  setStartHere(): void {
+    this.setStartAt(this.currentTime());
+  }
+
+  setEndHere(): void {
+    this.setEndAt(this.currentTime());
+  }
+
+  onTimelinePointerDown(event: PointerEvent): void {
+    if (this.dragHandle) {
+      return;
+    }
+
+    const time = this.pointerTime(event);
+    if (time === null) {
+      return;
+    }
+    event.preventDefault();
+    this.seekTo(time);
+  }
+
+  onHandlePointerDown(event: PointerEvent, handle: TrimHandle): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (this.previewDuration() === null) {
+      return;
+    }
+
+    this.endHandleDrag();
+    this.dragHandle = handle;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      if (this.dragHandle !== handle) {
+        return;
+      }
+      moveEvent.preventDefault();
+      const time = this.pointerTime(moveEvent);
+      if (time !== null) {
+        this.applyHandlePosition(handle, time);
+      }
+    };
+    const onUp = () => this.endHandleDrag();
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+    this.dragCleanup = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+    };
+
+    const time = this.pointerTime(event);
+    if (time !== null) {
+      this.applyHandlePosition(handle, time);
+    }
+  }
+
+  onEditorKeydown(event: KeyboardEvent): void {
+    if (this.shouldIgnoreKey(event)) {
+      return;
+    }
+
+    const step = event.shiftKey ? LARGE_NUDGE_SECONDS : SMALL_NUDGE_SECONDS;
+    switch (event.key) {
+      case ' ':
+      case 'Spacebar':
+        event.preventDefault();
+        this.togglePlay();
+        break;
+      case 'i':
+      case 'I':
+        event.preventDefault();
+        this.setStartHere();
+        break;
+      case 'o':
+      case 'O':
+        event.preventDefault();
+        this.setEndHere();
+        break;
+      case 'ArrowLeft':
+        event.preventDefault();
+        this.seekTo(this.currentTime() - step);
+        break;
+      case 'ArrowRight':
+        event.preventDefault();
+        this.seekTo(this.currentTime() + step);
+        break;
+    }
+  }
+
+  onHandleKeydown(event: KeyboardEvent, handle: TrimHandle): void {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const step = event.shiftKey ? LARGE_NUDGE_SECONDS : SMALL_NUDGE_SECONDS;
+    const delta = event.key === 'ArrowLeft' ? -step : step;
+    if (handle === 'start') {
+      this.setStartAt((this.startSeconds() ?? 0) + delta);
+      return;
+    }
+
+    const end = this.endSeconds() ?? this.previewDuration() ?? 0;
+    this.setEndAt(end + delta);
+  }
+
+  endHandleDrag(): void {
+    this.dragCleanup?.();
+    this.dragCleanup = null;
+    this.dragHandle = null;
+  }
+
   async run(): Promise<void> {
     if (!this.canRun()) {
       return;
@@ -547,15 +882,26 @@ export class VideoTrim implements OnDestroy {
 
   reset(): void {
     this.stopPolling();
+    this.endHandleDrag();
     this.clearPlanRefreshTimer();
     this.planToken += 1;
     this.fileItemsGeneration += 1;
+    this.mediaRequestToken += 1;
+    this.mediaPath = '';
 
     this.selectedPaths.set([]);
     this.fileItems.set([]);
     this.startInput.set('0');
     this.endInput.set('');
     this.durationSeconds.set(null);
+    this.mediaUrl.set(null);
+    this.videoError.set('');
+    this.videoReady.set(false);
+    this.mediaDuration.set(null);
+    this.currentTime.set(0);
+    this.isPlaying.set(false);
+    this.fileDurations.set({});
+    this.selectionEndSeconds = null;
     this.plan.set(null);
     this.planError.set(null);
     this.planLoading.set(false);
@@ -566,6 +912,188 @@ export class VideoTrim implements OnDestroy {
     this.activeJobId.set('');
     this.notice.set(null);
     this.actionMessage.set('');
+  }
+
+  private videoElement(): HTMLVideoElement | null {
+    return this.videoPreview()?.nativeElement ?? null;
+  }
+
+  private async refreshPreviewSource(): Promise<void> {
+    const path = this.selectedPaths()[0] ?? '';
+    if (path === this.mediaPath) {
+      return;
+    }
+
+    this.mediaPath = path;
+    const token = (this.mediaRequestToken += 1);
+    this.mediaUrl.set(null);
+    this.videoError.set('');
+    this.videoReady.set(false);
+    this.mediaDuration.set(null);
+    this.currentTime.set(0);
+    this.isPlaying.set(false);
+    this.selectionEndSeconds = null;
+
+    if (!path) {
+      return;
+    }
+
+    const response: MediaSourceResponseV1 = await this.wailsService
+      .registerMediaPath(path)
+      .catch(() => ({
+        success: false,
+        url: '',
+        message: PREVIEW_UNAVAILABLE_MESSAGE,
+      }));
+    if (token !== this.mediaRequestToken) {
+      return;
+    }
+
+    if (response.success && response.url) {
+      this.mediaUrl.set(response.url);
+      return;
+    }
+
+    this.mediaUrl.set(null);
+    this.videoError.set(PREVIEW_UNAVAILABLE_MESSAGE);
+  }
+
+  private applyHandlePosition(handle: TrimHandle, seconds: number): void {
+    if (handle === 'start') {
+      this.setStartAt(seconds);
+      const start = this.startSeconds();
+      if (start !== null) {
+        this.seekTo(start);
+      }
+      return;
+    }
+
+    this.setEndAt(seconds);
+    const end = this.endSeconds();
+    if (end !== null) {
+      this.seekTo(end);
+    }
+  }
+
+  private setStartAt(seconds: number): void {
+    const duration = this.previewDuration();
+    let upper =
+      duration !== null
+        ? Math.max(0, duration - MIN_TRIM_RANGE_SECONDS)
+        : Number.POSITIVE_INFINITY;
+
+    const end = this.endSeconds();
+    if (end !== null) {
+      upper = Math.min(upper, Math.max(0, end - MIN_TRIM_RANGE_SECONDS));
+    }
+
+    const next = this.clamp(seconds, 0, upper);
+    this.startInput.set(this.toTimeInput(next));
+    this.onTimeChanged();
+  }
+
+  private setEndAt(seconds: number): void {
+    const duration = this.previewDuration();
+    const start = this.startSeconds() ?? 0;
+    const upper = duration ?? Number.POSITIVE_INFINITY;
+    const lower = Math.min(start + MIN_TRIM_RANGE_SECONDS, upper);
+    const next = this.clamp(seconds, lower, upper);
+    this.endInput.set(this.toTimeInput(next));
+    this.onTimeChanged();
+  }
+
+  private seekTo(seconds: number): void {
+    const duration = this.previewDuration();
+    const target = this.clamp(
+      seconds,
+      0,
+      duration !== null && duration > 0 ? duration : Number.POSITIVE_INFINITY,
+    );
+
+    this.currentTime.set(target);
+    const video = this.videoElement();
+    if (!video) {
+      return;
+    }
+
+    try {
+      video.currentTime = target;
+    } catch {
+      // Seeking before metadata is safe to ignore; the next update retries.
+    }
+  }
+
+  private playVideo(video: HTMLVideoElement): void {
+    try {
+      const result = video.play();
+      if (result && typeof result.catch === 'function') {
+        result.catch(() => this.isPlaying.set(false));
+      }
+    } catch {
+      this.isPlaying.set(false);
+    }
+  }
+
+  private pointerTime(event: PointerEvent): number | null {
+    const duration = this.previewDuration();
+    if (duration === null || duration <= 0) {
+      return null;
+    }
+
+    const rect = this.timelineTrack()?.nativeElement.getBoundingClientRect();
+    if (!rect || rect.width <= 0) {
+      return null;
+    }
+
+    const ratio = (event.clientX - rect.left) / rect.width;
+    return this.clamp(ratio, 0, 1) * duration;
+  }
+
+  private shouldIgnoreKey(event: KeyboardEvent): boolean {
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+      return false;
+    }
+
+    const tag = target.tagName?.toLowerCase() ?? '';
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') {
+      return true;
+    }
+    if (target.isContentEditable) {
+      return true;
+    }
+
+    const isActivationKey =
+      event.key === ' ' || event.key === 'Spacebar' || event.key === 'Enter';
+    return isActivationKey && (tag === 'button' || tag === 'a');
+  }
+
+  private toTimeInput(seconds: number): string {
+    const rounded = Math.round(Math.max(0, seconds) * 10) / 10;
+    const tenths = Math.round(rounded * 10);
+    const whole = Math.floor(tenths / 10);
+    const fraction = tenths % 10;
+
+    const hours = Math.floor(whole / 3600);
+    const minutes = Math.floor((whole % 3600) / 60);
+    const rest = whole % 60;
+    const suffix = fraction > 0 ? `.${fraction}` : '';
+
+    if (hours > 0) {
+      return `${hours}:${this.padTwo(minutes)}:${this.padTwo(rest)}${suffix}`;
+    }
+    return `${minutes}:${this.padTwo(rest)}${suffix}`;
+  }
+
+  private padTwo(value: number): string {
+    return String(value).padStart(2, '0');
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    if (!Number.isFinite(value)) {
+      return min;
+    }
+    return Math.min(Math.max(value, min), max);
   }
 
   private buildRequest(): JobRequestV1 {
@@ -782,9 +1310,21 @@ export class VideoTrim implements OnDestroy {
       paths.map((path) => existing.get(path) ?? { path, name: fileName(path) }),
     );
 
+    const knownDurations = this.fileDurations();
+    const durations: Record<string, number> = {};
+    for (const path of paths) {
+      const duration = knownDurations[path];
+      if (typeof duration === 'number' && duration > 0) {
+        durations[path] = duration;
+      }
+    }
+    this.fileDurations.set(durations);
+
     if (paths.length !== 1) {
       this.durationSeconds.set(null);
     }
+
+    void this.refreshPreviewSource();
 
     if (paths.length > 0) {
       void this.enrichFileItems(paths, generation);
@@ -814,11 +1354,38 @@ export class VideoTrim implements OnDestroy {
           }),
         );
 
+        const durations: Record<string, number> = {};
+        for (const path of paths) {
+          const duration = infos.get(path)?.durationSeconds;
+          if (typeof duration === 'number' && duration > 0) {
+            durations[path] = duration;
+          }
+        }
+        if (Object.keys(durations).length > 0) {
+          this.fileDurations.update((current) => ({
+            ...current,
+            ...durations,
+          }));
+        }
+
         if (paths.length === 1) {
           const duration = infos.get(paths[0])?.durationSeconds;
           this.durationSeconds.set(
             typeof duration === 'number' && duration > 0 ? duration : null,
           );
+        }
+
+        // Metadata can arrive before inspection. When that happens, the
+        // inspected length is the only duration available for the default end.
+        const firstDuration = infos.get(paths[0])?.durationSeconds;
+        if (
+          this.videoReady() &&
+          !this.endInput().trim() &&
+          typeof firstDuration === 'number' &&
+          firstDuration > 0
+        ) {
+          this.endInput.set(this.toTimeInput(firstDuration));
+          this.onTimeChanged();
         }
       }
     } catch {

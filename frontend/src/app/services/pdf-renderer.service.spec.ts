@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 
-import { PdfRendererService } from '../../services/pdf-renderer.service';
-import { Wails } from '../../services/wails';
+import { PdfRendererService } from './pdf-renderer.service';
+import { Wails } from './wails';
 
 describe('PdfRendererService', () => {
   let service: PdfRendererService;

@@ -114,6 +114,7 @@ describe('PdfSplit', () => {
       'openDirectoryDialog',
       'isRuntimeAvailable',
       'listToolsV1',
+      'getPdfPreviewSource',
     ]);
 
     jobProgressSubject = new Subject<JobProgressEventV1>();
@@ -157,6 +158,10 @@ describe('PdfSplit', () => {
       success: true,
       message: 'ok',
       tools: [],
+    });
+    wailsSpy.getPdfPreviewSource.and.resolveTo({
+      success: false,
+      message: 'Preview disabled in tests.',
     });
 
     await TestBed.configureTestingModule({
@@ -241,6 +246,23 @@ describe('PdfSplit', () => {
     expect(component.fileItems()[0].meta).toContain('2 MB');
     expect(component.fileItems()[0].meta).toContain('4 pages');
     expect(fixture.nativeElement.querySelector('.file-queue-image')).not.toBeNull();
+  }));
+
+  it('shows the resulting-files preview only when PDFs are selected', fakeAsync(() => {
+    expect(
+      fixture.nativeElement.querySelector('app-pdf-split-preview'),
+    ).toBeNull();
+
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('app-pdf-split-preview'),
+    ).not.toBeNull();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Resulting files');
+    expect(text).toContain('Preview every file the split will create.');
   }));
 
   it('sends the chosen strategy and ranges in the plan request', fakeAsync(() => {

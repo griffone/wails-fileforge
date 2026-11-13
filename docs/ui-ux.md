@@ -76,7 +76,6 @@ Shared components:
 - `app-output-plan-card` — destination, resolved names, counts, adjusted warnings.
 - `app-result-card` — success/partial/failure, open/reveal, retry, details.
 - `app-job-card` — live progress.
-- `app-tool-execution-panel` — only for legacy/custom forms; new tool pages should compose their own panels.
 
 ## Page recipe
 
@@ -144,12 +143,6 @@ Rules:
 - Input: `job: JobResultV1 | null`.
 - Single progress bar, stage badge, ETA, spinner while finalizing, live-region announcements.
 - Do not wrap it in another `aria-live` region.
-
-### `app-tool-execution-panel`
-
-- Renders a reactive form from `ExecutionPanelField[]`, actions, banners and the job block.
-- Button order is fixed: Validate, Run, Cancel.
-- Use it for standard tool settings. Pages with custom previews compose their own panels but reuse the same classes.
 
 ## Adding a tool
 

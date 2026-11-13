@@ -19,6 +19,7 @@ export {
     JobResultV1,
     JobStatusResponseV1,
     ListToolsResponseV1,
+    MediaSourceResponseV1,
     PDFPreviewSourceResponseV1,
     PathActionResponseV1,
     PlanJobResponseV1,

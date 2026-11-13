@@ -76,6 +76,173 @@
           </div>
         </section>
 
+        @if (selectedPaths().length > 0) {
+          <section class="panel preview-panel" aria-labelledby="video-preview-title">
+            <div class="panel-head">
+              <div>
+                <h2 id="video-preview-title" class="panel-title">Preview</h2>
+                <p class="panel-sub">Scrub the video or drag the handles to set the cut.</p>
+              </div>
+              @if (previewDuration() !== null) {
+                <span class="badge badge-neutral">{{ formatClock(previewDuration()) }}</span>
+              }
+            </div>
+
+            <div class="panel-body">
+              @if (isBatch()) {
+                <p class="order-hint">Previewing the first video. The range applies to all.</p>
+              }
+
+              <div
+                class="preview-editor"
+                tabindex="0"
+                role="group"
+                aria-label="Video preview and trim selection"
+                (keydown)="onEditorKeydown($event)"
+              >
+                <div class="video-stage">
+                  <video
+                    #videoPreview
+                    class="video-element"
+                    [class.is-hidden]="!mediaUrl() || !!videoError()"
+                    [src]="mediaUrl()"
+                    preload="metadata"
+                    playsinline
+                    (loadedmetadata)="onVideoMetadata($event)"
+                    (timeupdate)="onTimeUpdate($event)"
+                    (ended)="onVideoEnded()"
+                    (play)="onVideoPlay()"
+                    (pause)="onVideoPause()"
+                    (error)="onVideoError()"
+                  ></video>
+
+                  @if (!mediaUrl() || videoError()) {
+                    <div class="video-fallback">
+                      <lucide-icon
+                        [img]="videoOffIcon"
+                        [size]="20"
+                        [strokeWidth]="1.5"
+                        aria-hidden="true"
+                      ></lucide-icon>
+                      <span>Preview unavailable — times still work.</span>
+                    </div>
+                  }
+                </div>
+
+                <div class="transport">
+                  <button
+                    type="button"
+                    class="btn btn-secondary transport-play"
+                    [attr.aria-label]="isPlaying() ? 'Pause preview' : 'Play preview'"
+                    [disabled]="!mediaUrl() || !!videoError()"
+                    (click)="togglePlay()"
+                  >
+                    <lucide-icon
+                      [img]="isPlaying() ? pauseIcon : playIcon"
+                      [size]="15"
+                      [strokeWidth]="2"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                  </button>
+
+                  <span class="time-readout mono">
+                    {{ formatClock(currentTime()) }} / {{ formatClock(previewDuration()) }}
+                  </span>
+
+                  <div class="transport-actions">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      [disabled]="!timeRangeValid() || !mediaUrl() || !!videoError()"
+                      (click)="playSelection()"
+                    >
+                      Play selection
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      [disabled]="!videoReady()"
+                      (click)="setStartHere()"
+                    >
+                      Set start
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      [disabled]="!videoReady()"
+                      (click)="setEndHere()"
+                    >
+                      Set end
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  #timelineTrack
+                  class="timeline"
+                  (pointerdown)="onTimelinePointerDown($event)"
+                >
+                  <div class="timeline-track">
+                    <div
+                      class="timeline-selection"
+                      [style.left.%]="selectionStartPercent()"
+                      [style.width.%]="selectionWidthPercent()"
+                    ></div>
+                    <div
+                      class="timeline-playhead"
+                      [style.left.%]="playheadPercent()"
+                    ></div>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="timeline-handle handle-start"
+                    role="slider"
+                    aria-label="Trim start"
+                    [attr.aria-valuemin]="0"
+                    [attr.aria-valuemax]="previewDuration() ?? 0"
+                    [attr.aria-valuenow]="startSeconds() ?? 0"
+                    [attr.aria-valuetext]="formatClock(startSeconds())"
+                    [style.left.%]="selectionStartPercent()"
+                    (pointerdown)="onHandlePointerDown($event, 'start')"
+                    (keydown)="onHandleKeydown($event, 'start')"
+                  ></button>
+
+                  <button
+                    type="button"
+                    class="timeline-handle handle-end"
+                    role="slider"
+                    aria-label="Trim end"
+                    [attr.aria-valuemin]="0"
+                    [attr.aria-valuemax]="previewDuration() ?? 0"
+                    [attr.aria-valuenow]="endSeconds() ?? previewDuration() ?? 0"
+                    [attr.aria-valuetext]="formatClock(endSeconds() ?? previewDuration())"
+                    [style.left.%]="selectionEndPercent()"
+                    (pointerdown)="onHandlePointerDown($event, 'end')"
+                    (keydown)="onHandleKeydown($event, 'end')"
+                  ></button>
+                </div>
+
+                <p class="transport-hint">
+                  Space plays or pauses · I sets start · O sets end · Arrows nudge 0.1s (Shift 1s)
+                </p>
+              </div>
+
+              @if (batchDurationWarning(); as warning) {
+                <div class="banner banner-warning trim-warning" role="status">
+                  <lucide-icon
+                    [img]="alertIcon"
+                    [size]="16"
+                    [strokeWidth]="1.75"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                  <span>{{ warning }}</span>
+                </div>
+              }
+            </div>
+          </section>
+        }
+
         <section class="panel time-panel">
           <div class="panel-head">
             <div>

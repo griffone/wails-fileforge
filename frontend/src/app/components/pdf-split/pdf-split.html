@@ -176,6 +176,24 @@
       </section>
     </div>
 
+    @if (selectedPaths().length > 0) {
+      <section class="panel" aria-labelledby="pdf-split-result-preview-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="pdf-split-result-preview-title" class="panel-title">Resulting files</h2>
+            <p class="panel-sub">Preview every file the split will create.</p>
+          </div>
+        </div>
+        <div class="panel-body">
+          <app-pdf-split-preview
+            [paths]="selectedPaths()"
+            [strategy]="strategy()"
+            [ranges]="ranges()"
+          ></app-pdf-split-preview>
+        </div>
+      </section>
+    }
+
     @if (showProgress()) {
       <section class="panel progress-panel" aria-label="Split progress">
         <div class="panel-body progress-body">

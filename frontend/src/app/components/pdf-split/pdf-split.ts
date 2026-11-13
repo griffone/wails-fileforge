@@ -15,6 +15,7 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { PdfSplitPreview } from './pdf-split-preview';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
   FileInfoV1,
@@ -88,6 +89,7 @@ interface Notice {
     OutputPlanCard,
     ResultCard,
     JobCard,
+    PdfSplitPreview,
   ],
   templateUrl: './pdf-split.html',
   styleUrl: './pdf-split.css',

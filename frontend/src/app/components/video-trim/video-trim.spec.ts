@@ -121,6 +121,7 @@ describe('VideoTrim', () => {
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
+      'registerMediaPath',
       'isRuntimeAvailable',
       'listToolsV1',
       'validateJobV1',
@@ -161,6 +162,11 @@ describe('VideoTrim', () => {
     });
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.registerMediaPath.and.resolveTo({
+      success: true,
+      url: '/media/token',
+      message: 'ok',
+    });
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
     wailsSpy.listToolsV1.and.resolveTo({
       success: true,
@@ -367,5 +373,175 @@ describe('VideoTrim', () => {
     const request = wailsSpy.planJobV1.calls.mostRecent()
       .args[0] as JobRequestV1;
     expect(request.outputDir).toBe('/tmp/out');
+  }));
+
+  it('registers only the first selected video for preview', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mkv']);
+    flushMicrotasks();
+
+    expect(wailsSpy.registerMediaPath.calls.allArgs()).toEqual([
+      ['/tmp/a.mp4'],
+    ]);
+    expect(component.mediaUrl()).toBe('/media/token');
+    expect(component.videoError()).toBe('');
+  }));
+
+  it('falls back to time-only mode when media registration fails', fakeAsync(() => {
+    wailsSpy.registerMediaPath.and.resolveTo({
+      success: false,
+      url: '',
+      message: 'This file cannot be previewed.',
+    });
+
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.mediaUrl()).toBeNull();
+    expect(component.videoError()).toContain('Video preview unavailable');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Preview unavailable — times still work.',
+    );
+  }));
+
+  it('uses video metadata for the duration and defaults an empty end', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    expect(component.endInput()).toBe('');
+
+    component.onVideoMetadata({
+      target: { duration: 42.4 },
+    } as unknown as Event);
+
+    expect(component.previewDuration()).toBe(42.4);
+    expect(component.videoReady()).toBeTrue();
+    expect(component.endInput()).toBe('0:42.4');
+
+    tick(200);
+    flushMicrotasks();
+
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['endTime']).toBe(42.4);
+  }));
+
+  it('sets start and end from the current playhead', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    component.onVideoMetadata({
+      target: { duration: 30 },
+    } as unknown as Event);
+
+    component.currentTime.set(5);
+    component.setStartHere();
+    component.currentTime.set(20);
+    component.setEndHere();
+
+    tick(200);
+    flushMicrotasks();
+
+    expect(component.startInput()).toBe('0:05');
+    expect(component.endInput()).toBe('0:20');
+
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['startTime']).toBe(5);
+    expect(request.options['endTime']).toBe(20);
+  }));
+
+  it('clamps a start past the end and never plans an invalid range', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    component.onVideoMetadata({
+      target: { duration: 30 },
+    } as unknown as Event);
+
+    component.currentTime.set(20);
+    component.setEndHere();
+    tick(200);
+    flushMicrotasks();
+
+    component.currentTime.set(25);
+    component.setStartHere();
+
+    expect(component.startSeconds()).toBeCloseTo(19.9, 5);
+    expect(component.endSeconds()).toBe(20);
+    expect(component.timeError()).toBe('');
+
+    tick(200);
+    flushMicrotasks();
+
+    let request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['startTime'] as number).toBeCloseTo(19.9, 5);
+    expect(request.options['endTime']).toBe(20);
+
+    const planCalls = wailsSpy.planJobV1.calls.count();
+    component.onStartInput(changeEvent('0:25'));
+    expect(component.timeError()).toBe('End must be after start.');
+
+    tick(400);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls);
+  }));
+
+  it('plays the selection and pauses at the end', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    component.onVideoMetadata({
+      target: { duration: 30 },
+    } as unknown as Event);
+    component.onStartInput(changeEvent('0:05'));
+    component.onEndInput(changeEvent('0:10'));
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const playSpy = spyOn(HTMLMediaElement.prototype, 'play').and.returnValue(
+      Promise.resolve(),
+    );
+    const pauseSpy = spyOn(
+      HTMLMediaElement.prototype,
+      'pause',
+    ).and.callFake(() => undefined);
+
+    component.playSelection();
+
+    expect(component.currentTime()).toBe(5);
+    expect(playSpy).toHaveBeenCalled();
+
+    component.onTimeUpdate({
+      target: { currentTime: 10 },
+    } as unknown as Event);
+
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(component.currentTime()).toBe(10);
+  }));
+
+  it('warns when a batch clip is shorter than the chosen end', fakeAsync(() => {
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map((path, index) => ({
+          ...fileInfo(path),
+          durationSeconds: index === 0 ? 60 : 12,
+        })),
+      }),
+    );
+
+    component.onPathsSelected(['/tmp/long.mp4', '/tmp/short.mkv']);
+    flushMicrotasks();
+    component.onEndInput(changeEvent('0:30'));
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.batchDurationWarning()).toBe(
+      'The end is longer than "short.mkv" (0:12). The cut will stop at that clip\'s end.',
+    );
+    expect(fixture.nativeElement.textContent).toContain(
+      'Previewing the first video. The range applies to all.',
+    );
   }));
 });

@@ -14,6 +14,7 @@ import (
 	_ "fileforge-desktop/internal/doc"
 	_ "fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/inspect"
+	"fileforge-desktop/internal/media"
 	"fileforge-desktop/internal/models"
 	_ "fileforge-desktop/internal/pdf"
 	"fileforge-desktop/internal/preview"
@@ -319,5 +320,24 @@ func (a *App) GetPDFPreviewSourceV1(inputPath string) models.PDFPreviewSourceRes
 		Message:    "preview source loaded",
 		DataBase64: base64.StdEncoding.EncodeToString(content),
 		MimeType:   "application/pdf",
+	}
+}
+
+// RegisterMediaPath registers a local file for token-scoped streaming. The
+// returned URL is relative so it resolves against the WebView origin.
+func (a *App) RegisterMediaPath(path string) models.MediaSourceResponseV1 {
+	if strings.TrimSpace(path) == "" {
+		return models.MediaSourceResponseV1{Success: false, Message: "Choose a file to preview."}
+	}
+
+	token, err := media.Register(path)
+	if err != nil {
+		return models.MediaSourceResponseV1{Success: false, Message: "This file cannot be previewed."}
+	}
+
+	return models.MediaSourceResponseV1{
+		Success: true,
+		URL:     "/media/" + token,
+		Message: "ok",
 	}
 }

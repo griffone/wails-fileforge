@@ -7,5 +7,8 @@ describe('Wails legacy IPC absence', () => {
     expect(proto['convertFile']).toBeUndefined();
     expect(proto['convertBatch']).toBeUndefined();
     expect(proto['getSupportedFormats']).toBeUndefined();
+    expect(proto['getPdfBytes']).toBeUndefined();
+    expect(proto['splitPdfBackend']).toBeUndefined();
+    expect(typeof proto['registerMediaPath']).toBe('function');
   });
 });
