@@ -5,8 +5,7 @@
         <p class="eyebrow">IMAGE</p>
         <h1 class="page-title">Image <em>Crop</em></h1>
         <p class="page-sub">
-          Draw a crop rectangle over a live preview and get a pixel-perfect result — local-first, so
-          your images never leave this machine.
+          Crop to a ratio or an exact region with a live preview. Everything runs on this machine.
         </p>
       </div>
 
@@ -18,239 +17,345 @@
   </header>
 
   <div class="page-stack">
-    <section class="panel" aria-labelledby="crop-input-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="crop-input-title" class="panel-title">Input images</h2>
-          <p class="panel-sub">Batch mode applies the same crop area to every file.</p>
-        </div>
-        <span class="badge badge-neutral">
-          {{ form.controls.jobMode.value === 'batch'
-            ? selectedInputPaths.length + ' queued'
-            : (selectedInputPath ? '1 selected' : 'none selected') }}
-        </span>
-      </header>
-
-      <div class="panel-body">
-        <div class="field panel-mode">
-          <label class="label" for="crop-mode">Mode</label>
-          <select id="crop-mode" class="select" [formControl]="form.controls.jobMode">
-            <option value="single">Single image</option>
-            <option value="batch">Batch queue</option>
-          </select>
-        </div>
-
-        <div *ngIf="form.controls.jobMode.value === 'single'; else batchInputBlock" class="stack">
-          <div class="toolbar" role="group" aria-label="Image selection actions">
-            <button type="button" class="btn btn-primary btn-sm" (click)="selectImageFromDialog()">
-              <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Select image
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" (click)="triggerSingleFileInput()">
-              Use file input
-            </button>
-            <button type="button" class="btn btn-ghost btn-sm toolbar-end" (click)="clearInputs()">
-              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
-            </button>
-          </div>
-
-          <input
-            #singleFileInput
-            type="file"
-            class="hidden"
-            aria-hidden="true"
-            tabindex="-1"
-            accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
-            (change)="onSingleFileInputChange($event)"
-          />
-
-          <div *ngIf="selectedInputPath; else emptySingle" class="file-row">
-            <span class="file-path mono">{{ selectedInputPath }}</span>
-            <button
-              type="button"
-              class="icon-btn file-remove"
-              aria-label="Remove selected image"
-              (click)="clearInputs()"
-            >
-              <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            </button>
-          </div>
-
-          <ng-template #emptySingle>
-            <div class="empty-state file-empty">
-              <strong>No image selected</strong>
-              <span>Pick a file with the native dialog or with a browser file input.</span>
+    <div class="flow-grid">
+      <div class="flow-column">
+        <section class="panel intake-panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">Images</h2>
+              <p class="panel-sub">Drop images or choose them from your computer.</p>
             </div>
-          </ng-template>
-        </div>
+            <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+          </div>
 
-        <ng-template #batchInputBlock>
-          <div class="stack">
-            <div class="toolbar" role="group" aria-label="Batch image selection actions">
-              <button type="button" class="btn btn-primary btn-sm" (click)="selectMultipleImagesFromDialog()">
-                <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Select multiple images
+          <div class="panel-body">
+            <app-file-drop
+              accept="image/*"
+              title="Drop images here"
+              hint="PNG · JPG · WebP · GIF · BMP · TIFF"
+              ariaLabel="Drop or choose images to crop"
+              [nativePicker]="true"
+              (pathsSelected)="onPathsSelected($event)"
+              (browseRequested)="chooseFiles()"
+            ></app-file-drop>
+
+            <div class="toolbar" role="group" aria-label="Image selection actions">
+              <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+                <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Choose files
               </button>
-              <button type="button" class="btn btn-secondary btn-sm" (click)="selectImageFromDialog()">
-                Add one image
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" (click)="triggerBatchFileInput()">
-                Use file input
-              </button>
-              <button type="button" class="btn btn-ghost btn-sm toolbar-end" (click)="clearInputs()">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm toolbar-end"
+                [disabled]="selectedPaths().length === 0"
+                (click)="clear()"
+              >
                 <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
                 Clear
               </button>
             </div>
 
-            <input
-              #batchFileInput
-              type="file"
-              class="hidden"
-              aria-hidden="true"
-              tabindex="-1"
-              accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
-              multiple
-              (change)="onBatchFileInputChange($event)"
-            />
-
-            <ul *ngIf="selectedInputPaths.length > 0; else emptyBatch" class="file-list" aria-label="Queued images">
-              <li *ngFor="let path of selectedInputPaths; let i = index" class="file-row">
-                <span class="file-index mono">{{ i + 1 }}</span>
-                <span class="file-path mono">{{ path }}</span>
-                <button
-                  type="button"
-                  class="icon-btn file-remove"
-                  [attr.aria-label]="'Remove ' + path"
-                  (click)="removeBatchInput(i)"
-                >
-                  <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                </button>
-              </li>
-            </ul>
-
-            <ng-template #emptyBatch>
-              <div class="empty-state file-empty">
-                <strong>No images queued</strong>
-                <span>Add one or more images. The first one drives the preview.</span>
-              </div>
-            </ng-template>
-          </div>
-        </ng-template>
-      </div>
-    </section>
-
-    <section class="panel" *ngIf="sourcePreviewDataUrl" aria-labelledby="crop-editor-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="crop-editor-title" class="panel-title">Crop editor</h2>
-          <p class="panel-sub" role="status" aria-live="polite">{{ previewMessage }}</p>
-        </div>
-        <div class="head-badges">
-          <span class="badge badge-neutral">
-            {{ form.controls.width.value }} × {{ form.controls.height.value }} px
-          </span>
-          <span class="badge" [class.badge-info]="isPreviewLoading" [class.badge-success]="!isPreviewLoading">
-            {{ isPreviewLoading ? 'Rendering' : 'Ready' }}
-          </span>
-        </div>
-      </header>
-
-      <div class="panel-body">
-        <div class="editor-grid">
-          <figure class="preview-block">
-            <figcaption class="preview-caption">Source — drag to draw, pull the handles to resize</figcaption>
-            <div
-              class="preview-stage"
-              (pointermove)="onPreviewPointerMove($event)"
-              (pointerup)="onPreviewPointerUp()"
-              (pointerleave)="onPreviewPointerUp()"
-            >
-              <img
-                #previewImage
-                [src]="sourcePreviewDataUrl"
-                alt="Source image with the crop selection overlay"
-                class="preview-image"
-                draggable="false"
-                (load)="onPreviewImageLoaded()"
-                (pointerdown)="onPreviewPointerDown($event)"
-              />
-
+            @if (notice(); as note) {
               <div
-                class="selection-rect"
-                [ngStyle]="previewCropStyle()"
-                (pointerdown)="onSelectionBodyPointerDown($event)"
+                class="banner error-banner"
+                [class.banner-warning]="note.tone === 'warning'"
+                [class.banner-danger]="note.tone === 'danger'"
+                role="alert"
               >
-                <span class="selection-handle nw" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-nw')"></span>
-                <span class="selection-handle ne" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-ne')"></span>
-                <span class="selection-handle sw" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-sw')"></span>
-                <span class="selection-handle se" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-se')"></span>
+                <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                <span>{{ note.text }}</span>
+              </div>
+            }
+
+            @if (fileItems().length > 0) {
+              <app-file-queue
+                [items]="fileItems()"
+                (remove)="removeFile($event)"
+              ></app-file-queue>
+            }
+
+            @if (isBatch()) {
+              <p class="batch-note">The same crop applies to every image.</p>
+            }
+          </div>
+        </section>
+
+        <section class="panel editor-panel" aria-labelledby="crop-editor-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="crop-editor-title" class="panel-title">Crop area</h2>
+              <p class="panel-sub">Drag on the image to draw a crop, then pull a corner to fine-tune it.</p>
+            </div>
+            @if (hasPreview()) {
+              <span class="badge badge-neutral">{{ cropSizeLabel() }}</span>
+            }
+          </div>
+
+          <div class="panel-body">
+            @if (previewUrl()) {
+              <div class="editor-grid">
+                <figure class="preview-block">
+                  <figcaption class="preview-caption">Source — drag to draw, pull a corner to resize</figcaption>
+                  <div
+                    class="preview-stage"
+                    (pointermove)="onPreviewPointerMove($event)"
+                    (pointerup)="onPreviewPointerUp()"
+                    (pointerleave)="onPreviewPointerUp()"
+                  >
+                    <div class="preview-canvas">
+                      <img
+                        #previewImage
+                        [src]="previewUrl()"
+                        alt="Source image with the crop selection overlay"
+                        class="preview-image"
+                        draggable="false"
+                        (load)="onPreviewImageLoaded()"
+                        (pointerdown)="onPreviewPointerDown($event)"
+                      />
+
+                      @if (selectionRectPx().width > 0) {
+                        <div
+                          class="selection-rect"
+                          [style.left.px]="selectionRectPx().x"
+                          [style.top.px]="selectionRectPx().y"
+                          [style.width.px]="selectionRectPx().width"
+                          [style.height.px]="selectionRectPx().height"
+                          (pointerdown)="onSelectionBodyPointerDown($event)"
+                        >
+                          <span class="selection-handle nw" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-nw')"></span>
+                          <span class="selection-handle ne" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-ne')"></span>
+                          <span class="selection-handle sw" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-sw')"></span>
+                          <span class="selection-handle se" (pointerdown)="onSelectionHandlePointerDown($event, 'resize-se')"></span>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                </figure>
+
+                <figure class="preview-block">
+                  <figcaption class="preview-caption">Cropped preview</figcaption>
+                  <div class="preview-result-shell">
+                    @if (cropPreviewUrl()) {
+                      <img
+                        [src]="cropPreviewUrl()"
+                        alt="Cropped result preview"
+                        class="preview-image"
+                        draggable="false"
+                      />
+                    } @else {
+                      <p class="preview-placeholder">
+                        {{ isCropPreviewLoading() ? 'Rendering preview…' : 'The crop preview appears here.' }}
+                      </p>
+                    }
+                  </div>
+                </figure>
+              </div>
+            } @else {
+              <div class="empty-state editor-empty">
+                <lucide-icon [img]="cropIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
+                <strong>
+                  {{ previewLoading() ? 'Loading preview…' : (hasSelection() ? 'Preview unavailable' : 'No image to crop yet') }}
+                </strong>
+                <span>
+                  {{ previewLoading()
+                    ? 'Reading the first image from disk.'
+                    : (previewError() || 'Add an image above to see the crop selection.') }}
+                </span>
+              </div>
+            }
+          </div>
+        </section>
+      </div>
+
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Crop</h2>
+            <p class="panel-sub">Pick a ratio, then check where the files will go.</p>
+          </div>
+        </div>
+
+        <div class="panel-body">
+          <div class="preset-grid" role="group" aria-label="Crop ratio">
+            @for (preset of ratioPresets; track preset.id) {
+              <button
+                type="button"
+                class="preset-card"
+                [class.is-active]="preset.id === ratioPreset()"
+                [attr.aria-pressed]="preset.id === ratioPreset()"
+                [attr.data-ratio]="preset.id"
+                (click)="selectRatio(preset.id)"
+              >
+                <span class="preset-label">{{ preset.label }}</span>
+                <span class="preset-hint">{{ preset.hint }}</span>
+              </button>
+            }
+          </div>
+
+          @if (hasPreview()) {
+            <p class="crop-readout mono">
+              <span>Crop {{ cropSizeLabel() }}</span>
+              <span class="crop-readout-sep" aria-hidden="true">·</span>
+              <span>Image {{ imageSizeLabel() }}</span>
+            </p>
+          }
+
+          <details class="advanced" [open]="advancedOpen()" (toggle)="onAdvancedToggle($event)">
+            <summary class="advanced-summary">
+              <span class="advanced-title">Advanced</span>
+              <span class="advanced-hint">Exact crop area and format</span>
+            </summary>
+
+            <div class="advanced-body">
+              <div class="advanced-grid">
+                <div class="field">
+                  <label class="label" for="image-crop-x">X (px)</label>
+                  <input
+                    id="image-crop-x"
+                    class="input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="bounds().x"
+                    (input)="onBoundsInput('x', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="image-crop-y">Y (px)</label>
+                  <input
+                    id="image-crop-y"
+                    class="input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="bounds().y"
+                    (input)="onBoundsInput('y', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="image-crop-width">Width (px)</label>
+                  <input
+                    id="image-crop-width"
+                    class="input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="bounds().width"
+                    (input)="onBoundsInput('width', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="image-crop-height">Height (px)</label>
+                  <input
+                    id="image-crop-height"
+                    class="input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="bounds().height"
+                    (input)="onBoundsInput('height', $event)"
+                  />
+                </div>
+
+                <div class="field advanced-format">
+                  <label class="label" for="image-crop-format">Output format</label>
+                  <select
+                    id="image-crop-format"
+                    class="select"
+                    [value]="format()"
+                    (change)="onFormatChange($event)"
+                  >
+                    @for (option of formatOptions; track option.value) {
+                      <option [value]="option.value">{{ option.label }}</option>
+                    }
+                  </select>
+                  <p class="field-help">Preserve original keeps each source format.</p>
+                </div>
               </div>
             </div>
-          </figure>
+          </details>
 
-          <figure class="preview-block">
-            <figcaption class="preview-caption">Backend preview — pixel-perfect crop</figcaption>
-            <div class="preview-result-shell">
-              <ng-container *ngIf="cropPreviewDataUrl; else noCropPreview">
-                <img
-                  [src]="cropPreviewDataUrl"
-                  alt="Cropped result preview"
-                  class="preview-image"
-                  draggable="false"
-                />
-              </ng-container>
-              <ng-template #noCropPreview>
-                <p class="panel-sub">
-                  {{ isPreviewLoading ? 'Generating preview…' : 'No preview available yet.' }}
-                </p>
-              </ng-template>
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
+                Use original folders
+              </button>
             </div>
-          </figure>
-        </div>
-      </div>
-    </section>
+          }
 
-    <section class="panel" aria-labelledby="crop-output-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="crop-output-title" class="panel-title">Output destination</h2>
-          <p class="panel-sub">Optional — when empty, files are written next to each source.</p>
-        </div>
-      </header>
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
 
-      <div class="panel-body">
-        <div class="output-row">
-          <span class="file-path mono">
-            {{ form.controls.outputDir.value || 'No output directory selected.' }}
-          </span>
-          <button type="button" class="btn btn-secondary btn-sm" (click)="selectOutputDirectory()">
-            <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Choose folder
-          </button>
-        </div>
-      </div>
-    </section>
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
 
-    <app-tool-execution-panel
-      [title]="'Crop settings'"
-      [subtitle]="'Output path, ratio preset and exact crop bounds.'"
-      [form]="form"
-      [fields]="panelFields"
-      [currentMode]="form.controls.jobMode.value"
-      [validationMessage]="validationMessage"
-      [submitMessage]="submitMessage"
-      [statusMessage]="statusMessage"
-      [isSubmitting]="isSubmitting"
-      [isPolling]="isPolling"
-      [canCancel]="!!activeJobId"
-      [jobResult]="jobResult"
-      [runButtonText]="'Crop images'"
-      [submittingButtonText]="'Cropping…'"
-      (validate)="validate()"
-      (run)="run()"
-      (cancel)="cancel()"
-    ></app-tool-execution-panel>
+          @if (actionHelper(); as helper) {
+            <p class="action-helper" role="status">{{ helper }}</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Crop progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="image"
+        verbPast="cropped"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
   </div>
 </div>

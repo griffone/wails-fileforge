@@ -1,41 +1,118 @@
-import { CommonModule } from '@angular/common';
 import {
   Component,
   ElementRef,
+  HostListener,
   OnDestroy,
   ViewChild,
+  computed,
+  signal,
 } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import {
+  Crop,
   FolderOpen,
   LucideAngularModule,
   ShieldCheck,
+  TriangleAlert,
   X,
 } from 'lucide-angular';
 
+import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
+import { FileQueue } from '../tool-flow/file-queue';
+import { OutputPlanCard } from '../tool-flow/output-plan-card';
+import { ResultCard } from '../tool-flow/result-card';
+import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
-  ExecutionPanelField,
-  ToolExecutionPanel,
-} from '../tool-execution-panel/tool-execution-panel';
-import {
+  FileInfoV1,
   ImageCropPreviewRequestV1,
-  ImageCropPreviewResponseV1,
   ImagePreviewSourceResponseV1,
+  InspectFilesResponseV1,
   JobErrorV1,
+  JobExecutionStatusV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
+  PlanJobResponseV1,
+  RunJobResponseV1,
   Wails,
 } from '../../services/wails';
+import {
+  fileExtension,
+  fileName,
+  formatBytes,
+  formatCount,
+} from '../../utils/format';
 
 const IMAGE_CROP_TOOL_ID = 'tool.image.crop';
 const POLLING_INTERVAL_MS = 1000;
+const BOUNDS_PLAN_DEBOUNCE_MS = 200;
+const CROP_PREVIEW_DEBOUNCE_MS = 200;
+const THUMBNAIL_SIZE = 160;
 
-type JobMode = 'single' | 'batch';
-type RatioPreset = 'free' | '1:1' | '4:3' | '16:9';
-type DragMode = 'draw' | 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se';
+const SUPPORTED_IMAGE_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'bmp',
+  'tiff',
+  'tif',
+]);
+
+const TERMINAL_STATUSES = new Set<string>([
+  'success',
+  'failed',
+  'partial_success',
+  'cancelled',
+  'interrupted',
+]);
+
+type RatioPresetId = 'free' | '1:1' | '4:3' | '16:9';
+
+interface RatioPreset {
+  id: RatioPresetId;
+  label: string;
+  hint: string;
+  widthStep: number;
+  heightStep: number;
+}
+
+const RATIO_PRESETS: readonly RatioPreset[] = [
+  { id: 'free', label: 'Free', hint: 'Any shape', widthStep: 1, heightStep: 1 },
+  { id: '1:1', label: '1:1', hint: 'Square', widthStep: 1, heightStep: 1 },
+  { id: '4:3', label: '4:3', hint: 'Classic', widthStep: 4, heightStep: 3 },
+  { id: '16:9', label: '16:9', hint: 'Wide', widthStep: 16, heightStep: 9 },
+];
+
+interface FormatOption {
+  value: string;
+  label: string;
+}
+
+const FORMAT_OPTIONS: readonly FormatOption[] = [
+  { value: '', label: 'Preserve original' },
+  { value: 'png', label: 'PNG' },
+  { value: 'jpeg', label: 'JPEG' },
+  { value: 'webp', label: 'WebP' },
+  { value: 'gif', label: 'GIF' },
+  { value: 'tiff', label: 'TIFF' },
+];
+
+type BoundsAxis = 'x' | 'y' | 'width' | 'height';
+
+type BoundsInput = Record<BoundsAxis, string>;
+
+type DragMode =
+  | 'draw'
+  | 'move'
+  | 'resize-nw'
+  | 'resize-ne'
+  | 'resize-sw'
+  | 'resize-se';
 
 interface CropRect {
   x: number;
@@ -44,102 +121,261 @@ interface CropRect {
   height: number;
 }
 
+interface Notice {
+  tone: 'warning' | 'danger';
+  text: string;
+}
+
+const EMPTY_BOUNDS: BoundsInput = { x: '0', y: '0', width: '0', height: '0' };
+const EMPTY_RECT: CropRect = { x: 0, y: 0, width: 0, height: 0 };
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function readInteger(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^-?\d+$/.test(trimmed)) {
+    return null;
+  }
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
+}
+
 @Component({
   selector: 'app-image-crop',
   standalone: true,
   imports: [
-    CommonModule,
-    ReactiveFormsModule,
     LucideAngularModule,
-    ToolExecutionPanel,
+    FileDrop,
+    FileQueue,
+    OutputPlanCard,
+    ResultCard,
+    JobCard,
   ],
   templateUrl: './image-crop.html',
   styleUrl: './image-crop.css',
 })
 export class ImageCrop implements OnDestroy {
   private readonly destroy$ = new Subject<void>();
-  @ViewChild('singleFileInput') singleFileInput?: ElementRef<HTMLInputElement>;
-  @ViewChild('batchFileInput') batchFileInput?: ElementRef<HTMLInputElement>;
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
 
   readonly shieldIcon = ShieldCheck;
-  readonly folderOpenIcon = FolderOpen;
+  readonly folderIcon = FolderOpen;
   readonly closeIcon = X;
+  readonly alertIcon = TriangleAlert;
+  readonly cropIcon = Crop;
 
-  readonly form;
-  readonly panelFields: ExecutionPanelField[] = [
-    {
-      controlName: 'outputPath',
-      label: 'Output file',
-      type: 'text',
-      placeholder: '/path/to/image_cropped.png',
-      visibleModes: ['single'],
-      helpText: 'If empty, output is auto-generated as *_cropped with collision suffixes.',
-    },
-    {
-      controlName: 'outputDir',
-      label: 'Output directory',
-      type: 'text',
-      placeholder: '/path/to/output',
-      visibleModes: ['batch'],
-      helpText: 'If empty, each item is written next to its input file.',
-    },
-    {
-      controlName: 'ratioPreset',
-      label: 'Ratio preset',
-      type: 'select',
-      options: [
-        { value: '1:1', label: '1:1' },
-        { value: '4:3', label: '4:3' },
-        { value: '16:9', label: '16:9' },
-        { value: 'free', label: 'Free' },
-      ],
-      helpText: 'Preset locks ratio. Free unlocks ratio.',
-    },
-    {
-      controlName: 'format',
-      label: 'Output format',
-      type: 'select',
-      options: [
-        { value: '', label: 'Preserve original' },
-        { value: 'jpeg', label: 'JPEG' },
-        { value: 'png', label: 'PNG' },
-        { value: 'webp', label: 'WebP' },
-        { value: 'gif', label: 'GIF' },
-        { value: 'tiff', label: 'TIFF' },
-      ],
-      helpText: 'Default preserves source format.',
-    },
-    { controlName: 'x', label: 'X', type: 'text', placeholder: '0' },
-    { controlName: 'y', label: 'Y', type: 'text', placeholder: '0' },
-    { controlName: 'width', label: 'Width', type: 'text', placeholder: '1' },
-    { controlName: 'height', label: 'Height', type: 'text', placeholder: '1' },
-  ];
+  readonly ratioPresets = RATIO_PRESETS;
+  readonly formatOptions = FORMAT_OPTIONS;
 
-  selectedInputPath = '';
-  selectedInputPaths: string[] = [];
-  validationMessage = '';
-  submitMessage = '';
-  statusMessage = '';
-  previewMessage = 'Select an image to start crop preview.';
-  jobResult: JobResultV1 | null = null;
-  isSubmitting = false;
-  isPolling = false;
-  activeJobId = '';
-  isPreviewLoading = false;
+  readonly selectedPaths = signal<string[]>([]);
+  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly previewUrl = signal('');
+  readonly imageWidth = signal(0);
+  readonly imageHeight = signal(0);
+  readonly ratioPreset = signal<RatioPresetId>('free');
+  readonly bounds = signal<BoundsInput>({ ...EMPTY_BOUNDS });
+  readonly format = signal('');
+  readonly outputDir = signal('');
+  readonly advancedOpen = signal(false);
 
-  sourcePreviewDataUrl = '';
-  sourcePreviewMimeType = '';
-  sourceImageWidth = 0;
-  sourceImageHeight = 0;
-  cropPreviewDataUrl = '';
-  cropPreviewMimeType = '';
+  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly planError = signal<JobErrorV1 | null>(null);
+  readonly planLoading = signal(false);
 
-  selectionRectPx: CropRect = { x: 0, y: 0, width: 0, height: 0 };
+  readonly jobResult = signal<JobResultV1 | null>(null);
+  readonly jobError = signal<JobErrorV1 | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
+
+  readonly isSubmitting = signal(false);
+  readonly isPolling = signal(false);
+  readonly activeJobId = signal('');
+
+  readonly notice = signal<Notice | null>(null);
+  readonly actionMessage = signal('');
+
+  readonly previewLoading = signal(false);
+  readonly previewError = signal('');
+  readonly cropPreviewUrl = signal('');
+  readonly isCropPreviewLoading = signal(false);
+
+  readonly selectionRectPx = signal<CropRect>({ ...EMPTY_RECT });
+
+  readonly crop = computed<CropRect | null>(() => {
+    const bounds = this.bounds();
+    const x = readInteger(bounds.x);
+    const y = readInteger(bounds.y);
+    const width = readInteger(bounds.width);
+    const height = readInteger(bounds.height);
+
+    if (x === null || y === null || width === null || height === null) {
+      return null;
+    }
+
+    return { x, y, width, height };
+  });
+
+  readonly hasSelection = computed(() => this.selectedPaths().length > 0);
+
+  readonly hasPreview = computed(
+    () =>
+      this.previewUrl().length > 0 &&
+      this.imageWidth() > 0 &&
+      this.imageHeight() > 0,
+  );
+
+  readonly isBatch = computed(() => this.selectedPaths().length > 1);
+
+  readonly cropValid = computed(() => {
+    const crop = this.crop();
+    const imageWidth = this.imageWidth();
+    const imageHeight = this.imageHeight();
+
+    if (!crop || imageWidth <= 0 || imageHeight <= 0) {
+      return false;
+    }
+    if (crop.x < 0 || crop.y < 0 || crop.width < 1 || crop.height < 1) {
+      return false;
+    }
+    if (
+      crop.x + crop.width > imageWidth ||
+      crop.y + crop.height > imageHeight
+    ) {
+      return false;
+    }
+
+    const preset = this.ratioDefinition();
+    if (
+      this.ratioPreset() !== 'free' &&
+      crop.width * preset.heightStep !== crop.height * preset.widthStep
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+
+  readonly ratioFitsImage = computed(() => {
+    const preset = this.ratioDefinition();
+    return (
+      Math.floor(this.imageWidth() / preset.widthStep) >= 1 &&
+      Math.floor(this.imageHeight() / preset.heightStep) >= 1
+    );
+  });
+
+  readonly cropError = computed(() => {
+    if (!this.hasSelection() || !this.hasPreview()) {
+      return '';
+    }
+
+    const crop = this.crop();
+    if (!crop) {
+      return 'Enter whole numbers for X, Y, width and height.';
+    }
+    if (crop.width < 1 || crop.height < 1) {
+      return 'Crop width and height must be at least 1 px.';
+    }
+    if (crop.x < 0 || crop.y < 0) {
+      return 'Crop position must be zero or greater.';
+    }
+    if (
+      crop.x + crop.width > this.imageWidth() ||
+      crop.y + crop.height > this.imageHeight()
+    ) {
+      return 'The crop must stay inside the image.';
+    }
+
+    const preset = this.ratioDefinition();
+    if (
+      this.ratioPreset() !== 'free' &&
+      crop.width * preset.heightStep !== crop.height * preset.widthStep
+    ) {
+      if (!this.ratioFitsImage()) {
+        return 'This image is too small for the selected ratio.';
+      }
+      return `A ${this.ratioPreset()} crop needs matching width and height.`;
+    }
+
+    return '';
+  });
+
+  readonly cropSizeLabel = computed(() => {
+    const crop = this.crop();
+    return crop && crop.width > 0 && crop.height > 0
+      ? `${crop.width} × ${crop.height} px`
+      : '—';
+  });
+
+  readonly imageSizeLabel = computed(() =>
+    this.imageWidth() > 0 && this.imageHeight() > 0
+      ? `${this.imageWidth()} × ${this.imageHeight()} px`
+      : '—',
+  );
+
+  readonly primaryLabel = computed(() => {
+    if (this.isSubmitting() || this.isPolling()) {
+      return 'Cropping…';
+    }
+    const count = this.selectedPaths().length;
+    return count > 1 ? `Crop ${count} images` : 'Crop image';
+  });
+
+  readonly destinationLabel = computed(
+    () => this.outputDir().trim() || 'Next to each image',
+  );
+
+  readonly isDefaultDestination = computed(
+    () => this.outputDir().trim().length === 0,
+  );
+
+  /** A failed plan means the request cannot run as typed. */
+  readonly planBlocked = computed(() => this.plan()?.success === false);
+
+  readonly canRun = computed(
+    () =>
+      this.selectedPaths().length > 0 &&
+      this.cropValid() &&
+      !this.planBlocked() &&
+      !this.isSubmitting() &&
+      !this.isPolling(),
+  );
+
+  readonly actionHelper = computed(() => {
+    if (!this.hasSelection()) {
+      return 'Add at least one image to crop.';
+    }
+    if (!this.hasPreview()) {
+      return this.previewError() || 'Loading the image preview…';
+    }
+    return this.cropError();
+  });
+
+  readonly terminalJob = computed<JobResultV1 | null>(() => {
+    const job = this.jobResult();
+    return job && this.isTerminalStatus(job.status) ? job : null;
+  });
+
+  readonly showProgress = computed(() => {
+    const job = this.jobResult();
+    return !!job && !this.isTerminalStatus(job.status);
+  });
+
+  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
+    const error = this.jobError();
+    return error
+      ? describeToolError(error, 'The crop could not start.')
+      : null;
+  });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
-  private previewDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private activePreviewRequestID = 0;
+  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private cropPreviewTimer: ReturnType<typeof setTimeout> | null = null;
+  private planToken = 0;
+  private cropPreviewToken = 0;
+  private fileItemsGeneration = 0;
+  private previewGeneration = 0;
+
   private dragState:
     | {
         mode: DragMode;
@@ -149,178 +385,212 @@ export class ImageCrop implements OnDestroy {
       }
     | undefined;
 
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly wailsService: Wails
-  ) {
-    this.form = this.fb.nonNullable.group({
-      jobMode: ['single' as JobMode, Validators.required],
-      outputPath: [''],
-      outputDir: [''],
-      ratioPreset: ['1:1' as RatioPreset, Validators.required],
-      format: [''],
-      x: ['0', Validators.required],
-      y: ['0', Validators.required],
-      width: ['1', Validators.required],
-      height: ['1', Validators.required],
-    });
+  constructor(private readonly wailsService: Wails) {
+    this.wailsService.jobProgress$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.activeJobId()) {
+          return;
+        }
 
-    this.form.controls.x.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onManualCoordinatesChanged());
-    this.form.controls.y.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onManualCoordinatesChanged());
-    this.form.controls.width.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onManualCoordinatesChanged());
-    this.form.controls.height.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onManualCoordinatesChanged());
-    this.form.controls.ratioPreset.valueChanges.pipe(takeUntil(this.destroy$)).subscribe((preset) => this.onRatioPresetChanged(preset as RatioPreset));
-    this.form.controls.format.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.scheduleCropPreviewRefresh());
+        const current = this.jobResult();
+        if (!current) {
+          return;
+        }
+
+        this.jobResult.set({
+          ...current,
+          message: event.progress.message,
+          progress: event.progress,
+          // Wait for the status endpoint to settle the final items. The event
+          // can arrive before the job store has the complete result.
+          status: this.isTerminalStatus(event.status)
+            ? current.status
+            : (event.status as JobExecutionStatusV1),
+        });
+
+        if (this.isTerminalStatus(event.status)) {
+          void this.pollJobStatus();
+        }
+      });
   }
 
   ngOnDestroy(): void {
     this.stopPolling();
-    if (this.previewDebounceTimer) {
-      clearTimeout(this.previewDebounceTimer);
-      this.previewDebounceTimer = null;
-    }
-
-    // Signal all takeUntil subscriptions to complete and release resources
+    this.clearPlanRefreshTimer();
+    this.clearCropPreviewTimer();
     this.destroy$.next();
     this.destroy$.complete();
   }
 
-  async selectImageFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = (await this.wailsService.openFileDialog()).trim();
-    if (!selected) {
-      return;
-    }
-
-    if (this.currentMode() === 'batch') {
-      this.addBatchInput(selected);
-      this.previewMessage = 'Batch mode: preview uses first selected image.';
-      void this.refreshPreviewSource();
-      return;
-    }
-
-    this.selectedInputPath = selected;
-    this.selectedInputPaths = [];
-    void this.refreshPreviewSource();
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    this.syncSelectionRectFromCrop();
   }
 
-  async selectMultipleImagesFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = await this.wailsService.openMultipleFilesDialog();
-    if (!selected || selected.length === 0) {
+  fileCountLabel(): string {
+    return formatCount(this.selectedPaths().length, 'image');
+  }
+
+  onPathsSelected(paths: string[]): void {
+    const incoming = (Array.isArray(paths) ? paths : [])
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (incoming.length === 0) {
       return;
     }
 
-    if (this.currentMode() === 'single') {
-      this.selectedInputPath = selected[0].trim();
-      void this.refreshPreviewSource();
-      return;
-    }
+    const previousFirst = this.selectedPaths()[0] ?? '';
+    const rejected: string[] = [];
+    const duplicates: string[] = [];
+    const added: string[] = [];
+    const known = new Set(
+      this.selectedPaths().map((path) => this.pathKey(path)),
+    );
 
-    for (const path of selected) {
-      this.addBatchInput(path);
-    }
-
-    this.previewMessage = 'Batch mode: preview uses first selected image.';
-    void this.refreshPreviewSource();
-  }
-
-  async selectOutputDirectory(): Promise<void> {
-    const selected = (await this.wailsService.openDirectoryDialog()).trim();
-    if (!selected) {
-      return;
-    }
-    this.form.patchValue({ outputDir: selected });
-  }
-
-  triggerSingleFileInput(): void {
-    this.singleFileInput?.nativeElement.click();
-  }
-
-  triggerBatchFileInput(): void {
-    this.batchFileInput?.nativeElement.click();
-  }
-
-  onSingleFileInputChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const file = target?.files?.item(0);
-    if (!file) {
-      return;
-    }
-
-    const path = ((file as File & { path?: string }).path ?? file.name).trim();
-    this.selectedInputPath = path;
-    if (target) {
-      target.value = '';
-    }
-
-    void this.refreshPreviewSource();
-  }
-
-  onBatchFileInputChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const files = target?.files;
-    if (!files || files.length === 0) {
-      return;
-    }
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files.item(i);
-      if (!file) {
+    for (const path of incoming) {
+      if (
+        !SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase())
+      ) {
+        rejected.push(path);
         continue;
       }
-      const path = ((file as File & { path?: string }).path ?? file.name).trim();
-      this.addBatchInput(path);
+
+      const key = this.pathKey(path);
+      if (known.has(key)) {
+        duplicates.push(path);
+        continue;
+      }
+
+      known.add(key);
+      added.push(path);
     }
 
-    if (target) {
-      target.value = '';
-    }
+    this.notice.set(this.intakeNotice(rejected, duplicates));
 
-    this.previewMessage = 'Batch mode: preview uses first selected image.';
-    void this.refreshPreviewSource();
-  }
-
-  removeBatchInput(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length) {
+    if (added.length === 0) {
       return;
     }
 
-    this.selectedInputPaths = this.selectedInputPaths.filter((_, i) => i !== index);
-    void this.refreshPreviewSource();
-  }
+    this.actionMessage.set('');
+    this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncFileItems();
 
-  clearInputs(): void {
-    this.selectedInputPath = '';
-    this.selectedInputPaths = [];
-    this.sourcePreviewDataUrl = '';
-    this.sourcePreviewMimeType = '';
-    this.sourceImageWidth = 0;
-    this.sourceImageHeight = 0;
-    this.cropPreviewDataUrl = '';
-    this.cropPreviewMimeType = '';
-    this.previewMessage = 'Select an image to start crop preview.';
-  }
-
-  onModeChanged(): void {
-    this.clearMessages();
-    this.clearPreviewMessagesOnly();
-
-    if (this.currentMode() === 'batch') {
-      this.selectedInputPath = '';
+    const firstChanged = previousFirst !== this.selectedPaths()[0];
+    if (firstChanged) {
+      void this.reloadPreviewAndPlan();
     } else {
-      this.selectedInputPaths = [];
+      void this.refreshPlan();
+    }
+  }
+
+  async chooseFiles(): Promise<void> {
+    const paths = await this.wailsService.openMultipleFilesDialog();
+    if (paths.length > 0) {
+      this.onPathsSelected(paths);
+    }
+  }
+
+  clear(): void {
+    if (this.selectedPaths().length === 0) {
+      return;
     }
 
-    void this.refreshPreviewSource();
+    this.selectedPaths.set([]);
+    this.notice.set(null);
+    this.actionMessage.set('');
+    this.syncFileItems();
+    void this.reloadPreviewAndPlan();
+  }
+
+  removeFile(path: string): void {
+    const previousFirst = this.selectedPaths()[0] ?? '';
+    const next = this.selectedPaths().filter(
+      (candidate) => candidate !== path,
+    );
+    if (next.length === this.selectedPaths().length) {
+      return;
+    }
+
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+
+    if ((next[0] ?? '') === previousFirst) {
+      void this.refreshPlan();
+    } else {
+      void this.reloadPreviewAndPlan();
+    }
+  }
+
+  selectRatio(presetId: RatioPresetId): void {
+    if (presetId === this.ratioPreset()) {
+      return;
+    }
+
+    this.ratioPreset.set(presetId);
+    this.actionMessage.set('');
+
+    if (this.hasPreview() && !this.cropValid()) {
+      this.applyRatioCrop();
+    }
+
+    this.syncSelectionRectFromCrop();
+    this.scheduleCropPreviewRefresh();
+    void this.refreshPlan();
+  }
+
+  onBoundsInput(axis: BoundsAxis, event: Event): void {
+    const value = this.readEventValue(event);
+    this.bounds.update((bounds) => ({ ...bounds, [axis]: value }));
+    this.actionMessage.set('');
+    this.syncSelectionRectFromCrop();
+    this.schedulePlanRefresh();
+    this.scheduleCropPreviewRefresh();
+  }
+
+  onFormatChange(event: Event): void {
+    const value = this.readEventValue(event);
+    if (value === this.format()) {
+      return;
+    }
+
+    this.format.set(value);
+    this.actionMessage.set('');
+    this.scheduleCropPreviewRefresh();
+    void this.refreshPlan();
+  }
+
+  onAdvancedToggle(event: Event): void {
+    const target = event.target as HTMLDetailsElement | null;
+    this.advancedOpen.set(!!target?.open);
+  }
+
+  async chooseOutputFolder(): Promise<void> {
+    const directory = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!directory) {
+      return;
+    }
+
+    this.outputDir.set(directory);
+    this.actionMessage.set('');
+    await this.refreshPlan();
+  }
+
+  useOriginalFolders(): void {
+    if (this.outputDir() === '') {
+      return;
+    }
+
+    this.outputDir.set('');
+    void this.refreshPlan();
   }
 
   onPreviewImageLoaded(): void {
-    this.syncSelectionRectFromForm();
+    this.syncSelectionRectFromCrop();
   }
 
   onPreviewPointerDown(event: PointerEvent): void {
-    if (!this.sourcePreviewDataUrl || this.currentMode() !== 'single') {
+    if (!this.hasPreview()) {
       return;
     }
 
@@ -334,15 +604,18 @@ export class ImageCrop implements OnDestroy {
       mode: 'draw',
       startX: local.x,
       startY: local.y,
-      startRect: { ...this.selectionRectPx },
+      startRect: { ...this.selectionRectPx() },
     };
 
     const target = event.currentTarget as HTMLElement | null;
     target?.setPointerCapture(event.pointerId);
   }
 
-  onSelectionHandlePointerDown(event: PointerEvent, mode: DragMode): void {
-    if (!this.sourcePreviewDataUrl || this.currentMode() !== 'single') {
+  onSelectionHandlePointerDown(
+    event: PointerEvent,
+    mode: DragMode,
+  ): void {
+    if (!this.hasPreview()) {
       return;
     }
 
@@ -357,7 +630,7 @@ export class ImageCrop implements OnDestroy {
       mode,
       startX: local.x,
       startY: local.y,
-      startRect: { ...this.selectionRectPx },
+      startRect: { ...this.selectionRectPx() },
     };
 
     const target = event.currentTarget as HTMLElement | null;
@@ -365,9 +638,10 @@ export class ImageCrop implements OnDestroy {
   }
 
   onSelectionBodyPointerDown(event: PointerEvent): void {
-    if (!this.sourcePreviewDataUrl || this.currentMode() !== 'single') {
+    if (!this.hasPreview()) {
       return;
     }
+
     const imageRect = this.previewImageElementRect();
     if (!imageRect) {
       return;
@@ -379,7 +653,7 @@ export class ImageCrop implements OnDestroy {
       mode: 'move',
       startX: local.x,
       startY: local.y,
-      startRect: { ...this.selectionRectPx },
+      startRect: { ...this.selectionRectPx() },
     };
 
     const target = event.currentTarget as HTMLElement | null;
@@ -397,9 +671,14 @@ export class ImageCrop implements OnDestroy {
     }
 
     const pointer = this.pointerToLocal(event, imageRect);
-    const nextRect = this.nextRectForDrag(pointer.x, pointer.y, imageRect.width, imageRect.height);
-    this.selectionRectPx = nextRect;
-    this.syncFormFromSelectionRect();
+    const nextRect = this.nextRectForDrag(
+      pointer.x,
+      pointer.y,
+      imageRect.width,
+      imageRect.height,
+    );
+    this.selectionRectPx.set(nextRect);
+    this.syncBoundsFromSelectionRect();
   }
 
   onPreviewPointerUp(): void {
@@ -408,437 +687,549 @@ export class ImageCrop implements OnDestroy {
     }
 
     this.dragState = undefined;
+    this.schedulePlanRefresh();
     this.scheduleCropPreviewRefresh();
-  }
-
-  async validate(): Promise<void> {
-    this.clearMessages();
-    const localError = this.localValidationError();
-    if (localError) {
-      this.validationMessage = localError;
-      return;
-    }
-
-    const response = await this.wailsService.validateJobV1(this.buildRequest());
-    this.validationMessage = response.valid
-      ? 'Validation OK. Ready to run crop job.'
-      : this.mapJobError(response.error, response.message);
   }
 
   async run(): Promise<void> {
-    this.clearMessages();
-    const localError = this.localValidationError();
-    if (localError) {
-      this.submitMessage = localError;
+    if (!this.canRun()) {
       return;
     }
 
-    const request = this.buildRequest();
-    this.isSubmitting = true;
-    this.jobResult = null;
+    this.clearPlanRefreshTimer();
+    this.actionMessage.set('');
 
-    const validation = await this.wailsService.validateJobV1(request);
-    if (!validation.valid) {
-      this.submitMessage = this.mapJobError(validation.error, validation.message);
-      this.isSubmitting = false;
+    // The plan is the source of truth for destinations and collision-safe
+    // names, so it is refreshed with the current crop before starting.
+    const planned = await this.refreshPlan();
+    if (!planned) {
       return;
     }
 
-    const runResponse = await this.wailsService.runJobV1(request);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.submitMessage = this.mapJobError(runResponse.error, runResponse.message);
-      this.isSubmitting = false;
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(true);
+
+    const response: RunJobResponseV1 = await this.wailsService
+      .runJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The crop could not start.',
+        jobId: '',
+        status: 'failed' as const,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: 'The crop could not start.',
+        },
+      }));
+    if (!response.success || !response.jobId) {
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: response.message || 'The crop could not start.',
+        },
+      );
+      this.isSubmitting.set(false);
       return;
     }
 
-    this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
+    const total = this.selectedPaths().length;
+    this.activeJobId.set(response.jobId);
+    this.jobResult.set({
+      jobId: response.jobId,
+      success: false,
+      message: 'Waiting to start',
+      toolId: IMAGE_CROP_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total,
+        stage: 'queued',
+        message: 'Waiting to start',
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isSubmitting.set(false);
+    this.isPolling.set(true);
     this.startPolling();
-    this.isSubmitting = false;
   }
 
   async cancel(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       return;
     }
 
-    const response = await this.wailsService.cancelJobV1(this.activeJobId);
-    this.statusMessage = response.success
-      ? 'Cancel requested.'
-      : this.mapJobError(response.error, response.message);
+    const response = await this.wailsService.cancelJobV1(jobId);
+    if (!response.success) {
+      this.actionMessage.set(
+        response.message || 'The job could not be cancelled.',
+      );
+    }
   }
 
-  previewCropStyle(): Record<string, string> {
-    if (!this.sourcePreviewDataUrl || this.selectionRectPx.width <= 0 || this.selectionRectPx.height <= 0) {
-      return { display: 'none' };
-    }
-
-    return {
-      left: `${this.selectionRectPx.x}px`,
-      top: `${this.selectionRectPx.y}px`,
-      width: `${this.selectionRectPx.width}px`,
-      height: `${this.selectionRectPx.height}px`,
-    };
+  async onOpen(path: string): Promise<void> {
+    const response = await this.wailsService.openPath(path);
+    this.actionMessage.set(
+      response.success ? '' : response.message || 'The file could not be opened.',
+    );
   }
 
-  private async refreshPreviewSource(): Promise<void> {
-    const sourcePath = this.previewSourcePath();
-    if (!sourcePath) {
-      this.sourcePreviewDataUrl = '';
-      this.cropPreviewDataUrl = '';
-      this.previewMessage = this.currentMode() === 'batch'
-        ? 'Select at least one image in batch mode to preview.'
-        : 'Select an image to start crop preview.';
-      return;
-    }
-
-    this.isPreviewLoading = true;
-    this.previewMessage = 'Loading source preview from backend...';
-
-    const response: ImagePreviewSourceResponseV1 =
-      await this.wailsService.getImagePreviewSourceV1(sourcePath);
-
-    if (!response.success || !response.dataBase64) {
-      this.isPreviewLoading = false;
-      this.previewMessage = this.mapJobError(response.error, response.message);
-      this.sourcePreviewDataUrl = '';
-      this.cropPreviewDataUrl = '';
-      return;
-    }
-
-    const mimeType = response.mimeType || 'image/png';
-    this.sourcePreviewMimeType = mimeType;
-    this.sourceImageWidth = response.width || 0;
-    this.sourceImageHeight = response.height || 0;
-    this.sourcePreviewDataUrl = `data:${mimeType};base64,${response.dataBase64}`;
-    this.previewMessage = 'Source preview loaded (EXIF normalized in backend).';
-    this.isPreviewLoading = false;
-
-    this.syncSelectionRectFromForm();
-    this.scheduleCropPreviewRefresh();
+  async onReveal(path: string): Promise<void> {
+    const response = await this.wailsService.revealInFolder(path);
+    this.actionMessage.set(
+      response.success
+        ? ''
+        : response.message || 'The folder could not be opened.',
+    );
   }
 
-  private onManualCoordinatesChanged(): void {
-    this.syncSelectionRectFromForm();
-    this.scheduleCropPreviewRefresh();
+  /** Retries only the failed inputs with the same crop settings and folder. */
+  async retryFailed(): Promise<void> {
+    const failed = (this.jobResult()?.items ?? [])
+      .filter((item) => !item.success)
+      .map((item) => item.inputPath)
+      .filter((path) => path.length > 0);
+
+    if (failed.length === 0) {
+      return;
+    }
+
+    const previousFirst = this.selectedPaths()[0] ?? '';
+    this.selectedPaths.set([...new Set(failed)]);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+    this.syncFileItems();
+
+    if ((this.selectedPaths()[0] ?? '') !== previousFirst) {
+      await this.refreshPreviewSource();
+    }
+
+    await this.run();
   }
 
-  private onRatioPresetChanged(preset: RatioPreset): void {
-    if (preset !== 'free') {
-      const ratio = this.ratioToValue(preset);
-      if (ratio > 0) {
-        const width = this.parseIntOrFallback(this.form.controls.width.value, 1);
-        const adjustedHeight = Math.max(1, Math.round(width / ratio));
-        this.form.patchValue({ height: `${adjustedHeight}` }, { emitEvent: false });
-      }
-    }
+  reset(): void {
+    this.stopPolling();
+    this.clearPlanRefreshTimer();
+    this.clearCropPreviewTimer();
+    this.planToken += 1;
+    this.cropPreviewToken += 1;
+    this.fileItemsGeneration += 1;
+    this.previewGeneration += 1;
+    this.dragState = undefined;
 
-    this.syncSelectionRectFromForm();
-    this.scheduleCropPreviewRefresh();
-  }
-
-  private scheduleCropPreviewRefresh(): void {
-    if (this.previewDebounceTimer) {
-      clearTimeout(this.previewDebounceTimer);
-      this.previewDebounceTimer = null;
-    }
-
-    if (!this.sourcePreviewDataUrl) {
-      return;
-    }
-
-    this.previewDebounceTimer = setTimeout(() => {
-      void this.refreshCroppedPreview();
-    }, 120);
-  }
-
-  private async refreshCroppedPreview(): Promise<void> {
-    const sourcePath = this.previewSourcePath();
-    if (!sourcePath) {
-      this.cropPreviewDataUrl = '';
-      return;
-    }
-
-    const parsed = this.formCoordinates();
-    if (!parsed) {
-      this.cropPreviewDataUrl = '';
-      return;
-    }
-
-    const requestID = ++this.activePreviewRequestID;
-    this.isPreviewLoading = true;
-    this.previewMessage = 'Generating pixel-perfect crop preview in backend...';
-
-    const request: ImageCropPreviewRequestV1 = {
-      inputPath: sourcePath,
-      x: parsed.x,
-      y: parsed.y,
-      width: parsed.width,
-      height: parsed.height,
-      ratioPreset: this.form.controls.ratioPreset.value as RatioPreset,
-      format: this.form.controls.format.value,
-    };
-
-    const response: ImageCropPreviewResponseV1 =
-      await this.wailsService.getImageCropPreviewV1(request);
-
-    if (requestID !== this.activePreviewRequestID) {
-      return;
-    }
-
-    this.isPreviewLoading = false;
-
-    if (!response.success || !response.dataBase64) {
-      this.cropPreviewDataUrl = '';
-      this.previewMessage = this.mapJobError(response.error, response.message);
-      return;
-    }
-
-    const mimeType = response.mimeType || this.sourcePreviewMimeType || 'image/png';
-    this.cropPreviewMimeType = mimeType;
-    this.cropPreviewDataUrl = `data:${mimeType};base64,${response.dataBase64}`;
-    this.previewMessage = 'Preview is pixel-perfect with backend execution.';
-  }
-
-  private localValidationError(): string {
-    const mode = this.currentMode();
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const outputDir = this.form.controls.outputDir.value.trim();
-    const ratioPreset = this.form.controls.ratioPreset.value as RatioPreset;
-    const coords = this.formCoordinates();
-
-    if (mode === 'single') {
-      if (!this.selectedInputPath.trim()) {
-        return 'Select one input image in single mode.';
-      }
-      if (!this.isImagePath(this.selectedInputPath.trim())) {
-        return `Input extension is not supported: ${this.selectedInputPath}`;
-      }
-      if (outputPath && outputPath.endsWith('/')) {
-        return 'Output path must include a filename.';
-      }
-    }
-
-    if (mode === 'batch') {
-      if (this.selectedInputPaths.length < 1) {
-        return 'Select at least one input image in batch mode.';
-      }
-      for (const inputPath of this.selectedInputPaths) {
-        if (!this.isImagePath(inputPath)) {
-          return `Input extension is not supported: ${inputPath}`;
-        }
-      }
-    }
-
-    if (!coords) {
-      return 'Coordinates must be integers (x, y, width, height).';
-    }
-    if (coords.x < 0 || coords.y < 0) {
-      return 'Coordinates use top-left origin, so x and y must be >= 0.';
-    }
-    if (coords.width < 1 || coords.height < 1) {
-      return 'Minimum crop size is 1x1.';
-    }
-
-    if (ratioPreset !== 'free') {
-      const expected = this.ratioToValue(ratioPreset);
-      if (expected > 0) {
-        const actual = coords.width / coords.height;
-        if (Math.abs(actual - expected) > 0.0001) {
-          return `Ratio preset ${ratioPreset} requires locked width/height proportion.`;
-        }
-      }
-    }
-
-    return '';
+    this.selectedPaths.set([]);
+    this.fileItems.set([]);
+    this.previewUrl.set('');
+    this.imageWidth.set(0);
+    this.imageHeight.set(0);
+    this.bounds.set({ ...EMPTY_BOUNDS });
+    this.selectionRectPx.set({ ...EMPTY_RECT });
+    this.previewLoading.set(false);
+    this.previewError.set('');
+    this.cropPreviewUrl.set('');
+    this.isCropPreviewLoading.set(false);
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(false);
+    this.activeJobId.set('');
+    this.notice.set(null);
+    this.actionMessage.set('');
   }
 
   private buildRequest(): JobRequestV1 {
-    const mode = this.currentMode();
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const outputDir = this.form.controls.outputDir.value.trim();
-    const ratioPreset = this.form.controls.ratioPreset.value as RatioPreset;
-    const format = this.form.controls.format.value.trim();
-    const coords = this.formCoordinates() ?? { x: 0, y: 0, width: 1, height: 1 };
+    const paths = this.selectedPaths();
+    const crop = this.crop() ?? { x: 0, y: 0, width: 1, height: 1 };
+    const format = this.format().trim();
 
     const options: Record<string, unknown> = {
-      x: coords.x,
-      y: coords.y,
-      width: coords.width,
-      height: coords.height,
-      ratioPreset,
-      ...(format ? { format } : {}),
-      ...(mode === 'single' && outputPath ? { outputPath } : {}),
-      ...(mode === 'batch' && outputDir ? { outputDir } : {}),
+      x: crop.x,
+      y: crop.y,
+      width: crop.width,
+      height: crop.height,
+      ratioPreset: this.ratioPreset(),
     };
+    if (format) {
+      options['format'] = format;
+    }
 
     return {
       toolId: IMAGE_CROP_TOOL_ID,
-      mode,
-      inputPaths: mode === 'single' ? [this.selectedInputPath.trim()] : [...this.selectedInputPaths],
-      outputDir: mode === 'batch' ? outputDir : this.outputDirFromPath(outputPath),
+      mode: paths.length > 1 ? 'batch' : 'single',
+      inputPaths: [...paths],
+      outputDir: this.outputDir(),
       options,
     };
   }
 
-  private startPolling(): void {
-    this.stopPolling();
-    this.isPolling = true;
-    this.pollingTimer = setInterval(() => {
-      void this.pollJobStatus();
-    }, POLLING_INTERVAL_MS);
-    void this.pollJobStatus();
-  }
-
-  private stopPolling(): void {
-    if (this.pollingTimer) {
-      clearInterval(this.pollingTimer);
-      this.pollingTimer = null;
-    }
-    this.isPolling = false;
-  }
-
-  private async pollJobStatus(): Promise<void> {
-    if (!this.activeJobId) {
-      this.stopPolling();
-      return;
+  private async refreshPlan(): Promise<boolean> {
+    if (this.selectedPaths().length === 0 || !this.cropValid()) {
+      this.clearPlanState();
+      return false;
     }
 
-    const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(this.activeJobId);
-    if (!response.found || !response.result) {
-      this.statusMessage = this.mapJobError(response.error, response.message);
-      this.stopPolling();
-      return;
+    const token = (this.planToken += 1);
+    this.planLoading.set(true);
+    this.plan.set(null);
+    this.planError.set(null);
+
+    const response: PlanJobResponseV1 = await this.wailsService
+      .planJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The output could not be planned.',
+        outputs: [],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PLAN_JOB_FAILED',
+          message: 'The output could not be planned.',
+        },
+      }));
+    if (token !== this.planToken) {
+      return false;
     }
 
-    this.jobResult = response.result;
-    this.statusMessage = `${response.result.status}: ${
-      response.result.error
-        ? this.mapJobError(response.result.error, response.result.message)
-        : response.result.message
-    }`;
+    this.planLoading.set(false);
 
-    if (this.isTerminalStatus(response.result.status)) {
-      this.stopPolling();
-      this.activeJobId = '';
-    }
-  }
-
-  private clearMessages(): void {
-    this.validationMessage = '';
-    this.submitMessage = '';
-    this.statusMessage = '';
-  }
-
-  private clearPreviewMessagesOnly(): void {
-    this.previewMessage = this.currentMode() === 'batch'
-      ? 'Batch mode: preview uses first selected image.'
-      : 'Select an image to start crop preview.';
-  }
-
-  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
-    if (!error) {
-      return fallback;
+    if (response.success && !response.error) {
+      this.plan.set(response);
+      return true;
     }
 
-    switch (error.detail_code) {
-      case 'IMAGE_CROP_OUT_OF_BOUNDS':
-        return `Crop area is out of bounds: ${error.message}`;
-      case 'IMAGE_CROP_RATIO_INVALID':
-        return `Ratio mismatch: ${error.message}`;
-      default:
-        break;
-    }
-
-    const technical = error.detail_code ? ` [${error.detail_code}]` : '';
-    return `${error.code}${technical}: ${error.message}`;
-  }
-
-  private currentMode(): JobMode {
-    return this.form.controls.jobMode.value === 'batch' ? 'batch' : 'single';
-  }
-
-  private previewSourcePath(): string {
-    if (this.currentMode() === 'single') {
-      return this.selectedInputPath.trim();
-    }
-    return this.selectedInputPaths[0]?.trim() ?? '';
-  }
-
-  private addBatchInput(rawPath: string): void {
-    const trimmed = rawPath.trim();
-    if (!trimmed || this.selectedInputPaths.includes(trimmed)) {
-      return;
-    }
-
-    this.selectedInputPaths = [...this.selectedInputPaths, trimmed];
-  }
-
-  private formCoordinates(): CropRect | null {
-    const x = Number.parseInt(this.form.controls.x.value.trim(), 10);
-    const y = Number.parseInt(this.form.controls.y.value.trim(), 10);
-    const width = Number.parseInt(this.form.controls.width.value.trim(), 10);
-    const height = Number.parseInt(this.form.controls.height.value.trim(), 10);
-
-    if (![x, y, width, height].every((v) => Number.isFinite(v))) {
-      return null;
-    }
-
-    return { x, y, width, height };
-  }
-
-  private syncSelectionRectFromForm(): void {
-    const coords = this.formCoordinates();
-    const imgRect = this.previewImageElementRect();
-    if (!coords || !imgRect || this.sourceImageWidth <= 0 || this.sourceImageHeight <= 0) {
-      return;
-    }
-
-    const scaleX = imgRect.width / this.sourceImageWidth;
-    const scaleY = imgRect.height / this.sourceImageHeight;
-    this.selectionRectPx = {
-      x: Math.max(0, Math.round(coords.x * scaleX)),
-      y: Math.max(0, Math.round(coords.y * scaleY)),
-      width: Math.max(1, Math.round(coords.width * scaleX)),
-      height: Math.max(1, Math.round(coords.height * scaleY)),
+    const error: JobErrorV1 = response.error ?? {
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PLAN_JOB_FAILED',
+      message: response.message || 'The output could not be planned.',
     };
+    // Keep the failed plan so the shared plan card can show the destination
+    // or format problem next to the destination it belongs to.
+    this.plan.set({ ...response, success: false, error });
+    this.planError.set(error);
+    return false;
   }
 
-  private syncFormFromSelectionRect(): void {
-    const imgRect = this.previewImageElementRect();
-    if (!imgRect || this.sourceImageWidth <= 0 || this.sourceImageHeight <= 0) {
+  private clearPlanState(): void {
+    this.planToken += 1;
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.clearPlanRefreshTimer();
+  }
+
+  private schedulePlanRefresh(): void {
+    this.clearPlanRefreshTimer();
+    if (this.selectedPaths().length === 0) {
+      this.clearPlanState();
       return;
     }
 
-    const scaleX = this.sourceImageWidth / imgRect.width;
-    const scaleY = this.sourceImageHeight / imgRect.height;
+    this.planRefreshTimer = setTimeout(() => {
+      this.planRefreshTimer = null;
+      void this.refreshPlan();
+    }, BOUNDS_PLAN_DEBOUNCE_MS);
+  }
 
-    let width = Math.max(1, Math.round(this.selectionRectPx.width * scaleX));
-    let height = Math.max(1, Math.round(this.selectionRectPx.height * scaleY));
+  private clearPlanRefreshTimer(): void {
+    if (this.planRefreshTimer) {
+      clearTimeout(this.planRefreshTimer);
+      this.planRefreshTimer = null;
+    }
+  }
 
-    const ratioPreset = this.form.controls.ratioPreset.value as RatioPreset;
-    if (ratioPreset !== 'free') {
-      const ratio = this.ratioToValue(ratioPreset);
-      if (ratio > 0) {
-        height = Math.max(1, Math.round(width / ratio));
-      }
+  private async reloadPreviewAndPlan(): Promise<void> {
+    await this.refreshPreviewSource();
+    await this.refreshPlan();
+  }
+
+  private async refreshPreviewSource(): Promise<void> {
+    const path = this.previewSourcePath();
+    const generation = (this.previewGeneration += 1);
+
+    this.clearCropPreviewTimer();
+    this.cropPreviewToken += 1;
+    this.cropPreviewUrl.set('');
+    this.isCropPreviewLoading.set(false);
+    this.previewError.set('');
+    this.actionMessage.set('');
+
+    if (!path) {
+      this.previewLoading.set(false);
+      this.previewUrl.set('');
+      this.imageWidth.set(0);
+      this.imageHeight.set(0);
+      this.selectionRectPx.set({ ...EMPTY_RECT });
+      return;
     }
 
-    const x = Math.max(0, Math.round(this.selectionRectPx.x * scaleX));
-    const y = Math.max(0, Math.round(this.selectionRectPx.y * scaleY));
+    this.previewLoading.set(true);
 
-    this.form.patchValue(
-      {
-        x: `${x}`,
-        y: `${y}`,
-        width: `${width}`,
-        height: `${height}`,
-      },
-      { emitEvent: false }
+    const response: ImagePreviewSourceResponseV1 =
+      await this.wailsService.getImagePreviewSourceV1(path).catch(() => ({
+        success: false,
+        message: 'The image preview could not be loaded.',
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'IMAGE_PREVIEW_READ_FAILED',
+          message: 'The image preview could not be loaded.',
+        },
+      }));
+    if (generation !== this.previewGeneration) {
+      return;
+    }
+
+    this.previewLoading.set(false);
+
+    if (!response.success || !response.dataBase64) {
+      this.previewUrl.set('');
+      this.imageWidth.set(0);
+      this.imageHeight.set(0);
+      this.selectionRectPx.set({ ...EMPTY_RECT });
+      this.previewError.set(
+        describeToolError(
+          response.error,
+          'The image preview could not be loaded.',
+        ).description,
+      );
+      return;
+    }
+
+    const mimeType = response.mimeType || 'image/png';
+    this.imageWidth.set(response.width ?? 0);
+    this.imageHeight.set(response.height ?? 0);
+    this.previewUrl.set(
+      `data:${mimeType};base64,${response.dataBase64}`,
+    );
+
+    this.prepareCropForImage();
+  }
+
+  private prepareCropForImage(): void {
+    if (!this.hasPreview()) {
+      this.selectionRectPx.set({ ...EMPTY_RECT });
+      return;
+    }
+
+    if (!this.cropValid()) {
+      this.applyRatioCrop();
+    }
+
+    this.syncSelectionRectFromCrop();
+    this.scheduleCropPreviewRefresh();
+  }
+
+  private applyRatioCrop(): void {
+    const imageWidth = this.imageWidth();
+    const imageHeight = this.imageHeight();
+    if (imageWidth <= 0 || imageHeight <= 0) {
+      return;
+    }
+
+    const preset = this.ratioDefinition();
+    if (this.ratioPreset() === 'free') {
+      this.setCrop({
+        x: 0,
+        y: 0,
+        width: imageWidth,
+        height: imageHeight,
+      });
+      return;
+    }
+
+    const units = Math.min(
+      Math.floor(imageWidth / preset.widthStep),
+      Math.floor(imageHeight / preset.heightStep),
+    );
+    if (units < 1) {
+      this.setCrop({
+        x: 0,
+        y: 0,
+        width: imageWidth,
+        height: imageHeight,
+      });
+      return;
+    }
+
+    const width = units * preset.widthStep;
+    const height = units * preset.heightStep;
+    this.setCrop({
+      x: Math.floor((imageWidth - width) / 2),
+      y: Math.floor((imageHeight - height) / 2),
+      width,
+      height,
+    });
+  }
+
+  private setCrop(crop: CropRect): void {
+    this.bounds.set({
+      x: `${crop.x}`,
+      y: `${crop.y}`,
+      width: `${crop.width}`,
+      height: `${crop.height}`,
+    });
+  }
+
+  private scheduleCropPreviewRefresh(): void {
+    this.clearCropPreviewTimer();
+    // A pending preview belongs to the previous crop; discard it so it can
+    // never replace the preview of the new selection.
+    this.cropPreviewToken += 1;
+    this.isCropPreviewLoading.set(false);
+    if (!this.previewUrl()) {
+      return;
+    }
+
+    this.cropPreviewTimer = setTimeout(() => {
+      this.cropPreviewTimer = null;
+      void this.refreshCropPreview();
+    }, CROP_PREVIEW_DEBOUNCE_MS);
+  }
+
+  private clearCropPreviewTimer(): void {
+    if (this.cropPreviewTimer) {
+      clearTimeout(this.cropPreviewTimer);
+      this.cropPreviewTimer = null;
+    }
+  }
+
+  private async refreshCropPreview(): Promise<void> {
+    const path = this.previewSourcePath();
+    const crop = this.crop();
+
+    if (!path || !crop || !this.cropValid()) {
+      this.cropPreviewUrl.set('');
+      return;
+    }
+
+    const token = (this.cropPreviewToken += 1);
+    this.isCropPreviewLoading.set(true);
+
+    const request: ImageCropPreviewRequestV1 = {
+      inputPath: path,
+      x: crop.x,
+      y: crop.y,
+      width: crop.width,
+      height: crop.height,
+      ratioPreset: this.ratioPreset(),
+      format: this.format(),
+    };
+
+    const response = await this.wailsService
+      .getImageCropPreviewV1(request)
+      .catch(() => null);
+    if (token !== this.cropPreviewToken) {
+      return;
+    }
+
+    this.isCropPreviewLoading.set(false);
+
+    if (!response || !response.success || !response.dataBase64) {
+      this.cropPreviewUrl.set('');
+      return;
+    }
+
+    const mimeType = response.mimeType || 'image/png';
+    this.cropPreviewUrl.set(
+      `data:${mimeType};base64,${response.dataBase64}`,
     );
   }
 
-  private ratioToValue(preset: RatioPreset): number {
+  private previewSourcePath(): string {
+    return this.selectedPaths()[0]?.trim() ?? '';
+  }
+
+  private ratioDefinition(): RatioPreset {
+    return (
+      RATIO_PRESETS.find((preset) => preset.id === this.ratioPreset()) ??
+      RATIO_PRESETS[0]
+    );
+  }
+
+  private syncSelectionRectFromCrop(): void {
+    const element = this.previewImage?.nativeElement;
+    const crop = this.crop();
+    const imageWidth = this.imageWidth();
+    const imageHeight = this.imageHeight();
+
+    if (!element || !crop || imageWidth <= 0 || imageHeight <= 0) {
+      this.selectionRectPx.set({ ...EMPTY_RECT });
+      return;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+
+    const scaleX = rect.width / imageWidth;
+    const scaleY = rect.height / imageHeight;
+    this.selectionRectPx.set({
+      x: Math.max(0, Math.round(crop.x * scaleX)),
+      y: Math.max(0, Math.round(crop.y * scaleY)),
+      width: Math.max(1, Math.round(crop.width * scaleX)),
+      height: Math.max(1, Math.round(crop.height * scaleY)),
+    });
+  }
+
+  private syncBoundsFromSelectionRect(): void {
+    const rect = this.previewImageElementRect();
+    const imageWidth = this.imageWidth();
+    const imageHeight = this.imageHeight();
+    const selection = this.selectionRectPx();
+
+    if (!rect || imageWidth <= 0 || imageHeight <= 0) {
+      return;
+    }
+
+    const scaleX = imageWidth / rect.width;
+    const scaleY = imageHeight / rect.height;
+
+    const x = clamp(Math.round(selection.x * scaleX), 0, imageWidth - 1);
+    const y = clamp(Math.round(selection.y * scaleY), 0, imageHeight - 1);
+    let width = clamp(
+      Math.round(selection.width * scaleX),
+      1,
+      imageWidth - x,
+    );
+    let height = clamp(
+      Math.round(selection.height * scaleY),
+      1,
+      imageHeight - y,
+    );
+
+    const preset = this.ratioDefinition();
+    if (this.ratioPreset() !== 'free') {
+      const unitsX = Math.floor(width / preset.widthStep);
+      const unitsY = Math.floor(height / preset.heightStep);
+      const maxUnitsX = Math.floor(
+        (imageWidth - x) / preset.widthStep,
+      );
+      const maxUnitsY = Math.floor(
+        (imageHeight - y) / preset.heightStep,
+      );
+      const units = Math.min(unitsX, unitsY, maxUnitsX, maxUnitsY);
+      if (units < 1) {
+        return;
+      }
+
+      width = units * preset.widthStep;
+      height = units * preset.heightStep;
+    }
+
+    this.setCrop({ x, y, width, height });
+    this.syncSelectionRectFromCrop();
+  }
+
+  private ratioToValue(preset: RatioPresetId): number {
     switch (preset) {
       case '1:1':
         return 1;
@@ -856,6 +1247,7 @@ export class ImageCrop implements OnDestroy {
     if (!element) {
       return null;
     }
+
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
       return null;
@@ -863,9 +1255,12 @@ export class ImageCrop implements OnDestroy {
     return rect;
   }
 
-  private pointerToLocal(event: PointerEvent, rect: DOMRect): { x: number; y: number } {
-    const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
-    const y = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+  private pointerToLocal(
+    event: PointerEvent,
+    rect: DOMRect,
+  ): { x: number; y: number } {
+    const x = clamp(event.clientX - rect.left, 0, rect.width);
+    const y = clamp(event.clientY - rect.top, 0, rect.height);
     return { x, y };
   }
 
@@ -873,18 +1268,15 @@ export class ImageCrop implements OnDestroy {
     pointerX: number,
     pointerY: number,
     maxWidth: number,
-    maxHeight: number
+    maxHeight: number,
   ): CropRect {
     if (!this.dragState) {
-      return this.selectionRectPx;
+      return this.selectionRectPx();
     }
 
     const dx = pointerX - this.dragState.startX;
     const dy = pointerY - this.dragState.startY;
     const start = this.dragState.startRect;
-
-    const clamp = (value: number, min: number, max: number): number =>
-      Math.min(Math.max(value, min), max);
 
     let next: CropRect = { ...start };
 
@@ -923,7 +1315,11 @@ export class ImageCrop implements OnDestroy {
         break;
       }
       case 'resize-ne': {
-        const right = clamp(start.x + start.width + dx, start.x + 1, maxWidth);
+        const right = clamp(
+          start.x + start.width + dx,
+          start.x + 1,
+          maxWidth,
+        );
         const y = clamp(start.y + dy, 0, start.y + start.height - 1);
         next = {
           x: start.x,
@@ -935,7 +1331,11 @@ export class ImageCrop implements OnDestroy {
       }
       case 'resize-sw': {
         const x = clamp(start.x + dx, 0, start.x + start.width - 1);
-        const bottom = clamp(start.y + start.height + dy, start.y + 1, maxHeight);
+        const bottom = clamp(
+          start.y + start.height + dy,
+          start.y + 1,
+          maxHeight,
+        );
         next = {
           x,
           y: start.y,
@@ -945,8 +1345,16 @@ export class ImageCrop implements OnDestroy {
         break;
       }
       case 'resize-se': {
-        const right = clamp(start.x + start.width + dx, start.x + 1, maxWidth);
-        const bottom = clamp(start.y + start.height + dy, start.y + 1, maxHeight);
+        const right = clamp(
+          start.x + start.width + dx,
+          start.x + 1,
+          maxWidth,
+        );
+        const bottom = clamp(
+          start.y + start.height + dy,
+          start.y + 1,
+          maxHeight,
+        );
         next = {
           x: start.x,
           y: start.y,
@@ -959,12 +1367,15 @@ export class ImageCrop implements OnDestroy {
         break;
     }
 
-    const ratioPreset = this.form.controls.ratioPreset.value as RatioPreset;
+    const ratioPreset = this.ratioPreset();
     if (ratioPreset !== 'free') {
       const ratio = this.ratioToValue(ratioPreset);
       if (ratio > 0) {
         const adjustedHeight = Math.max(1, Math.round(next.width / ratio));
-        next.height = Math.min(adjustedHeight, Math.max(1, maxHeight - next.y));
+        next.height = Math.min(
+          adjustedHeight,
+          Math.max(1, maxHeight - next.y),
+        );
       }
     }
 
@@ -976,43 +1387,236 @@ export class ImageCrop implements OnDestroy {
     };
   }
 
-  private parseIntOrFallback(raw: string, fallback: number): number {
-    const value = Number.parseInt(raw.trim(), 10);
-    if (!Number.isFinite(value)) {
-      return fallback;
-    }
-    return value;
+  private startPolling(): void {
+    this.stopPolling();
+    this.isPolling.set(true);
+    void this.pollJobStatus();
+    this.pollingTimer = setInterval(() => {
+      void this.pollJobStatus();
+    }, POLLING_INTERVAL_MS);
   }
 
-  private isImagePath(path: string): boolean {
-    const lower = path.toLowerCase();
-    return (
-      lower.endsWith('.jpg') ||
-      lower.endsWith('.jpeg') ||
-      lower.endsWith('.png') ||
-      lower.endsWith('.gif') ||
-      lower.endsWith('.webp') ||
-      lower.endsWith('.bmp') ||
-      lower.endsWith('.tiff') ||
-      lower.endsWith('.tif')
+  private stopPolling(): void {
+    if (this.pollingTimer) {
+      clearInterval(this.pollingTimer);
+      this.pollingTimer = null;
+    }
+    this.isPolling.set(false);
+  }
+
+  private async pollJobStatus(): Promise<void> {
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      this.stopPolling();
+      return;
+    }
+
+    const response: JobStatusResponseV1 = await this.wailsService
+      .getJobStatusV1(jobId)
+      .catch(() => ({
+        success: false,
+        message: 'The job status could not be read.',
+        found: false,
+        error: {
+          code: 'EXEC_IO_TRANSIENT' as const,
+          detail_code: 'JOB_STATUS_FAILED',
+          message: 'The job status could not be read.',
+        },
+      }));
+    if (this.activeJobId() !== jobId) {
+      return;
+    }
+
+    if (!response.found || !response.result) {
+      this.stopPolling();
+      this.activeJobId.set('');
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_MISSING',
+          message: response.message || 'The job status could not be read.',
+        },
+      );
+      return;
+    }
+
+    this.jobResult.set(response.result);
+    if (this.isTerminalStatus(response.result.status)) {
+      this.stopPolling();
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
+    }
+  }
+
+  private async loadOutputInfos(): Promise<void> {
+    const paths = this.collectOutputPaths();
+    if (paths.length === 0) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const response: InspectFilesResponseV1 = await this.wailsService
+      .inspectFilesV1(paths)
+      .catch(() => ({
+        success: false,
+        message: 'File sizes could not be read.',
+        files: [],
+      }));
+    if (!response.success) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const infos: Record<string, FileInfoV1> = {};
+    for (const info of response.files) {
+      if (info.path) {
+        infos[info.path] = info;
+      }
+    }
+    this.outputInfos.set(infos);
+  }
+
+  private collectOutputPaths(): string[] {
+    const paths = new Set<string>();
+    for (const item of this.jobResult()?.items ?? []) {
+      if (!item.success) {
+        continue;
+      }
+
+      const outputs = (item.outputs ?? []).filter((path) => !!path);
+      if (outputs.length > 0) {
+        for (const output of outputs) {
+          paths.add(output);
+        }
+      } else if (item.outputPath) {
+        paths.add(item.outputPath);
+      }
+    }
+    return [...paths];
+  }
+
+  private syncFileItems(): void {
+    const paths = this.selectedPaths();
+    const generation = (this.fileItemsGeneration += 1);
+    const existing = new Map(
+      this.fileItems().map((item) => [item.path, item]),
     );
+    this.fileItems.set(
+      paths.map(
+        (path) => existing.get(path) ?? { path, name: fileName(path) },
+      ),
+    );
+
+    if (paths.length > 0) {
+      void this.enrichFileItems(paths, generation);
+    }
   }
 
-  private outputDirFromPath(outputPath: string): string {
-    const lastSlash = Math.max(outputPath.lastIndexOf('/'), outputPath.lastIndexOf('\\'));
-    if (lastSlash <= 0) {
-      return '';
+  private async enrichFileItems(
+    paths: string[],
+    generation: number,
+  ): Promise<void> {
+    try {
+      const response = await this.wailsService.inspectFilesV1(paths);
+      if (generation === this.fileItemsGeneration && response.success) {
+        const infos = new Map<string, FileInfoV1>();
+        for (const info of response.files) {
+          infos.set(info.path, info);
+        }
+
+        this.fileItems.update((items) =>
+          items.map((item) => {
+            const info = infos.get(item.path);
+            const meta = info ? this.describeFileInfo(info) : '';
+            return meta ? { ...item, meta } : item;
+          }),
+        );
+      }
+    } catch {
+      // Inspection is optional: the queue keeps the file name and path.
     }
-    return outputPath.slice(0, lastSlash);
+
+    if (generation !== this.fileItemsGeneration) {
+      return;
+    }
+
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
+  }
+
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the placeholder icon.
+      });
+  }
+
+  private describeFileInfo(info: FileInfoV1): string {
+    const parts: string[] = [];
+    if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
+      parts.push(formatBytes(info.sizeBytes));
+    }
+    if (typeof info.width === 'number' && typeof info.height === 'number') {
+      parts.push(`${info.width} × ${info.height}`);
+    }
+    return parts.join(' · ');
+  }
+
+  private intakeNotice(
+    rejected: string[],
+    duplicates: string[],
+  ): Notice | null {
+    const parts: string[] = [];
+
+    if (rejected.length === 1) {
+      parts.push(
+        `${fileName(rejected[0])} wasn't added because it isn't an image.`,
+      );
+    } else if (rejected.length > 1) {
+      parts.push(
+        `${rejected.length} files weren't added because they aren't images.`,
+      );
+    }
+
+    if (duplicates.length === 1) {
+      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+    } else if (duplicates.length > 1) {
+      parts.push(`${duplicates.length} images are already in the queue.`);
+    }
+
+    return parts.length > 0
+      ? { tone: 'warning', text: parts.join(' ') }
+      : null;
+  }
+
+  /**
+   * Windows and UNC paths are case-insensitive, so the same file dropped with
+   * different casing is still a duplicate there.
+   */
+  private pathKey(path: string): string {
+    const normalized = path.trim().replace(/\\/g, '/');
+    return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//')
+      ? normalized.toLowerCase()
+      : normalized;
+  }
+
+  private readEventValue(event: Event): string {
+    return (event.target as HTMLInputElement | null)?.value ?? '';
   }
 
   private isTerminalStatus(status: string): boolean {
-    return (
-      status === 'success' ||
-      status === 'failed' ||
-      status === 'partial_success' ||
-      status === 'cancelled' ||
-      status === 'interrupted'
-    );
+    return TERMINAL_STATUSES.has(status);
   }
 }

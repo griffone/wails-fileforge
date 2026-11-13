@@ -5,8 +5,7 @@
         <p class="eyebrow">IMAGE</p>
         <h1 class="page-title">Image <em>Annotate</em></h1>
         <p class="page-sub">
-          Draw text, arrows, rectangles, blur and redaction directly on an image, then render a
-          pixel-perfect result — local-first, so your files never leave this machine.
+          Draw text, arrows, rectangles, blur and redaction on an image. Everything runs on this machine.
         </p>
       </div>
 
@@ -18,475 +17,625 @@
   </header>
 
   <div class="page-stack">
-    <section class="panel" aria-labelledby="annot-input-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="annot-input-title" class="panel-title">Input images</h2>
-          <p class="panel-sub">Batch mode applies the same operations to every file.</p>
-        </div>
-        <span class="badge badge-neutral">
-          {{ form.controls.jobMode.value === 'batch'
-            ? selectedInputPaths.length + ' queued'
-            : (selectedInputPath ? '1 selected' : 'none selected') }}
-        </span>
-      </header>
-
-      <div class="panel-body">
-        <div class="field panel-mode">
-          <label class="label" for="annot-mode">Mode</label>
-          <select id="annot-mode" class="select" [formControl]="form.controls.jobMode">
-            <option value="single">Single image</option>
-            <option value="batch">Batch queue</option>
-          </select>
-        </div>
-
-        <div *ngIf="form.controls.jobMode.value === 'single'; else batchInputBlock" class="stack">
-          <div class="toolbar" role="group" aria-label="Image selection actions">
-            <button type="button" class="btn btn-primary btn-sm" (click)="selectImageFromDialog()">
-              <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Select image
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" (click)="triggerSingleFileInput()">
-              Use file input
-            </button>
-            <button type="button" class="btn btn-ghost btn-sm toolbar-end" (click)="clearInputs()">
-              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
-            </button>
-          </div>
-
-          <input
-            #singleFileInput
-            type="file"
-            class="hidden"
-            aria-hidden="true"
-            tabindex="-1"
-            accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
-            (change)="onSingleFileInputChange($event)"
-          />
-
-          <div *ngIf="selectedInputPath; else emptySingle" class="file-row">
-            <span class="file-path mono">{{ selectedInputPath }}</span>
-            <button
-              type="button"
-              class="icon-btn file-remove"
-              aria-label="Remove selected image"
-              (click)="clearInputs()"
-            >
-              <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            </button>
-          </div>
-
-          <ng-template #emptySingle>
-            <div class="empty-state file-empty">
-              <strong>No image selected</strong>
-              <span>Pick a file with the native dialog or with a browser file input.</span>
+    <div class="flow-grid">
+      <div class="flow-column">
+        <section class="panel intake-panel" aria-labelledby="annot-input-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="annot-input-title" class="panel-title">Images</h2>
+              <p class="panel-sub">Drop images or choose them from your computer.</p>
             </div>
-          </ng-template>
-        </div>
+            <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+          </div>
 
-        <ng-template #batchInputBlock>
-          <div class="stack">
-            <div class="toolbar" role="group" aria-label="Batch image selection actions">
-              <button type="button" class="btn btn-primary btn-sm" (click)="selectMultipleImagesFromDialog()">
-                <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Select multiple images
+          <div class="panel-body">
+            <app-file-drop
+              accept="image/*"
+              title="Drop images here"
+              hint="PNG · JPG · WebP · GIF · BMP · TIFF"
+              ariaLabel="Drop or choose images to annotate"
+              [nativePicker]="true"
+              (pathsSelected)="onPathsSelected($event)"
+              (browseRequested)="chooseFiles()"
+            ></app-file-drop>
+
+            <div class="toolbar" role="group" aria-label="Image selection actions">
+              <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+                <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Choose files
               </button>
-              <button type="button" class="btn btn-secondary btn-sm" (click)="selectImageFromDialog()">
-                Add one image
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" (click)="triggerBatchFileInput()">
-                Use file input
-              </button>
-              <button type="button" class="btn btn-ghost btn-sm toolbar-end" (click)="clearInputs()">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm toolbar-end"
+                [disabled]="selectedPaths().length === 0"
+                (click)="clear()"
+              >
                 <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
                 Clear
               </button>
             </div>
 
-            <input
-              #batchFileInput
-              type="file"
-              class="hidden"
-              aria-hidden="true"
-              tabindex="-1"
-              accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
-              multiple
-              (change)="onBatchFileInputChange($event)"
-            />
+            @if (notice(); as note) {
+              <div
+                class="banner error-banner"
+                [class.banner-warning]="note.tone === 'warning'"
+                [class.banner-danger]="note.tone === 'danger'"
+                role="alert"
+              >
+                <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                <span>{{ note.text }}</span>
+              </div>
+            }
 
-            <ul *ngIf="selectedInputPaths.length > 0; else emptyBatch" class="file-list" aria-label="Queued images">
-              <li *ngFor="let path of selectedInputPaths; let i = index" class="file-row">
-                <span class="file-index mono">{{ i + 1 }}</span>
-                <span class="file-path mono">{{ path }}</span>
+            @if (fileItems().length > 0) {
+              <app-file-queue
+                [items]="fileItems()"
+                (remove)="removeFile($event)"
+              ></app-file-queue>
+            }
+
+            @if (isBatch()) {
+              <p class="batch-note">The same annotations apply to every image.</p>
+            }
+          </div>
+        </section>
+
+        <section class="panel editor-panel" aria-labelledby="annot-canvas-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="annot-canvas-title" class="panel-title">Annotate canvas</h2>
+              <p class="panel-sub">
+                Pick a tool, then draw on the image. Click a shape to edit it.
+              </p>
+            </div>
+            @if (isAnnotatePreviewLoading()) {
+              <span class="badge badge-info" role="status">Rendering</span>
+            }
+          </div>
+
+          <div class="panel-body">
+            <div class="tool-palette" role="group" aria-label="Annotation tools">
+              @for (tool of toolOptions; track tool.id) {
                 <button
                   type="button"
-                  class="icon-btn file-remove"
-                  [attr.aria-label]="'Remove ' + path"
-                  (click)="removeBatchInput(i)"
+                  class="chip"
+                  [attr.data-tool]="tool.id"
+                  [attr.aria-pressed]="isActiveTool(tool.id)"
+                  (click)="setActiveTool(tool.id)"
                 >
-                  <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                  {{ tool.label }}
                 </button>
-              </li>
-            </ul>
+              }
+            </div>
 
-            <ng-template #emptyBatch>
-              <div class="empty-state file-empty">
-                <strong>No images queued</strong>
-                <span>Add one or more images. The operations below apply to all of them.</span>
+            @if (previewUrl()) {
+              <div class="editor-stack">
+                <figure class="preview-block">
+                  <figcaption class="preview-caption">Source — draw with the selected tool</figcaption>
+                  <div class="preview-stage" [class.is-drawing]="drawingCursor()">
+                    <img
+                      #previewImage
+                      [src]="previewUrl()"
+                      alt="Source image with the annotation overlay"
+                      class="preview-image"
+                      draggable="false"
+                      (load)="onPreviewImageLoaded()"
+                    />
+
+                    <svg
+                      class="annotate-overlay"
+                      [class.is-drawing]="drawingCursor()"
+                      aria-label="Annotation overlay"
+                      role="img"
+                      (pointerdown)="onOverlayPointerDown($event)"
+                      (pointermove)="onOverlayPointerMove($event)"
+                      (pointerup)="onOverlayPointerUp()"
+                      (pointerleave)="onOverlayPointerUp()"
+                    >
+                      <defs>
+                        <marker id="annot-arrow-head" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                          <path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path>
+                        </marker>
+                      </defs>
+
+                      @for (operation of operations(); track $index; let i = $index) {
+                        @if (operation.type === 'rect' || operation.type === 'blur' || operation.type === 'redact') {
+                          @if (displayRectForOperation(operation); as rect) {
+                            <rect
+                              [attr.x]="rect.x"
+                              [attr.y]="rect.y"
+                              [attr.width]="rect.width"
+                              [attr.height]="rect.height"
+                              [attr.class]="'shape shape-' + operation.type + (isOperationSelected(i) ? ' shape-selected' : '')"
+                              [attr.stroke-width]="operation.strokeWidth || 2"
+                              (pointerdown)="$event.stopPropagation()"
+                              (click)="onOperationShapeClick(i, $event)"
+                            ></rect>
+                          }
+                        }
+
+                        @if (operation.type === 'arrow') {
+                          @if (displayArrowForOperation(operation); as arrow) {
+                            <line
+                              [attr.x1]="arrow.from.x"
+                              [attr.y1]="arrow.from.y"
+                              [attr.x2]="arrow.to.x"
+                              [attr.y2]="arrow.to.y"
+                              [attr.class]="'shape shape-arrow' + (isOperationSelected(i) ? ' shape-selected' : '')"
+                              [attr.stroke-width]="operation.strokeWidth || 2"
+                              marker-end="url(#annot-arrow-head)"
+                              (pointerdown)="$event.stopPropagation()"
+                              (click)="onOperationShapeClick(i, $event)"
+                            ></line>
+                          }
+                        }
+
+                        @if (operation.type === 'text') {
+                          @if (displayTextPointForOperation(operation); as point) {
+                            <text
+                              [attr.x]="point.x"
+                              [attr.y]="point.y"
+                              [attr.class]="'shape shape-text' + (isOperationSelected(i) ? ' shape-selected' : '')"
+                              [attr.font-size]="operation.fontSize || 18"
+                              (pointerdown)="$event.stopPropagation()"
+                              (click)="onOperationShapeClick(i, $event)"
+                            >
+                              {{ operation.text || 'text' }}
+                            </text>
+                          }
+                        }
+                      }
+
+                      @if (displayDraftRect(); as draftRect) {
+                        <rect
+                          [attr.x]="draftRect.x"
+                          [attr.y]="draftRect.y"
+                          [attr.width]="draftRect.width"
+                          [attr.height]="draftRect.height"
+                          class="shape shape-draft"
+                        ></rect>
+                      }
+
+                      @if (displayDraftArrow(); as draftArrow) {
+                        <line
+                          [attr.x1]="draftArrow.from.x"
+                          [attr.y1]="draftArrow.from.y"
+                          [attr.x2]="draftArrow.to.x"
+                          [attr.y2]="draftArrow.to.y"
+                          class="shape shape-draft"
+                          marker-end="url(#annot-arrow-head)"
+                        ></line>
+                      }
+                    </svg>
+                  </div>
+                </figure>
+
+                <figure class="preview-block">
+                  <figcaption class="preview-caption">Result preview — pixel-perfect output</figcaption>
+                  <div class="preview-result-shell">
+                    @if (annotatePreviewUrl()) {
+                      <img
+                        [src]="annotatePreviewUrl()"
+                        alt="Annotated result preview"
+                        class="preview-image"
+                        draggable="false"
+                      />
+                    } @else {
+                      <p class="preview-placeholder">
+                        {{ isAnnotatePreviewLoading()
+                          ? 'Generating preview…'
+                          : 'The annotated result appears here.' }}
+                      </p>
+                    }
+                  </div>
+                </figure>
               </div>
-            </ng-template>
+            } @else {
+              <div class="empty-state editor-empty">
+                <lucide-icon [img]="penIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
+                <strong>
+                  {{ previewLoading() ? 'Loading preview…' : (hasSelection() ? 'Preview unavailable' : 'No image to annotate yet') }}
+                </strong>
+                <span>
+                  {{ previewLoading()
+                    ? 'Reading the first image from disk.'
+                    : (previewError() || 'Add an image above to start drawing annotations.') }}
+                </span>
+              </div>
+            }
           </div>
-        </ng-template>
-      </div>
-    </section>
+        </section>
 
-    <section class="panel" *ngIf="sourcePreviewDataUrl" aria-labelledby="annot-canvas-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="annot-canvas-title" class="panel-title">Annotate canvas</h2>
-          <p class="panel-sub" role="status" aria-live="polite">{{ previewMessage }}</p>
-        </div>
-        <span class="badge" [class.badge-info]="isPreviewLoading" [class.badge-success]="!isPreviewLoading">
-          {{ isPreviewLoading ? 'Rendering' : 'Ready' }}
-        </span>
-      </header>
-
-      <div class="panel-body">
-        <div class="toolbar" role="group" aria-label="Annotation tools">
-          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('select')" (click)="setActiveTool('select')">
-            Select
-          </button>
-          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('rect')" (click)="setActiveTool('rect')">
-            Rect
-          </button>
-          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('blur')" (click)="setActiveTool('blur')">
-            Blur
-          </button>
-          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('redact')" (click)="setActiveTool('redact')">
-            Redact
-          </button>
-          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('arrow')" (click)="setActiveTool('arrow')">
-            Arrow
-          </button>
-          <button type="button" class="chip" [attr.aria-pressed]="isActiveTool('text')" (click)="setActiveTool('text')">
-            Text
-          </button>
-        </div>
-
-        <div class="canvas-grid">
-          <figure class="preview-block">
-            <figcaption class="preview-caption">Source — interactive overlay</figcaption>
-            <div class="preview-stage">
-              <img
-                #previewImage
-                [src]="sourcePreviewDataUrl"
-                alt="Source image with the annotation overlay"
-                class="preview-image"
-                draggable="false"
-                [style.cursor]="sourceInteractionCursor()"
-                (load)="onPreviewImageLoaded()"
-              />
-
-              <svg
-                class="annotate-overlay"
-                [style.cursor]="sourceInteractionCursor()"
-                (pointerdown)="onOverlayPointerDown($event)"
-                (pointermove)="onOverlayPointerMove($event)"
-                (pointerup)="onOverlayPointerUp()"
-                (pointerleave)="onOverlayPointerUp()"
-              >
-                <defs>
-                  <marker id="arrow-head" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-                    <path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path>
-                  </marker>
-                </defs>
-
-                <ng-container *ngFor="let op of operations; let i = index">
-                  <ng-container *ngIf="op.type === 'rect' || op.type === 'blur' || op.type === 'redact'">
-                    <ng-container *ngIf="displayRectForOperation(op) as rect">
-                      <rect
-                        [attr.x]="rect.x"
-                        [attr.y]="rect.y"
-                        [attr.width]="rect.width"
-                        [attr.height]="rect.height"
-                        [attr.class]="'shape shape-' + op.type + (isOperationSelected(i) ? ' shape-selected' : '')"
-                        [attr.stroke-width]="op.strokeWidth || 2"
-                        (pointerdown)="$event.stopPropagation()"
-                        (click)="onOperationShapeClick(i, $event)"
-                      ></rect>
-                    </ng-container>
-                  </ng-container>
-
-                  <ng-container *ngIf="op.type === 'arrow'">
-                    <ng-container *ngIf="displayArrowForOperation(op) as arrow">
-                      <line
-                        [attr.x1]="arrow.from.x"
-                        [attr.y1]="arrow.from.y"
-                        [attr.x2]="arrow.to.x"
-                        [attr.y2]="arrow.to.y"
-                        [attr.class]="'shape shape-arrow' + (isOperationSelected(i) ? ' shape-selected' : '')"
-                        [attr.stroke-width]="op.strokeWidth || 2"
-                        marker-end="url(#arrow-head)"
-                        (pointerdown)="$event.stopPropagation()"
-                        (click)="onOperationShapeClick(i, $event)"
-                      ></line>
-                    </ng-container>
-                  </ng-container>
-
-                  <ng-container *ngIf="op.type === 'text'">
-                    <ng-container *ngIf="displayTextPointForOperation(op) as point">
-                      <text
-                        [attr.x]="point.x"
-                        [attr.y]="point.y"
-                        [attr.class]="'shape shape-text' + (isOperationSelected(i) ? ' shape-selected' : '')"
-                        [attr.font-size]="op.fontSize || 18"
-                        (pointerdown)="$event.stopPropagation()"
-                        (click)="onOperationShapeClick(i, $event)"
-                      >
-                        {{ op.text || 'text' }}
-                      </text>
-                    </ng-container>
-                  </ng-container>
-                </ng-container>
-
-                <ng-container *ngIf="displayDraftRect() as draftRect">
-                  <rect
-                    [attr.x]="draftRect.x"
-                    [attr.y]="draftRect.y"
-                    [attr.width]="draftRect.width"
-                    [attr.height]="draftRect.height"
-                    class="shape shape-draft"
-                  ></rect>
-                </ng-container>
-
-                <ng-container *ngIf="displayDraftArrow() as draftArrow">
-                  <line
-                    [attr.x1]="draftArrow.from.x"
-                    [attr.y1]="draftArrow.from.y"
-                    [attr.x2]="draftArrow.to.x"
-                    [attr.y2]="draftArrow.to.y"
-                    class="shape shape-draft"
-                    marker-end="url(#arrow-head)"
-                  ></line>
-                </ng-container>
-              </svg>
+        <section class="panel operations-panel" aria-labelledby="annot-operations-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="annot-operations-title" class="panel-title">Annotations</h2>
+              <p class="panel-sub">Reorder, remove or fine-tune each shape.</p>
             </div>
-          </figure>
+            <span class="badge badge-neutral">{{ operations().length }}</span>
+          </div>
 
-          <figure class="preview-block">
-            <figcaption class="preview-caption">Backend preview — pixel-perfect output</figcaption>
-            <div class="preview-result-shell">
-              <ng-container *ngIf="annotatePreviewDataUrl; else noAnnotatePreview">
-                <img
-                  [src]="annotatePreviewDataUrl"
-                  alt="Annotated result preview"
-                  class="preview-image"
-                  draggable="false"
-                />
-              </ng-container>
-              <ng-template #noAnnotatePreview>
-                <p class="panel-sub">
-                  {{ isPreviewLoading ? 'Generating preview…' : 'No annotated preview available yet.' }}
-                </p>
-              </ng-template>
-            </div>
-          </figure>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel" aria-labelledby="annot-set-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="annot-set-title" class="panel-title">Annotation set</h2>
-          <p class="panel-sub">
-            Fine-tune the selected shape, or add a new one from these coordinates.
-          </p>
-        </div>
-        <span class="badge badge-neutral">
-          {{ operations.length }} operation{{ operations.length === 1 ? '' : 's' }}
-        </span>
-      </header>
-
-      <div class="panel-body">
-        <div class="settings-grid">
-          <form class="advanced-form" [formGroup]="operationForm">
-            <div class="field-grid">
-              <div class="field">
-                <label class="label" for="annot-type">Type</label>
-                <select id="annot-type" class="select" formControlName="type">
-                  <option value="text">text</option>
-                  <option value="arrow">arrow</option>
-                  <option value="rect">rect</option>
-                  <option value="blur">blur</option>
-                  <option value="redact">redact</option>
-                </select>
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-x">X</label>
-                <input id="annot-x" class="input" type="text" formControlName="x" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-y">Y</label>
-                <input id="annot-y" class="input" type="text" formControlName="y" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-x2">X2</label>
-                <input id="annot-x2" class="input" type="text" formControlName="x2" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-y2">Y2</label>
-                <input id="annot-y2" class="input" type="text" formControlName="y2" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-width">Width</label>
-                <input id="annot-width" class="input" type="text" formControlName="width" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-height">Height</label>
-                <input id="annot-height" class="input" type="text" formControlName="height" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-blur">Blur intensity (0–100)</label>
-                <input id="annot-blur" class="input" type="text" formControlName="blurIntensity" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-font">Font size</label>
-                <input id="annot-font" class="input" type="text" formControlName="fontSize" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-color">Color</label>
-                <input id="annot-color" class="input" type="text" formControlName="color" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-opacity">Opacity (0–1)</label>
-                <input id="annot-opacity" class="input" type="text" formControlName="opacity" />
-              </div>
-
-              <div class="field">
-                <label class="label" for="annot-stroke">Stroke width</label>
-                <input id="annot-stroke" class="input" type="text" formControlName="strokeWidth" />
-              </div>
-
-              <div class="field field-wide">
-                <label class="label" for="annot-text">Text (multiline supported)</label>
-                <textarea id="annot-text" class="textarea" rows="3" formControlName="text"></textarea>
-              </div>
-            </div>
-          </form>
-
-          <div class="operations">
-            <div class="actions">
-              <button type="button" class="btn btn-primary" (click)="addOperation()">Add operation</button>
-              <button type="button" class="btn btn-ghost" (click)="clearOperations()">Clear all</button>
-            </div>
-
+          <div class="panel-body">
             <div class="banner banner-info">
-              <div>
+              <div class="banner-copy">
                 <strong>Blur vs redact</strong>
                 <ul class="banner-list">
-                  <li><strong>Blur</strong> partially hides the area with a configurable intensity (0–100).</li>
-                  <li><strong>Redact</strong> covers the area with a solid rectangle and is irreversible in v1.</li>
+                  <li><strong>Blur</strong> partially hides the area with an adjustable intensity (0–100).</li>
+                  <li><strong>Redact</strong> covers the area with a solid rectangle and is irreversible in the output.</li>
                 </ul>
               </div>
             </div>
 
-            <label *ngIf="hasRedactOperations()" class="checkbox-row" for="annot-redact-confirm">
-              <input
-                id="annot-redact-confirm"
-                type="checkbox"
-                [formControl]="form.controls.redactConfirmed"
-              />
-              <span>I understand that redact is irreversible in the final output.</span>
-            </label>
-
-            <ul *ngIf="operations.length > 0; else emptyOperations" class="operation-list" aria-label="Annotations">
-              <li
-                *ngFor="let op of operations; let i = index"
-                class="operation-row"
-                [class.is-selected]="isOperationSelected(i)"
-              >
-                <span class="operation-index mono">{{ i + 1 }}</span>
-                <span class="operation-summary">{{ operationSummary(op) }}</span>
-                <span class="operation-actions">
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-mini"
-                    [attr.aria-pressed]="isOperationSelected(i)"
-                    (click)="selectOperation(i)"
-                  >
-                    Select
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn operation-move"
-                    [attr.aria-label]="'Move annotation ' + (i + 1) + ' up'"
-                    [disabled]="i === 0"
-                    (click)="moveOperationUp(i)"
-                  >
-                    <lucide-icon [img]="arrowUpIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn operation-move"
-                    [attr.aria-label]="'Move annotation ' + (i + 1) + ' down'"
-                    [disabled]="i === operations.length - 1"
-                    (click)="moveOperationDown(i)"
-                  >
-                    <lucide-icon [img]="arrowDownIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn operation-remove"
-                    [attr.aria-label]="'Remove annotation ' + (i + 1)"
-                    (click)="removeOperation(i)"
-                  >
-                    <lucide-icon [img]="trashIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                  </button>
-                </span>
-              </li>
-            </ul>
-
-            <ng-template #emptyOperations>
-              <div class="empty-state file-empty">
-                <strong>No operations yet</strong>
-                <span>Draw on the canvas or add one from the coordinate form.</span>
+            @if (hasOperations()) {
+              <ul class="operation-list" aria-label="Annotations">
+                @for (operation of operations(); track $index; let i = $index) {
+                  <li class="operation-row" [class.is-selected]="isOperationSelected(i)">
+                    <span class="operation-index mono">{{ i + 1 }}</span>
+                    <button
+                      type="button"
+                      class="operation-select"
+                      [attr.aria-pressed]="isOperationSelected(i)"
+                      (click)="selectOperation(i)"
+                    >
+                      <span class="operation-type">{{ operationTypeLabel(operation) }}</span>
+                      <span class="operation-summary" [title]="operationDetail(operation)">
+                        {{ operationDetail(operation) }}
+                      </span>
+                    </button>
+                    <span class="operation-actions">
+                      <button
+                        type="button"
+                        class="icon-btn operation-action"
+                        [attr.aria-label]="'Move annotation ' + (i + 1) + ' up'"
+                        [disabled]="i === 0"
+                        (click)="moveOperationUp(i)"
+                      >
+                        <lucide-icon [img]="arrowUpIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn operation-action"
+                        [attr.aria-label]="'Move annotation ' + (i + 1) + ' down'"
+                        [disabled]="i === operations().length - 1"
+                        (click)="moveOperationDown(i)"
+                      >
+                        <lucide-icon [img]="arrowDownIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn operation-action operation-remove"
+                        [attr.aria-label]="'Remove annotation ' + (i + 1)"
+                        (click)="removeOperation(i)"
+                      >
+                        <lucide-icon [img]="trashIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                      </button>
+                    </span>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <div class="empty-state operations-empty">
+                <lucide-icon [img]="layersIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
+                <strong>No annotations yet</strong>
+                <span>Pick a tool and draw on the image, or add one with the fields below.</span>
               </div>
-            </ng-template>
-          </div>
-        </div>
-      </div>
-    </section>
+            }
 
-    <app-tool-execution-panel
-      [title]="'Annotate settings'"
-      [subtitle]="'Output path, format and render options.'"
-      [form]="form"
-      [fields]="panelFields"
-      [currentMode]="form.controls.jobMode.value"
-      [validationMessage]="validationMessage"
-      [submitMessage]="submitMessage"
-      [statusMessage]="statusMessage"
-      [isSubmitting]="isSubmitting"
-      [isPolling]="isPolling"
-      [canCancel]="!!activeJobId"
-      [jobResult]="jobResult"
-      [runButtonText]="'Annotate image'"
-      [submittingButtonText]="'Annotating…'"
-      (validate)="validate()"
-      (run)="run()"
-      (cancel)="cancel()"
-    ></app-tool-execution-panel>
+            <div class="operation-form">
+              <div class="operation-form-head">
+                <h3 class="operation-form-title">{{ operationFormTitle() }}</h3>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  [disabled]="!hasOperations()"
+                  (click)="clearOperations()"
+                >
+                  Clear all
+                </button>
+              </div>
+
+              <div class="operation-grid">
+                <div class="field">
+                  <label class="label" for="annot-type">Type</label>
+                  <select
+                    id="annot-type"
+                    class="select"
+                    [value]="operationForm().type"
+                    (change)="onOperationTypeChange($event)"
+                  >
+                    @for (type of operationTypes; track type) {
+                      <option [value]="type" [selected]="type === operationForm().type">{{ type }}</option>
+                    }
+                  </select>
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-color">Color</label>
+                  <input
+                    id="annot-color"
+                    class="input"
+                    type="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                    [value]="operationForm().color"
+                    (input)="onOperationField('color', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-x">X (px)</label>
+                  <input
+                    id="annot-x"
+                    class="input"
+                    type="number"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="operationForm().x"
+                    (input)="onOperationField('x', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-y">Y (px)</label>
+                  <input
+                    id="annot-y"
+                    class="input"
+                    type="number"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="operationForm().y"
+                    (input)="onOperationField('y', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-width">Width (px)</label>
+                  <input
+                    id="annot-width"
+                    class="input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="operationForm().width"
+                    (input)="onOperationField('width', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-height">Height (px)</label>
+                  <input
+                    id="annot-height"
+                    class="input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="operationForm().height"
+                    (input)="onOperationField('height', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-x2">X2 (px)</label>
+                  <input
+                    id="annot-x2"
+                    class="input"
+                    type="number"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="operationForm().x2"
+                    (input)="onOperationField('x2', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-y2">Y2 (px)</label>
+                  <input
+                    id="annot-y2"
+                    class="input"
+                    type="number"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="operationForm().y2"
+                    (input)="onOperationField('y2', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-opacity">Opacity (0–1)</label>
+                  <input
+                    id="annot-opacity"
+                    class="input"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    inputmode="decimal"
+                    [value]="operationForm().opacity"
+                    (input)="onOperationField('opacity', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-stroke">Stroke width</label>
+                  <input
+                    id="annot-stroke"
+                    class="input"
+                    type="number"
+                    min="1"
+                    max="64"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="operationForm().strokeWidth"
+                    (input)="onOperationField('strokeWidth', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-font">Font size</label>
+                  <input
+                    id="annot-font"
+                    class="input"
+                    type="number"
+                    min="8"
+                    max="256"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="operationForm().fontSize"
+                    (input)="onOperationField('fontSize', $event)"
+                  />
+                </div>
+
+                <div class="field">
+                  <label class="label" for="annot-blur">Blur intensity (0–100)</label>
+                  <input
+                    id="annot-blur"
+                    class="input"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    inputmode="numeric"
+                    [value]="operationForm().blurIntensity"
+                    (input)="onOperationField('blurIntensity', $event)"
+                  />
+                </div>
+
+                <div class="field field-wide">
+                  <label class="label" for="annot-text">Text</label>
+                  <textarea
+                    id="annot-text"
+                    class="textarea"
+                    rows="2"
+                    [value]="operationForm().text"
+                    (input)="onOperationField('text', $event)"
+                  ></textarea>
+                </div>
+              </div>
+
+              <div class="operation-form-actions">
+                <button type="button" class="btn btn-primary btn-sm" (click)="addOperation()">
+                  Add operation
+                </button>
+                <p class="field-help">Drawing a shape adds it to the list with these values.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="flow-column">
+        <section class="panel outcome-panel" aria-labelledby="annot-output-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="annot-output-title" class="panel-title">Output</h2>
+              <p class="panel-sub">Check where the annotated images will go.</p>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <details class="advanced" [open]="advancedOpen()" (toggle)="onAdvancedToggle($event)">
+              <summary class="advanced-summary">
+                <span class="advanced-title">Advanced</span>
+                <span class="advanced-hint">Output format</span>
+              </summary>
+
+              <div class="advanced-body">
+                <div class="advanced-grid">
+                  <div class="field advanced-format">
+                    <label class="label" for="image-annotate-format">Output format</label>
+                    <select
+                      id="image-annotate-format"
+                      class="select"
+                      [value]="outputFormat()"
+                      (change)="onFormatChange($event)"
+                    >
+                      @for (option of formatOptions; track option.value) {
+                        <option [value]="option.value" [selected]="option.value === outputFormat()">{{ option.label }}</option>
+                      }
+                    </select>
+                    <p class="field-help">Preserve original keeps each source format.</p>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <app-output-plan-card
+              [plan]="plan()"
+              [loading]="planLoading()"
+              [destinationLabel]="destinationLabel()"
+              [isDefaultDestination]="isDefaultDestination()"
+              (changeDestination)="chooseOutputFolder()"
+            ></app-output-plan-card>
+
+            @if (!isDefaultDestination()) {
+              <div class="destination-actions">
+                <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
+                  Use original folders
+                </button>
+              </div>
+            }
+
+            @if (jobErrorCopy(); as error) {
+              <div class="banner banner-danger error-banner" role="alert">
+                <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                <div class="banner-copy">
+                  <strong>{{ error.title }}</strong>
+                  <span>{{ error.description }}</span>
+                </div>
+              </div>
+            }
+
+            @if (actionMessage(); as message) {
+              <div class="banner banner-warning error-banner" role="alert">
+                <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                <span>{{ message }}</span>
+              </div>
+            }
+
+            @if (actionHelper(); as helper) {
+              <p class="action-helper" role="status">{{ helper }}</p>
+            }
+
+            <div class="action-row">
+              <button
+                type="button"
+                class="btn btn-primary btn-lg action-primary"
+                [disabled]="!canRun()"
+                (click)="run()"
+              >
+                {{ primaryLabel() }}
+              </button>
+
+              @if (isPolling()) {
+                <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              }
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Annotation progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="image"
+        verbPast="annotated"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
   </div>
 </div>

@@ -1,58 +1,226 @@
 import {
+  ComponentFixture,
   fakeAsync,
   flushMicrotasks,
   TestBed,
   tick,
 } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Subject } from 'rxjs';
 
 import { ImageAnnotate } from './image-annotate';
-import { JobRequestV1, JobStatusResponseV1, Wails } from '../../services/wails';
+import {
+  FileInfoV1,
+  JobProgressEventV1,
+  JobRequestV1,
+  JobResultItemV1,
+  JobResultV1,
+  JobStatusResponseV1,
+  PlanJobResponseV1,
+  Wails,
+} from '../../services/wails';
 
 describe('ImageAnnotate', () => {
+  let fixture: ComponentFixture<ImageAnnotate>;
   let component: ImageAnnotate;
-  let fixture: any;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobProgressSubject: Subject<JobProgressEventV1>;
+
+  function firstDir(path: string): string {
+    const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return index > 0 ? path.slice(0, index) : '';
+  }
+
+  function fileName(path: string): string {
+    const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return index >= 0 ? path.slice(index + 1) : path;
+  }
+
+  function fileStem(path: string): string {
+    return fileName(path).replace(/\.[^./\\]+$/, '');
+  }
+
+  function outputExtension(inputPath: string, request: JobRequestV1): string {
+    const requested = String(request.options['format'] ?? '').toLowerCase();
+    if (requested) {
+      return requested === 'jpg' ? 'jpeg' : requested;
+    }
+    const extension = (inputPath.split('.').pop() ?? 'png').toLowerCase();
+    return extension === 'jpg' ? 'jpeg' : extension;
+  }
+
+  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+    const outputs = request.inputPaths.map((inputPath) => {
+      const directory = request.outputDir || firstDir(inputPath);
+      const name = `${fileStem(inputPath)}_annotated.${outputExtension(
+        inputPath,
+        request,
+      )}`;
+      return {
+        inputPath,
+        outputPath: directory ? `${directory}/${name}` : name,
+        outputKind: 'file',
+        outputCount: 1,
+        exists: false,
+        adjusted: false,
+      };
+    });
+
+    return {
+      success: true,
+      message: 'ok',
+      outputs,
+      effectiveOptions: request.options,
+      warnings: [],
+    };
+  }
+
+  function fileInfo(path: string): FileInfoV1 {
+    const name = fileName(path);
+    return {
+      path,
+      name,
+      directory: firstDir(path),
+      extension: (name.split('.').pop() ?? '').toLowerCase(),
+      sizeBytes: 2048,
+      kind: 'image',
+      width: 100,
+      height: 80,
+      exists: true,
+    };
+  }
+
+  function status(
+    jobId: string,
+    jobStatus: JobResultV1['status'],
+    items: JobResultItemV1[],
+  ): JobStatusResponseV1 {
+    return {
+      success: true,
+      message: jobStatus,
+      found: true,
+      result: {
+        jobId,
+        success: jobStatus === 'success',
+        message: jobStatus,
+        toolId: 'tool.image.annotate',
+        status: jobStatus,
+        progress: {
+          current: jobStatus === 'running' ? 0 : items.length,
+          total: items.length || 1,
+          stage: jobStatus,
+          message: jobStatus,
+        },
+        items,
+        startedAt: 1,
+        endedAt: jobStatus === 'running' ? undefined : 2,
+      },
+    };
+  }
+
+  function inputEvent(value: string): Event {
+    return { target: { value } } as unknown as Event;
+  }
+
+  function lastPlanRequest(): JobRequestV1 {
+    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  }
+
+  function primaryButton(): HTMLButtonElement {
+    return fixture.nativeElement.querySelector(
+      '.action-primary',
+    ) as HTMLButtonElement;
+  }
+
+  function addDefaultOperation(): void {
+    component.addOperation();
+  }
 
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'validateJobV1',
+      'planJobV1',
+      'inspectFilesV1',
+      'getThumbnail',
+      'getImagePreviewSourceV1',
+      'getImageAnnotatePreviewV1',
       'runJobV1',
       'getJobStatusV1',
       'cancelJobV1',
-      'openFileDialog',
+      'openPath',
+      'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
-      'getImagePreviewSourceV1',
-      'getImageAnnotatePreviewV1',
       'isRuntimeAvailable',
-      'getImageCropPreviewV1',
+      'listToolsV1',
+      'validateJobV1',
     ]);
 
-    wailsSpy.getImagePreviewSourceV1.and.returnValue(
+    jobProgressSubject = new Subject<JobProgressEventV1>();
+    (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
+      jobProgressSubject.asObservable();
+
+    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+      Promise.resolve(planResponse(request)),
+    );
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
-        dataBase64: 'AA==',
-        mimeType: 'image/png',
-        width: 100,
-        height: 80,
-      })
+        files: paths.map(fileInfo),
+      }),
     );
-    wailsSpy.getImageAnnotatePreviewV1.and.returnValue(
-      Promise.resolve({
-        success: true,
-        message: 'ok',
-        dataBase64: 'AA==',
-        mimeType: 'image/png',
-        width: 100,
-        height: 80,
-      })
+    wailsSpy.getThumbnail.and.resolveTo(null);
+    wailsSpy.getImagePreviewSourceV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      dataBase64: 'AA==',
+      mimeType: 'image/png',
+      width: 100,
+      height: 80,
+    });
+    wailsSpy.getImageAnnotatePreviewV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      dataBase64: 'AA==',
+      mimeType: 'image/png',
+      width: 100,
+      height: 80,
+    });
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'annot-job-1',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+      Promise.resolve(status(jobId, 'running', [])),
     );
+    wailsSpy.cancelJobV1.and.resolveTo({
+      success: true,
+      message: 'cancelled',
+      jobId: 'annot-job-1',
+    });
+    wailsSpy.openPath.and.resolveTo({ success: true, message: 'opened' });
+    wailsSpy.revealInFolder.and.resolveTo({
+      success: true,
+      message: 'revealed',
+    });
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.isRuntimeAvailable.and.returnValue(true);
+    wailsSpy.listToolsV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      tools: [],
+    });
+    wailsSpy.validateJobV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      valid: true,
+    });
 
     await TestBed.configureTestingModule({
       imports: [ImageAnnotate],
-      providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
+      providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ImageAnnotate);
@@ -60,52 +228,286 @@ describe('ImageAnnotate', () => {
     fixture.detectChanges();
   });
 
-  it('builds annotate request payload with deterministic operation order', async () => {
-    wailsSpy.validateJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'ok', valid: true })
-    );
-
-    component.selectedInputPath = '/tmp/in.png';
-    component.operationForm.patchValue({
-      type: 'rect',
-      x: '1',
-      y: '2',
-      width: '10',
-      height: '6',
-      strokeWidth: '2',
-      opacity: '0.8',
-      color: '#ff0000',
-    });
-    component.addOperation();
-
-    component.operationForm.patchValue({
-      type: 'blur',
-      x: '3',
-      y: '4',
-      width: '7',
-      height: '5',
-      blurIntensity: '45',
-    });
-    component.addOperation();
-
-    await component.validate();
-
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
-    expect(req.toolId).toBe('tool.image.annotate');
-    expect(req.mode).toBe('single');
-    expect(req.inputPaths).toEqual(['/tmp/in.png']);
-
-    const operations = req.options['operations'] as any[];
-    expect(operations.length).toBe(2);
-    expect(operations[0].type).toBe('rect');
-    expect(operations[1].type).toBe('blur');
+  afterEach(() => {
+    fixture.destroy();
   });
 
-  it('creates rect operation using direct overlay drag coordinates', () => {
-    component.selectedInputPath = '/tmp/in.png';
-    component.sourcePreviewDataUrl = 'data:image/png;base64,AA==';
-    component.sourceImageWidth = 100;
-    component.sourceImageHeight = 80;
+  it('plans one image as single with a default operation', fakeAsync(() => {
+    addDefaultOperation();
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    const request = lastPlanRequest();
+    expect(request.toolId).toBe('tool.image.annotate');
+    expect(request.mode).toBe('single');
+    expect(request.inputPaths).toEqual(['/tmp/photo.png']);
+    expect(request.outputDir).toBe('');
+    const operations = request.options['operations'] as Array<
+      Record<string, unknown>
+    >;
+    expect(operations.length).toBe(1);
+    expect(operations[0]['type']).toBe('rect');
+    expect(request.options['format']).toBeUndefined();
+
+    expect(component.previewUrl()).toContain('data:image/png;base64,');
+    expect(component.imageWidth()).toBe(100);
+    expect(component.imageHeight()).toBe(80);
+    expect(component.primaryLabel()).toBe('Annotate image');
+    expect(component.canRun()).toBeTrue();
+
+    fixture.detectChanges();
+    expect(primaryButton().disabled).toBeFalse();
+  }));
+
+  it('plans a batch automatically for two images', fakeAsync(() => {
+    addDefaultOperation();
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+    component.onPathsSelected(['/tmp/b.jpg']);
+    flushMicrotasks();
+
+    const request = lastPlanRequest();
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
+    expect(component.plan()?.outputs.length).toBe(2);
+    expect(component.isBatch()).toBeTrue();
+    expect(component.primaryLabel()).toBe('Annotate 2 images');
+
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'The same annotations apply to every image.',
+    );
+  }));
+
+  it('refreshes the plan payload when an operation is added or changed', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+
+    addDefaultOperation();
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+
+    tick(250);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    const added = lastPlanRequest().options['operations'] as Array<
+      Record<string, unknown>
+    >;
+    expect(added.length).toBe(1);
+    expect(added[0]['width']).toBe(40);
+    expect(added[0]['height']).toBe(24);
+
+    component.onOperationField('width', inputEvent('55'));
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+
+    tick(250);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    const changed = lastPlanRequest().options['operations'] as Array<
+      Record<string, unknown>
+    >;
+    expect(changed[0]['width']).toBe(55);
+    expect(component.operations()[0].width).toBe(55);
+  }));
+
+  it('blocks the action when there are no operations', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    expect(component.hasOperations()).toBeFalse();
+    expect(component.canRun()).toBeFalse();
+    expect(component.actionHelper()).toContain('annotation');
+    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+
+    fixture.detectChanges();
+    expect(primaryButton().disabled).toBeTrue();
+  }));
+
+  it('shows a failed plan inline and blocks the action', fakeAsync(() => {
+    addDefaultOperation();
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    wailsSpy.planJobV1.and.resolveTo({
+      success: false,
+      message: 'The folder is not available.',
+      outputs: [],
+      error: {
+        code: 'EXEC_IO_TRANSIENT',
+        detail_code: 'IMAGE_ANNOTATE_OUTPUT_DIR_INVALID',
+        message: 'The folder is not available.',
+      },
+    });
+
+    component.onOperationField('width', inputEvent('50'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.planBlocked()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+    expect(primaryButton().disabled).toBeTrue();
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-error'),
+    ).not.toBeNull();
+  }));
+
+  it('runs from the fresh plan without a validation step', fakeAsync(() => {
+    addDefaultOperation();
+    component.onPathsSelected(['/tmp/a.png', '/tmp/b.jpg']);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJobV1.calls.count();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls + 1);
+    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
+
+    const request = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.toolId).toBe('tool.image.annotate');
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
+    expect(request.outputDir).toBe('');
+    expect(
+      (request.options['operations'] as unknown[]).length,
+    ).toBe(1);
+    expect(component.isPolling()).toBeTrue();
+    expect(component.activeJobId()).toBe('annot-job-1');
+
+    component.reset();
+  }));
+
+  it('inspects terminal results and opens the annotated file', fakeAsync(() => {
+    const inputPath = '/tmp/in/photo.png';
+    const outputPath = '/tmp/in/photo_annotated.png';
+
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'annot-job-2',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.resolveTo(
+      status('annot-job-2', 'success', [
+        {
+          inputPath,
+          outputPath,
+          outputs: [outputPath],
+          outputCount: 1,
+          success: true,
+          message: 'image annotate successful',
+        },
+      ]),
+    );
+
+    addDefaultOperation();
+    component.onPathsSelected([inputPath]);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.jobResult()?.status).toBe('success');
+    expect(component.terminalJob()).not.toBeNull();
+    expect(component.isPolling()).toBeFalse();
+    expect(component.activeJobId()).toBe('');
+    expect(fixture.nativeElement.textContent).toContain(
+      '1 image annotated',
+    );
+
+    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+      .allArgs()
+      .map((args) => args[0] as string[]);
+    expect(
+      inspectedPaths.some((paths) => paths.includes(outputPath)),
+    ).toBeTrue();
+
+    const openButton = fixture.nativeElement.querySelector(
+      '.result-open',
+    ) as HTMLButtonElement;
+    openButton.click();
+    flushMicrotasks();
+
+    expect(wailsSpy.openPath).toHaveBeenCalledWith(outputPath);
+  }));
+
+  it('rejects non-images and duplicates with a notice', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/notes.txt']);
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual([]);
+    expect(component.notice()?.text).toContain('notes.txt');
+    expect(component.notice()?.text).toContain("isn't an image");
+    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+
+    component.onPathsSelected(['/tmp/a.png', '/tmp/a.png']);
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual(['/tmp/a.png']);
+    expect(component.notice()?.text).toContain(
+      'a.png is already in the queue.',
+    );
+    expect(component.fileItems().length).toBe(1);
+  }));
+
+  it('uses the chosen destination folder in the plan', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/out');
+
+    addDefaultOperation();
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJobV1.calls.count();
+
+    void component.chooseOutputFolder();
+    flushMicrotasks();
+
+    expect(component.outputDir()).toBe('/tmp/out');
+    expect(component.destinationLabel()).toBe('/tmp/out');
+    expect(component.isDefaultDestination()).toBeFalse();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls + 1);
+    expect(lastPlanRequest().outputDir).toBe('/tmp/out');
+    expect(component.plan()?.outputs[0].outputPath).toBe(
+      '/tmp/out/photo_annotated.png',
+    );
+
+    component.useOriginalFolders();
+    flushMicrotasks();
+
+    expect(component.outputDir()).toBe('');
+    expect(component.destinationLabel()).toBe('Next to each image');
+    expect(lastPlanRequest().outputDir).toBe('');
+  }));
+
+  it('adds the chosen output format and omits it for preserve original', fakeAsync(() => {
+    addDefaultOperation();
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    component.onFormatChange(inputEvent('webp'));
+    flushMicrotasks();
+    expect(component.outputFormat()).toBe('webp');
+    expect(lastPlanRequest().options['format']).toBe('webp');
+    expect(component.plan()?.outputs[0].outputPath).toBe(
+      '/tmp/photo_annotated.webp',
+    );
+
+    component.onFormatChange(inputEvent(''));
+    flushMicrotasks();
+    expect(component.outputFormat()).toBe('');
+    expect(lastPlanRequest().options['format']).toBeUndefined();
+  }));
+
+  it('creates a rect operation using direct overlay drag coordinates', () => {
+    component.previewUrl.set('data:image/png;base64,AA==');
+    component.imageWidth.set(100);
+    component.imageHeight.set(80);
     component.setActiveTool('rect');
 
     const rect = {
@@ -120,11 +522,11 @@ describe('ImageAnnotate', () => {
       toJSON: () => ({}),
     } as DOMRect;
 
-    component.previewImage = {
+    (component as unknown as { previewImage: unknown }).previewImage = {
       nativeElement: {
         getBoundingClientRect: () => rect,
       },
-    } as any;
+    };
 
     component.onOverlayPointerDown({
       clientX: 10,
@@ -140,140 +542,118 @@ describe('ImageAnnotate', () => {
 
     component.onOverlayPointerUp();
 
-    expect(component.operations.length).toBe(1);
-    const op = component.operations[0];
-    expect(op.type).toBe('rect');
-    expect(op.x).toBe(10);
-    expect(op.y).toBe(20);
-    expect(op.width).toBe(40);
-    expect(op.height).toBe(40);
+    expect(component.operations().length).toBe(1);
+    const operation = component.operations()[0];
+    expect(operation.type).toBe('rect');
+    expect(operation.x).toBe(10);
+    expect(operation.y).toBe(20);
+    expect(operation.width).toBe(40);
+    expect(operation.height).toBe(40);
   });
 
-  it('updates selected operation from advanced settings form', () => {
-    component.selectedInputPath = '/tmp/in.png';
-    component.operationForm.patchValue({
-      type: 'rect',
-      x: '1',
-      y: '2',
-      width: '10',
-      height: '6',
-      color: '#ff0000',
-    });
-    component.addOperation();
+  it('updates the selected operation from the compact form', () => {
+    addDefaultOperation();
     component.selectOperation(0);
-    component.setActiveTool('select');
 
-    component.operationForm.patchValue({ width: '22', height: '11', color: '#00ff00' });
+    component.onOperationField('width', inputEvent('22'));
+    component.onOperationField('height', inputEvent('11'));
+    component.onOperationField('color', inputEvent('#00ff00'));
 
-    expect(component.operations[0].width).toBe(22);
-    expect(component.operations[0].height).toBe(11);
-    expect(component.operations[0].color).toBe('#00ff00');
+    expect(component.operations()[0].width).toBe(22);
+    expect(component.operations()[0].height).toBe(11);
+    expect(component.operations()[0].color).toBe('#00ff00');
   });
 
-  it('requires explicit redact confirmation before run', async () => {
-    component.selectedInputPath = '/tmp/in.png';
-    component.operationForm.patchValue({
-      type: 'redact',
-      x: '2',
-      y: '2',
-      width: '5',
-      height: '5',
-      color: '#000000',
+  it('retries only failed inputs with the same annotations and folder', fakeAsync(() => {
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'annot-retry-1',
+      status: 'queued',
     });
-    component.addOperation();
-
-    await component.run();
-
-    expect(component.submitMessage).toContain('confirm irreversible redact operations');
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
-  });
-
-  it('runs and completes with success status', fakeAsync(() => {
-    wailsSpy.validateJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'ok', valid: true })
-    );
-    wailsSpy.runJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'submitted', jobId: 'annot-job-1', status: 'queued' })
-    );
-
-    const running: JobStatusResponseV1 = {
-      success: true,
-      message: 'running',
-      found: true,
-      result: {
-        jobId: 'annot-job-1',
-        success: false,
-        message: 'working',
-        toolId: 'tool.image.annotate',
-        status: 'running',
-        progress: { current: 0, total: 1, stage: 'running', message: 'running' },
-        items: [],
-        startedAt: Date.now(),
-      },
-    };
-
-    const done: JobStatusResponseV1 = {
-      success: true,
-      message: 'done',
-      found: true,
-      result: {
-        jobId: 'annot-job-1',
-        success: true,
-        message: 'job success',
-        toolId: 'tool.image.annotate',
-        status: 'success',
-        progress: { current: 1, total: 1, stage: 'running', message: 'done' },
-        items: [
-          {
-            inputPath: '/tmp/in.png',
-            outputPath: '/tmp/in_annotated.png',
-            success: true,
-            message: 'image annotate successful',
+    wailsSpy.getJobStatusV1.and.resolveTo(
+      status('annot-retry-1', 'partial_success', [
+        {
+          inputPath: '/tmp/a.png',
+          outputPath: '/tmp/a_annotated.png',
+          outputs: ['/tmp/a_annotated.png'],
+          success: true,
+          message: 'image annotate successful',
+        },
+        {
+          inputPath: '/tmp/b.jpg',
+          outputPath: '',
+          success: false,
+          message: 'image annotate failed',
+          error: {
+            code: 'EXEC_IO_TRANSIENT',
+            detail_code: 'IMAGE_ANNOTATE_BATCH_ITEM',
+            message: 'image annotate failed',
           },
-        ],
-        startedAt: Date.now(),
-        endedAt: Date.now(),
-      },
-    };
+        },
+      ]),
+    );
 
-    wailsSpy.getJobStatusV1.and.returnValues(Promise.resolve(running), Promise.resolve(done));
+    addDefaultOperation();
+    component.onPathsSelected(['/tmp/a.png', '/tmp/b.jpg']);
+    flushMicrotasks();
 
-    component.selectedInputPath = '/tmp/in.png';
-    component.operationForm.patchValue({
-      type: 'blur',
-      x: '1',
-      y: '1',
-      width: '4',
-      height: '4',
-      blurIntensity: '20',
-    });
-    component.addOperation();
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/out');
+    void component.chooseOutputFolder();
+    flushMicrotasks();
 
     void component.run();
     flushMicrotasks();
+    fixture.detectChanges();
 
-    expect(component.activeJobId).toBe('annot-job-1');
+    expect(component.jobResult()?.status).toBe('partial_success');
 
-    tick(1000);
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'annot-retry-2',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.resolveTo(
+      status('annot-retry-2', 'running', []),
+    );
+
+    void component.retryFailed();
     flushMicrotasks();
 
-    expect(component.jobResult?.status).toBe('success');
-    expect(component.isPolling).toBeFalse();
-    expect(component.activeJobId).toBe('');
+    expect(component.selectedPaths()).toEqual(['/tmp/b.jpg']);
+
+    const runCalls = wailsSpy.runJobV1.calls.allArgs();
+    const retryRequest = runCalls[runCalls.length - 1][0] as JobRequestV1;
+    expect(retryRequest.mode).toBe('single');
+    expect(retryRequest.inputPaths).toEqual(['/tmp/b.jpg']);
+    expect(retryRequest.outputDir).toBe('/tmp/out');
+    expect(
+      (retryRequest.options['operations'] as unknown[]).length,
+    ).toBe(1);
+
+    component.reset();
   }));
 
-  it('stops listening to operationForm after destroy', () => {
-    spyOn(component as any, 'onAdvancedFormChanged');
-    fixture.destroy();
-    component.operationForm.patchValue({ x: '2' });
-    expect((component as any).onAdvancedFormChanged).not.toHaveBeenCalled();
-  });
-
-  it('renders the workbench header without page-level navigation links', () => {
+  it('renders the file-first page without the legacy mode and path controls', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.eyebrow')?.textContent).toContain('IMAGE');
-    expect(element.querySelector('.page-title')?.textContent).toContain('Image');
+    expect(element.querySelector('.page-title')?.textContent).toContain(
+      'Image',
+    );
+    expect(element.querySelector('.page-title')?.textContent).toContain(
+      'Annotate',
+    );
     expect(element.querySelectorAll('.page-head a').length).toBe(0);
+
+    expect(element.querySelector('#annot-mode')).toBeNull();
+    expect(element.querySelector('#outputPath')).toBeNull();
+    expect(element.querySelector('app-tool-execution-panel')).toBeNull();
+
+    const legacy = component as unknown as Record<string, unknown>;
+    expect(legacy['validate']).toBeUndefined();
+    expect(legacy['panelFields']).toBeUndefined();
+    expect(legacy['form']).toBeUndefined();
   });
 });

@@ -1,58 +1,222 @@
 import {
+  ComponentFixture,
   fakeAsync,
   flushMicrotasks,
   TestBed,
   tick,
 } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Subject } from 'rxjs';
 
 import { ImageCrop } from './image-crop';
-import { JobRequestV1, JobStatusResponseV1, Wails } from '../../services/wails';
+import {
+  FileInfoV1,
+  JobProgressEventV1,
+  JobRequestV1,
+  JobResultItemV1,
+  JobResultV1,
+  JobStatusResponseV1,
+  PlanJobResponseV1,
+  Wails,
+} from '../../services/wails';
 
 describe('ImageCrop', () => {
+  let fixture: ComponentFixture<ImageCrop>;
   let component: ImageCrop;
-  let fixture: any;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobProgressSubject: Subject<JobProgressEventV1>;
+
+  function firstDir(path: string): string {
+    const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return index > 0 ? path.slice(0, index) : '';
+  }
+
+  function fileName(path: string): string {
+    const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return index >= 0 ? path.slice(index + 1) : path;
+  }
+
+  function fileStem(path: string): string {
+    return fileName(path).replace(/\.[^./\\]+$/, '');
+  }
+
+  function outputExtension(inputPath: string, request: JobRequestV1): string {
+    const requested = String(request.options['format'] ?? '').toLowerCase();
+    if (requested) {
+      return requested === 'jpg' ? 'jpeg' : requested;
+    }
+    const extension = (inputPath.split('.').pop() ?? 'png').toLowerCase();
+    return extension === 'jpg' ? 'jpeg' : extension;
+  }
+
+  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+    const outputs = request.inputPaths.map((inputPath) => {
+      const dir = request.outputDir || firstDir(inputPath);
+      const name = `${fileStem(inputPath)}_cropped.${outputExtension(
+        inputPath,
+        request,
+      )}`;
+      return {
+        inputPath,
+        outputPath: dir ? `${dir}/${name}` : name,
+        outputKind: 'file',
+        outputCount: 1,
+        exists: false,
+        adjusted: false,
+      };
+    });
+
+    return {
+      success: true,
+      message: 'ok',
+      outputs,
+      effectiveOptions: request.options,
+      warnings: [],
+    };
+  }
+
+  function fileInfo(path: string): FileInfoV1 {
+    const name = fileName(path);
+    return {
+      path,
+      name,
+      directory: firstDir(path),
+      extension: (name.split('.').pop() ?? '').toLowerCase(),
+      sizeBytes: 2048,
+      kind: 'image',
+      width: 100,
+      height: 80,
+      exists: true,
+    };
+  }
+
+  function status(
+    jobId: string,
+    jobStatus: JobResultV1['status'],
+    items: JobResultItemV1[],
+  ): JobStatusResponseV1 {
+    return {
+      success: true,
+      message: jobStatus,
+      found: true,
+      result: {
+        jobId,
+        success: jobStatus === 'success',
+        message: jobStatus,
+        toolId: 'tool.image.crop',
+        status: jobStatus,
+        progress: {
+          current: jobStatus === 'running' ? 0 : items.length,
+          total: items.length || 1,
+          stage: jobStatus,
+          message: jobStatus,
+        },
+        items,
+        startedAt: 1,
+        endedAt: jobStatus === 'running' ? undefined : 2,
+      },
+    };
+  }
+
+  function inputEvent(value: string): Event {
+    return { target: { value } } as unknown as Event;
+  }
+
+  function lastPlanRequest(): JobRequestV1 {
+    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  }
+
+  function primaryButton(): HTMLButtonElement {
+    return fixture.nativeElement.querySelector(
+      '.action-primary',
+    ) as HTMLButtonElement;
+  }
 
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'validateJobV1',
+      'planJobV1',
+      'inspectFilesV1',
+      'getThumbnail',
+      'getImagePreviewSourceV1',
+      'getImageCropPreviewV1',
       'runJobV1',
       'getJobStatusV1',
       'cancelJobV1',
-      'listToolsV1',
-      'openFileDialog',
+      'openPath',
+      'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
-      'getImagePreviewSourceV1',
-      'getImageCropPreviewV1',
       'isRuntimeAvailable',
+      'listToolsV1',
+      'validateJobV1',
     ]);
 
-    wailsSpy.getImagePreviewSourceV1.and.returnValue(
+    jobProgressSubject = new Subject<JobProgressEventV1>();
+    (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
+      jobProgressSubject.asObservable();
+
+    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+      Promise.resolve(planResponse(request)),
+    );
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
-        dataBase64: 'AA==',
-        mimeType: 'image/png',
-        width: 100,
-        height: 80,
-      })
+        files: paths.map(fileInfo),
+      }),
     );
-    wailsSpy.getImageCropPreviewV1.and.returnValue(
-      Promise.resolve({
-        success: true,
-        message: 'ok',
-        dataBase64: 'AA==',
-        mimeType: 'image/png',
-        width: 20,
-        height: 20,
-      })
+    wailsSpy.getThumbnail.and.resolveTo(null);
+    wailsSpy.getImagePreviewSourceV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      dataBase64: 'AA==',
+      mimeType: 'image/png',
+      width: 100,
+      height: 80,
+    });
+    wailsSpy.getImageCropPreviewV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      dataBase64: 'AA==',
+      mimeType: 'image/png',
+      width: 20,
+      height: 20,
+    });
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'crop-job-1',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+      Promise.resolve(status(jobId, 'running', [])),
     );
+    wailsSpy.cancelJobV1.and.resolveTo({
+      success: true,
+      message: 'cancelled',
+      jobId: 'crop-job-1',
+    });
+    wailsSpy.openPath.and.resolveTo({ success: true, message: 'opened' });
+    wailsSpy.revealInFolder.and.resolveTo({
+      success: true,
+      message: 'revealed',
+    });
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.isRuntimeAvailable.and.returnValue(true);
+    wailsSpy.listToolsV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      tools: [],
+    });
+    wailsSpy.validateJobV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      valid: true,
+    });
 
     await TestBed.configureTestingModule({
       imports: [ImageCrop],
-      providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
+      providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ImageCrop);
@@ -60,189 +224,397 @@ describe('ImageCrop', () => {
     fixture.detectChanges();
   });
 
-  it('builds single crop request payload with manual coordinates', async () => {
-    wailsSpy.validateJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'ok', valid: true })
-    );
-
-    component.selectedInputPath = '/tmp/in.png';
-    component.form.patchValue({
-      jobMode: 'single',
-      outputPath: '/tmp/out.png',
-      ratioPreset: '1:1',
-      format: 'png',
-      x: '10',
-      y: '12',
-      width: '20',
-      height: '20',
-    });
-
-    await component.validate();
-
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
-    expect(req.toolId).toBe('tool.image.crop');
-    expect(req.mode).toBe('single');
-    expect(req.inputPaths).toEqual(['/tmp/in.png']);
-    expect(req.options['x']).toBe(10);
-    expect(req.options['y']).toBe(12);
-    expect(req.options['width']).toBe(20);
-    expect(req.options['height']).toBe(20);
-    expect(req.options['ratioPreset']).toBe('1:1');
-    expect(req.options['outputPath']).toBe('/tmp/out.png');
-    expect(req.options['format']).toBe('png');
+  afterEach(() => {
+    fixture.destroy();
   });
 
-  it('builds batch crop request payload with same area for all inputs', async () => {
-    wailsSpy.validateJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'ok', valid: true })
+  it('plans one image as single with the default crop options', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    const request = lastPlanRequest();
+    expect(request.toolId).toBe('tool.image.crop');
+    expect(request.mode).toBe('single');
+    expect(request.inputPaths).toEqual(['/tmp/photo.png']);
+    expect(request.outputDir).toBe('');
+    expect(request.options['x']).toBe(0);
+    expect(request.options['y']).toBe(0);
+    expect(request.options['width']).toBe(100);
+    expect(request.options['height']).toBe(80);
+    expect(request.options['ratioPreset']).toBe('free');
+    expect(request.options['format']).toBeUndefined();
+
+    expect(component.previewUrl()).toContain('data:image/png;base64,');
+    expect(component.imageWidth()).toBe(100);
+    expect(component.imageHeight()).toBe(80);
+    expect(component.cropSizeLabel()).toBe('100 × 80 px');
+    expect(component.imageSizeLabel()).toBe('100 × 80 px');
+    expect(component.primaryLabel()).toBe('Crop image');
+    expect(component.canRun()).toBeTrue();
+
+    fixture.detectChanges();
+    expect(primaryButton().disabled).toBeFalse();
+  }));
+
+  it('plans a batch automatically for two images', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+    component.onPathsSelected(['/tmp/b.jpg']);
+    flushMicrotasks();
+
+    const request = lastPlanRequest();
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
+    expect(component.plan()?.outputs.length).toBe(2);
+    expect(component.isBatch()).toBeTrue();
+    expect(component.primaryLabel()).toBe('Crop 2 images');
+
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'The same crop applies to every image.',
     );
+  }));
 
-    component.selectedInputPaths = ['/tmp/a.jpg', '/tmp/b.jpg'];
-    component.form.patchValue({
-      jobMode: 'batch',
-      outputDir: '/tmp/out',
-      ratioPreset: '4:3',
-      x: '0',
-      y: '0',
-      width: '40',
-      height: '30',
-    });
-
-    await component.validate();
-
-    const req = wailsSpy.validateJobV1.calls.mostRecent().args[0] as JobRequestV1;
-    expect(req.toolId).toBe('tool.image.crop');
-    expect(req.mode).toBe('batch');
-    expect(req.inputPaths).toEqual(['/tmp/a.jpg', '/tmp/b.jpg']);
-    expect(req.outputDir).toBe('/tmp/out');
-    expect(req.options['x']).toBe(0);
-    expect(req.options['y']).toBe(0);
-    expect(req.options['width']).toBe(40);
-    expect(req.options['height']).toBe(30);
-    expect(req.options['ratioPreset']).toBe('4:3');
-  });
-
-  it('validates local ratio mismatch when preset is locked', async () => {
-    component.selectedInputPath = '/tmp/in.png';
-    component.form.patchValue({
-      ratioPreset: '16:9',
-      x: '0',
-      y: '0',
-      width: '10',
-      height: '10',
-    });
-
-    await component.validate();
-
-    expect(component.validationMessage).toContain('Ratio preset 16:9 requires locked width/height proportion');
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
-  });
-
-  it('runs and ends in partial_success for mixed batch results', fakeAsync(() => {
-    wailsSpy.validateJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'ok', valid: true })
-    );
-    wailsSpy.runJobV1.and.returnValue(
-      Promise.resolve({ success: true, message: 'submitted', jobId: 'crop-job-1', status: 'queued' })
-    );
-
-    const running: JobStatusResponseV1 = {
+  it('changes the crop and plan options when a ratio preset is selected', fakeAsync(() => {
+    wailsSpy.getImagePreviewSourceV1.and.resolveTo({
       success: true,
-      message: 'running',
-      found: true,
-      result: {
-        jobId: 'crop-job-1',
-        success: false,
-        message: 'working',
-        toolId: 'tool.image.crop',
-        status: 'running',
-        progress: { current: 1, total: 2, stage: 'running', message: 'running' },
-        items: [],
-        startedAt: Date.now(),
-      },
-    };
-
-    const done: JobStatusResponseV1 = {
-      success: true,
-      message: 'partial',
-      found: true,
-      result: {
-        jobId: 'crop-job-1',
-        success: false,
-        message: 'job partial success',
-        toolId: 'tool.image.crop',
-        status: 'partial_success',
-        progress: { current: 2, total: 2, stage: 'running', message: 'done' },
-        items: [
-          {
-            inputPath: '/tmp/a.jpg',
-            outputPath: '/tmp/a_cropped.jpg',
-            success: true,
-            message: 'image crop successful',
-          },
-          {
-            inputPath: '/tmp/b.jpg',
-            outputPath: '/tmp/b_cropped.jpg',
-            success: false,
-            message: 'out-of-bounds',
-            error: {
-              code: 'VALIDATION_INVALID_INPUT',
-              detail_code: 'IMAGE_CROP_OUT_OF_BOUNDS',
-              message: 'crop area is outside image bounds',
-            },
-          },
-        ],
-        startedAt: Date.now(),
-        endedAt: Date.now(),
-      },
-    };
-
-    wailsSpy.getJobStatusV1.and.returnValues(Promise.resolve(running), Promise.resolve(done));
-
-    component.selectedInputPaths = ['/tmp/a.jpg', '/tmp/b.jpg'];
-    component.form.patchValue({
-      jobMode: 'batch',
-      ratioPreset: '1:1',
-      x: '0',
-      y: '0',
-      width: '20',
-      height: '20',
+      message: 'ok',
+      dataBase64: 'AA==',
+      mimeType: 'image/png',
+      width: 160,
+      height: 90,
     });
+
+    component.onPathsSelected(['/tmp/wide.png']);
+    flushMicrotasks();
+
+    component.selectRatio('4:3');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const request = lastPlanRequest();
+    expect(request.options['ratioPreset']).toBe('4:3');
+    expect(request.options['width']).toBe(120);
+    expect(request.options['height']).toBe(90);
+    expect(
+      (request.options['width'] as number) * 3,
+    ).toBe((request.options['height'] as number) * 4);
+    expect(component.cropSizeLabel()).toBe('120 × 90 px');
+
+    const active = fixture.nativeElement.querySelector(
+      '[data-ratio="4:3"]',
+    ) as HTMLButtonElement;
+    const free = fixture.nativeElement.querySelector(
+      '[data-ratio="free"]',
+    ) as HTMLButtonElement;
+    expect(active.getAttribute('aria-pressed')).toBe('true');
+    expect(free.getAttribute('aria-pressed')).toBe('false');
+  }));
+
+  it('debounces bounds edits before planning', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJobV1.calls.count();
+
+    component.onBoundsInput('width', inputEvent('90'));
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls);
+
+    tick(199);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls);
+
+    tick(1);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls + 1);
+    expect(lastPlanRequest().options['width']).toBe(90);
+  }));
+
+  it('adds the chosen output format and omits it for preserve original', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    component.onFormatChange(inputEvent('webp'));
+    flushMicrotasks();
+    expect(component.format()).toBe('webp');
+    expect(lastPlanRequest().options['format']).toBe('webp');
+
+    component.onFormatChange(inputEvent(''));
+    flushMicrotasks();
+    expect(component.format()).toBe('');
+    expect(lastPlanRequest().options['format']).toBeUndefined();
+  }));
+
+  it('blocks the action for an empty or out-of-bounds crop', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJobV1.calls.count();
+
+    component.onBoundsInput('width', inputEvent(''));
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.crop()).toBeNull();
+    expect(component.canRun()).toBeFalse();
+    expect(primaryButton().disabled).toBeTrue();
+    expect(component.actionHelper()).toContain('Enter whole numbers');
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls);
+
+    component.onBoundsInput('width', inputEvent('500'));
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.canRun()).toBeFalse();
+    expect(primaryButton().disabled).toBeTrue();
+    expect(component.actionHelper()).toContain('stay inside the image');
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls);
+  }));
+
+  it('shows a failed plan inline and blocks the action', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    wailsSpy.planJobV1.and.resolveTo({
+      success: false,
+      message: 'The folder is not available.',
+      outputs: [],
+      error: {
+        code: 'EXEC_IO_TRANSIENT',
+        detail_code: 'IMAGE_CROP_OUTPUT_DIR_INVALID',
+        message: 'The folder is not available.',
+      },
+    });
+
+    component.selectRatio('1:1');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.planBlocked()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+    expect(primaryButton().disabled).toBeTrue();
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-error'),
+    ).not.toBeNull();
+  }));
+
+  it('runs from the fresh plan without a validation step', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png', '/tmp/b.jpg']);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJobV1.calls.count();
 
     void component.run();
     flushMicrotasks();
 
-    expect(component.activeJobId).toBe('crop-job-1');
-    expect(component.isPolling).toBeTrue();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls + 1);
+    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.toolId).toBe('tool.image.crop');
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
+    expect(request.options['ratioPreset']).toBe('free');
+    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+    expect(component.isPolling()).toBeTrue();
+    expect(component.activeJobId()).toBe('crop-job-1');
 
-    tick(1000);
-    flushMicrotasks();
-
-    expect(component.jobResult?.status).toBe('partial_success');
-    expect(component.jobResult?.items.length).toBe(2);
-    expect(component.isPolling).toBeFalse();
-    expect(component.activeJobId).toBe('');
+    component.reset();
   }));
 
-  it('does not call form handlers after destroy (unsubscribed)', () => {
-    // spy on the handler that's called from valueChanges subscriptions
-    spyOn(component as any, 'onManualCoordinatesChanged');
+  it('inspects terminal results and opens the cropped file', fakeAsync(() => {
+    const inputPath = '/tmp/in/photo.png';
+    const outputPath = '/tmp/in/photo_cropped.png';
 
-    // destroy the fixture (triggers ngOnDestroy and should complete destroy$)
-    fixture.destroy();
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'crop-job-2',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.resolveTo(
+      status('crop-job-2', 'success', [
+        {
+          inputPath,
+          outputPath,
+          outputs: [outputPath],
+          outputCount: 1,
+          success: true,
+          message: 'image crop successful',
+        },
+      ]),
+    );
 
-    // trigger value change after destroy
-    component.form.patchValue({ x: '1' });
+    component.onPathsSelected([inputPath]);
+    flushMicrotasks();
 
-    // handler should not have been called after destroy
-    expect((component as any).onManualCoordinatesChanged).not.toHaveBeenCalled();
-  });
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
 
-  it('renders the workbench header without page-level navigation links', () => {
+    expect(component.jobResult()?.status).toBe('success');
+    expect(component.terminalJob()).not.toBeNull();
+    expect(component.isPolling()).toBeFalse();
+    expect(component.activeJobId()).toBe('');
+    expect(fixture.nativeElement.textContent).toContain('1 image cropped');
+
+    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+      .allArgs()
+      .map((args) => args[0] as string[]);
+    expect(
+      inspectedPaths.some((paths) => paths.includes(outputPath)),
+    ).toBeTrue();
+
+    const openButton = fixture.nativeElement.querySelector(
+      '.result-open',
+    ) as HTMLButtonElement;
+    openButton.click();
+    flushMicrotasks();
+
+    expect(wailsSpy.openPath).toHaveBeenCalledWith(outputPath);
+  }));
+
+  it('retries only failed inputs with the same crop settings', fakeAsync(() => {
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'crop-retry-1',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.resolveTo(
+      status('crop-retry-1', 'partial_success', [
+        {
+          inputPath: '/tmp/a.png',
+          outputPath: '/tmp/a_cropped.png',
+          outputs: ['/tmp/a_cropped.png'],
+          success: true,
+          message: 'image crop successful',
+        },
+        {
+          inputPath: '/tmp/b.jpg',
+          outputPath: '',
+          success: false,
+          message: 'image crop failed',
+          error: {
+            code: 'EXEC_IO_TRANSIENT',
+            detail_code: 'IMAGE_CROP_BATCH_ITEM',
+            message: 'image crop failed',
+          },
+        },
+      ]),
+    );
+
+    component.onPathsSelected(['/tmp/a.png', '/tmp/b.jpg']);
+    flushMicrotasks();
+
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/out');
+    void component.chooseOutputFolder();
+    flushMicrotasks();
+
+    component.onFormatChange(inputEvent('png'));
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.jobResult()?.status).toBe('partial_success');
+
+    wailsSpy.runJobV1.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'crop-retry-2',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatusV1.and.resolveTo(
+      status('crop-retry-2', 'running', []),
+    );
+
+    void component.retryFailed();
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual(['/tmp/b.jpg']);
+
+    const runCalls = wailsSpy.runJobV1.calls.allArgs();
+    const retryRequest = runCalls[runCalls.length - 1][0] as JobRequestV1;
+    expect(retryRequest.mode).toBe('single');
+    expect(retryRequest.inputPaths).toEqual(['/tmp/b.jpg']);
+    expect(retryRequest.outputDir).toBe('/tmp/out');
+    expect(retryRequest.options['format']).toBe('png');
+    expect(retryRequest.options['x']).toBe(0);
+    expect(retryRequest.options['y']).toBe(0);
+    expect(retryRequest.options['width']).toBe(100);
+    expect(retryRequest.options['height']).toBe(80);
+    expect(retryRequest.options['ratioPreset']).toBe('free');
+
+    component.reset();
+  }));
+
+  it('uses the chosen destination folder in the plan', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/out');
+
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJobV1.calls.count();
+
+    void component.chooseOutputFolder();
+    flushMicrotasks();
+
+    expect(component.outputDir()).toBe('/tmp/out');
+    expect(component.destinationLabel()).toBe('/tmp/out');
+    expect(component.isDefaultDestination()).toBeFalse();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls + 1);
+    expect(lastPlanRequest().outputDir).toBe('/tmp/out');
+    expect(component.plan()?.outputs[0].outputPath).toBe(
+      '/tmp/out/photo_cropped.png',
+    );
+
+    component.useOriginalFolders();
+    flushMicrotasks();
+
+    expect(component.outputDir()).toBe('');
+    expect(component.destinationLabel()).toBe('Next to each image');
+    expect(lastPlanRequest().outputDir).toBe('');
+  }));
+
+  it('rejects non-images and duplicates with a notice', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/notes.txt']);
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual([]);
+    expect(component.notice()?.text).toContain('notes.txt');
+    expect(component.notice()?.text).toContain("isn't an image");
+    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+
+    component.onPathsSelected(['/tmp/a.png', '/tmp/a.png']);
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual(['/tmp/a.png']);
+    expect(component.notice()?.text).toContain(
+      'a.png is already in the queue.',
+    );
+    expect(component.fileItems().length).toBe(1);
+  }));
+
+  it('renders the file-first page without the legacy mode and path controls', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.eyebrow')?.textContent).toContain('IMAGE');
-    expect(element.querySelector('.page-title')?.textContent).toContain('Image');
+    expect(element.querySelector('.page-title')?.textContent).toContain(
+      'Image',
+    );
+    expect(element.querySelector('.page-title')?.textContent).toContain(
+      'Crop',
+    );
     expect(element.querySelectorAll('.page-head a').length).toBe(0);
+
+    expect(element.querySelector('#crop-mode')).toBeNull();
+    expect(element.querySelector('#outputPath')).toBeNull();
+    expect(element.querySelector('app-tool-execution-panel')).toBeNull();
+
+    const legacy = component as unknown as Record<string, unknown>;
+    expect(legacy['validate']).toBeUndefined();
+    expect(legacy['panelFields']).toBeUndefined();
   });
 });

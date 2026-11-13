@@ -1,6 +1,6 @@
 # Tool Usability Overhaul — File-first Workbench
 
-- Status: in progress (Phase 1 + PDF Merge reference complete)
+- Status: all 11 tools migrated to the file-first flow (global intake/history/preferences pending)
 - Branch: `feat/tool-usability`
 - Started: 2026-11-13
 - Related: `odd/tasks/ui-ux-forge-overhaul.md` (visual system, already merged)
@@ -200,3 +200,4 @@ Default, unless the user changes it:
 - 2026-11-13: Document flows complete. Markdown → PDF: single-file intake, output plan, header/footer advanced section, one action, result card. DOCX → PDF: automatic single/batch, output plan, quiet fidelity note instead of a blocking confirm, retry failed, result card. Backend plans added for both; DOCX batch no longer requires an output directory and plans next to each input. Go tests pass; frontend 203/203 specs; build passes.
 - 2026-11-13: Video flows complete. Convert/Trim/Merge are file-first with preset cards, output plans, one action, progress and result cards. Video duration is inspected via ffprobe; trim accepts `SS`/`MM:SS`/`HH:MM:SS`, validates the range and applies it to batch. Backend plans added for convert/trim/merge with collision-safe auto output and optional output folders. Go tests pass; frontend 218/218 specs; build passes.
 - 2026-11-13: PDF Split/Crop flows complete. Split: PDF queue, Every page/Page ranges, collision-safe `<stem>_pages` directories, one action, grouped result folders. Crop: preset cards (Small/Medium/Large/None/Custom), all/custom page selection, custom margins in Advanced, auto `<stem>_cropped.pdf`, one action, result. Backend plans added; old modal/preview-canvas/mode/path/Validate chrome removed. Go tests pass; frontend 217/217 specs; build passes.
+- 2026-11-13: Image Crop/Annotate flows complete. Crop keeps the interactive selection/preview but now has file-first intake, ratio cards, bounds in Advanced, output plan and one action. Annotate keeps the SVG editor/tool palette/operation list but now has file-first intake, output plan and one action; the redact confirm was removed. Backend plans added for both. Go tests pass; frontend 231/231 specs; build passes. All 11 tools now use the file-first flow.

@@ -3,6 +3,7 @@ package image
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/outputplan"
 
 	"github.com/h2non/bimg"
 )
@@ -83,54 +85,114 @@ func (t *CropTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
 	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
 }
 
-func (t *CropTool) Validate(_ context.Context, req models.JobRequestV1) *models.JobErrorV1 {
-	parsed, jobErr := parseCropRequest(req)
-	if jobErr != nil {
-		return jobErr
+func (t *CropTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+	_, planErr := t.Plan(ctx, req)
+	return planErr
+}
+
+// Plan resolves one collision-safe <stem>_cropped.<ext> destination per input
+// without cropping anything. An explicit options.outputPath keeps the single
+// request contract: it must differ from the input and the target must not
+// exist yet. Auto-derived names are suffixed (-2, -3, ...) instead of
+// overwriting anything.
+func (t *CropTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+	parsed, parseErr := parseCropRequest(req)
+	if parseErr != nil {
+		return planFailure(models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}, parseErr)
+	}
+
+	return planParsedCropRequest(parsed)
+}
+
+func planParsedCropRequest(parsed cropRequest) (models.PlanJobResponseV1, *models.JobErrorV1) {
+	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+
+	formats := make([]string, 0, len(parsed.inputPaths))
+	for _, inputPath := range parsed.inputPaths {
+		if inputErr := validateInputImagePath(inputPath); inputErr != nil {
+			return planFailure(plan, inputErr)
+		}
+
+		outputFmt, fmtErr := resolveOutputFormat(inputPath, parsed.format)
+		if fmtErr != nil {
+			return planFailure(plan, fmtErr)
+		}
+		formats = append(formats, outputFmt)
+	}
+
+	// Reserve every input path so an auto-derived output can never overwrite a
+	// different input of the same batch.
+	used := make(map[string]struct{}, len(parsed.inputPaths))
+	for _, inputPath := range parsed.inputPaths {
+		outputplan.MarkUsed(used, inputPath)
 	}
 
 	if parsed.mode == "single" {
-		prepared, prepErr := t.prepareSingle(parsed)
-		if prepErr != nil {
-			return prepErr
-		}
-
-		if areaErr := validateCropBounds(prepared.inputPath, prepared.x, prepared.y, prepared.width, prepared.height); areaErr != nil {
-			return areaErr
-		}
-	}
-
-	if parsed.mode == "batch" {
-		if strings.TrimSpace(parsed.outputDir) != "" {
-			if _, statErr := os.Stat(parsed.outputDir); statErr != nil {
-				return models.NewCanonicalJobError("IMAGE_CROP_OUTPUT_DIR_INVALID", fmt.Sprintf("outputDir is not accessible: %v", statErr), nil)
+		planned, planErr := planSingleCropOutput(parsed, formats[0], used)
+		if planErr != nil {
+			if planned.OutputPath != "" {
+				plan.Outputs = []models.PlannedOutputV1{planned}
 			}
+			return planFailure(plan, planErr)
 		}
 
-		// NOTE: Stage 1 batch mode applies the same crop rectangle to all files.
-		// TODO(stage-2): support per-file crop rectangles in one batch request.
+		if boundsErr := validateCropBoundsForPlan(planned.InputPath, parsed.x, parsed.y, parsed.width, parsed.height); boundsErr != nil {
+			plan.Outputs = []models.PlannedOutputV1{planned}
+			return planFailure(plan, boundsErr)
+		}
+
+		plan.Success = true
+		plan.Message = cropPlanMessage(1)
+		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Warnings = planned.Warnings
+		plan.EffectiveOptions = cropEffectiveOptions(parsed, formats)
+
+		return plan, nil
 	}
 
-	return nil
+	if parsed.outputDir != "" {
+		if dirErr := validateCropOutputDir(parsed.outputDir); dirErr != nil {
+			return planFailure(plan, dirErr)
+		}
+	}
+
+	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
+	warnings := make([]string, 0, len(parsed.inputPaths))
+	for index, inputPath := range parsed.inputPaths {
+		targetDir := parsed.outputDir
+		if targetDir == "" {
+			targetDir = filepath.Dir(inputPath)
+		}
+
+		planned := planAutoCropOutput(inputPath, filepath.Clean(targetDir), formats[index], used)
+		outputs = append(outputs, planned)
+		warnings = append(warnings, planned.Warnings...)
+	}
+
+	plan.Success = true
+	plan.Message = cropPlanMessage(len(outputs))
+	plan.Outputs = outputs
+	plan.Warnings = warnings
+	plan.EffectiveOptions = cropEffectiveOptions(parsed, formats)
+
+	return plan, nil
 }
 
 func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
-	parsed, jobErr := parseCropRequest(req)
-	if jobErr != nil {
-		return models.JobResultItemV1{Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return models.JobResultItemV1{
+			InputPath:  firstPath(req.InputPaths),
+			OutputPath: plannedOutputPath(plan),
+			Success:    false,
+			Message:    planErr.Message,
+			Error:      planErr,
+		}, planErr
 	}
 
-	prepared, prepErr := t.prepareSingle(parsed)
-	if prepErr != nil {
-		return models.JobResultItemV1{InputPath: firstPath(parsed.inputPaths), OutputPath: parsed.outputPath, Success: false, Message: prepErr.Message, Error: prepErr}, prepErr
-	}
-
-	if areaErr := validateCropBounds(prepared.inputPath, prepared.x, prepared.y, prepared.width, prepared.height); areaErr != nil {
-		return models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Success: false, Message: areaErr.Message, Error: areaErr}, areaErr
-	}
-
+	prepared := preparedCropFromPlan(plan.Outputs[0], plan.EffectiveOptions)
 	if err := executeCropToPath(ctx, prepared); err != nil {
-		jobErr = models.NewCanonicalJobError("IMAGE_CROP_EXECUTION", err.Error(), map[string]any{"inputPath": prepared.inputPath})
+		jobErr := models.NewCanonicalJobError("IMAGE_CROP_EXECUTION", err.Error(), map[string]any{"inputPath": prepared.inputPath})
 		return models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Success: false, Message: "image crop failed", Error: jobErr}, jobErr
 	}
 
@@ -154,11 +216,15 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 		return nil, models.NewCanonicalJobError("IMAGE_CROP_MODE_INVALID", "mode must be batch", nil)
 	}
 
-	usedOutputs := make(map[string]struct{}, len(parsed.inputPaths))
-	items := make([]models.JobResultItemV1, 0, len(parsed.inputPaths))
+	plan, planErr := planParsedCropRequest(parsed)
+	if planErr != nil {
+		return nil, planErr
+	}
+
+	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
 	var firstErr *models.JobErrorV1
 
-	for idx, inputPath := range parsed.inputPaths {
+	for idx, planned := range plan.Outputs {
 		select {
 		case <-ctx.Done():
 			cancelErr := models.NewCanonicalJobError("IMAGE_CROP_CANCELLED", ctx.Err().Error(), nil)
@@ -166,41 +232,7 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 		default:
 		}
 
-		prepared, prepErr := t.prepareForInput(parsed, inputPath, usedOutputs)
-		if prepErr != nil {
-			if firstErr == nil {
-				firstErr = prepErr
-			}
-			items = append(items, models.JobResultItemV1{
-				InputPath:  inputPath,
-				OutputPath: "",
-				Success:    false,
-				Message:    prepErr.Message,
-				Error:      prepErr,
-			})
-			if onProgress != nil {
-				onProgress(models.JobProgressV1{Current: idx + 1, Total: len(parsed.inputPaths), Stage: models.JobStatusRunning, Message: fmt.Sprintf("processed %d/%d", idx+1, len(parsed.inputPaths))})
-			}
-			continue
-		}
-
-		if areaErr := validateCropBounds(prepared.inputPath, prepared.x, prepared.y, prepared.width, prepared.height); areaErr != nil {
-			if firstErr == nil {
-				firstErr = areaErr
-			}
-			items = append(items, models.JobResultItemV1{
-				InputPath:  prepared.inputPath,
-				OutputPath: prepared.outputPath,
-				Success:    false,
-				Message:    areaErr.Message,
-				Error:      areaErr,
-			})
-			if onProgress != nil {
-				onProgress(models.JobProgressV1{Current: idx + 1, Total: len(parsed.inputPaths), Stage: models.JobStatusRunning, Message: fmt.Sprintf("processed %d/%d", idx+1, len(parsed.inputPaths))})
-			}
-			continue
-		}
-
+		prepared := preparedCropFromPlan(planned, plan.EffectiveOptions)
 		if err := executeCropToPath(ctx, prepared); err != nil {
 			itemErr := models.NewCanonicalJobError("IMAGE_CROP_BATCH_ITEM", err.Error(), map[string]any{"inputPath": prepared.inputPath})
 			if firstErr == nil {
@@ -225,7 +257,7 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 		}
 
 		if onProgress != nil {
-			onProgress(models.JobProgressV1{Current: idx + 1, Total: len(parsed.inputPaths), Stage: models.JobStatusRunning, Message: fmt.Sprintf("processed %d/%d", idx+1, len(parsed.inputPaths))})
+			onProgress(models.JobProgressV1{Current: idx + 1, Total: len(plan.Outputs), Stage: models.JobStatusRunning, Message: fmt.Sprintf("processed %d/%d", idx+1, len(plan.Outputs))})
 		}
 	}
 
@@ -389,93 +421,171 @@ func parseCropRequest(req models.JobRequestV1) (cropRequest, *models.JobErrorV1)
 		return cropRequest{}, ratioErr
 	}
 
-	parsed := cropRequest{
+	outputDir := strings.TrimSpace(req.OutputDir)
+	if outputDir == "" {
+		outputDir = strings.TrimSpace(cropOptionString(req.Options, "outputDir"))
+	}
+
+	return cropRequest{
 		mode:        mode,
 		inputPaths:  inputs,
 		outputPath:  strings.TrimSpace(cropOptionString(req.Options, "outputPath")),
-		outputDir:   strings.TrimSpace(req.OutputDir),
+		outputDir:   outputDir,
 		x:           x,
 		y:           y,
 		width:       width,
 		height:      height,
 		ratioPreset: ratioPreset,
 		format:      strings.ToLower(strings.TrimSpace(cropOptionString(req.Options, "format"))),
-	}
-
-	if parsed.mode == "single" {
-		if reqOutDir := strings.TrimSpace(cropOptionString(req.Options, "outputDir")); reqOutDir != "" {
-			parsed.outputDir = reqOutDir
-		}
-	}
-
-	if parsed.mode == "batch" && strings.TrimSpace(cropOptionString(req.Options, "outputDir")) != "" {
-		parsed.outputDir = strings.TrimSpace(cropOptionString(req.Options, "outputDir"))
-	}
-
-	return parsed, nil
-}
-
-func (t *CropTool) prepareSingle(parsed cropRequest) (preparedCrop, *models.JobErrorV1) {
-	inputPath := firstPath(parsed.inputPaths)
-	if err := validateInputImagePath(inputPath); err != nil {
-		return preparedCrop{}, err
-	}
-
-	outputFmt, fmtErr := resolveOutputFormat(inputPath, parsed.format)
-	if fmtErr != nil {
-		return preparedCrop{}, fmtErr
-	}
-
-	outputPath := strings.TrimSpace(parsed.outputPath)
-	if outputPath == "" {
-		outputDir := strings.TrimSpace(parsed.outputDir)
-		if outputDir == "" {
-			outputDir = filepath.Dir(inputPath)
-		}
-		outputPath = nextAvailableOutputPath(outputDir, inputPath, outputFmt, nil)
-	}
-
-	if sameFile(inputPath, outputPath) {
-		return preparedCrop{}, models.NewCanonicalJobError("IMAGE_CROP_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
-	}
-
-	return preparedCrop{
-		inputPath:   inputPath,
-		outputPath:  outputPath,
-		outputFmt:   outputFmt,
-		x:           parsed.x,
-		y:           parsed.y,
-		width:       parsed.width,
-		height:      parsed.height,
-		ratioPreset: parsed.ratioPreset,
 	}, nil
 }
 
-func (t *CropTool) prepareForInput(parsed cropRequest, inputPath string, usedOutputs map[string]struct{}) (preparedCrop, *models.JobErrorV1) {
-	if err := validateInputImagePath(inputPath); err != nil {
-		return preparedCrop{}, err
+// planSingleCropOutput resolves the one output of a single request. An
+// explicit outputPath keeps the old validation contract; otherwise the output
+// is auto-named next to the input or inside the chosen folder.
+func planSingleCropOutput(parsed cropRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
+	inputPath := parsed.inputPaths[0]
+
+	if explicitOutput := strings.TrimSpace(parsed.outputPath); explicitOutput != "" {
+		return planExplicitCropOutput(inputPath, explicitOutput)
 	}
 
-	outputFmt, fmtErr := resolveOutputFormat(inputPath, parsed.format)
-	if fmtErr != nil {
-		return preparedCrop{}, fmtErr
+	targetDir := strings.TrimSpace(parsed.outputDir)
+	if targetDir == "" {
+		targetDir = filepath.Dir(inputPath)
 	}
 
-	outputPath := nextAvailableOutputPath(parsed.outputDir, inputPath, outputFmt, usedOutputs)
-	if sameFile(inputPath, outputPath) {
-		return preparedCrop{}, models.NewCanonicalJobError("IMAGE_CROP_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
+	return planAutoCropOutput(inputPath, filepath.Clean(targetDir), outputFmt, used), nil
+}
+
+func planExplicitCropOutput(inputPath, explicitOutput string) (models.PlannedOutputV1, *models.JobErrorV1) {
+	planned := models.PlannedOutputV1{
+		InputPath:  inputPath,
+		OutputPath: filepath.Clean(strings.TrimSpace(explicitOutput)),
+		OutputKind: imageOutputKindFile,
 	}
+
+	if sameFilePath(inputPath, planned.OutputPath) {
+		return planned, models.NewCanonicalJobError("IMAGE_CROP_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
+	}
+
+	info, statErr := os.Stat(planned.OutputPath)
+	switch {
+	case statErr == nil:
+		planned.Exists = true
+		if info.IsDir() {
+			return planned, models.NewCanonicalJobError(
+				"IMAGE_CROP_OUTPUT_DIR_INVALID",
+				fmt.Sprintf("%s is a folder, not a file.", filepath.Base(planned.OutputPath)),
+				map[string]any{"outputPath": planned.OutputPath},
+			)
+		}
+		return planned, models.NewCanonicalJobError(
+			"IMAGE_CROP_OUTPUT_EXISTS",
+			fmt.Sprintf("%s already exists. Choose another name.", filepath.Base(planned.OutputPath)),
+			map[string]any{"outputPath": planned.OutputPath},
+		)
+	case !errors.Is(statErr, os.ErrNotExist):
+		return planned, models.NewCanonicalJobError(
+			"IMAGE_CROP_OUTPUT_DIR_INVALID",
+			fmt.Sprintf("%s cannot be accessed. Choose another location.", filepath.Base(planned.OutputPath)),
+			map[string]any{"outputPath": planned.OutputPath},
+		)
+	}
+
+	return planned, nil
+}
+
+// planAutoCropOutput derives a collision-safe name inside dir. It never writes.
+func planAutoCropOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutputV1 {
+	planned := models.PlannedOutputV1{
+		InputPath:  inputPath,
+		OutputKind: imageOutputKindFile,
+	}
+
+	base := cropOutputBaseName(inputPath)
+	outputPath, adjusted := outputplan.UniqueFilePath(dir, base, outputFmt, used)
+	planned.OutputPath = outputPath
+
+	if adjusted {
+		planned.Adjusted = true
+		planned.Warnings = append(planned.Warnings, fmt.Sprintf("%s already exists. Saving as %s.", base+"."+outputFmt, filepath.Base(outputPath)))
+	}
+
+	return planned
+}
+
+func cropOutputBaseName(inputPath string) string {
+	stem := strings.TrimSpace(strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath)))
+	if stem == "" {
+		stem = "image"
+	}
+
+	return stem + "_cropped"
+}
+
+// preparedCropFromPlan turns a planned output into executor input without
+// resolving any path again.
+func preparedCropFromPlan(planned models.PlannedOutputV1, effective map[string]any) preparedCrop {
+	x, _ := numericOption(effective, "x")
+	y, _ := numericOption(effective, "y")
+	width, _ := numericOption(effective, "width")
+	height, _ := numericOption(effective, "height")
 
 	return preparedCrop{
-		inputPath:   inputPath,
-		outputPath:  outputPath,
-		outputFmt:   outputFmt,
-		x:           parsed.x,
-		y:           parsed.y,
-		width:       parsed.width,
-		height:      parsed.height,
-		ratioPreset: parsed.ratioPreset,
-	}, nil
+		inputPath:   planned.InputPath,
+		outputPath:  planned.OutputPath,
+		outputFmt:   plannedOutputFormat(planned, effective),
+		x:           x,
+		y:           y,
+		width:       width,
+		height:      height,
+		ratioPreset: convertOptionString(effective, "ratioPreset"),
+	}
+}
+
+func cropEffectiveOptions(parsed cropRequest, formats []string) map[string]any {
+	effective := map[string]any{
+		"x":           parsed.x,
+		"y":           parsed.y,
+		"width":       parsed.width,
+		"height":      parsed.height,
+		"ratioPreset": parsed.ratioPreset,
+	}
+	if format, ok := commonPlannedFormat(formats); ok {
+		effective["format"] = format
+	}
+
+	return effective
+}
+
+func validateCropBoundsForPlan(inputPath string, x, y, width, height int) *models.JobErrorV1 {
+	imageWidth, imageHeight, dimErr := readPlanImageDimensions(inputPath)
+	if dimErr != nil {
+		return models.NewCanonicalJobError("IMAGE_CROP_READ_FAILED", dimErr.Error(), map[string]any{"inputPath": inputPath})
+	}
+
+	return validateBoundsAgainstSize(x, y, width, height, imageWidth, imageHeight)
+}
+
+func validateCropOutputDir(outputDir string) *models.JobErrorV1 {
+	info, statErr := os.Stat(outputDir)
+	if statErr != nil {
+		return models.NewCanonicalJobError("IMAGE_CROP_OUTPUT_DIR_INVALID", fmt.Sprintf("outputDir is not accessible: %v", statErr), nil)
+	}
+	if !info.IsDir() {
+		return models.NewCanonicalJobError("IMAGE_CROP_OUTPUT_DIR_INVALID", fmt.Sprintf("outputDir is not a folder: %s", outputDir), nil)
+	}
+
+	return nil
+}
+
+func cropPlanMessage(count int) string {
+	if count == 1 {
+		return "Ready to crop 1 image."
+	}
+
+	return fmt.Sprintf("Ready to crop %d images.", count)
 }
 
 func executeCropToPath(ctx context.Context, prepared preparedCrop) error {
@@ -553,15 +663,6 @@ func cropInMemory(input []byte, x, y, width, height int, outputFmt string) ([]by
 	}
 
 	return bimg.NewImage(extracted).Convert(mapFormatToImageType(outputFmt))
-}
-
-func validateCropBounds(inputPath string, x, y, width, height int) *models.JobErrorV1 {
-	bytes, _, _, _, err := readAndNormalize(inputPath)
-	if err != nil {
-		return models.NewCanonicalJobError("IMAGE_CROP_READ_FAILED", err.Error(), map[string]any{"inputPath": inputPath})
-	}
-
-	return validateCropBoundsFromBytes(bytes, x, y, width, height)
 }
 
 func validateCropBoundsFromBytes(input []byte, x, y, width, height int) *models.JobErrorV1 {
@@ -692,61 +793,6 @@ func mapFormatToImageType(format string) bimg.ImageType {
 	default:
 		return bimg.UNKNOWN
 	}
-}
-
-func nextAvailableOutputPath(outputDir, inputPath, format string, used map[string]struct{}) string {
-	baseName := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
-	if strings.TrimSpace(baseName) == "" {
-		baseName = "image"
-	}
-
-	if strings.TrimSpace(outputDir) == "" {
-		outputDir = filepath.Dir(inputPath)
-	}
-
-	candidateBase := filepath.Join(outputDir, fmt.Sprintf("%s_cropped", baseName))
-	first := fmt.Sprintf("%s.%s", candidateBase, format)
-	if isOutputAvailable(first, used) {
-		markUsed(first, used)
-		return first
-	}
-
-	for suffix := 2; ; suffix++ {
-		candidate := fmt.Sprintf("%s-%d.%s", candidateBase, suffix, format)
-		if isOutputAvailable(candidate, used) {
-			markUsed(candidate, used)
-			return candidate
-		}
-	}
-}
-
-func isOutputAvailable(outputPath string, used map[string]struct{}) bool {
-	cleaned := strings.ToLower(filepath.Clean(outputPath))
-	if used != nil {
-		if _, exists := used[cleaned]; exists {
-			return false
-		}
-	}
-
-	if _, err := os.Stat(outputPath); err == nil {
-		return false
-	}
-
-	return true
-}
-
-func markUsed(outputPath string, used map[string]struct{}) {
-	if used == nil {
-		return
-	}
-	used[strings.ToLower(filepath.Clean(outputPath))] = struct{}{}
-}
-
-func sameFile(inputPath, outputPath string) bool {
-	if strings.TrimSpace(inputPath) == "" || strings.TrimSpace(outputPath) == "" {
-		return false
-	}
-	return strings.EqualFold(filepath.Clean(inputPath), filepath.Clean(outputPath))
 }
 
 func firstPath(paths []string) string {

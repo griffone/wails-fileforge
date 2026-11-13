@@ -1,40 +1,151 @@
-import { CommonModule } from '@angular/common';
-import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  OnDestroy,
+  ViewChild,
+  computed,
+  signal,
+} from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   ArrowDown,
   ArrowUp,
   FolderOpen,
+  Layers,
   LucideAngularModule,
+  PenTool,
   ShieldCheck,
   Trash2,
+  TriangleAlert,
   X,
 } from 'lucide-angular';
 
+import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
+import { FileQueue } from '../tool-flow/file-queue';
+import { OutputPlanCard } from '../tool-flow/output-plan-card';
+import { ResultCard } from '../tool-flow/result-card';
+import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
-  ExecutionPanelField,
-  ToolExecutionPanel,
-} from '../tool-execution-panel/tool-execution-panel';
-import {
-  ImageAnnotateOperationV1,
+  FileInfoV1,
   ImageAnnotateOperationTypeV1,
+  ImageAnnotateOperationV1,
   ImageAnnotatePreviewRequestV1,
   ImageAnnotatePreviewResponseV1,
   ImagePreviewSourceResponseV1,
+  InspectFilesResponseV1,
   JobErrorV1,
+  JobExecutionStatusV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
+  PlanJobResponseV1,
+  RunJobResponseV1,
   Wails,
 } from '../../services/wails';
+import {
+  fileExtension,
+  fileName,
+  formatBytes,
+  formatCount,
+} from '../../utils/format';
 
 const IMAGE_ANNOTATE_TOOL_ID = 'tool.image.annotate';
 const POLLING_INTERVAL_MS = 1000;
+const OPERATION_PLAN_DEBOUNCE_MS = 250;
+const ANNOTATE_PREVIEW_DEBOUNCE_MS = 200;
+const THUMBNAIL_SIZE = 160;
 
-type JobMode = 'single' | 'batch';
+const OPERATION_TYPES: readonly ImageAnnotateOperationTypeV1[] = [
+  'text',
+  'arrow',
+  'rect',
+  'blur',
+  'redact',
+];
+
+const SUPPORTED_IMAGE_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'bmp',
+  'tiff',
+  'tif',
+]);
+
+const TERMINAL_STATUSES = new Set<string>([
+  'success',
+  'failed',
+  'partial_success',
+  'cancelled',
+  'interrupted',
+]);
+
 type AnnotateTool = 'select' | 'rect' | 'blur' | 'redact' | 'arrow' | 'text';
+
+type OperationFieldKey =
+  | 'x'
+  | 'y'
+  | 'width'
+  | 'height'
+  | 'x2'
+  | 'y2'
+  | 'text'
+  | 'color'
+  | 'opacity'
+  | 'strokeWidth'
+  | 'fontSize'
+  | 'blurIntensity';
+
+interface OperationFormValue {
+  type: ImageAnnotateOperationTypeV1;
+  x: string;
+  y: string;
+  width: string;
+  height: string;
+  x2: string;
+  y2: string;
+  text: string;
+  color: string;
+  opacity: string;
+  strokeWidth: string;
+  fontSize: string;
+  blurIntensity: string;
+}
+
+const DEFAULT_OPERATION_FORM: OperationFormValue = {
+  type: 'rect',
+  x: '0',
+  y: '0',
+  width: '40',
+  height: '24',
+  x2: '60',
+  y2: '32',
+  text: '',
+  color: '#ff0000',
+  opacity: '1',
+  strokeWidth: '2',
+  fontSize: '18',
+  blurIntensity: '40',
+};
+
+interface FormatOption {
+  value: string;
+  label: string;
+}
+
+const FORMAT_OPTIONS: readonly FormatOption[] = [
+  { value: '', label: 'Preserve original' },
+  { value: 'png', label: 'PNG' },
+  { value: 'jpeg', label: 'JPEG' },
+  { value: 'webp', label: 'WebP' },
+  { value: 'gif', label: 'GIF' },
+  { value: 'tiff', label: 'TIFF' },
+];
 
 interface OverlayPoint {
   x: number;
@@ -56,346 +167,330 @@ interface DrawDraft {
   endY: number;
 }
 
+interface Notice {
+  tone: 'warning' | 'danger';
+  text: string;
+}
+
 @Component({
   selector: 'app-image-annotate',
   standalone: true,
   imports: [
-    CommonModule,
-    ReactiveFormsModule,
     LucideAngularModule,
-    ToolExecutionPanel,
+    FileDrop,
+    FileQueue,
+    OutputPlanCard,
+    ResultCard,
+    JobCard,
   ],
   templateUrl: './image-annotate.html',
   styleUrl: './image-annotate.css',
 })
 export class ImageAnnotate implements OnDestroy {
   private readonly destroy$ = new Subject<void>();
-  @ViewChild('singleFileInput') singleFileInput?: ElementRef<HTMLInputElement>;
-  @ViewChild('batchFileInput') batchFileInput?: ElementRef<HTMLInputElement>;
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
 
   readonly shieldIcon = ShieldCheck;
-  readonly folderOpenIcon = FolderOpen;
+  readonly folderIcon = FolderOpen;
   readonly closeIcon = X;
+  readonly alertIcon = TriangleAlert;
   readonly arrowUpIcon = ArrowUp;
   readonly arrowDownIcon = ArrowDown;
   readonly trashIcon = Trash2;
+  readonly penIcon = PenTool;
+  readonly layersIcon = Layers;
 
-  readonly form;
-  readonly operationForm;
-
-  readonly panelFields: ExecutionPanelField[] = [
-    {
-      controlName: 'outputPath',
-      label: 'Output file',
-      type: 'text',
-      placeholder: '/path/to/image_annotated.png',
-      visibleModes: ['single'],
-      helpText: 'If empty, output is auto-generated as *_annotated.',
-    },
-    {
-      controlName: 'outputDir',
-      label: 'Output directory',
-      type: 'text',
-      placeholder: '/path/to/output',
-      visibleModes: ['batch'],
-      helpText: 'If empty, each item is written next to its input file.',
-    },
-    {
-      controlName: 'format',
-      label: 'Output format',
-      type: 'select',
-      options: [
-        { value: '', label: 'Preserve original' },
-        { value: 'jpeg', label: 'JPEG' },
-        { value: 'png', label: 'PNG' },
-        { value: 'webp', label: 'WebP' },
-        { value: 'gif', label: 'GIF' },
-        { value: 'tiff', label: 'TIFF' },
-      ],
-    },
+  readonly operationTypes = OPERATION_TYPES;
+  readonly formatOptions = FORMAT_OPTIONS;
+  readonly toolOptions: readonly { id: AnnotateTool; label: string }[] = [
+    { id: 'select', label: 'Select' },
+    { id: 'text', label: 'Text' },
+    { id: 'arrow', label: 'Arrow' },
+    { id: 'rect', label: 'Rect' },
+    { id: 'blur', label: 'Blur' },
+    { id: 'redact', label: 'Redact' },
   ];
 
-  selectedInputPath = '';
-  selectedInputPaths: string[] = [];
-  operations: ImageAnnotateOperationV1[] = [];
-  selectedOperationIndex = -1;
+  readonly selectedPaths = signal<string[]>([]);
+  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly previewUrl = signal('');
+  readonly imageWidth = signal(0);
+  readonly imageHeight = signal(0);
 
-  sourcePreviewDataUrl = '';
-  annotatePreviewDataUrl = '';
-  sourceImageWidth = 0;
-  sourceImageHeight = 0;
-  previewMessage = 'Select an image and add operations to preview.';
-  isPreviewLoading = false;
+  readonly operations = signal<ImageAnnotateOperationV1[]>([]);
+  readonly selectedOperationIndex = signal(-1);
+  readonly activeTool = signal<AnnotateTool>('rect');
+  readonly operationForm = signal<OperationFormValue>({
+    ...DEFAULT_OPERATION_FORM,
+  });
+  readonly drawDraft = signal<DrawDraft | null>(null);
 
-  activeTool: AnnotateTool = 'rect';
-  drawDraft: DrawDraft | null = null;
+  readonly outputFormat = signal('');
+  readonly outputDir = signal('');
+  readonly advancedOpen = signal(false);
 
-  validationMessage = '';
-  submitMessage = '';
-  statusMessage = '';
-  jobResult: JobResultV1 | null = null;
-  isSubmitting = false;
-  isPolling = false;
-  activeJobId = '';
+  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly planError = signal<JobErrorV1 | null>(null);
+  readonly planLoading = signal(false);
+
+  readonly jobResult = signal<JobResultV1 | null>(null);
+  readonly jobError = signal<JobErrorV1 | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
+
+  readonly isSubmitting = signal(false);
+  readonly isPolling = signal(false);
+  readonly activeJobId = signal('');
+
+  readonly notice = signal<Notice | null>(null);
+  readonly actionMessage = signal('');
+
+  readonly previewLoading = signal(false);
+  readonly previewError = signal('');
+  readonly annotatePreviewUrl = signal('');
+  readonly isAnnotatePreviewLoading = signal(false);
+
+  readonly hasSelection = computed(() => this.selectedPaths().length > 0);
+  readonly hasPreview = computed(
+    () =>
+      this.previewUrl().length > 0 &&
+      this.imageWidth() > 0 &&
+      this.imageHeight() > 0,
+  );
+  readonly hasOperations = computed(() => this.operations().length > 0);
+  readonly isBatch = computed(() => this.selectedPaths().length > 1);
+
+  readonly drawingCursor = computed(
+    () => this.hasPreview() && this.activeTool() !== 'select',
+  );
+
+  readonly canDraw = computed(
+    () =>
+      this.previewUrl().length > 0 &&
+      this.imageWidth() > 0 &&
+      this.imageHeight() > 0,
+  );
+
+  readonly primaryLabel = computed(() => {
+    if (this.isSubmitting() || this.isPolling()) {
+      return 'Annotating…';
+    }
+    const count = this.selectedPaths().length;
+    return count > 1 ? `Annotate ${count} images` : 'Annotate image';
+  });
+
+  readonly destinationLabel = computed(
+    () => this.outputDir().trim() || 'Next to each image',
+  );
+
+  readonly isDefaultDestination = computed(
+    () => this.outputDir().trim().length === 0,
+  );
+
+  /** A failed plan means the request cannot run as typed. */
+  readonly planBlocked = computed(() => this.plan()?.success === false);
+
+  readonly canRun = computed(
+    () =>
+      this.selectedPaths().length > 0 &&
+      this.operations().length > 0 &&
+      !this.planBlocked() &&
+      !this.isSubmitting() &&
+      !this.isPolling(),
+  );
+
+  readonly actionHelper = computed(() => {
+    if (!this.hasSelection()) {
+      return 'Add at least one image to annotate.';
+    }
+    if (!this.hasOperations()) {
+      return 'Draw on the image or add an annotation to run.';
+    }
+    return '';
+  });
+
+  readonly operationFormTitle = computed(() => {
+    const index = this.selectedOperationIndex();
+    return index >= 0 ? `Edit annotation ${index + 1}` : 'New annotation';
+  });
+
+  readonly terminalJob = computed<JobResultV1 | null>(() => {
+    const job = this.jobResult();
+    return job && this.isTerminalStatus(job.status) ? job : null;
+  });
+
+  readonly showProgress = computed(() => {
+    const job = this.jobResult();
+    return !!job && !this.isTerminalStatus(job.status);
+  });
+
+  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
+    const error = this.jobError();
+    return error
+      ? describeToolError(error, 'The annotation could not start.')
+      : null;
+  });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
-  private previewDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private suppressAdvancedSync = false;
+  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private annotatePreviewTimer: ReturnType<typeof setTimeout> | null = null;
+  private planToken = 0;
+  private annotatePreviewToken = 0;
+  private fileItemsGeneration = 0;
+  private previewGeneration = 0;
 
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly wailsService: Wails
-  ) {
-    this.form = this.fb.nonNullable.group({
-      jobMode: ['single' as JobMode, Validators.required],
-      outputPath: [''],
-      outputDir: [''],
-      format: [''],
-      redactConfirmed: [false],
-    });
+  constructor(private readonly wailsService: Wails) {
+    this.wailsService.jobProgress$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.activeJobId()) {
+          return;
+        }
 
-    this.operationForm = this.fb.nonNullable.group({
-      type: ['rect' as ImageAnnotateOperationTypeV1, Validators.required],
-      x: ['0', Validators.required],
-      y: ['0', Validators.required],
-      width: ['40'],
-      height: ['24'],
-      x2: ['60'],
-      y2: ['32'],
-      text: [''],
-      color: ['#ff0000'],
-      opacity: ['1'],
-      strokeWidth: ['2'],
-      fontSize: ['18'],
-      blurIntensity: ['40'],
-    });
+        const current = this.jobResult();
+        if (!current) {
+          return;
+        }
 
-    this.form.controls.format.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.scheduleAnnotatePreviewRefresh());
-    this.form.controls.jobMode.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => {
-      this.onModeChanged();
-    });
-    this.operationForm.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(() => this.onAdvancedFormChanged());
+        this.jobResult.set({
+          ...current,
+          message: event.progress.message,
+          progress: event.progress,
+          // Wait for the status endpoint to settle the final items. The event
+          // can arrive before the job store has the complete result.
+          status: this.isTerminalStatus(event.status)
+            ? current.status
+            : (event.status as JobExecutionStatusV1),
+        });
+
+        if (this.isTerminalStatus(event.status)) {
+          void this.pollJobStatus();
+        }
+      });
   }
 
   ngOnDestroy(): void {
     this.stopPolling();
-    if (this.previewDebounceTimer) {
-      clearTimeout(this.previewDebounceTimer);
-      this.previewDebounceTimer = null;
-    }
+    this.clearPlanRefreshTimer();
+    this.clearAnnotatePreviewTimer();
     this.destroy$.next();
     this.destroy$.complete();
   }
 
+  fileCountLabel(): string {
+    return formatCount(this.selectedPaths().length, 'image');
+  }
+
+  onPathsSelected(paths: string[]): void {
+    const incoming = (Array.isArray(paths) ? paths : [])
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (incoming.length === 0) {
+      return;
+    }
+
+    const previousFirst = this.selectedPaths()[0] ?? '';
+    const rejected: string[] = [];
+    const duplicates: string[] = [];
+    const added: string[] = [];
+    const known = new Set(
+      this.selectedPaths().map((path) => this.pathKey(path)),
+    );
+
+    for (const path of incoming) {
+      if (
+        !SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase())
+      ) {
+        rejected.push(path);
+        continue;
+      }
+
+      const key = this.pathKey(path);
+      if (known.has(key)) {
+        duplicates.push(path);
+        continue;
+      }
+
+      known.add(key);
+      added.push(path);
+    }
+
+    this.notice.set(this.intakeNotice(rejected, duplicates));
+
+    if (added.length === 0) {
+      return;
+    }
+
+    this.actionMessage.set('');
+    this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncFileItems();
+
+    const firstChanged = previousFirst !== this.selectedPaths()[0];
+    if (firstChanged) {
+      void this.reloadPreviewAndPlan();
+    } else {
+      void this.refreshPlan();
+    }
+  }
+
+  async chooseFiles(): Promise<void> {
+    const paths = await this.wailsService.openMultipleFilesDialog();
+    if (paths.length > 0) {
+      this.onPathsSelected(paths);
+    }
+  }
+
+  clear(): void {
+    if (this.selectedPaths().length === 0) {
+      return;
+    }
+
+    this.selectedPaths.set([]);
+    this.notice.set(null);
+    this.actionMessage.set('');
+    this.syncFileItems();
+    void this.reloadPreviewAndPlan();
+  }
+
+  removeFile(path: string): void {
+    const previousFirst = this.selectedPaths()[0] ?? '';
+    const next = this.selectedPaths().filter(
+      (candidate) => candidate !== path,
+    );
+    if (next.length === this.selectedPaths().length) {
+      return;
+    }
+
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+
+    if ((next[0] ?? '') === previousFirst) {
+      void this.refreshPlan();
+    } else {
+      void this.reloadPreviewAndPlan();
+    }
+  }
+
   setActiveTool(tool: AnnotateTool): void {
-    this.activeTool = tool;
+    this.activeTool.set(tool);
   }
 
   isActiveTool(tool: AnnotateTool): boolean {
-    return this.activeTool === tool;
+    return this.activeTool() === tool;
   }
 
-  sourceInteractionCursor(): string {
-    if (!this.sourcePreviewDataUrl || this.currentMode() !== 'single') {
-      return 'default';
-    }
-
-    if (this.activeTool === 'select') {
-      return 'default';
-    }
-
-    return 'crosshair';
-  }
-
-  async selectImageFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = (await this.wailsService.openFileDialog()).trim();
-    if (!selected) {
-      return;
-    }
-
-    if (this.currentMode() === 'batch') {
-      this.addBatchInput(selected);
-      this.previewMessage = 'Batch mode: preview uses first selected image.';
-      await this.refreshPreviewSource();
-      return;
-    }
-
-    this.selectedInputPath = selected;
-    this.selectedInputPaths = [];
-    await this.refreshPreviewSource();
-  }
-
-  async selectMultipleImagesFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = await this.wailsService.openMultipleFilesDialog();
-    if (!selected || selected.length === 0) {
-      return;
-    }
-
-    if (this.currentMode() === 'single') {
-      this.selectedInputPath = selected[0].trim();
-      await this.refreshPreviewSource();
-      return;
-    }
-
-    for (const path of selected) {
-      this.addBatchInput(path);
-    }
-
-    this.previewMessage = 'Batch mode: preview uses first selected image.';
-    await this.refreshPreviewSource();
-  }
-
-  triggerSingleFileInput(): void {
-    this.singleFileInput?.nativeElement.click();
-  }
-
-  triggerBatchFileInput(): void {
-    this.batchFileInput?.nativeElement.click();
-  }
-
-  onSingleFileInputChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const file = target?.files?.item(0);
-    if (!file) {
-      return;
-    }
-
-    const path = ((file as File & { path?: string }).path ?? file.name).trim();
-    this.selectedInputPath = path;
-    if (target) {
-      target.value = '';
-    }
-
-    void this.refreshPreviewSource();
-  }
-
-  onBatchFileInputChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const files = target?.files;
-    if (!files || files.length === 0) {
-      return;
-    }
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files.item(i);
-      if (!file) {
-        continue;
-      }
-      const path = ((file as File & { path?: string }).path ?? file.name).trim();
-      this.addBatchInput(path);
-    }
-
-    if (target) {
-      target.value = '';
-    }
-
-    this.previewMessage = 'Batch mode: preview uses first selected image.';
-    void this.refreshPreviewSource();
-  }
-
-  removeBatchInput(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length) {
-      return;
-    }
-    this.selectedInputPaths = this.selectedInputPaths.filter((_, i) => i !== index);
-    void this.refreshPreviewSource();
-  }
-
-  clearInputs(): void {
-    this.selectedInputPath = '';
-    this.selectedInputPaths = [];
-    this.sourcePreviewDataUrl = '';
-    this.annotatePreviewDataUrl = '';
-    this.sourceImageWidth = 0;
-    this.sourceImageHeight = 0;
-    this.drawDraft = null;
-    this.previewMessage = 'Select an image and add operations to preview.';
-  }
-
-  onPreviewImageLoaded(): void {
-    // Hook used by overlay sizing lifecycle. Intentionally no-op.
-  }
-
-  onOverlayPointerDown(event: PointerEvent): void {
-    if (!this.canInteractOnOverlay()) {
-      return;
-    }
-
-    const point = this.pointerToImage(event);
-    if (!point) {
-      return;
-    }
-
-    if (this.activeTool === 'select') {
-      return;
-    }
-
-    if (this.activeTool === 'text') {
-      this.createTextOperation(point.x, point.y);
-      return;
-    }
-
-    this.drawDraft = {
-      type: this.activeTool,
-      startX: point.x,
-      startY: point.y,
-      endX: point.x,
-      endY: point.y,
-    };
-
-    const target = event.currentTarget as HTMLElement | null;
-    target?.setPointerCapture(event.pointerId);
-  }
-
-  onOverlayPointerMove(event: PointerEvent): void {
-    if (!this.drawDraft) {
-      return;
-    }
-
-    const point = this.pointerToImage(event);
-    if (!point) {
-      return;
-    }
-
-    this.drawDraft = {
-      ...this.drawDraft,
-      endX: point.x,
-      endY: point.y,
-    };
-  }
-
-  onOverlayPointerUp(): void {
-    if (!this.drawDraft) {
-      return;
-    }
-
-    const nextOperation = this.operationFromDraft(this.drawDraft);
-    this.drawDraft = null;
-    if (!nextOperation) {
-      return;
-    }
-
-    this.operations = [...this.operations, nextOperation];
-    this.selectOperation(this.operations.length - 1);
-
-    if (nextOperation.type === 'redact') {
-      this.form.patchValue({ redactConfirmed: false });
-    }
-
-    this.scheduleAnnotatePreviewRefresh();
+  isOperationSelected(index: number): boolean {
+    return this.selectedOperationIndex() === index;
   }
 
   selectOperation(index: number): void {
-    if (index < 0 || index >= this.operations.length) {
-      this.selectedOperationIndex = -1;
+    const operations = this.operations();
+    if (index < 0 || index >= operations.length) {
+      this.selectedOperationIndex.set(-1);
       return;
     }
 
-    this.selectedOperationIndex = index;
-    this.patchAdvancedForm(this.operations[index]);
+    this.selectedOperationIndex.set(index);
+    this.patchOperationForm(operations[index]);
   }
 
   onOperationShapeClick(index: number, event: MouseEvent): void {
@@ -404,200 +499,427 @@ export class ImageAnnotate implements OnDestroy {
     this.setActiveTool('select');
   }
 
-  isOperationSelected(index: number): boolean {
-    return this.selectedOperationIndex === index;
+  onOperationField(key: OperationFieldKey, event: Event): void {
+    const value = this.readEventValue(event);
+    this.operationForm.update((form) => ({ ...form, [key]: value }));
+    this.applyFormToSelectedOperation();
+  }
+
+  onOperationTypeChange(event: Event): void {
+    const value = this.readEventValue(event) as ImageAnnotateOperationTypeV1;
+    if (!OPERATION_TYPES.includes(value)) {
+      return;
+    }
+
+    this.operationForm.update((form) => ({ ...form, type: value }));
+    this.applyFormToSelectedOperation();
   }
 
   addOperation(): void {
-    const op = this.readOperationFromForm();
-    this.operations = [...this.operations, op];
-    this.selectOperation(this.operations.length - 1);
-
-    if (op.type === 'redact') {
-      this.form.patchValue({ redactConfirmed: false });
+    const operation = this.readOperationFromForm();
+    if (operation.type === 'text' && !operation.text?.trim()) {
+      this.actionMessage.set('Enter the text for the text annotation.');
+      return;
     }
 
-    this.scheduleAnnotatePreviewRefresh();
+    this.actionMessage.set('');
+    this.operations.update((operations) => [...operations, operation]);
+    this.selectOperation(this.operations().length - 1);
+    this.scheduleOperationRefresh();
   }
 
   removeOperation(index: number): void {
-    if (index < 0 || index >= this.operations.length) {
+    const operations = this.operations();
+    if (index < 0 || index >= operations.length) {
       return;
     }
-    this.operations = this.operations.filter((_, i) => i !== index);
 
-    if (this.selectedOperationIndex === index) {
-      this.selectedOperationIndex = -1;
-    } else if (this.selectedOperationIndex > index) {
-      this.selectedOperationIndex -= 1;
+    this.operations.set(operations.filter((_, i) => i !== index));
+
+    const selected = this.selectedOperationIndex();
+    if (selected === index) {
+      this.selectedOperationIndex.set(-1);
+    } else if (selected > index) {
+      this.selectedOperationIndex.set(selected - 1);
     }
 
-    this.scheduleAnnotatePreviewRefresh();
+    this.scheduleOperationRefresh();
   }
 
   moveOperationUp(index: number): void {
-    if (index <= 0 || index >= this.operations.length) {
+    const operations = this.operations();
+    if (index <= 0 || index >= operations.length) {
       return;
     }
-    const next = [...this.operations];
-    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    this.operations = next;
 
-    if (this.selectedOperationIndex === index) {
-      this.selectedOperationIndex = index - 1;
-    } else if (this.selectedOperationIndex === index - 1) {
-      this.selectedOperationIndex = index;
+    const next = [...operations];
+    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+    this.operations.set(next);
+
+    const selected = this.selectedOperationIndex();
+    if (selected === index) {
+      this.selectedOperationIndex.set(index - 1);
+    } else if (selected === index - 1) {
+      this.selectedOperationIndex.set(index);
     }
 
-    this.scheduleAnnotatePreviewRefresh();
+    this.scheduleOperationRefresh();
   }
 
   moveOperationDown(index: number): void {
-    if (index < 0 || index >= this.operations.length - 1) {
+    const operations = this.operations();
+    if (index < 0 || index >= operations.length - 1) {
       return;
     }
-    const next = [...this.operations];
-    [next[index], next[index + 1]] = [next[index + 1], next[index]];
-    this.operations = next;
 
-    if (this.selectedOperationIndex === index) {
-      this.selectedOperationIndex = index + 1;
-    } else if (this.selectedOperationIndex === index + 1) {
-      this.selectedOperationIndex = index;
+    const next = [...operations];
+    [next[index], next[index + 1]] = [next[index + 1], next[index]];
+    this.operations.set(next);
+
+    const selected = this.selectedOperationIndex();
+    if (selected === index) {
+      this.selectedOperationIndex.set(index + 1);
+    } else if (selected === index + 1) {
+      this.selectedOperationIndex.set(index);
     }
 
-    this.scheduleAnnotatePreviewRefresh();
+    this.scheduleOperationRefresh();
   }
 
   clearOperations(): void {
-    this.operations = [];
-    this.drawDraft = null;
-    this.selectedOperationIndex = -1;
-    this.form.patchValue({ redactConfirmed: false });
-    this.scheduleAnnotatePreviewRefresh();
-  }
-
-  onModeChanged(): void {
-    this.clearMessages();
-    if (this.currentMode() === 'batch') {
-      this.selectedInputPath = '';
-    } else {
-      this.selectedInputPaths = [];
-    }
-    void this.refreshPreviewSource();
-  }
-
-  hasRedactOperations(): boolean {
-    return this.operations.some((op) => op.type === 'redact');
-  }
-
-  async validate(): Promise<void> {
-    this.clearMessages();
-    const localError = this.localValidationError();
-    if (localError) {
-      this.validationMessage = localError;
+    if (!this.hasOperations()) {
       return;
     }
 
-    const response = await this.wailsService.validateJobV1(this.buildRequest());
-    this.validationMessage = response.valid
-      ? 'Validation OK. Ready to run annotate job.'
-      : this.mapJobError(response.error, response.message);
+    this.operations.set([]);
+    this.drawDraft.set(null);
+    this.selectedOperationIndex.set(-1);
+    this.actionMessage.set('');
+    this.scheduleOperationRefresh();
+  }
+
+  onFormatChange(event: Event): void {
+    const value = this.readEventValue(event);
+    if (value === this.outputFormat()) {
+      return;
+    }
+
+    this.outputFormat.set(value);
+    this.actionMessage.set('');
+    this.scheduleAnnotatePreviewRefresh();
+    void this.refreshPlan();
+  }
+
+  onAdvancedToggle(event: Event): void {
+    const target = event.target as HTMLDetailsElement | null;
+    this.advancedOpen.set(!!target?.open);
+  }
+
+  async chooseOutputFolder(): Promise<void> {
+    const directory = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!directory) {
+      return;
+    }
+
+    this.outputDir.set(directory);
+    this.actionMessage.set('');
+    await this.refreshPlan();
+  }
+
+  useOriginalFolders(): void {
+    if (this.outputDir() === '') {
+      return;
+    }
+
+    this.outputDir.set('');
+    void this.refreshPlan();
+  }
+
+  onPreviewImageLoaded(): void {
+    // The overlay reads the rendered image size on demand; no cached geometry
+    // needs to be refreshed here.
+  }
+
+  onOverlayPointerDown(event: PointerEvent): void {
+    if (!this.canDraw()) {
+      return;
+    }
+
+    const point = this.pointerToImage(event);
+    if (!point) {
+      return;
+    }
+
+    if (this.activeTool() === 'select') {
+      return;
+    }
+
+    if (this.activeTool() === 'text') {
+      this.createTextOperation(point.x, point.y);
+      return;
+    }
+
+    this.drawDraft.set({
+      type: this.activeTool() as DrawDraft['type'],
+      startX: point.x,
+      startY: point.y,
+      endX: point.x,
+      endY: point.y,
+    });
+
+    const target = event.currentTarget as HTMLElement | null;
+    target?.setPointerCapture(event.pointerId);
+  }
+
+  onOverlayPointerMove(event: PointerEvent): void {
+    const draft = this.drawDraft();
+    if (!draft) {
+      return;
+    }
+
+    const point = this.pointerToImage(event);
+    if (!point) {
+      return;
+    }
+
+    this.drawDraft.set({
+      ...draft,
+      endX: point.x,
+      endY: point.y,
+    });
+  }
+
+  onOverlayPointerUp(): void {
+    const draft = this.drawDraft();
+    if (!draft) {
+      return;
+    }
+
+    const nextOperation = this.operationFromDraft(draft);
+    this.drawDraft.set(null);
+    if (!nextOperation) {
+      return;
+    }
+
+    this.operations.update((operations) => [...operations, nextOperation]);
+    this.selectOperation(this.operations().length - 1);
+    this.scheduleOperationRefresh();
   }
 
   async run(): Promise<void> {
-    this.clearMessages();
-    const localError = this.localValidationError();
-    if (localError) {
-      this.submitMessage = localError;
+    if (!this.canRun()) {
       return;
     }
 
-    if (this.hasRedactOperations()) {
-      if (!this.form.controls.redactConfirmed.value) {
-        this.submitMessage = 'Before running, confirm irreversible redact operations.';
-        return;
-      }
+    this.clearPlanRefreshTimer();
+    this.actionMessage.set('');
 
-      const approved =
-        typeof window === 'undefined'
-          ? true
-          : window.confirm(
-              'Redact is irreversible in output files. Confirm execution?'
-            );
-      if (!approved) {
-        this.submitMessage = 'Execution canceled. Redact confirmation was not accepted.';
-        return;
-      }
-    }
-
-    const request = this.buildRequest();
-    this.isSubmitting = true;
-    this.jobResult = null;
-
-    const validation = await this.wailsService.validateJobV1(request);
-    if (!validation.valid) {
-      this.submitMessage = this.mapJobError(validation.error, validation.message);
-      this.isSubmitting = false;
+    // The plan is the source of truth for destinations and collision-safe
+    // names, so it is refreshed with the current annotations before starting.
+    const planned = await this.refreshPlan();
+    if (!planned) {
       return;
     }
 
-    const runResponse = await this.wailsService.runJobV1(request);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.submitMessage = this.mapJobError(runResponse.error, runResponse.message);
-      this.isSubmitting = false;
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(true);
+
+    const response: RunJobResponseV1 = await this.wailsService
+      .runJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The annotation could not start.',
+        jobId: '',
+        status: 'failed' as const,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: 'The annotation could not start.',
+        },
+      }));
+    if (!response.success || !response.jobId) {
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message:
+            response.message || 'The annotation could not start.',
+        },
+      );
+      this.isSubmitting.set(false);
       return;
     }
 
-    this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
+    const total = this.selectedPaths().length;
+    this.activeJobId.set(response.jobId);
+    this.jobResult.set({
+      jobId: response.jobId,
+      success: false,
+      message: 'Waiting to start',
+      toolId: IMAGE_ANNOTATE_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total,
+        stage: 'queued',
+        message: 'Waiting to start',
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isSubmitting.set(false);
+    this.isPolling.set(true);
     this.startPolling();
-    this.isSubmitting = false;
   }
 
   async cancel(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       return;
     }
 
-    const response = await this.wailsService.cancelJobV1(this.activeJobId);
-    this.statusMessage = response.success
-      ? 'Cancel requested.'
-      : this.mapJobError(response.error, response.message);
-  }
-
-  operationSummary(op: ImageAnnotateOperationV1): string {
-    switch (op.type) {
-      case 'text':
-        return `text @(${op.x},${op.y}) size=${op.fontSize} color=${op.color}`;
-      case 'arrow':
-        return `arrow (${op.x},${op.y}) -> (${op.x2},${op.y2}) stroke=${op.strokeWidth} opacity=${op.opacity}`;
-      case 'rect':
-        return `rect (${op.x},${op.y},${op.width},${op.height}) stroke=${op.strokeWidth} opacity=${op.opacity}`;
-      case 'blur':
-        return `blur (${op.x},${op.y},${op.width},${op.height}) intensity=${op.blurIntensity}`;
-      case 'redact':
-        return `redact (${op.x},${op.y},${op.width},${op.height}) color=${op.color}`;
-      default:
-        return op.type;
+    const response = await this.wailsService.cancelJobV1(jobId);
+    if (!response.success) {
+      this.actionMessage.set(
+        response.message || 'The job could not be cancelled.',
+      );
     }
   }
 
-  displayRectForOperation(op: ImageAnnotateOperationV1): OverlayRect | null {
+  async onOpen(path: string): Promise<void> {
+    const response = await this.wailsService.openPath(path);
+    this.actionMessage.set(
+      response.success ? '' : response.message || 'The file could not be opened.',
+    );
+  }
+
+  async onReveal(path: string): Promise<void> {
+    const response = await this.wailsService.revealInFolder(path);
+    this.actionMessage.set(
+      response.success
+        ? ''
+        : response.message || 'The folder could not be opened.',
+    );
+  }
+
+  /** Retries only the failed inputs with the same annotations and folder. */
+  async retryFailed(): Promise<void> {
+    const failed = (this.jobResult()?.items ?? [])
+      .filter((item) => !item.success)
+      .map((item) => item.inputPath)
+      .filter((path) => path.length > 0);
+
+    if (failed.length === 0) {
+      return;
+    }
+
+    const previousFirst = this.selectedPaths()[0] ?? '';
+    this.selectedPaths.set([...new Set(failed)]);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+    this.syncFileItems();
+
+    if ((this.selectedPaths()[0] ?? '') !== previousFirst) {
+      await this.refreshPreviewSource();
+    }
+
+    await this.run();
+  }
+
+  reset(): void {
+    this.stopPolling();
+    this.clearPlanRefreshTimer();
+    this.clearAnnotatePreviewTimer();
+    this.planToken += 1;
+    this.annotatePreviewToken += 1;
+    this.fileItemsGeneration += 1;
+    this.previewGeneration += 1;
+
+    this.selectedPaths.set([]);
+    this.fileItems.set([]);
+    this.previewUrl.set('');
+    this.imageWidth.set(0);
+    this.imageHeight.set(0);
+    this.previewLoading.set(false);
+    this.previewError.set('');
+    this.operations.set([]);
+    this.selectedOperationIndex.set(-1);
+    this.operationForm.set({ ...DEFAULT_OPERATION_FORM });
+    this.drawDraft.set(null);
+    this.annotatePreviewUrl.set('');
+    this.isAnnotatePreviewLoading.set(false);
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(false);
+    this.activeJobId.set('');
+    this.notice.set(null);
+    this.actionMessage.set('');
+  }
+
+  operationTypeLabel(operation: ImageAnnotateOperationV1): string {
+    switch (operation.type) {
+      case 'text':
+        return 'Text';
+      case 'arrow':
+        return 'Arrow';
+      case 'rect':
+        return 'Rectangle';
+      case 'blur':
+        return 'Blur';
+      case 'redact':
+        return 'Redact';
+      default:
+        return operation.type;
+    }
+  }
+
+  operationDetail(operation: ImageAnnotateOperationV1): string {
+    switch (operation.type) {
+      case 'text': {
+        const text = (operation.text ?? '').split('\n')[0].trim();
+        const preview = text.length > 32 ? `${text.slice(0, 32)}…` : text;
+        return `“${preview || 'Text'}” at ${operation.x ?? 0}, ${operation.y ?? 0}`;
+      }
+      case 'arrow':
+        return `${operation.x ?? 0}, ${operation.y ?? 0} → ${operation.x2 ?? 0}, ${operation.y2 ?? 0}`;
+      case 'rect':
+        return `${operation.width ?? 0} × ${operation.height ?? 0} at ${operation.x ?? 0}, ${operation.y ?? 0}`;
+      case 'blur':
+        return `${operation.width ?? 0} × ${operation.height ?? 0} · intensity ${operation.blurIntensity ?? 0}`;
+      case 'redact':
+        return `${operation.width ?? 0} × ${operation.height ?? 0} at ${operation.x ?? 0}, ${operation.y ?? 0}`;
+      default:
+        return '';
+    }
+  }
+
+  displayRectForOperation(
+    operation: ImageAnnotateOperationV1,
+  ): OverlayRect | null {
     const scale = this.imageToDisplayScale();
     if (!scale) {
       return null;
     }
 
     return {
-      x: (op.x ?? 0) * scale.x,
-      y: (op.y ?? 0) * scale.y,
-      width: Math.max(1, (op.width ?? 1) * scale.x),
-      height: Math.max(1, (op.height ?? 1) * scale.y),
+      x: (operation.x ?? 0) * scale.x,
+      y: (operation.y ?? 0) * scale.y,
+      width: Math.max(1, (operation.width ?? 1) * scale.x),
+      height: Math.max(1, (operation.height ?? 1) * scale.y),
     };
   }
 
-  displayArrowForOperation(op: ImageAnnotateOperationV1): { from: OverlayPoint; to: OverlayPoint } | null {
+  displayArrowForOperation(
+    operation: ImageAnnotateOperationV1,
+  ): { from: OverlayPoint; to: OverlayPoint } | null {
     const scale = this.imageToDisplayScale();
     if (!scale) {
       return null;
@@ -605,34 +927,42 @@ export class ImageAnnotate implements OnDestroy {
 
     return {
       from: {
-        x: (op.x ?? 0) * scale.x,
-        y: (op.y ?? 0) * scale.y,
+        x: (operation.x ?? 0) * scale.x,
+        y: (operation.y ?? 0) * scale.y,
       },
       to: {
-        x: (op.x2 ?? 0) * scale.x,
-        y: (op.y2 ?? 0) * scale.y,
+        x: (operation.x2 ?? 0) * scale.x,
+        y: (operation.y2 ?? 0) * scale.y,
       },
     };
   }
 
-  displayTextPointForOperation(op: ImageAnnotateOperationV1): OverlayPoint | null {
+  displayTextPointForOperation(
+    operation: ImageAnnotateOperationV1,
+  ): OverlayPoint | null {
     const scale = this.imageToDisplayScale();
     if (!scale) {
       return null;
     }
 
     return {
-      x: (op.x ?? 0) * scale.x,
-      y: (op.y ?? 0) * scale.y,
+      x: (operation.x ?? 0) * scale.x,
+      y: (operation.y ?? 0) * scale.y,
     };
   }
 
   displayDraftRect(): OverlayRect | null {
-    if (!this.drawDraft || this.drawDraft.type === 'arrow') {
+    const draft = this.drawDraft();
+    if (!draft || draft.type === 'arrow') {
       return null;
     }
 
-    const normalized = this.normalizeRect(this.drawDraft.startX, this.drawDraft.startY, this.drawDraft.endX, this.drawDraft.endY);
+    const normalized = this.normalizeRect(
+      draft.startX,
+      draft.startY,
+      draft.endX,
+      draft.endY,
+    );
     const scale = this.imageToDisplayScale();
     if (!scale) {
       return null;
@@ -647,7 +977,8 @@ export class ImageAnnotate implements OnDestroy {
   }
 
   displayDraftArrow(): { from: OverlayPoint; to: OverlayPoint } | null {
-    if (!this.drawDraft || this.drawDraft.type !== 'arrow') {
+    const draft = this.drawDraft();
+    if (!draft || draft.type !== 'arrow') {
       return null;
     }
 
@@ -658,316 +989,320 @@ export class ImageAnnotate implements OnDestroy {
 
     return {
       from: {
-        x: this.drawDraft.startX * scale.x,
-        y: this.drawDraft.startY * scale.y,
+        x: draft.startX * scale.x,
+        y: draft.startY * scale.y,
       },
       to: {
-        x: this.drawDraft.endX * scale.x,
-        y: this.drawDraft.endY * scale.y,
+        x: draft.endX * scale.x,
+        y: draft.endY * scale.y,
       },
     };
   }
 
-  private async refreshPreviewSource(): Promise<void> {
-    const sourcePath = this.previewSourcePath();
-    if (!sourcePath) {
-      this.sourcePreviewDataUrl = '';
-      this.annotatePreviewDataUrl = '';
-      this.sourceImageWidth = 0;
-      this.sourceImageHeight = 0;
-      this.previewMessage =
-        this.currentMode() === 'batch'
-          ? 'Select at least one image in batch mode to preview.'
-          : 'Select an image and add operations to preview.';
+  private buildRequest(): JobRequestV1 {
+    const paths = this.selectedPaths();
+    const format = this.outputFormat().trim();
+
+    const options: Record<string, unknown> = {
+      operations: this.operations(),
+    };
+    if (format) {
+      options['format'] = format;
+    }
+
+    return {
+      toolId: IMAGE_ANNOTATE_TOOL_ID,
+      mode: paths.length > 1 ? 'batch' : 'single',
+      inputPaths: [...paths],
+      outputDir: this.outputDir(),
+      options,
+    };
+  }
+
+  private async refreshPlan(): Promise<boolean> {
+    if (this.selectedPaths().length === 0 || !this.hasOperations()) {
+      this.clearPlanState();
+      return false;
+    }
+
+    const token = (this.planToken += 1);
+    this.planLoading.set(true);
+    this.plan.set(null);
+    this.planError.set(null);
+
+    const response: PlanJobResponseV1 = await this.wailsService
+      .planJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The output could not be planned.',
+        outputs: [],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PLAN_JOB_FAILED',
+          message: 'The output could not be planned.',
+        },
+      }));
+    if (token !== this.planToken) {
+      return false;
+    }
+
+    this.planLoading.set(false);
+
+    if (response.success && !response.error) {
+      this.plan.set(response);
+      return true;
+    }
+
+    const error: JobErrorV1 = response.error ?? {
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PLAN_JOB_FAILED',
+      message: response.message || 'The output could not be planned.',
+    };
+    // Keep the failed plan so the shared plan card can show the destination
+    // or annotation problem next to the destination it belongs to.
+    this.plan.set({ ...response, success: false, error });
+    this.planError.set(error);
+    return false;
+  }
+
+  private clearPlanState(): void {
+    this.planToken += 1;
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.clearPlanRefreshTimer();
+  }
+
+  private scheduleOperationRefresh(): void {
+    if (!this.hasOperations()) {
+      this.clearPlanState();
+    } else {
+      this.schedulePlanRefresh();
+    }
+    this.scheduleAnnotatePreviewRefresh();
+  }
+
+  private schedulePlanRefresh(): void {
+    this.clearPlanRefreshTimer();
+    if (this.selectedPaths().length === 0) {
+      this.clearPlanState();
       return;
     }
 
-    this.isPreviewLoading = true;
-    this.previewMessage = 'Loading source preview from backend...';
+    this.planRefreshTimer = setTimeout(() => {
+      this.planRefreshTimer = null;
+      void this.refreshPlan();
+    }, OPERATION_PLAN_DEBOUNCE_MS);
+  }
 
-    const response: ImagePreviewSourceResponseV1 =
-      await this.wailsService.getImagePreviewSourceV1(sourcePath);
+  private clearPlanRefreshTimer(): void {
+    if (this.planRefreshTimer) {
+      clearTimeout(this.planRefreshTimer);
+      this.planRefreshTimer = null;
+    }
+  }
+
+  private async reloadPreviewAndPlan(): Promise<void> {
+    await this.refreshPreviewSource();
+    await this.refreshPlan();
+  }
+
+  private async refreshPreviewSource(): Promise<void> {
+    const path = this.previewSourcePath();
+    const generation = (this.previewGeneration += 1);
+
+    this.clearAnnotatePreviewTimer();
+    this.annotatePreviewToken += 1;
+    this.annotatePreviewUrl.set('');
+    this.isAnnotatePreviewLoading.set(false);
+    this.previewError.set('');
+    this.actionMessage.set('');
+
+    if (!path) {
+      this.previewLoading.set(false);
+      this.previewUrl.set('');
+      this.imageWidth.set(0);
+      this.imageHeight.set(0);
+      return;
+    }
+
+    this.previewLoading.set(true);
+
+    const response: ImagePreviewSourceResponseV1 = await this.wailsService
+      .getImagePreviewSourceV1(path)
+      .catch(() => ({
+        success: false,
+        message: 'The image preview could not be loaded.',
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'IMAGE_PREVIEW_READ_FAILED',
+          message: 'The image preview could not be loaded.',
+        },
+      }));
+    if (generation !== this.previewGeneration) {
+      return;
+    }
+
+    this.previewLoading.set(false);
 
     if (!response.success || !response.dataBase64) {
-      this.isPreviewLoading = false;
-      this.previewMessage = this.mapJobError(response.error, response.message);
-      this.sourcePreviewDataUrl = '';
-      this.annotatePreviewDataUrl = '';
-      this.sourceImageWidth = 0;
-      this.sourceImageHeight = 0;
+      this.previewUrl.set('');
+      this.imageWidth.set(0);
+      this.imageHeight.set(0);
+      this.previewError.set(
+        describeToolError(
+          response.error,
+          'The image preview could not be loaded.',
+        ).description,
+      );
       return;
     }
 
-    this.sourcePreviewDataUrl = `data:${response.mimeType || 'image/png'};base64,${response.dataBase64}`;
-    this.sourceImageWidth = response.width || 0;
-    this.sourceImageHeight = response.height || 0;
-    this.previewMessage = 'Source preview loaded.';
-    this.isPreviewLoading = false;
+    const mimeType = response.mimeType || 'image/png';
+    this.imageWidth.set(response.width ?? 0);
+    this.imageHeight.set(response.height ?? 0);
+    this.previewUrl.set(`data:${mimeType};base64,${response.dataBase64}`);
 
     this.scheduleAnnotatePreviewRefresh();
   }
 
   private scheduleAnnotatePreviewRefresh(): void {
-    if (this.previewDebounceTimer) {
-      clearTimeout(this.previewDebounceTimer);
-      this.previewDebounceTimer = null;
-    }
-
-    if (!this.sourcePreviewDataUrl || this.operations.length === 0) {
-      if (this.operations.length === 0) {
-        this.annotatePreviewDataUrl = '';
-      }
+    this.clearAnnotatePreviewTimer();
+    // A pending preview belongs to the previous annotations; discard it so it
+    // can never replace the preview of the current ones.
+    this.annotatePreviewToken += 1;
+    this.isAnnotatePreviewLoading.set(false);
+    if (!this.previewUrl() || !this.hasOperations()) {
+      this.annotatePreviewUrl.set('');
       return;
     }
 
-    this.previewDebounceTimer = setTimeout(() => {
+    this.annotatePreviewTimer = setTimeout(() => {
+      this.annotatePreviewTimer = null;
       void this.refreshAnnotatePreview();
-    }, 120);
+    }, ANNOTATE_PREVIEW_DEBOUNCE_MS);
+  }
+
+  private clearAnnotatePreviewTimer(): void {
+    if (this.annotatePreviewTimer) {
+      clearTimeout(this.annotatePreviewTimer);
+      this.annotatePreviewTimer = null;
+    }
   }
 
   private async refreshAnnotatePreview(): Promise<void> {
-    const sourcePath = this.previewSourcePath();
-    if (!sourcePath || this.operations.length === 0) {
-      this.annotatePreviewDataUrl = '';
+    const path = this.previewSourcePath();
+    if (!path || !this.hasOperations()) {
+      this.annotatePreviewUrl.set('');
       return;
     }
 
-    this.isPreviewLoading = true;
-    this.previewMessage = 'Generating pixel-perfect annotate preview in backend...';
+    const token = (this.annotatePreviewToken += 1);
+    this.isAnnotatePreviewLoading.set(true);
 
-    const req: ImageAnnotatePreviewRequestV1 = {
-      inputPath: sourcePath,
-      operations: this.operations,
-      format: this.form.controls.format.value,
+    const request: ImageAnnotatePreviewRequestV1 = {
+      inputPath: path,
+      operations: this.operations(),
+      format: this.outputFormat(),
     };
 
     const response: ImageAnnotatePreviewResponseV1 =
-      await this.wailsService.getImageAnnotatePreviewV1(req);
+      await this.wailsService.getImageAnnotatePreviewV1(request).catch(() => ({
+        success: false,
+        message: 'The annotated preview could not be generated.',
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'IMAGE_ANNOTATE_PREVIEW_FAILED',
+          message: 'The annotated preview could not be generated.',
+        },
+      }));
+    if (token !== this.annotatePreviewToken) {
+      return;
+    }
 
-    this.isPreviewLoading = false;
+    this.isAnnotatePreviewLoading.set(false);
 
     if (!response.success || !response.dataBase64) {
-      this.annotatePreviewDataUrl = '';
-      this.previewMessage = this.mapJobError(response.error, response.message);
+      this.annotatePreviewUrl.set('');
       return;
     }
 
-    this.annotatePreviewDataUrl = `data:${response.mimeType || 'image/png'};base64,${response.dataBase64}`;
-    this.previewMessage = 'Preview is pixel-perfect with backend execution.';
-  }
-
-  private localValidationError(): string {
-    if (this.currentMode() === 'single') {
-      if (!this.selectedInputPath.trim()) {
-        return 'Select one input image in single mode.';
-      }
-    }
-
-    if (this.currentMode() === 'batch' && this.selectedInputPaths.length < 1) {
-      return 'Select at least one input image in batch mode.';
-    }
-
-    if (this.operations.length === 0) {
-      return 'Add at least one annotation operation.';
-    }
-
-    return '';
-  }
-
-  private buildRequest(): JobRequestV1 {
-    const mode = this.currentMode();
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const outputDir = this.form.controls.outputDir.value.trim();
-    const format = this.form.controls.format.value.trim();
-
-    const options: Record<string, unknown> = {
-      operations: this.operations,
-      ...(format ? { format } : {}),
-      ...(mode === 'single' && outputPath ? { outputPath } : {}),
-      ...(mode === 'batch' && outputDir ? { outputDir } : {}),
-    };
-
-    return {
-      toolId: IMAGE_ANNOTATE_TOOL_ID,
-      mode,
-      inputPaths: mode === 'single' ? [this.selectedInputPath.trim()] : [...this.selectedInputPaths],
-      outputDir: mode === 'batch' ? outputDir : this.outputDirFromPath(outputPath),
-      options,
-    };
-  }
-
-  private startPolling(): void {
-    this.stopPolling();
-    this.isPolling = true;
-    this.pollingTimer = setInterval(() => {
-      void this.pollJobStatus();
-    }, POLLING_INTERVAL_MS);
-    void this.pollJobStatus();
-  }
-
-  private stopPolling(): void {
-    if (this.pollingTimer) {
-      clearInterval(this.pollingTimer);
-      this.pollingTimer = null;
-    }
-    this.isPolling = false;
-  }
-
-  private async pollJobStatus(): Promise<void> {
-    if (!this.activeJobId) {
-      this.stopPolling();
-      return;
-    }
-
-    const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(this.activeJobId);
-    if (!response.found || !response.result) {
-      this.statusMessage = this.mapJobError(response.error, response.message);
-      this.stopPolling();
-      return;
-    }
-
-    this.jobResult = response.result;
-    this.statusMessage = `${response.result.status}: ${
-      response.result.error
-        ? this.mapJobError(response.result.error, response.result.message)
-        : response.result.message
-    }`;
-
-    if (
-      response.result.status === 'success' ||
-      response.result.status === 'failed' ||
-      response.result.status === 'partial_success' ||
-      response.result.status === 'cancelled' ||
-      response.result.status === 'interrupted'
-    ) {
-      this.stopPolling();
-      this.activeJobId = '';
-    }
-  }
-
-  private clearMessages(): void {
-    this.validationMessage = '';
-    this.submitMessage = '';
-    this.statusMessage = '';
-  }
-
-  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
-    if (!error) {
-      return fallback;
-    }
-    return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
-  }
-
-  private currentMode(): JobMode {
-    return this.form.controls.jobMode.value === 'batch' ? 'batch' : 'single';
+    const mimeType = response.mimeType || 'image/png';
+    this.annotatePreviewUrl.set(
+      `data:${mimeType};base64,${response.dataBase64}`,
+    );
   }
 
   private previewSourcePath(): string {
-    if (this.currentMode() === 'single') {
-      return this.selectedInputPath.trim();
-    }
-    return this.selectedInputPaths[0]?.trim() ?? '';
-  }
-
-  private addBatchInput(rawPath: string): void {
-    const trimmed = rawPath.trim();
-    if (!trimmed || this.selectedInputPaths.includes(trimmed)) {
-      return;
-    }
-    this.selectedInputPaths = [...this.selectedInputPaths, trimmed];
-  }
-
-  private outputDirFromPath(outputPath: string): string {
-    const lastSlash = Math.max(outputPath.lastIndexOf('/'), outputPath.lastIndexOf('\\'));
-    if (lastSlash <= 0) {
-      return '';
-    }
-    return outputPath.slice(0, lastSlash);
+    return this.selectedPaths()[0]?.trim() ?? '';
   }
 
   private readInt(raw: string, fallback: number): number {
-    const n = Number.parseInt(raw.trim(), 10);
-    return Number.isFinite(n) ? n : fallback;
+    const value = Number.parseInt(raw.trim(), 10);
+    return Number.isFinite(value) ? value : fallback;
   }
 
   private readFloat(raw: string, fallback: number): number {
-    const n = Number.parseFloat(raw.trim());
-    return Number.isFinite(n) ? n : fallback;
+    const value = Number.parseFloat(raw.trim());
+    return Number.isFinite(value) ? value : fallback;
   }
 
   private readOperationFromForm(): ImageAnnotateOperationV1 {
+    const form = this.operationForm();
     return {
-      type: this.operationForm.controls.type.value,
-      x: this.readInt(this.operationForm.controls.x.value, 0),
-      y: this.readInt(this.operationForm.controls.y.value, 0),
-      width: this.readInt(this.operationForm.controls.width.value, 1),
-      height: this.readInt(this.operationForm.controls.height.value, 1),
-      x2: this.readInt(this.operationForm.controls.x2.value, 0),
-      y2: this.readInt(this.operationForm.controls.y2.value, 0),
-      text: this.operationForm.controls.text.value,
-      color: this.operationForm.controls.color.value,
-      opacity: this.readFloat(this.operationForm.controls.opacity.value, 1),
-      strokeWidth: this.readInt(this.operationForm.controls.strokeWidth.value, 2),
-      fontSize: this.readInt(this.operationForm.controls.fontSize.value, 18),
-      blurIntensity: this.readInt(this.operationForm.controls.blurIntensity.value, 40),
+      type: form.type,
+      x: this.readInt(form.x, 0),
+      y: this.readInt(form.y, 0),
+      width: this.readInt(form.width, 1),
+      height: this.readInt(form.height, 1),
+      x2: this.readInt(form.x2, 0),
+      y2: this.readInt(form.y2, 0),
+      text: form.text,
+      color: form.color,
+      opacity: this.readFloat(form.opacity, 1),
+      strokeWidth: this.readInt(form.strokeWidth, 2),
+      fontSize: this.readInt(form.fontSize, 18),
+      blurIntensity: this.readInt(form.blurIntensity, 40),
     };
   }
 
-  private onAdvancedFormChanged(): void {
-    if (this.suppressAdvancedSync || this.selectedOperationIndex < 0 || this.activeTool !== 'select') {
+  private applyFormToSelectedOperation(): void {
+    const index = this.selectedOperationIndex();
+    const operations = this.operations();
+    if (index < 0 || index >= operations.length) {
       return;
     }
 
-    if (this.selectedOperationIndex >= this.operations.length) {
-      this.selectedOperationIndex = -1;
-      return;
-    }
-
-    const updated = [...this.operations];
-    const op = this.readOperationFromForm();
-    updated[this.selectedOperationIndex] = op;
-    this.operations = updated;
-
-    if (op.type === 'redact') {
-      this.form.patchValue({ redactConfirmed: false });
-    }
-
-    this.scheduleAnnotatePreviewRefresh();
+    const updated = [...operations];
+    updated[index] = this.readOperationFromForm();
+    this.operations.set(updated);
+    this.actionMessage.set('');
+    this.scheduleOperationRefresh();
   }
 
-  private patchAdvancedForm(op: ImageAnnotateOperationV1): void {
-    this.suppressAdvancedSync = true;
-    this.operationForm.patchValue(
-      {
-        type: op.type,
-        x: `${op.x ?? 0}`,
-        y: `${op.y ?? 0}`,
-        width: `${op.width ?? 1}`,
-        height: `${op.height ?? 1}`,
-        x2: `${op.x2 ?? 0}`,
-        y2: `${op.y2 ?? 0}`,
-        text: op.text ?? '',
-        color: op.color ?? '#ff0000',
-        opacity: `${op.opacity ?? 1}`,
-        strokeWidth: `${op.strokeWidth ?? 2}`,
-        fontSize: `${op.fontSize ?? 18}`,
-        blurIntensity: `${op.blurIntensity ?? 40}`,
-      },
-      { emitEvent: false }
-    );
-    this.suppressAdvancedSync = false;
+  private patchOperationForm(operation: ImageAnnotateOperationV1): void {
+    this.operationForm.set({
+      type: operation.type,
+      x: `${operation.x ?? 0}`,
+      y: `${operation.y ?? 0}`,
+      width: `${operation.width ?? 1}`,
+      height: `${operation.height ?? 1}`,
+      x2: `${operation.x2 ?? 0}`,
+      y2: `${operation.y2 ?? 0}`,
+      text: operation.text ?? '',
+      color: operation.color ?? '#ff0000',
+      opacity: `${operation.opacity ?? 1}`,
+      strokeWidth: `${operation.strokeWidth ?? 2}`,
+      fontSize: `${operation.fontSize ?? 18}`,
+      blurIntensity: `${operation.blurIntensity ?? 40}`,
+    });
   }
 
-  private canInteractOnOverlay(): boolean {
-    return (
-      !!this.sourcePreviewDataUrl &&
-      this.currentMode() === 'single' &&
-      this.sourceImageWidth > 0 &&
-      this.sourceImageHeight > 0
-    );
-  }
+  private operationFromDraft(
+    draft: DrawDraft,
+  ): ImageAnnotateOperationV1 | null {
+    const form = this.operationForm();
 
-  private operationFromDraft(draft: DrawDraft): ImageAnnotateOperationV1 | null {
     if (draft.type === 'arrow') {
       return {
         type: 'arrow',
@@ -975,18 +1310,26 @@ export class ImageAnnotate implements OnDestroy {
         y: draft.startY,
         x2: draft.endX,
         y2: draft.endY,
-        width: this.readInt(this.operationForm.controls.width.value, 1),
-        height: this.readInt(this.operationForm.controls.height.value, 1),
-        color: this.operationForm.controls.color.value,
-        opacity: this.readFloat(this.operationForm.controls.opacity.value, 1),
-        strokeWidth: this.readInt(this.operationForm.controls.strokeWidth.value, 2),
-        fontSize: this.readInt(this.operationForm.controls.fontSize.value, 18),
-        blurIntensity: this.readInt(this.operationForm.controls.blurIntensity.value, 40),
-        text: this.operationForm.controls.text.value,
+        width: this.readInt(form.width, 1),
+        height: this.readInt(form.height, 1),
+        color: form.color,
+        opacity: this.readFloat(form.opacity, 1),
+        strokeWidth: this.readInt(form.strokeWidth, 2),
+        fontSize: this.readInt(form.fontSize, 18),
+        blurIntensity: this.readInt(form.blurIntensity, 40),
+        text: form.text,
       };
     }
 
-    const rect = this.normalizeRect(draft.startX, draft.startY, draft.endX, draft.endY);
+    const rect = this.normalizeRect(
+      draft.startX,
+      draft.startY,
+      draft.endX,
+      draft.endY,
+    );
+    if (rect.width < 1 || rect.height < 1) {
+      return null;
+    }
 
     return {
       type: draft.type,
@@ -994,20 +1337,20 @@ export class ImageAnnotate implements OnDestroy {
       y: rect.y,
       width: rect.width,
       height: rect.height,
-      x2: this.readInt(this.operationForm.controls.x2.value, rect.x + rect.width),
-      y2: this.readInt(this.operationForm.controls.y2.value, rect.y + rect.height),
-      text: this.operationForm.controls.text.value,
-      color: this.operationForm.controls.color.value,
-      opacity: this.readFloat(this.operationForm.controls.opacity.value, 1),
-      strokeWidth: this.readInt(this.operationForm.controls.strokeWidth.value, 2),
-      fontSize: this.readInt(this.operationForm.controls.fontSize.value, 18),
-      blurIntensity: this.readInt(this.operationForm.controls.blurIntensity.value, 40),
+      x2: rect.x + rect.width,
+      y2: rect.y + rect.height,
+      text: form.text,
+      color: form.color,
+      opacity: this.readFloat(form.opacity, 1),
+      strokeWidth: this.readInt(form.strokeWidth, 2),
+      fontSize: this.readInt(form.fontSize, 18),
+      blurIntensity: this.readInt(form.blurIntensity, 40),
     };
   }
 
   private createTextOperation(x: number, y: number): void {
-    const currentText = this.operationForm.controls.text.value.trim();
-    let text = currentText;
+    const form = this.operationForm();
+    let text = form.text.trim();
 
     if (!text && typeof window !== 'undefined') {
       text = window.prompt('Enter annotation text', '')?.trim() ?? '';
@@ -1017,33 +1360,38 @@ export class ImageAnnotate implements OnDestroy {
       return;
     }
 
-    const op: ImageAnnotateOperationV1 = {
+    const operation: ImageAnnotateOperationV1 = {
       type: 'text',
       x,
       y,
       text,
-      color: this.operationForm.controls.color.value,
-      opacity: this.readFloat(this.operationForm.controls.opacity.value, 1),
-      fontSize: this.readInt(this.operationForm.controls.fontSize.value, 18),
-      strokeWidth: this.readInt(this.operationForm.controls.strokeWidth.value, 2),
-      width: this.readInt(this.operationForm.controls.width.value, 1),
-      height: this.readInt(this.operationForm.controls.height.value, 1),
-      x2: this.readInt(this.operationForm.controls.x2.value, x),
-      y2: this.readInt(this.operationForm.controls.y2.value, y),
-      blurIntensity: this.readInt(this.operationForm.controls.blurIntensity.value, 40),
+      color: form.color,
+      opacity: this.readFloat(form.opacity, 1),
+      fontSize: this.readInt(form.fontSize, 18),
+      strokeWidth: this.readInt(form.strokeWidth, 2),
+      width: this.readInt(form.width, 1),
+      height: this.readInt(form.height, 1),
+      x2: this.readInt(form.x2, x),
+      y2: this.readInt(form.y2, y),
+      blurIntensity: this.readInt(form.blurIntensity, 40),
     };
 
-    this.operations = [...this.operations, op];
-    this.operationForm.patchValue({ type: 'text', text });
-    this.selectOperation(this.operations.length - 1);
-    this.scheduleAnnotatePreviewRefresh();
+    this.operations.update((operations) => [...operations, operation]);
+    this.operationForm.update((current) => ({ ...current, text }));
+    this.selectOperation(this.operations().length - 1);
+    this.scheduleOperationRefresh();
   }
 
-  private normalizeRect(x1: number, y1: number, x2: number, y2: number): OverlayRect {
+  private normalizeRect(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+  ): OverlayRect {
     const minX = Math.max(0, Math.min(x1, x2));
     const minY = Math.max(0, Math.min(y1, y2));
-    const maxX = Math.min(this.sourceImageWidth, Math.max(x1, x2));
-    const maxY = Math.min(this.sourceImageHeight, Math.max(y1, y2));
+    const maxX = Math.min(this.imageWidth(), Math.max(x1, x2));
+    const maxY = Math.min(this.imageHeight(), Math.max(y1, y2));
 
     return {
       x: Math.round(minX),
@@ -1055,14 +1403,14 @@ export class ImageAnnotate implements OnDestroy {
 
   private pointerToImage(event: PointerEvent): OverlayPoint | null {
     const rect = this.previewImageElementRect();
-    if (!rect || this.sourceImageWidth <= 0 || this.sourceImageHeight <= 0) {
+    if (!rect || this.imageWidth() <= 0 || this.imageHeight() <= 0) {
       return null;
     }
 
     const localX = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
     const localY = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
-    const scaleX = this.sourceImageWidth / rect.width;
-    const scaleY = this.sourceImageHeight / rect.height;
+    const scaleX = this.imageWidth() / rect.width;
+    const scaleY = this.imageHeight() / rect.height;
 
     return {
       x: Math.round(localX * scaleX),
@@ -1072,13 +1420,13 @@ export class ImageAnnotate implements OnDestroy {
 
   private imageToDisplayScale(): { x: number; y: number } | null {
     const rect = this.previewImageElementRect();
-    if (!rect || this.sourceImageWidth <= 0 || this.sourceImageHeight <= 0) {
+    if (!rect || this.imageWidth() <= 0 || this.imageHeight() <= 0) {
       return null;
     }
 
     return {
-      x: rect.width / this.sourceImageWidth,
-      y: rect.height / this.sourceImageHeight,
+      x: rect.width / this.imageWidth(),
+      y: rect.height / this.imageHeight(),
     };
   }
 
@@ -1094,5 +1442,238 @@ export class ImageAnnotate implements OnDestroy {
     }
 
     return rect;
+  }
+
+  private startPolling(): void {
+    this.stopPolling();
+    this.isPolling.set(true);
+    void this.pollJobStatus();
+    this.pollingTimer = setInterval(() => {
+      void this.pollJobStatus();
+    }, POLLING_INTERVAL_MS);
+  }
+
+  private stopPolling(): void {
+    if (this.pollingTimer) {
+      clearInterval(this.pollingTimer);
+      this.pollingTimer = null;
+    }
+    this.isPolling.set(false);
+  }
+
+  private async pollJobStatus(): Promise<void> {
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      this.stopPolling();
+      return;
+    }
+
+    const response: JobStatusResponseV1 = await this.wailsService
+      .getJobStatusV1(jobId)
+      .catch(() => ({
+        success: false,
+        message: 'The job status could not be read.',
+        found: false,
+        error: {
+          code: 'EXEC_IO_TRANSIENT' as const,
+          detail_code: 'JOB_STATUS_FAILED',
+          message: 'The job status could not be read.',
+        },
+      }));
+    if (this.activeJobId() !== jobId) {
+      return;
+    }
+
+    if (!response.found || !response.result) {
+      this.stopPolling();
+      this.activeJobId.set('');
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_MISSING',
+          message: response.message || 'The job status could not be read.',
+        },
+      );
+      return;
+    }
+
+    this.jobResult.set(response.result);
+    if (this.isTerminalStatus(response.result.status)) {
+      this.stopPolling();
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
+    }
+  }
+
+  private async loadOutputInfos(): Promise<void> {
+    const paths = this.collectOutputPaths();
+    if (paths.length === 0) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const response: InspectFilesResponseV1 = await this.wailsService
+      .inspectFilesV1(paths)
+      .catch(() => ({
+        success: false,
+        message: 'File sizes could not be read.',
+        files: [],
+      }));
+    if (!response.success) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const infos: Record<string, FileInfoV1> = {};
+    for (const info of response.files) {
+      if (info.path) {
+        infos[info.path] = info;
+      }
+    }
+    this.outputInfos.set(infos);
+  }
+
+  private collectOutputPaths(): string[] {
+    const paths = new Set<string>();
+    for (const item of this.jobResult()?.items ?? []) {
+      if (!item.success) {
+        continue;
+      }
+
+      const outputs = (item.outputs ?? []).filter((path) => !!path);
+      if (outputs.length > 0) {
+        for (const output of outputs) {
+          paths.add(output);
+        }
+      } else if (item.outputPath) {
+        paths.add(item.outputPath);
+      }
+    }
+    return [...paths];
+  }
+
+  private syncFileItems(): void {
+    const paths = this.selectedPaths();
+    const generation = (this.fileItemsGeneration += 1);
+    const existing = new Map(
+      this.fileItems().map((item) => [item.path, item]),
+    );
+    this.fileItems.set(
+      paths.map(
+        (path) => existing.get(path) ?? { path, name: fileName(path) },
+      ),
+    );
+
+    if (paths.length > 0) {
+      void this.enrichFileItems(paths, generation);
+    }
+  }
+
+  private async enrichFileItems(
+    paths: string[],
+    generation: number,
+  ): Promise<void> {
+    try {
+      const response = await this.wailsService.inspectFilesV1(paths);
+      if (generation === this.fileItemsGeneration && response.success) {
+        const infos = new Map<string, FileInfoV1>();
+        for (const info of response.files) {
+          infos.set(info.path, info);
+        }
+
+        this.fileItems.update((items) =>
+          items.map((item) => {
+            const info = infos.get(item.path);
+            const meta = info ? this.describeFileInfo(info) : '';
+            return meta ? { ...item, meta } : item;
+          }),
+        );
+      }
+    } catch {
+      // Inspection is optional: the queue keeps the file name and path.
+    }
+
+    if (generation !== this.fileItemsGeneration) {
+      return;
+    }
+
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
+  }
+
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the placeholder icon.
+      });
+  }
+
+  private describeFileInfo(info: FileInfoV1): string {
+    const parts: string[] = [];
+    if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
+      parts.push(formatBytes(info.sizeBytes));
+    }
+    if (typeof info.width === 'number' && typeof info.height === 'number') {
+      parts.push(`${info.width} × ${info.height}`);
+    }
+    return parts.join(' · ');
+  }
+
+  private intakeNotice(
+    rejected: string[],
+    duplicates: string[],
+  ): Notice | null {
+    const parts: string[] = [];
+
+    if (rejected.length === 1) {
+      parts.push(
+        `${fileName(rejected[0])} wasn't added because it isn't an image.`,
+      );
+    } else if (rejected.length > 1) {
+      parts.push(
+        `${rejected.length} files weren't added because they aren't images.`,
+      );
+    }
+
+    if (duplicates.length === 1) {
+      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+    } else if (duplicates.length > 1) {
+      parts.push(`${duplicates.length} images are already in the queue.`);
+    }
+
+    return parts.length > 0
+      ? { tone: 'warning', text: parts.join(' ') }
+      : null;
+  }
+
+  /**
+   * Windows and UNC paths are case-insensitive, so the same file dropped with
+   * different casing is still a duplicate there.
+   */
+  private pathKey(path: string): string {
+    const normalized = path.trim().replace(/\\/g, '/');
+    return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//')
+      ? normalized.toLowerCase()
+      : normalized;
+  }
+
+  private readEventValue(event: Event): string {
+    return (event.target as HTMLInputElement | null)?.value ?? '';
+  }
+
+  private isTerminalStatus(status: string): boolean {
+    return TERMINAL_STATUSES.has(status);
   }
 }
