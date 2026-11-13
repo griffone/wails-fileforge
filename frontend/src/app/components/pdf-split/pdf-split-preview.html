@@ -32,15 +32,72 @@
   @if (unavailable()) {
     <div class="banner banner-warning preview-alert" role="alert">
       <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-      <span>Preview unavailable for this PDF. The split will still work.</span>
+      <span>
+        Preview unavailable for this PDF. The split will still work.
+        @if (isSelectable()) {
+          Switch to Page ranges to split it without a preview.
+        }
+      </span>
     </div>
   } @else if (rangeError(); as error) {
     <div class="banner banner-warning preview-alert" role="alert">
       <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
       <span>{{ error }}</span>
     </div>
-  } @else if (groups().length > 0) {
-    @if (strategy === 'every_page') {
+  } @else if (isSelectable() || groups().length > 0) {
+    @if (isSelectable()) {
+      <div class="select-toolbar">
+        <div class="select-actions">
+          <button type="button" class="btn btn-secondary btn-sm" (click)="selectAll()">
+            Select all
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            [disabled]="selection().length === 0"
+            (click)="clearSelection()"
+          >
+            Clear
+          </button>
+        </div>
+        <p class="select-count" role="status">{{ selectionLabel() }}</p>
+      </div>
+
+      <div class="page-grid" role="group" aria-label="Select pages to split">
+        @for (pageNumber of selectablePages(); track pageNumber) {
+          <button
+            type="button"
+            class="page-card page-card-selectable"
+            [class.is-selected]="isPageSelected(pageNumber)"
+            [attr.aria-pressed]="isPageSelected(pageNumber)"
+            [attr.aria-label]="(isPageSelected(pageNumber) ? 'Deselect page ' : 'Select page ') + pageNumber"
+            (click)="togglePage(pageNumber)"
+          >
+            <span class="thumb-frame">
+              @if (thumbnail(pageNumber); as url) {
+                <img
+                  [src]="url"
+                  [alt]="'Page ' + pageNumber + ' preview'"
+                  width="140"
+                  height="181"
+                  loading="lazy"
+                />
+              } @else {
+                <span class="thumb-placeholder" aria-hidden="true"></span>
+              }
+              @if (isPageSelected(pageNumber)) {
+                <span class="select-check" aria-hidden="true">
+                  <lucide-icon [img]="checkIcon" [size]="12" [strokeWidth]="3"></lucide-icon>
+                </span>
+              }
+            </span>
+            <span class="page-number">Page {{ pageNumber }}</span>
+          </button>
+        }
+      </div>
+    }
+
+    @if (strategy === 'every_page' && !isSelectable()) {
       <div class="page-grid" role="list" aria-label="Resulting pages">
         @for (group of groups(); track group.key) {
           @let pageNumber = group.pages[0].page;
@@ -63,7 +120,7 @@
           </article>
         }
       </div>
-    } @else {
+    } @else if (groups().length > 0) {
       <div class="range-grid" aria-label="Resulting parts">
         @for (group of groups(); track group.key) {
           <article class="range-card">
@@ -97,6 +154,8 @@
           </article>
         }
       </div>
+    } @else if (isSelectable()) {
+      <p class="select-hint">Select pages above to preview the parts they create.</p>
     }
 
     @if (limited()) {

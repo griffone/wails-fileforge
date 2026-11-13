@@ -42,10 +42,21 @@ const THUMBNAIL_SIZE = 160;
 const PREVIEW_SIZE = 220;
 const MAX_MARGIN_PT = 720;
 
+/** A4 without a known page size. The overlay is approximate by design. */
+const A4_PAGE_POINTS = { width: 595, height: 842 } as const;
+
 const CROP_PRESET_SMALL = 'small';
 const CROP_PRESET_CUSTOM = 'custom';
 
 type CropPresetId = 'none' | 'small' | 'medium' | 'large' | 'custom';
+
+/** Margins the backend applies per preset, in points. */
+const PRESET_MARGIN_POINTS: Record<Exclude<CropPresetId, 'custom'>, number> = {
+  none: 0,
+  small: 10,
+  medium: 20,
+  large: 40,
+};
 
 const TERMINAL_STATUSES = new Set<string>([
   'success',
@@ -118,6 +129,20 @@ interface ResolvedMargins {
   left: number;
 }
 
+interface PreviewInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  dimmed: boolean;
+  fullPage: boolean;
+}
+
+interface PageSize {
+  width: number;
+  height: number;
+}
+
 const EMPTY_MARGINS: MarginValues = {
   top: '',
   right: '',
@@ -164,6 +189,7 @@ export class PdfCrop implements OnDestroy {
   readonly outputDir = signal('');
   readonly previewThumbnail = signal('');
   readonly previewName = signal('');
+  readonly previewPageSize = signal<PageSize>({ ...A4_PAGE_POINTS });
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
   readonly planError = signal<JobErrorV1 | null>(null);
@@ -251,6 +277,64 @@ export class PdfCrop implements OnDestroy {
       : `First page of ${name}. The crop is applied when you run it.`;
   });
 
+  readonly previewAspectRatio = computed(() => {
+    const size = this.previewPageSize();
+    return `${size.width} / ${size.height}`;
+  });
+
+  /**
+   * Margins shown in the overlay. Custom margins only count when every side is
+   * valid; otherwise the overlay falls back to the full page instead of
+   * drawing a crop the backend would reject.
+   */
+  readonly previewMargins = computed<ResolvedMargins>(() => {
+    const preset = this.cropPreset();
+    if (preset === CROP_PRESET_CUSTOM) {
+      return this.marginsValidInput()
+        ? this.resolvedMargins()
+        : { top: 0, right: 0, bottom: 0, left: 0 };
+    }
+
+    const value = PRESET_MARGIN_POINTS[preset];
+    return { top: value, right: value, bottom: value, left: value };
+  });
+
+  readonly previewHasMargins = computed(() =>
+    MARGIN_SIDES.some((side) => this.previewMargins()[side] > 0),
+  );
+
+  /** Kept-region insets as percentages of the page, with a dimmed outside. */
+  readonly previewInsets = computed<PreviewInsets>(() => {
+    const size = this.previewPageSize();
+    const margins = this.previewMargins();
+    const horizontal = this.insetPair(margins.left, margins.right, size.width);
+    const vertical = this.insetPair(margins.top, margins.bottom, size.height);
+    const hasMargins = this.previewHasMargins();
+
+    return {
+      top: vertical.start,
+      right: horizontal.end,
+      bottom: vertical.end,
+      left: horizontal.start,
+      dimmed: hasMargins,
+      fullPage: !hasMargins,
+    };
+  });
+
+  readonly previewMarginsLabel = computed(() => {
+    const margins = this.previewMargins();
+    const values = MARGIN_SIDES.map((side) => margins[side]);
+    const uniform = values.every((value) => value === values[0]);
+    if (uniform) {
+      return `${this.formatMarginValue(margins.top)} pt`;
+    }
+    const top = this.formatMarginValue(margins.top);
+    const right = this.formatMarginValue(margins.right);
+    const bottom = this.formatMarginValue(margins.bottom);
+    const left = this.formatMarginValue(margins.left);
+    return `T ${top} · R ${right} · B ${bottom} · L ${left}`;
+  });
+
   readonly canRun = computed(
     () =>
       this.selectedPaths().length > 0 &&
@@ -295,6 +379,7 @@ export class PdfCrop implements OnDestroy {
   private planToken = 0;
   private fileItemsGeneration = 0;
   private previewGeneration = 0;
+  private previewPath = '';
 
   constructor(private readonly wailsService: Wails) {
     this.wailsService.jobProgress$
@@ -606,6 +691,8 @@ export class PdfCrop implements OnDestroy {
     this.fileItems.set([]);
     this.previewThumbnail.set('');
     this.previewName.set('');
+    this.previewPath = '';
+    this.previewPageSize.set({ ...A4_PAGE_POINTS });
     this.plan.set(null);
     this.planError.set(null);
     this.planLoading.set(false);
@@ -879,6 +966,11 @@ export class PdfCrop implements OnDestroy {
             return meta ? { ...item, meta } : item;
           }),
         );
+
+        const firstInfo = infos.get(paths[0]);
+        if (firstInfo && paths[0] === this.previewPath) {
+          this.applyPreviewPageSize(firstInfo);
+        }
       }
     } catch {
       // Inspection is optional: the queue keeps the file name and path.
@@ -896,8 +988,14 @@ export class PdfCrop implements OnDestroy {
   private refreshPreview(): void {
     const generation = (this.previewGeneration += 1);
     const first = this.selectedPaths()[0] ?? '';
+    const firstChanged = first !== this.previewPath;
+    this.previewPath = first;
     this.previewThumbnail.set('');
     this.previewName.set(first ? fileName(first) : '');
+
+    if (firstChanged) {
+      this.previewPageSize.set({ ...A4_PAGE_POINTS });
+    }
 
     if (!first) {
       return;
@@ -931,6 +1029,46 @@ export class PdfCrop implements OnDestroy {
       .catch(() => {
         // Thumbnails are optional; keep the placeholder icon.
       });
+  }
+
+  private applyPreviewPageSize(info: FileInfoV1): void {
+    const width = info.pageWidthPoints ?? 0;
+    const height = info.pageHeightPoints ?? 0;
+    if (width > 0 && height > 0) {
+      this.previewPageSize.set({ width, height });
+      return;
+    }
+    this.previewPageSize.set({ ...A4_PAGE_POINTS });
+  }
+
+  /**
+   * Converts one margin pair to percentages, shrinking both sides together if
+   * they would overlap so the overlay always stays inside the frame.
+   */
+  private insetPair(
+    startPt: number,
+    endPt: number,
+    totalPt: number,
+  ): { start: number; end: number } {
+    let start = this.toPercent(startPt, totalPt);
+    let end = this.toPercent(endPt, totalPt);
+    const sum = start + end;
+    if (sum > 100) {
+      start = (start / sum) * 100;
+      end = (end / sum) * 100;
+    }
+    return { start, end };
+  }
+
+  private toPercent(value: number, total: number): number {
+    if (!Number.isFinite(value) || value <= 0 || total <= 0) {
+      return 0;
+    }
+    return Math.min(100, (value / total) * 100);
+  }
+
+  private formatMarginValue(value: number): string {
+    return String(Math.round(value * 10) / 10);
   }
 
   private describeFileInfo(info: FileInfoV1): string {

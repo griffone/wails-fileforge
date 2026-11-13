@@ -25,9 +25,9 @@ describe('PdfCrop', () => {
   let wailsSpy: jasmine.SpyObj<Wails>;
   let jobProgressSubject: Subject<JobProgressEventV1>;
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string, pageSize?: { width: number; height: number }): FileInfoV1 {
     const name = path.split(/[\\/]/).pop() ?? path;
-    return {
+    const info: FileInfoV1 = {
       path,
       name,
       directory: '/tmp',
@@ -37,6 +37,11 @@ describe('PdfCrop', () => {
       pageCount: 4,
       exists: true,
     };
+    if (pageSize) {
+      info.pageWidthPoints = pageSize.width;
+      info.pageHeightPoints = pageSize.height;
+    }
+    return info;
   }
 
   function firstDir(path: string): string {
@@ -141,7 +146,7 @@ describe('PdfCrop', () => {
       Promise.resolve({
         success: true,
         message: 'ok',
-        files: paths.map(fileInfo),
+        files: paths.map((path) => fileInfo(path)),
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
@@ -439,6 +444,102 @@ describe('PdfCrop', () => {
       fixture.nativeElement.querySelector('.preview-image'),
     ).not.toBeNull();
     expect(component.previewNote()).toContain('First page of a.pdf');
+  }));
+
+  it('shows a crop overlay with preset margins scaled to the page size', fakeAsync(() => {
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map((path) =>
+          fileInfo(path, { width: 300, height: 400 }),
+        ),
+      }),
+    );
+    wailsSpy.getThumbnail.and.callFake((_path: string, size?: number) =>
+      Promise.resolve(size === 220 ? 'data:image/webp;base64,preview' : null),
+    );
+
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.previewPageSize()).toEqual({ width: 300, height: 400 });
+    expect(component.previewAspectRatio()).toBe('300 / 400');
+    expect(component.previewMarginsLabel()).toBe('10 pt');
+    expect(component.previewInsets().left).toBeCloseTo((10 / 300) * 100, 5);
+    expect(component.previewInsets().right).toBeCloseTo((10 / 300) * 100, 5);
+    expect(component.previewInsets().top).toBeCloseTo((10 / 400) * 100, 5);
+    expect(component.previewInsets().bottom).toBeCloseTo((10 / 400) * 100, 5);
+    expect(component.previewInsets().dimmed).toBeTrue();
+    expect(component.previewInsets().fullPage).toBeFalse();
+
+    const frame = fixture.nativeElement.querySelector(
+      '.preview-frame',
+    ) as HTMLElement;
+    expect(frame.style.aspectRatio).toBe('300 / 400');
+    const region = fixture.nativeElement.querySelector(
+      '.crop-region',
+    ) as HTMLElement;
+    expect(region.getAttribute('aria-hidden')).toBe('true');
+    expect(region.style.top).toContain('%');
+    expect(region.style.left).toContain('%');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Approximate crop preview',
+    );
+
+    component.selectPreset('none');
+    fixture.detectChanges();
+    expect(component.previewMarginsLabel()).toBe('0 pt');
+    expect(component.previewInsets().dimmed).toBeFalse();
+    expect(component.previewInsets().fullPage).toBeTrue();
+
+    component.selectPreset('large');
+    fixture.detectChanges();
+    expect(component.previewInsets().left).toBeCloseTo((40 / 300) * 100, 5);
+    expect(component.previewInsets().top).toBeCloseTo((40 / 400) * 100, 5);
+  }));
+
+  it('updates the overlay live for custom margins', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectPreset('custom');
+    flushMicrotasks();
+    component.onMarginInput('top', inputEvent('20'));
+    component.onMarginInput('right', inputEvent('10'));
+    component.onMarginInput('bottom', inputEvent('5'));
+    component.onMarginInput('left', inputEvent('10'));
+    fixture.detectChanges();
+
+    expect(component.previewMarginsLabel()).toBe('T 20 · R 10 · B 5 · L 10');
+    expect(component.previewInsets().top).toBeCloseTo((20 / 842) * 100, 5);
+    expect(component.previewInsets().right).toBeCloseTo((10 / 595) * 100, 5);
+    expect(component.previewInsets().bottom).toBeCloseTo((5 / 842) * 100, 5);
+    expect(component.previewInsets().left).toBeCloseTo((10 / 595) * 100, 5);
+
+    component.onMarginInput('top', inputEvent('100'));
+    fixture.detectChanges();
+
+    expect(component.previewInsets().top).toBeCloseTo((100 / 842) * 100, 5);
+    expect(component.previewMarginsLabel()).toContain('T 100');
+
+    component.onMarginInput('top', inputEvent(''));
+    fixture.detectChanges();
+
+    expect(component.previewInsets().fullPage).toBeTrue();
+    expect(component.previewInsets().dimmed).toBeFalse();
+  }));
+
+  it('falls back to A4 when the page size is unknown', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.previewPageSize()).toEqual({ width: 595, height: 842 });
+    expect(component.previewAspectRatio()).toBe('595 / 842');
+    expect(component.previewInsets().left).toBeCloseTo((10 / 595) * 100, 5);
+    expect(component.previewInsets().top).toBeCloseTo((10 / 842) * 100, 5);
   }));
 
   it('renders the workbench header and no legacy confirmation flow', () => {

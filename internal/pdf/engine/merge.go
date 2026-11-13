@@ -1,12 +1,15 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -18,6 +21,7 @@ const (
 	ErrorCodeInvalidInputsPDF      = "PDF_INVALID_INPUTS"
 	ErrorCodeProtectedInputPDF     = "PDF_PROTECTED_INPUT"
 	ErrorCodeMergeFailed           = "PDF_MERGE_FAILED"
+	ErrorCodeMergePageRangeInvalid = "PDF_MERGE_PAGE_RANGE_INVALID"
 	ErrorCodeMergeOutputExists     = "PDF_MERGE_OUTPUT_ALREADY_EXISTS"
 	ErrorCodeDuplicateInput        = "PDF_DUPLICATE_INPUT"
 	ErrorCodeOutputCollidesInput   = "PDF_OUTPUT_COLLIDES_INPUT"
@@ -46,6 +50,13 @@ func (e *MergeError) Unwrap() error {
 }
 
 func Merge(ctx context.Context, inputPaths []string, outputPath string) error {
+	return MergeWithPageRanges(ctx, inputPaths, outputPath, nil)
+}
+
+// MergeWithPageRanges merges inputPaths into outputPath, optionally keeping a
+// page selection per input. pageRanges is one entry per input; an empty entry
+// keeps the whole file. A nil or short slice treats missing entries as empty.
+func MergeWithPageRanges(ctx context.Context, inputPaths []string, outputPath string, pageRanges []string) error {
 	if err := ctx.Err(); err != nil {
 		return &MergeError{Code: "CANCELED", Message: "merge canceled", Cause: err}
 	}
@@ -54,6 +65,56 @@ func Merge(ctx context.Context, inputPaths []string, outputPath string) error {
 		return validationErr
 	}
 
+	if validationErr := validateMergeInputs(ctx, inputPaths); validationErr != nil {
+		return validationErr
+	}
+
+	ranges := normalizeMergePageRanges(pageRanges, len(inputPaths))
+	if !hasMergePageRanges(ranges) {
+		if err := api.MergeCreateFile(inputPaths, outputPath, false, nil); err != nil {
+			return &MergeError{Code: ErrorCodeMergeFailed, Message: "failed to merge PDF files", Cause: err}
+		}
+
+		return nil
+	}
+
+	if rangeErr := ValidateMergePageRanges(inputPaths, ranges); rangeErr != nil {
+		return rangeErr
+	}
+
+	return mergeSelectedPages(ctx, inputPaths, outputPath, ranges)
+}
+
+// ValidateMergePageRanges checks every non-empty page range against its input
+// PDF. Ranges use pdfcpu page selection syntax ("1", "1-3", "1,3-5", "even").
+// Empty entries mean "whole file" and are skipped.
+func ValidateMergePageRanges(inputPaths []string, pageRanges []string) *MergeError {
+	ranges := normalizeMergePageRanges(pageRanges, len(inputPaths))
+
+	for i, inputPath := range inputPaths {
+		if ranges[i] == "" {
+			continue
+		}
+
+		pageCount, err := api.PageCountFile(inputPath)
+		if err != nil {
+			return &MergeError{
+				Code:    ErrorCodeInvalidInputPDF,
+				Message: fmt.Sprintf("unable to determine page count for: %s", filepath.Base(inputPath)),
+				Details: mergePageRangeDetails(inputPath, ranges[i], 0),
+				Cause:   err,
+			}
+		}
+
+		if rangeErr := validateMergePageRange(inputPath, ranges[i], pageCount); rangeErr != nil {
+			return rangeErr
+		}
+	}
+
+	return nil
+}
+
+func validateMergeInputs(ctx context.Context, inputPaths []string) *MergeError {
 	inputValidationErrors := make([]map[string]any, 0)
 	for _, inputPath := range inputPaths {
 		if err := ctx.Err(); err != nil {
@@ -85,15 +146,260 @@ func Merge(ctx context.Context, inputPaths []string, outputPath string) error {
 		return aggregateInputValidationError(inputValidationErrors)
 	}
 
-	if existsErr := ensureMergeOutputDoesNotExist(outputPath); existsErr != nil {
-		return existsErr
+	return nil
+}
+
+func mergeSelectedPages(ctx context.Context, inputPaths []string, outputPath string, ranges []string) error {
+	trimmedOutput := strings.TrimSpace(outputPath)
+
+	outputFile, err := os.OpenFile(trimmedOutput, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return &MergeError{Code: ErrorCodeMergeOutputExists, Message: fmt.Sprintf("output file already exists: %s", trimmedOutput)}
+		}
+
+		return &MergeError{Code: ErrorCodeOutputDirNotWritable, Message: fmt.Sprintf("output path is not writable: %s", trimmedOutput), Cause: err}
 	}
 
-	if err := api.MergeCreateFile(inputPaths, outputPath, false, nil); err != nil {
-		return &MergeError{Code: ErrorCodeMergeFailed, Message: "failed to merge PDF files", Cause: err}
+	readers := make([]io.ReadSeeker, 0, len(inputPaths))
+	openInputs := make([]*os.File, 0, len(inputPaths))
+	completed := false
+
+	defer func() {
+		for _, inputFile := range openInputs {
+			_ = inputFile.Close()
+		}
+
+		if completed {
+			return
+		}
+
+		_ = outputFile.Close()
+		_ = os.Remove(trimmedOutput)
+	}()
+
+	for i, inputPath := range inputPaths {
+		if err := ctx.Err(); err != nil {
+			return &MergeError{Code: "CANCELED", Message: "merge canceled", Cause: err}
+		}
+
+		inputFile, openErr := os.Open(inputPath)
+		if openErr != nil {
+			return &MergeError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("input PDF is not accessible: %s", filepath.Base(inputPath)), Cause: openErr}
+		}
+
+		rangeExpr := strings.TrimSpace(ranges[i])
+		if rangeExpr == "" {
+			openInputs = append(openInputs, inputFile)
+			readers = append(readers, inputFile)
+			continue
+		}
+
+		tokens, parseErr := api.ParsePageSelection(rangeExpr)
+		if parseErr != nil || len(tokens) == 0 {
+			_ = inputFile.Close()
+			return &MergeError{
+				Code:    ErrorCodeMergePageRangeInvalid,
+				Message: fmt.Sprintf("invalid page range %q for %s", rangeExpr, filepath.Base(inputPath)),
+				Cause:   parseErr,
+			}
+		}
+
+		var collected bytes.Buffer
+		collectErr := api.Collect(inputFile, &collected, tokens, nil)
+		_ = inputFile.Close()
+		if collectErr != nil {
+			return &MergeError{
+				Code:    ErrorCodeMergePageRangeInvalid,
+				Message: fmt.Sprintf("failed to select pages %q from %s", rangeExpr, filepath.Base(inputPath)),
+				Cause:   collectErr,
+			}
+		}
+
+		readers = append(readers, bytes.NewReader(collected.Bytes()))
+	}
+
+	if mergeErr := api.MergeRaw(readers, outputFile, false, nil); mergeErr != nil {
+		return &MergeError{Code: ErrorCodeMergeFailed, Message: "failed to merge PDF files", Cause: mergeErr}
+	}
+
+	if closeErr := outputFile.Close(); closeErr != nil {
+		return &MergeError{Code: ErrorCodeMergeFailed, Message: "failed to finalize merged PDF", Cause: closeErr}
+	}
+
+	completed = true
+	return nil
+}
+
+func normalizeMergePageRanges(pageRanges []string, inputCount int) []string {
+	ranges := make([]string, inputCount)
+	for i := 0; i < inputCount && i < len(pageRanges); i++ {
+		ranges[i] = strings.TrimSpace(pageRanges[i])
+	}
+
+	return ranges
+}
+
+func hasMergePageRanges(ranges []string) bool {
+	for _, pageRange := range ranges {
+		if pageRange != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func validateMergePageRange(inputPath, rangeExpr string, pageCount int) *MergeError {
+	fileName := filepath.Base(inputPath)
+
+	tokens, err := api.ParsePageSelection(rangeExpr)
+	if err != nil || len(tokens) == 0 {
+		return &MergeError{
+			Code:    ErrorCodeMergePageRangeInvalid,
+			Message: fmt.Sprintf("invalid page range %q for %s", rangeExpr, fileName),
+			Details: mergePageRangeDetails(inputPath, rangeExpr, pageCount),
+			Cause:   err,
+		}
+	}
+
+	for _, token := range tokens {
+		if tokenErr := validateMergePageRangeToken(token, pageCount); tokenErr != nil {
+			return &MergeError{
+				Code:    ErrorCodeMergePageRangeInvalid,
+				Message: fmt.Sprintf("invalid page range %q for %s: %v", rangeExpr, fileName, tokenErr),
+				Details: mergePageRangeDetails(inputPath, rangeExpr, pageCount),
+			}
+		}
+	}
+
+	collected, err := api.PagesForPageCollection(pageCount, tokens)
+	if err != nil {
+		return &MergeError{
+			Code:    ErrorCodeMergePageRangeInvalid,
+			Message: fmt.Sprintf("invalid page range %q for %s", rangeExpr, fileName),
+			Details: mergePageRangeDetails(inputPath, rangeExpr, pageCount),
+			Cause:   err,
+		}
+	}
+
+	selected, err := api.PagesForPageSelection(pageCount, tokens, false, false)
+	if err != nil {
+		return &MergeError{
+			Code:    ErrorCodeMergePageRangeInvalid,
+			Message: fmt.Sprintf("invalid page range %q for %s", rangeExpr, fileName),
+			Details: mergePageRangeDetails(inputPath, rangeExpr, pageCount),
+			Cause:   err,
+		}
+	}
+
+	if len(collected) != len(selected) {
+		return &MergeError{
+			Code:    ErrorCodeMergePageRangeInvalid,
+			Message: fmt.Sprintf("page range %q for %s selects overlapping pages", rangeExpr, fileName),
+			Details: mergePageRangeDetails(inputPath, rangeExpr, pageCount),
+		}
 	}
 
 	return nil
+}
+
+func validateMergePageRangeToken(token string, pageCount int) error {
+	normalized := token
+	if len(normalized) > 0 && (normalized[0] == '!' || normalized[0] == 'n') {
+		normalized = normalized[1:]
+	}
+
+	switch normalized {
+	case "even", "odd", "l":
+		return nil
+	}
+
+	if strings.HasPrefix(normalized, "-") {
+		lastCount, err := strconv.Atoi(strings.TrimPrefix(normalized, "-"))
+		if err != nil {
+			return fmt.Errorf("invalid page token %q", token)
+		}
+
+		return validateMergePageNumber(lastCount, pageCount)
+	}
+
+	if strings.HasPrefix(normalized, "l-") {
+		lastCount, err := strconv.Atoi(strings.TrimSuffix(normalized[2:], "-"))
+		if err != nil {
+			return fmt.Errorf("invalid page token %q", token)
+		}
+
+		if lastCount < 1 || lastCount > pageCount {
+			return fmt.Errorf("last-page count %d is outside 1-%d", lastCount, pageCount)
+		}
+
+		return nil
+	}
+
+	parts := strings.Split(normalized, "-")
+	start, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return fmt.Errorf("invalid page token %q", token)
+	}
+
+	if err := validateMergePageNumber(start, pageCount); err != nil {
+		return err
+	}
+
+	if len(parts) == 1 {
+		return nil
+	}
+
+	if len(parts) == 2 && (parts[1] == "" || parts[1] == "l") {
+		return nil
+	}
+
+	if len(parts) == 2 {
+		end, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return fmt.Errorf("invalid page token %q", token)
+		}
+
+		if end < start {
+			return fmt.Errorf("page range %q is descending", token)
+		}
+
+		return validateMergePageNumber(end, pageCount)
+	}
+
+	if len(parts) == 3 && parts[1] == "l" {
+		offset, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return fmt.Errorf("invalid page token %q", token)
+		}
+
+		end := pageCount - offset
+		if offset < 0 || end < start {
+			return fmt.Errorf("page range %q is outside 1-%d", token, pageCount)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("invalid page token %q", token)
+}
+
+func validateMergePageNumber(page, pageCount int) error {
+	if page < 1 || page > pageCount {
+		return fmt.Errorf("page %d is outside 1-%d", page, pageCount)
+	}
+
+	return nil
+}
+
+func mergePageRangeDetails(inputPath, rangeExpr string, pageCount int) map[string]any {
+	return map[string]any{
+		"inputPath": inputPath,
+		"fileName":  filepath.Base(inputPath),
+		"pageRange": rangeExpr,
+		"pageCount": pageCount,
+	}
 }
 
 func classifyInputValidationError(err error) string {

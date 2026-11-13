@@ -3,6 +3,7 @@ package inspect
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
 
 func writeTestPNG(t *testing.T, path string, width, height int) {
@@ -32,6 +35,21 @@ func writeTestPNG(t *testing.T, path string, width, height int) {
 
 	if err := png.Encode(file, img); err != nil {
 		t.Fatalf("encode png: %v", err)
+	}
+}
+
+func writeTestPDF(t *testing.T, path string, pageCount int) {
+	t.Helper()
+
+	pngPaths := make([]string, 0, pageCount)
+	for page := 0; page < pageCount; page++ {
+		pngPath := filepath.Join(t.TempDir(), fmt.Sprintf("page-%d.png", page+1))
+		writeTestPNG(t, pngPath, 32, 24)
+		pngPaths = append(pngPaths, pngPath)
+	}
+
+	if err := api.ImportImagesFile(pngPaths, path, nil, nil); err != nil {
+		t.Fatalf("import images into pdf: %v", err)
 	}
 }
 
@@ -70,6 +88,48 @@ func TestInspectFileImage(t *testing.T) {
 	}
 	if info.MimeType != "image/png" {
 		t.Fatalf("expected image/png, got %q", info.MimeType)
+	}
+}
+
+func TestInspectFilePDFPageDims(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.pdf")
+	writeTestPDF(t, path, 3)
+
+	info := InspectFile(path)
+	if !info.Exists {
+		t.Fatal("expected PDF to exist")
+	}
+	if info.Error != "" {
+		t.Fatalf("expected no error, got %q", info.Error)
+	}
+	if info.Kind != "pdf" {
+		t.Fatalf("expected pdf kind, got %q", info.Kind)
+	}
+	if info.PageCount != 3 {
+		t.Fatalf("expected 3 pages, got %d", info.PageCount)
+	}
+	if info.PageWidthPoints <= 0 || info.PageHeightPoints <= 0 {
+		t.Fatalf("expected positive page dimensions, got %fx%f", info.PageWidthPoints, info.PageHeightPoints)
+	}
+}
+
+func TestInspectFileInvalidPDFStaysTolerant(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "broken.pdf")
+	if err := os.WriteFile(path, []byte("this is not a pdf document"), 0o644); err != nil {
+		t.Fatalf("write broken pdf: %v", err)
+	}
+
+	info := InspectFile(path)
+	if !info.Exists {
+		t.Fatal("expected broken PDF to exist")
+	}
+	if info.Error != "" {
+		t.Fatalf("expected inspection to stay tolerant, got %q", info.Error)
+	}
+	if info.PageCount != 0 || info.PageWidthPoints != 0 || info.PageHeightPoints != 0 {
+		t.Fatalf("expected no PDF metadata for a broken file, got %+v", info)
 	}
 }
 

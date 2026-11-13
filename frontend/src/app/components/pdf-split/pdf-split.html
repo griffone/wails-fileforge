@@ -5,7 +5,7 @@
         <p class="eyebrow">PDF</p>
         <h1 class="page-title">PDF <em>Split</em></h1>
         <p class="page-sub">
-          Split PDFs into one file per page or explicit ranges. Everything runs on this machine.
+          Split PDFs into one file per page, explicit ranges or picked pages. Everything runs on this machine.
         </p>
       </div>
 
@@ -121,6 +121,15 @@
             </div>
           }
 
+          @if (isSelectedStrategy()) {
+            <p class="field-help">
+              Pick pages in the preview below. Consecutive pages become one part.
+              @if (selectedPaths().length > 1) {
+                The same pages apply to every PDF in the batch.
+              }
+            </p>
+          }
+
           <app-output-plan-card
             [plan]="plan()"
             [loading]="planLoading()"
@@ -181,7 +190,13 @@
         <div class="panel-head">
           <div>
             <h2 id="pdf-split-result-preview-title" class="panel-title">Resulting files</h2>
-            <p class="panel-sub">Preview every file the split will create.</p>
+            <p class="panel-sub">
+              @if (isSelectedStrategy()) {
+                Pick pages; consecutive pages become one file.
+              } @else {
+                Preview every file the split will create.
+              }
+            </p>
           </div>
         </div>
         <div class="panel-body">
@@ -189,6 +204,9 @@
             [paths]="selectedPaths()"
             [strategy]="strategy()"
             [ranges]="ranges()"
+            [selectedPages]="selectedPages()"
+            [selectable]="isSelectedStrategy()"
+            (selectedPagesChange)="onSelectedPagesChange($event)"
           ></app-pdf-split-preview>
         </div>
       </section>

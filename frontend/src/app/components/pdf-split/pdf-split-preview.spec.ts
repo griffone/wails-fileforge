@@ -4,7 +4,7 @@ import { PdfSplitPreview } from './pdf-split-preview';
 import { PdfRendererService } from '../../services/pdf-renderer.service';
 import { PDFPreviewSourceResponseV1, Wails } from '../../services/wails';
 
-type PreviewStrategy = 'every_page' | 'ranges';
+type PreviewStrategy = 'every_page' | 'ranges' | 'selected';
 
 describe('PdfSplitPreview', () => {
   let fixture: ComponentFixture<PdfSplitPreview>;
@@ -36,6 +36,8 @@ describe('PdfSplitPreview', () => {
     strategy: PreviewStrategy = 'every_page',
     ranges = '',
     numPages = 3,
+    selectedPages: number[] = [],
+    selectable = false,
   ): Promise<void> {
     rendererSpy.loadFromBytes.and.resolveTo(fakePdf(numPages));
 
@@ -44,6 +46,8 @@ describe('PdfSplitPreview', () => {
     fixture.componentRef.setInput('paths', paths);
     fixture.componentRef.setInput('strategy', strategy);
     fixture.componentRef.setInput('ranges', ranges);
+    fixture.componentRef.setInput('selectedPages', selectedPages);
+    fixture.componentRef.setInput('selectable', selectable);
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -201,5 +205,114 @@ describe('PdfSplitPreview', () => {
 
     expect(rendererSpy.loadFromBytes).toHaveBeenCalledTimes(1);
     expect(fixture.nativeElement.querySelectorAll('.range-card').length).toBe(2);
+  });
+
+  it('renders selectable page buttons and emits toggled pages in selected mode', async () => {
+    await render(['/tmp/a.pdf'], 'selected', '', 3, [2], true);
+
+    const element = fixture.nativeElement as HTMLElement;
+    const emissions: number[][] = [];
+    component.selectedPagesChange.subscribe((pages) => emissions.push(pages));
+
+    const cards = element.querySelectorAll<HTMLButtonElement>(
+      '.page-card-selectable',
+    );
+    expect(cards.length).toBe(3);
+    expect(cards[1].getAttribute('aria-pressed')).toBe('true');
+    expect(cards[1].getAttribute('aria-label')).toBe('Deselect page 2');
+    expect(cards[0].getAttribute('aria-pressed')).toBe('false');
+    expect(cards[0].getAttribute('aria-label')).toBe('Select page 1');
+
+    cards[2].click();
+    fixture.detectChanges();
+    expect(emissions).toEqual([[2, 3]]);
+    expect(cards[2].getAttribute('aria-pressed')).toBe('true');
+    expect(cards[2].getAttribute('aria-label')).toBe('Deselect page 3');
+
+    cards[1].click();
+    fixture.detectChanges();
+    expect(emissions).toEqual([
+      [2, 3],
+      [3],
+    ]);
+  });
+
+  it('selects all pages or clears the selection', async () => {
+    await render(['/tmp/a.pdf'], 'selected', '', 4, [2], true);
+
+    const element = fixture.nativeElement as HTMLElement;
+    const emissions: number[][] = [];
+    component.selectedPagesChange.subscribe((pages) => emissions.push(pages));
+
+    const buttons = Array.from(
+      element.querySelectorAll<HTMLButtonElement>('.select-toolbar button'),
+    );
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
+      'Select all',
+      'Clear',
+    ]);
+    expect(element.textContent).toContain('1 page selected');
+
+    buttons[0].click();
+    fixture.detectChanges();
+    expect(emissions[0]).toEqual([1, 2, 3, 4]);
+    expect(element.textContent).toContain('4 pages selected');
+
+    buttons[1].click();
+    fixture.detectChanges();
+    expect(emissions[1]).toEqual([]);
+    expect(element.textContent).toContain('0 pages selected');
+  });
+
+  it('builds one part per consecutive selected run', async () => {
+    await render(['/tmp/a.pdf'], 'selected', '', 4, [1, 2, 4], true);
+
+    const element = fixture.nativeElement as HTMLElement;
+    const cards = element.querySelectorAll('.range-card');
+    const text = element.textContent as string;
+
+    expect(cards.length).toBe(2);
+    expect(text).toContain('Part 1 · Pages 1-2');
+    expect(text).toContain('range_001_p1-2.pdf');
+    expect(text).toContain('Part 2 · Page 4');
+    expect(text).toContain('range_002_p4.pdf');
+    expect(text).toContain('2 parts');
+    expect(text).toContain('3 pages selected');
+    expect(cards[0].querySelectorAll('.range-page').length).toBe(2);
+    expect(cards[1].querySelectorAll('.range-page').length).toBe(1);
+  });
+
+  it('keeps page thumbnails and aria-pressed on selected page cards', async () => {
+    await render(['/tmp/a.pdf'], 'selected', '', 3, [1], true);
+
+    const element = fixture.nativeElement as HTMLElement;
+    const cards = element.querySelectorAll<HTMLButtonElement>(
+      '.page-card-selectable',
+    );
+
+    expect(cards[0].getAttribute('aria-pressed')).toBe('true');
+    expect(cards[1].getAttribute('aria-pressed')).toBe('false');
+    expect(cards[0].querySelector('img')?.getAttribute('alt')).toBe(
+      'Page 1 preview',
+    );
+    expect(cards[0].querySelector('img')?.getAttribute('src')).toContain(
+      'data:image/jpeg',
+    );
+    expect(cards[2].querySelector('img')?.getAttribute('alt')).toBe(
+      'Page 3 preview',
+    );
+  });
+
+  it('shows a quiet hint when selected mode has no pages picked', async () => {
+    await render(['/tmp/a.pdf'], 'selected', '', 3, [], true);
+
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelectorAll('.page-card-selectable').length).toBe(3);
+    expect(element.querySelectorAll('.range-card').length).toBe(0);
+    expect(element.textContent).toContain('0 pages selected');
+    expect(element.querySelector('.select-hint')?.textContent).toContain(
+      'Select pages above',
+    );
   });
 });

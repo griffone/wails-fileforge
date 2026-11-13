@@ -137,6 +137,14 @@ describe('PdfMerge', () => {
     ]);
   }
 
+  function inputEvent(value: string): Event {
+    return { target: { value } } as unknown as Event;
+  }
+
+  function lastPlanRequest(): JobRequestV1 {
+    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  }
+
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJobV1',
@@ -274,6 +282,140 @@ describe('PdfMerge', () => {
       .args[0] as JobRequestV1;
     expect(request.inputPaths).toEqual(['/tmp/b.pdf', '/tmp/a.pdf']);
     expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+  }));
+
+  it('sends one page range per input in queue order', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+
+    expect(lastPlanRequest().options['inputPageRanges']).toBeUndefined();
+
+    component.onPageRangeInput('/tmp/a.pdf', inputEvent('1-3'));
+    component.onPageRangeInput('/tmp/b.pdf', inputEvent('5'));
+    tick(250);
+    flushMicrotasks();
+
+    expect(lastPlanRequest().options['inputPageRanges']).toEqual(['1-3', '5']);
+  }));
+
+  it('omits page ranges when every file keeps all pages', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+
+    component.onPageRangeInput('/tmp/a.pdf', inputEvent('  '));
+    component.onPageRangeInput('/tmp/b.pdf', inputEvent(''));
+    tick(250);
+    flushMicrotasks();
+
+    expect(lastPlanRequest().options['inputPageRanges']).toBeUndefined();
+  }));
+
+  it('keeps page ranges attached to the right file after reordering', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+
+    component.onPageRangeInput('/tmp/a.pdf', inputEvent('1'));
+    component.onPageRangeInput('/tmp/b.pdf', inputEvent('2-4'));
+    tick(250);
+    flushMicrotasks();
+
+    component.moveDown('/tmp/a.pdf');
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual(['/tmp/b.pdf', '/tmp/a.pdf']);
+    expect(component.pageRanges()).toEqual({
+      '/tmp/a.pdf': '1',
+      '/tmp/b.pdf': '2-4',
+    });
+    expect(lastPlanRequest().options['inputPageRanges']).toEqual(['2-4', '1']);
+  }));
+
+  it('drops the page range when its file is removed', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf', '/tmp/c.pdf']);
+    flushMicrotasks();
+
+    component.onPageRangeInput('/tmp/a.pdf', inputEvent('1-2'));
+    component.onPageRangeInput('/tmp/b.pdf', inputEvent('3'));
+    component.onPageRangeInput('/tmp/c.pdf', inputEvent('4'));
+    tick(250);
+    flushMicrotasks();
+
+    component.removeFile('/tmp/a.pdf');
+    flushMicrotasks();
+
+    expect(component.pageRanges()).toEqual({
+      '/tmp/b.pdf': '3',
+      '/tmp/c.pdf': '4',
+    });
+    expect(lastPlanRequest().inputPaths).toEqual(['/tmp/b.pdf', '/tmp/c.pdf']);
+    expect(lastPlanRequest().options['inputPageRanges']).toEqual(['3', '4']);
+  }));
+
+  it('renders one row per PDF and marks empty ranges as all pages', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const rows = fixture.nativeElement.querySelectorAll('.range-row');
+    expect(rows.length).toBe(2);
+    expect(
+      fixture.nativeElement.querySelectorAll('.range-badge').length,
+    ).toBe(2);
+    expect(
+      fixture.nativeElement.querySelector('#pdf-merge-pages-0'),
+    ).not.toBeNull();
+
+    component.onPageRangeInput('/tmp/b.pdf', inputEvent('2'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelectorAll('.range-badge').length,
+    ).toBe(1);
+  }));
+
+  it('blocks the merge when the plan rejects a page range', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+
+    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) => {
+      const ranges = request.options['inputPageRanges'] as
+        | string[]
+        | undefined;
+      if (ranges?.includes('9')) {
+        return Promise.resolve({
+          success: false,
+          message: 'invalid page range',
+          outputs: [],
+          error: {
+            code: 'PDF_MERGE_PAGE_RANGE_INVALID',
+            detail_code: 'PDF_MERGE_PAGE_RANGE_INVALID',
+            message: 'invalid page range "9" for a.pdf: page 9 is outside 1-3',
+          },
+        });
+      }
+      return Promise.resolve(planResponse(request));
+    });
+
+    component.onPageRangeInput('/tmp/a.pdf', inputEvent('9'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.plan()?.success).toBeFalse();
+    expect(component.planBlocked()).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain(
+      'page 9 is outside 1-3',
+    );
+    const primary = fixture.nativeElement.querySelector(
+      '.action-primary',
+    ) as HTMLButtonElement;
+    expect(primary.disabled).toBeTrue();
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
   }));
 
   it('runs through runJobV1 without a validation step and starts polling', fakeAsync(() => {

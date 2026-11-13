@@ -15,7 +15,12 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { PdfSplitPreview } from './pdf-split-preview';
+import {
+  PdfSplitPreview,
+  groupConsecutivePages,
+  normalizePageSelection,
+  pagesToRangeSpec,
+} from './pdf-split-preview';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
   FileInfoV1,
@@ -39,6 +44,7 @@ import {
 const PDF_SPLIT_TOOL_ID = 'tool.pdf.split';
 const STRATEGY_EVERY_PAGE = 'every_page';
 const STRATEGY_RANGES = 'ranges';
+const STRATEGY_SELECTED = 'selected';
 const POLLING_INTERVAL_MS = 1000;
 const PLAN_DEBOUNCE_MS = 250;
 const THUMBNAIL_SIZE = 160;
@@ -53,7 +59,10 @@ const TERMINAL_STATUSES = new Set<string>([
   'interrupted',
 ]);
 
-type SplitStrategy = typeof STRATEGY_EVERY_PAGE | typeof STRATEGY_RANGES;
+type SplitStrategy =
+  | typeof STRATEGY_EVERY_PAGE
+  | typeof STRATEGY_RANGES
+  | typeof STRATEGY_SELECTED;
 
 interface StrategyPreset {
   id: SplitStrategy;
@@ -71,6 +80,11 @@ const SPLIT_STRATEGIES: StrategyPreset[] = [
     id: STRATEGY_RANGES,
     label: 'Page ranges',
     hint: 'Split into the ranges you type.',
+  },
+  {
+    id: STRATEGY_SELECTED,
+    label: 'Selected pages',
+    hint: 'Pick pages; consecutive ones group together',
   },
 ];
 
@@ -108,6 +122,7 @@ export class PdfSplit implements OnDestroy {
   readonly fileItems = signal<FileQueueItem[]>([]);
   readonly strategy = signal<SplitStrategy>(STRATEGY_EVERY_PAGE);
   readonly ranges = signal('');
+  readonly selectedPages = signal<number[]>([]);
   readonly outputDir = signal('');
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
@@ -129,6 +144,10 @@ export class PdfSplit implements OnDestroy {
     () => this.strategy() === STRATEGY_RANGES,
   );
 
+  readonly isSelectedStrategy = computed(
+    () => this.strategy() === STRATEGY_SELECTED,
+  );
+
   readonly activeStrategyLabel = computed(
     () =>
       this.strategies.find((preset) => preset.id === this.strategy())?.label ??
@@ -139,15 +158,26 @@ export class PdfSplit implements OnDestroy {
     () => this.isRangesStrategy() && this.ranges().trim().length === 0,
   );
 
+  readonly selectionRequired = computed(
+    () => this.isSelectedStrategy() && this.selectedPages().length === 0,
+  );
+
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
       return 'Splitting…';
     }
     const count = this.selectedPaths().length;
-    if (count === 0) {
-      return 'Split PDFs';
+    const base =
+      count === 0
+        ? 'Split PDFs'
+        : count === 1
+          ? 'Split 1 PDF'
+          : `Split ${count} PDFs`;
+    if (this.isSelectedStrategy() && this.selectedPages().length > 0) {
+      const parts = groupConsecutivePages(this.selectedPages()).length;
+      return `${base} into ${formatCount(parts, 'part')}`;
     }
-    return count === 1 ? 'Split 1 PDF' : `Split ${count} PDFs`;
+    return base;
   });
 
   readonly destinationLabel = computed(
@@ -162,6 +192,7 @@ export class PdfSplit implements OnDestroy {
     () =>
       this.selectedPaths().length > 0 &&
       !this.rangesRequired() &&
+      !this.selectionRequired() &&
       !this.isSubmitting() &&
       !this.isPolling(),
   );
@@ -175,6 +206,9 @@ export class PdfSplit implements OnDestroy {
     }
     if (this.rangesRequired()) {
       return 'Enter the page ranges to split.';
+    }
+    if (this.selectionRequired()) {
+      return 'Select at least one page to build the split.';
     }
     return '';
   });
@@ -277,8 +311,10 @@ export class PdfSplit implements OnDestroy {
       return;
     }
 
+    const previousFirst = this.selectedPaths()[0] ?? '';
     this.actionMessage.set('');
     this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncSelectionForPaths(previousFirst);
     this.syncFileItems();
     void this.refreshPlan();
   }
@@ -295,6 +331,7 @@ export class PdfSplit implements OnDestroy {
       return;
     }
     this.selectedPaths.set([]);
+    this.selectedPages.set([]);
     this.notice.set(null);
     this.actionMessage.set('');
     this.syncFileItems();
@@ -306,7 +343,9 @@ export class PdfSplit implements OnDestroy {
     if (next.length === this.selectedPaths().length) {
       return;
     }
+    const previousFirst = this.selectedPaths()[0] ?? '';
     this.selectedPaths.set(next);
+    this.syncSelectionForPaths(previousFirst);
     this.syncFileItems();
     void this.refreshPlan();
   }
@@ -325,6 +364,33 @@ export class PdfSplit implements OnDestroy {
     this.ranges.set(value);
     this.actionMessage.set('');
     this.schedulePlanRefresh();
+  }
+
+  onSelectedPagesChange(pages: number[]): void {
+    const next = normalizePageSelection(pages);
+    if (samePageList(next, this.selectedPages())) {
+      return;
+    }
+
+    this.selectedPages.set(next);
+    this.actionMessage.set('');
+
+    if (next.length === 0) {
+      // No selection means no output: drop the stale plan immediately.
+      this.clearPlanRefreshTimer();
+      this.planToken += 1;
+      this.plan.set(null);
+      this.planError.set(null);
+      this.planLoading.set(false);
+      return;
+    }
+
+    this.schedulePlanRefresh();
+  }
+
+  /** `1,2,3,5,7,8` → `1-3,5,7-8`, the range syntax the backend understands. */
+  pagesToRanges(pages: number[]): string {
+    return pagesToRangeSpec(pages);
   }
 
   async chooseOutputFolder(): Promise<void> {
@@ -480,13 +546,14 @@ export class PdfSplit implements OnDestroy {
     this.activeJobId.set('');
     this.notice.set(null);
     this.actionMessage.set('');
+    this.selectedPages.set([]);
   }
 
   private buildRequest(): JobRequestV1 {
     const paths = this.selectedPaths();
-    const strategy = this.strategy();
+    const strategy = this.strategyForPlan();
     const options: Record<string, unknown> = { strategy };
-    const ranges = this.ranges().trim();
+    const ranges = this.rangesForPlan();
     if (strategy === STRATEGY_RANGES && ranges) {
       options['ranges'] = ranges;
     }
@@ -500,8 +567,23 @@ export class PdfSplit implements OnDestroy {
     };
   }
 
+  /** The backend only knows every_page/ranges; picks become explicit ranges. */
+  private strategyForPlan(): SplitStrategy {
+    return this.isSelectedStrategy() ? STRATEGY_RANGES : this.strategy();
+  }
+
+  private rangesForPlan(): string {
+    return this.isSelectedStrategy()
+      ? pagesToRangeSpec(this.selectedPages())
+      : this.ranges().trim();
+  }
+
   private async refreshPlan(): Promise<boolean> {
-    if (this.selectedPaths().length === 0 || this.rangesRequired()) {
+    if (
+      this.selectedPaths().length === 0 ||
+      this.rangesRequired() ||
+      this.selectionRequired()
+    ) {
       this.planToken += 1;
       this.plan.set(null);
       this.planError.set(null);
@@ -682,6 +764,14 @@ export class PdfSplit implements OnDestroy {
     return [...paths];
   }
 
+  /** Page picks belong to the previewed PDF; drop them when it changes. */
+  private syncSelectionForPaths(previousFirst: string): void {
+    const nextFirst = this.selectedPaths()[0] ?? '';
+    if (nextFirst !== previousFirst && this.selectedPages().length > 0) {
+      this.selectedPages.set([]);
+    }
+  }
+
   private syncFileItems(): void {
     const paths = this.selectedPaths();
     const generation = (this.fileItemsGeneration += 1);
@@ -794,4 +884,11 @@ export class PdfSplit implements OnDestroy {
   private isTerminalStatus(status: string): boolean {
     return TERMINAL_STATUSES.has(status);
   }
+}
+
+function samePageList(left: number[], right: number[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((page, index) => page === right[index])
+  );
 }

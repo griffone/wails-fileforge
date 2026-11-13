@@ -230,8 +230,8 @@
       </section>
     </div>
 
-    @if (previewThumbnail(); as thumbnail) {
-      <section class="panel preview-panel" aria-label="First page preview">
+    @if (previewName(); as previewFile) {
+      <section class="panel preview-panel" aria-label="First page crop preview">
         <div class="panel-head">
           <div>
             <h2 class="panel-title">Preview</h2>
@@ -240,11 +240,39 @@
         </div>
 
         <div class="panel-body preview-body">
-          <img
-            class="preview-image"
-            [src]="thumbnail"
-            [alt]="'First page of ' + previewName()"
-          />
+          <figure class="preview-figure">
+            <div class="preview-frame" [style.aspect-ratio]="previewAspectRatio()">
+              @if (previewThumbnail(); as thumbnail) {
+                <img
+                  class="preview-image"
+                  [src]="thumbnail"
+                  [alt]="'First page of ' + previewFile"
+                />
+              } @else {
+                <div class="preview-placeholder" aria-hidden="true"></div>
+              }
+
+              <div
+                class="crop-region"
+                [class.is-full]="previewInsets().fullPage"
+                [class.is-dimmed]="previewInsets().dimmed"
+                [style.top.%]="previewInsets().top"
+                [style.right.%]="previewInsets().right"
+                [style.bottom.%]="previewInsets().bottom"
+                [style.left.%]="previewInsets().left"
+                aria-hidden="true"
+              ></div>
+            </div>
+
+            <figcaption class="preview-caption">
+              <span>Approximate crop preview</span>
+              <span class="preview-caption-margins mono">{{ previewMarginsLabel() }}</span>
+            </figcaption>
+          </figure>
+
+          <p class="field-help">
+            The preview is approximate; cropping is applied when you run it.
+          </p>
         </div>
       </section>
     }

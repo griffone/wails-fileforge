@@ -1,13 +1,16 @@
 import {
   Component,
+  EventEmitter,
   Input,
   OnChanges,
   OnDestroy,
+  Output,
   SimpleChanges,
   computed,
   signal,
 } from '@angular/core';
 import {
+  Check,
   LucideAngularModule,
   TriangleAlert,
 } from 'lucide-angular';
@@ -18,11 +21,12 @@ import { fileName, formatCount } from '../../utils/format';
 
 const STRATEGY_EVERY_PAGE = 'every_page';
 const STRATEGY_RANGES = 'ranges';
+const STRATEGY_SELECTED = 'selected';
 const THUMBNAIL_WIDTH = 140;
 const INITIAL_PAGE_LIMIT = 60;
 const JPEG_QUALITY = 0.72;
 
-type SplitPreviewStrategy = 'every_page' | 'ranges';
+export type SplitPreviewStrategy = 'every_page' | 'ranges' | 'selected';
 
 interface PreviewPage {
   page: number;
@@ -38,13 +42,13 @@ interface PreviewGroup {
   pageCount: number;
 }
 
-interface ParsedRange {
+export interface PageRange {
   start: number;
   end: number;
 }
 
 interface RangeParseResult {
-  ranges: ParsedRange[];
+  ranges: PageRange[];
   error: string;
 }
 
@@ -65,8 +69,13 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
   @Input() paths: string[] = [];
   @Input() strategy: SplitPreviewStrategy = STRATEGY_EVERY_PAGE;
   @Input() ranges = '';
+  @Input() selectedPages: number[] = [];
+  @Input() selectable = false;
+
+  @Output() readonly selectedPagesChange = new EventEmitter<number[]>();
 
   readonly alertIcon = TriangleAlert;
+  readonly checkIcon = Check;
   readonly pageLimit = INITIAL_PAGE_LIMIT;
 
   readonly files = signal<string[]>([]);
@@ -81,8 +90,15 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
   readonly totalPages = signal(0);
   readonly countLabel = signal('');
   readonly showAllRequested = signal(false);
+  /** Page cards offered for selection in selected mode. */
+  readonly selectablePages = signal<number[]>([]);
+  /** Local mirror of the selection so clicks update before the parent does. */
+  readonly selection = signal<number[]>([]);
 
   readonly selectedFileName = computed(() => fileName(this.selectedPath()));
+  readonly selectionLabel = computed(
+    () => `${formatCount(this.selection().length, 'page')} selected`,
+  );
 
   private readonly pdf = signal<unknown>(null);
   private readonly numPages = signal(0);
@@ -113,8 +129,14 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
       void this.loadSelectedPdf();
     }
 
+    if (changes['selectedPages']) {
+      this.selection.set(normalizePageSelection(this.selectedPages));
+    }
+
     if (changes['strategy'] || changes['ranges']) {
       this.showAllRequested.set(false);
+      this.rebuildView();
+    } else if (changes['selectedPages'] || changes['selectable']) {
       this.rebuildView();
     }
   }
@@ -159,6 +181,50 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     }
     this.showAllRequested.set(true);
     this.rebuildView();
+  }
+
+  /** Selected strategy, or a caller that explicitly asks for page picking. */
+  isSelectable(): boolean {
+    return this.selectable || this.strategy === STRATEGY_SELECTED;
+  }
+
+  isPageSelected(page: number): boolean {
+    return this.selection().includes(page);
+  }
+
+  togglePage(page: number): void {
+    if (!this.isSelectable()) {
+      return;
+    }
+    const next = new Set(this.selection());
+    if (next.has(page)) {
+      next.delete(page);
+    } else {
+      next.add(page);
+    }
+    this.applySelection([...next]);
+  }
+
+  selectAll(): void {
+    const pages = Array.from(
+      { length: this.numPages() },
+      (_, index) => index + 1,
+    );
+    this.applySelection(pages);
+  }
+
+  clearSelection(): void {
+    this.applySelection([]);
+  }
+
+  private applySelection(pages: number[]): void {
+    const next = normalizePageSelection(pages);
+    if (samePageList(next, this.selection())) {
+      return;
+    }
+    this.selection.set(next);
+    this.rebuildView();
+    this.selectedPagesChange.emit([...next]);
   }
 
   private normalizePaths(paths: string[]): string[] {
@@ -243,6 +309,7 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     this.countLabel.set('');
     this.limited.set(false);
     this.totalPages.set(0);
+    this.selectablePages.set([]);
     this.unavailable.set(false);
     this.rendering.set(false);
   }
@@ -255,6 +322,7 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     this.countLabel.set('');
     this.limited.set(false);
     this.totalPages.set(0);
+    this.selectablePages.set([]);
     this.rangeError.set('');
   }
 
@@ -266,6 +334,13 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     this.rangeError.set('');
     this.renderQueue = [];
     this.queuedPages.clear();
+
+    if (this.isSelectable()) {
+      this.buildSelectedView(this.numPages());
+      return;
+    }
+
+    this.selectablePages.set([]);
 
     if (this.strategy === STRATEGY_RANGES) {
       this.buildRangeGroups(this.numPages());
@@ -331,6 +406,40 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     this.totalPages.set(allPages.length);
     this.limited.set(visiblePages.length < allPages.length);
     this.scheduleRender(visiblePages);
+  }
+
+  private buildSelectedView(numPages: number): void {
+    const allPages = Array.from({ length: numPages }, (_, index) => index + 1);
+    const visiblePages = this.showAllRequested()
+      ? allPages
+      : allPages.slice(0, INITIAL_PAGE_LIMIT);
+    const runs = groupConsecutivePages(this.selection());
+
+    const groups: PreviewGroup[] = runs.map((range, index) => {
+      const part = index + 1;
+      const singlePage = range.start === range.end;
+      return {
+        key: `selected-${part}-${range.start}-${range.end}`,
+        title: `Part ${part} · ${
+          singlePage ? `Page ${range.start}` : `Pages ${range.start}-${range.end}`
+        }`,
+        outputName: rangeOutputName(part, range),
+        pages: allPages
+          .filter((page) => page >= range.start && page <= range.end)
+          .map((page) => ({ page })),
+        pageCount: range.end - range.start + 1,
+      };
+    });
+
+    this.selectablePages.set(visiblePages);
+    this.groups.set(groups);
+    this.countLabel.set(
+      groups.length > 0 ? formatCount(groups.length, 'part') : '',
+    );
+    this.totalPages.set(numPages);
+    this.limited.set(visiblePages.length < numPages);
+    // Selected pages outside the window still need their part thumbnails.
+    this.scheduleRender([...new Set([...visiblePages, ...this.selection()])]);
   }
 
   private scheduleRender(pages: number[]): void {
@@ -461,7 +570,7 @@ function everyPageOutputName(page: number): string {
   return `page_${padThree(page)}.pdf`;
 }
 
-function rangeOutputName(part: number, range: ParsedRange): string {
+function rangeOutputName(part: number, range: PageRange): string {
   const suffix =
     range.start === range.end
       ? `p${range.start}`
@@ -469,7 +578,7 @@ function rangeOutputName(part: number, range: ParsedRange): string {
   return `range_${padThree(part)}_${suffix}.pdf`;
 }
 
-function flattenRanges(ranges: ParsedRange[]): number[] {
+function flattenRanges(ranges: PageRange[]): number[] {
   const pages: number[] = [];
   for (const range of ranges) {
     for (let page = range.start; page <= range.end; page += 1) {
@@ -477,6 +586,49 @@ function flattenRanges(ranges: ParsedRange[]): number[] {
     }
   }
   return pages;
+}
+
+/** Sorted, de-duplicated page numbers; invalid entries are dropped. */
+export function normalizePageSelection(pages: number[]): number[] {
+  const unique = new Set<number>();
+  for (const page of Array.isArray(pages) ? pages : []) {
+    if (Number.isInteger(page) && page > 0) {
+      unique.add(page);
+    }
+  }
+  return [...unique].sort((left, right) => left - right);
+}
+
+/** Consecutive pages collapse into one run: `1,2,3,5,7,8` → `1-3`, `5`, `7-8`. */
+export function groupConsecutivePages(pages: number[]): PageRange[] {
+  const runs: PageRange[] = [];
+  for (const page of normalizePageSelection(pages)) {
+    const last = runs[runs.length - 1];
+    if (last && page === last.end + 1) {
+      last.end = page;
+    } else {
+      runs.push({ start: page, end: page });
+    }
+  }
+  return runs;
+}
+
+/** Range syntax understood by the backend: `1,2,3,5,7,8` → `1-3,5,7-8`. */
+export function pagesToRangeSpec(pages: number[]): string {
+  return groupConsecutivePages(pages)
+    .map((range) =>
+      range.start === range.end
+        ? `${range.start}`
+        : `${range.start}-${range.end}`,
+    )
+    .join(',');
+}
+
+function samePageList(left: number[], right: number[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((page, index) => page === right[index])
+  );
 }
 
 function parseRanges(value: string, numPages: number): RangeParseResult {
@@ -489,7 +641,7 @@ function parseRanges(value: string, numPages: number): RangeParseResult {
   }
 
   const tokens = trimmed.split(',');
-  const ranges: ParsedRange[] = [];
+  const ranges: PageRange[] = [];
   const seen = new Set<number>();
 
   for (const rawToken of tokens) {

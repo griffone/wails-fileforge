@@ -127,6 +127,11 @@
   opacity: 0.8;
 }
 
+/* The third strategy reads better as a full-width row under the pair. */
+.strategy-card[data-strategy='selected'] {
+  grid-column: 1 / -1;
+}
+
 .field-help {
   margin: 0;
   font-size: 0.6875rem;

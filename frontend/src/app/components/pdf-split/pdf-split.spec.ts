@@ -5,9 +5,11 @@ import {
   TestBed,
   tick,
 } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Subject } from 'rxjs';
 
 import { PdfSplit } from './pdf-split';
+import { PdfSplitPreview } from './pdf-split-preview';
 import {
   FileInfoV1,
   JobProgressEventV1,
@@ -325,6 +327,121 @@ describe('PdfSplit', () => {
     ).toBeFalse();
   }));
 
+  it('offers a selected-pages strategy with a selectable preview and no ranges input', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const presets = Array.from(
+      fixture.nativeElement.querySelectorAll('.strategy-card'),
+    ) as HTMLElement[];
+    expect(presets.length).toBe(3);
+    expect(presets[2].textContent).toContain('Selected pages');
+    expect(presets[2].textContent).toContain(
+      'Pick pages; consecutive ones group together',
+    );
+
+    component.selectStrategy('selected');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('#pdf-split-ranges')).toBeNull();
+
+    const preview = fixture.debugElement.query(By.directive(PdfSplitPreview))
+      .componentInstance as PdfSplitPreview;
+    expect(preview.strategy).toBe('selected');
+    expect(preview.selectable).toBeTrue();
+    expect(component.activeStrategyLabel()).toBe('Selected pages');
+  }));
+
+  it('groups consecutive picked pages into backend ranges', () => {
+    expect(component.pagesToRanges([1, 2, 3, 5, 7, 8])).toBe('1-3,5,7-8');
+    expect(component.pagesToRanges([3, 1, 2, 2])).toBe('1-3');
+    expect(component.pagesToRanges([])).toBe('');
+  });
+
+  it('plans picked pages as ranges while keeping the selected badge', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('selected');
+    flushMicrotasks();
+
+    component.onSelectedPagesChange([1, 2, 4]);
+    tick(250);
+    flushMicrotasks();
+
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options).toEqual(
+      jasmine.objectContaining({ strategy: 'ranges', ranges: '1-2,4' }),
+    );
+    expect(component.strategy()).toBe('selected');
+    expect(component.activeStrategyLabel()).toBe('Selected pages');
+    expect(component.plan()?.outputs.length).toBe(1);
+    expect(component.primaryLabel()).toBe('Split 1 PDF into 2 parts');
+  }));
+
+  it('disables the split and clears the plan without picked pages', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('selected');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.selectionRequired()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+    expect(component.plan()).toBeNull();
+    expect(component.actionHelper()).toBe(
+      'Select at least one page to build the split.',
+    );
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeTrue();
+
+    component.onSelectedPagesChange([2, 1]);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.selectedPages()).toEqual([1, 2]);
+    expect(component.selectionRequired()).toBeFalse();
+    expect(component.canRun()).toBeTrue();
+    expect(component.primaryLabel()).toBe('Split 1 PDF into 1 part');
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeFalse();
+
+    component.onSelectedPagesChange([]);
+    fixture.detectChanges();
+
+    expect(component.plan()).toBeNull();
+    expect(component.canRun()).toBeFalse();
+  }));
+
+  it('runs a picked-pages split with the built ranges', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('selected');
+    component.onSelectedPagesChange([1, 2, 4]);
+    tick(250);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options).toEqual(
+      jasmine.objectContaining({ strategy: 'ranges', ranges: '1-2,4' }),
+    );
+  }));
+
   it('keeps the plan as the source of truth when ranges are rejected', fakeAsync(() => {
     wailsSpy.planJobV1.and.resolveTo({
       success: false,
@@ -540,7 +657,7 @@ describe('PdfSplit', () => {
 
     const text = element.textContent as string;
     expect(text).toContain(
-      'Split PDFs into one file per page or explicit ranges.',
+      'Split PDFs into one file per page, explicit ranges or picked pages.',
     );
     expect(text).not.toContain('Split preview');
 

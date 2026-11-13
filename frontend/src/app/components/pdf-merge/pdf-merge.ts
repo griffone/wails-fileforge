@@ -39,7 +39,7 @@ import {
 
 const PDF_MERGE_TOOL_ID = 'tool.pdf.merge';
 const POLLING_INTERVAL_MS = 1000;
-const CUSTOM_NAME_DEBOUNCE_MS = 250;
+const PLAN_DEBOUNCE_MS = 250;
 const THUMBNAIL_SIZE = 160;
 
 const TERMINAL_STATUSES = new Set<string>([
@@ -79,9 +79,13 @@ export class PdfMerge implements OnDestroy {
 
   readonly selectedPaths = signal<string[]>([]);
   readonly fileItems = signal<FileQueueItem[]>([]);
+  /** Page ranges keyed by input path so reordering keeps them attached. */
+  readonly pageRanges = signal<Record<string, string>>({});
   readonly outputDir = signal('');
   readonly customName = signal('');
   readonly advancedOpen = signal(false);
+
+  readonly fileName = fileName;
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
   readonly planError = signal<JobErrorV1 | null>(null);
@@ -167,6 +171,7 @@ export class PdfMerge implements OnDestroy {
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private planToken = 0;
+  private planDirty = false;
   private fileItemsGeneration = 0;
 
   constructor(private readonly wailsService: Wails) {
@@ -248,6 +253,7 @@ export class PdfMerge implements OnDestroy {
 
     this.actionMessage.set('');
     this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncPageRanges();
     this.syncFileItems();
     void this.refreshPlan();
   }
@@ -266,6 +272,7 @@ export class PdfMerge implements OnDestroy {
     this.selectedPaths.set([]);
     this.notice.set(null);
     this.actionMessage.set('');
+    this.syncPageRanges();
     this.syncFileItems();
     void this.refreshPlan();
   }
@@ -276,6 +283,7 @@ export class PdfMerge implements OnDestroy {
       return;
     }
     this.selectedPaths.set(next);
+    this.syncPageRanges();
     this.syncFileItems();
     void this.refreshPlan();
   }
@@ -326,14 +334,22 @@ export class PdfMerge implements OnDestroy {
     this.schedulePlanRefresh();
   }
 
+  onPageRangeInput(path: string, event: Event): void {
+    const value = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.pageRanges.update((ranges) => ({ ...ranges, [path]: value }));
+    this.actionMessage.set('');
+    this.schedulePlanRefresh();
+  }
+
   async run(): Promise<void> {
     if (!this.canRun() || this.planBlocked()) {
       return;
     }
 
+    this.clearPlanRefreshTimer();
     this.actionMessage.set('');
 
-    if (this.planLoading() || !this.plan()?.success) {
+    if (this.planLoading() || this.planDirty || !this.plan()?.success) {
       const planned = await this.refreshPlan();
       if (!planned) {
         return;
@@ -427,6 +443,7 @@ export class PdfMerge implements OnDestroy {
       return;
     }
 
+    this.clearPlanRefreshTimer();
     this.jobError.set(null);
     this.outputInfos.set({});
     this.actionMessage.set('');
@@ -443,10 +460,12 @@ export class PdfMerge implements OnDestroy {
     this.stopPolling();
     this.clearPlanRefreshTimer();
     this.planToken += 1;
+    this.planDirty = false;
     this.fileItemsGeneration += 1;
 
     this.selectedPaths.set([]);
     this.fileItems.set([]);
+    this.pageRanges.set({});
     this.customName.set('');
     this.plan.set(null);
     this.planError.set(null);
@@ -467,6 +486,13 @@ export class PdfMerge implements OnDestroy {
       const dir =
         this.outputDir().trim() || fileDir(this.selectedPaths()[0] ?? '');
       options['outputPath'] = this.joinPath(dir, name);
+    }
+
+    const ranges = this.selectedPaths().map(
+      (path) => (this.pageRanges()[path] ?? '').trim(),
+    );
+    if (ranges.some((range) => range.length > 0)) {
+      options['inputPageRanges'] = ranges;
     }
 
     return {
@@ -504,6 +530,7 @@ export class PdfMerge implements OnDestroy {
   private async refreshPlan(): Promise<boolean> {
     if (this.selectedPaths().length < 2) {
       this.planToken += 1;
+      this.planDirty = false;
       this.plan.set(null);
       this.planError.set(null);
       this.planLoading.set(false);
@@ -532,6 +559,7 @@ export class PdfMerge implements OnDestroy {
     }
 
     this.planLoading.set(false);
+    this.planDirty = false;
 
     if (response.success && !response.error) {
       this.plan.set(response);
@@ -551,11 +579,14 @@ export class PdfMerge implements OnDestroy {
   }
 
   private schedulePlanRefresh(): void {
+    this.planDirty = true;
+    // Invalidate an in-flight plan: it was built from older ranges.
+    this.planToken += 1;
     this.clearPlanRefreshTimer();
     this.planRefreshTimer = setTimeout(() => {
       this.planRefreshTimer = null;
       void this.refreshPlan();
-    }, CUSTOM_NAME_DEBOUNCE_MS);
+    }, PLAN_DEBOUNCE_MS);
   }
 
   private clearPlanRefreshTimer(): void {
@@ -683,6 +714,16 @@ export class PdfMerge implements OnDestroy {
     this.selectedPaths.set(next);
     this.syncFileItems();
     void this.refreshPlan();
+  }
+
+  /** Drops stale path keys and adds empty entries for new inputs. */
+  private syncPageRanges(): void {
+    const current = this.pageRanges();
+    const next: Record<string, string> = {};
+    for (const path of this.selectedPaths()) {
+      next[path] = current[path] ?? '';
+    }
+    this.pageRanges.set(next);
   }
 
   private syncFileItems(): void {

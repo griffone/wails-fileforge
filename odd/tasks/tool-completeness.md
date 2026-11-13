@@ -1,6 +1,6 @@
 # Tool Completeness — "No tool left poor"
 
-- Status: Phase 1 complete; Phase 2 feature rollout pending
+- Status: Image and PDF domains complete; documents/video/shell pending
 - Branch: `feat/tool-usability` (continues after the file-first overhaul)
 - Started: 2026-11-13
 - Related: `odd/tasks/tool-usability-overhaul.md`
@@ -105,3 +105,8 @@
   - **Image Annotate**: bounded undo/redo history, duplicate/delete actions, Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z / Ctrl+Y, Ctrl/Cmd+D, Delete/Backspace; form edits commit on apply/blur.
   - **Verification**: Go tests pass (image package 63 tests), frontend 251/251 specs, build passes; advanced states visually checked with `npx agent-browser`.
   - **Next**: PDF domain — selectable split pages/dividers, live crop overlay, per-file merge page ranges.
+- 2026-11-13: PDF domain complete.
+  - **PDF Split**: third `Selected pages` strategy with clickable page thumbnails, Select all/Clear, consecutive-page grouping into ranges, live part cards, plan uses ranges under the hood.
+  - **PDF Crop**: first-page dimensions from inspect, aspect-correct preview frame, live kept-region overlay with dimmed outside, preset/custom margins caption.
+  - **PDF Merge**: per-file `Page ranges` in Advanced, one input per file in queue order, backend merge-ranges support (collect selected pages then merge), plan errors block the action.
+  - **Verification**: Go tests pass (merge ranges/inspect dims), frontend 270/270 specs, build passes; visual checks via `npx agent-browser` for selected pages, crop overlay and merge ranges. Advanced split-by-size/bookmarks and PDF compression remain optional later.

@@ -58,6 +58,7 @@
 }
 
 .thumb-frame {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -92,6 +93,83 @@
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-soft);
+}
+
+.select-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.select-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.select-count {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.page-card-selectable {
+  width: 100%;
+  font-family: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.78;
+  transition:
+    opacity 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.page-card-selectable:hover {
+  opacity: 1;
+  border-color: var(--border-strong);
+}
+
+.page-card-selectable:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.page-card-selectable.is-selected {
+  opacity: 1;
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.page-card-selectable.is-selected .page-number {
+  color: var(--accent-strong);
+}
+
+.select-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.select-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .output-name {

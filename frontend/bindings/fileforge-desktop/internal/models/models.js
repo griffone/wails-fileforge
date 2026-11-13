@@ -148,6 +148,20 @@ export class FileInfoV1 {
              * @member
              * @type {number | undefined}
              */
+            this["pageWidthPoints"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["pageHeightPoints"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
             this["durationSeconds"] = undefined;
         }
         if (!("exists" in $$source)) {

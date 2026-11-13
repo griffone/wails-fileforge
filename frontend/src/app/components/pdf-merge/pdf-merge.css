@@ -121,6 +121,33 @@
   color: var(--muted);
 }
 
+.range-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.range-label {
+  overflow-wrap: anywhere;
+}
+
+.range-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.range-control .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.range-badge {
+  flex: none;
+  white-space: nowrap;
+}
+
 .action-helper {
   margin: 0;
   font-size: 0.8125rem;

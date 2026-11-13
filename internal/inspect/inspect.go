@@ -94,6 +94,11 @@ func InspectFile(path string) models.FileInfoV1 {
 		if pages, pageErr := api.PageCountFile(info.Path); pageErr == nil {
 			info.PageCount = pages
 		}
+
+		if dims, dimsErr := api.PageDimsFile(info.Path); dimsErr == nil && len(dims) > 0 {
+			info.PageWidthPoints = dims[0].Width
+			info.PageHeightPoints = dims[0].Height
+		}
 	}
 
 	if info.Kind == kindVideo {

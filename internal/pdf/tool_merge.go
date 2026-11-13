@@ -12,7 +12,11 @@ import (
 	"fileforge-desktop/internal/pdf/engine"
 )
 
-const ToolIDPDFMergeV1 = "tool.pdf.merge"
+const (
+	ToolIDPDFMergeV1 = "tool.pdf.merge"
+
+	mergeInputPageRangesOption = "inputPageRanges"
+)
 
 type MergeTool struct{}
 
@@ -64,10 +68,23 @@ func (t *MergeTool) Plan(_ context.Context, req models.JobRequestV1) (models.Pla
 		return planFailure(plan, &models.JobErrorV1{Code: "VALIDATION_ERROR", Message: "mode must be single"})
 	}
 
+	pageRanges, rangesErr := parseMergeInputPageRanges(req)
+	if rangesErr != nil {
+		return planFailure(plan, rangesErr)
+	}
+
 	outputPath, naturalPath, adjusted := resolveMergeOutputPath(req.InputPaths, req.OutputDir, req.Options)
 
 	if mergeErr := engine.ValidateMergePaths(req.InputPaths, outputPath); mergeErr != nil {
 		return planFailure(plan, mapMergeError(mergeErr))
+	}
+
+	if pageRanges != nil {
+		if rangeErr := engine.ValidateMergePageRanges(req.InputPaths, pageRanges); rangeErr != nil {
+			return planFailure(plan, mapMergeError(rangeErr))
+		}
+
+		plan.EffectiveOptions = map[string]any{mergeInputPageRangesOption: pageRanges}
 	}
 
 	planned := models.PlannedOutputV1{
@@ -91,18 +108,15 @@ func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) 
 	outputPath, _, _ := resolveMergeOutputPath(req.InputPaths, req.OutputDir, req.Options)
 	inputPath := strings.Join(req.InputPaths, ",")
 
-	err := engine.Merge(ctx, req.InputPaths, outputPath)
+	pageRanges, rangesErr := parseMergeInputPageRanges(req)
+	if rangesErr != nil {
+		return mergeFailureItem(inputPath, outputPath, rangesErr), rangesErr
+	}
+
+	err := engine.MergeWithPageRanges(ctx, req.InputPaths, outputPath, pageRanges)
 	if err != nil {
 		jobErr := mapMergeError(err)
-		return models.JobResultItemV1{
-			InputPath:   inputPath,
-			OutputPath:  outputPath,
-			Outputs:     mergeOutputs(outputPath),
-			OutputCount: mergeOutputCount(outputPath),
-			Success:     false,
-			Message:     jobErr.Message,
-			Error:       jobErr,
-		}, jobErr
+		return mergeFailureItem(inputPath, outputPath, jobErr), jobErr
 	}
 
 	return models.JobResultItemV1{
@@ -113,6 +127,67 @@ func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) 
 		Success:     true,
 		Message:     "PDF merge successful",
 	}, nil
+}
+
+func mergeFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
+	return models.JobResultItemV1{
+		InputPath:   inputPath,
+		OutputPath:  outputPath,
+		Outputs:     mergeOutputs(outputPath),
+		OutputCount: mergeOutputCount(outputPath),
+		Success:     false,
+		Message:     jobErr.Message,
+		Error:       jobErr,
+	}
+}
+
+// parseMergeInputPageRanges reads the optional per-input page ranges. A nil
+// result means the option was not supplied. When supplied, the list must have
+// exactly one entry per input; empty entries keep the whole file.
+func parseMergeInputPageRanges(req models.JobRequestV1) ([]string, *models.JobErrorV1) {
+	if req.Options == nil {
+		return nil, nil
+	}
+
+	rawRanges, exists := req.Options[mergeInputPageRangesOption]
+	if !exists || rawRanges == nil {
+		return nil, nil
+	}
+
+	var ranges []string
+	switch typedRanges := rawRanges.(type) {
+	case []string:
+		ranges = append([]string(nil), typedRanges...)
+	case []any:
+		ranges = make([]string, 0, len(typedRanges))
+		for index, rawRange := range typedRanges {
+			value, ok := rawRange.(string)
+			if !ok {
+				return nil, invalidMergePageRangesError(fmt.Sprintf("options.%s[%d] must be a string", mergeInputPageRangesOption, index))
+			}
+			ranges = append(ranges, value)
+		}
+	default:
+		return nil, invalidMergePageRangesError(fmt.Sprintf("options.%s must be an array of strings", mergeInputPageRangesOption))
+	}
+
+	if len(ranges) != len(req.InputPaths) {
+		return nil, invalidMergePageRangesError(fmt.Sprintf("options.%s must contain one entry per input file (%d), got %d", mergeInputPageRangesOption, len(req.InputPaths), len(ranges)))
+	}
+
+	for index := range ranges {
+		ranges[index] = strings.TrimSpace(ranges[index])
+	}
+
+	return ranges, nil
+}
+
+func invalidMergePageRangesError(message string) *models.JobErrorV1 {
+	return &models.JobErrorV1{
+		Code:       engine.ErrorCodeMergePageRangeInvalid,
+		DetailCode: engine.ErrorCodeMergePageRangeInvalid,
+		Message:    message,
+	}
 }
 
 // resolveMergeOutputPath returns the resolved output path, the natural

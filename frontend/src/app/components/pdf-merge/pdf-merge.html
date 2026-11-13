@@ -143,6 +143,40 @@
             </div>
           </details>
 
+          <details class="advanced">
+            <summary class="advanced-summary">
+              <span class="advanced-title">Page ranges</span>
+              <span class="advanced-hint">Per PDF, optional</span>
+            </summary>
+
+            <div class="advanced-body">
+              <p class="field-help">
+                Use page numbers and ranges, e.g. 1-3,5. Leave empty to merge all pages.
+              </p>
+
+              @for (path of selectedPaths(); track path; let i = $index) {
+                <div class="range-row">
+                  <label class="label range-label" [for]="'pdf-merge-pages-' + i">{{ fileName(path) }}</label>
+                  <div class="range-control">
+                    <input
+                      class="input"
+                      [id]="'pdf-merge-pages-' + i"
+                      type="text"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="All pages"
+                      [value]="pageRanges()[path] || ''"
+                      (input)="onPageRangeInput(path, $event)"
+                    />
+                    @if (!(pageRanges()[path] || '').trim()) {
+                      <span class="badge badge-neutral range-badge">All pages</span>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </details>
+
           @if (jobErrorCopy(); as error) {
             <div class="banner banner-danger error-banner" role="alert">
               <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
