@@ -5,8 +5,8 @@
         <p class="eyebrow">DOCUMENTS</p>
         <h1 class="page-title">Markdown → <em>PDF</em></h1>
         <p class="page-sub">
-          Render a Markdown file to an A4 PDF with optional header and footer bands — local-first, so
-          your documents never leave this machine.
+          Turn one Markdown file into a clean A4 PDF, with optional header and footer bands.
+          Everything runs on this machine.
         </p>
       </div>
 
@@ -18,390 +18,340 @@
   </header>
 
   <div class="page-stack">
-    <div class="setup-grid">
-      <section class="panel" aria-labelledby="md-source-title">
-        <header class="panel-head">
-          <div class="panel-head-copy">
-            <h2 id="md-source-title" class="panel-title">Source</h2>
-            <p class="panel-sub">One Markdown file, rendered from top to bottom.</p>
+    <div class="flow-grid">
+      <section class="panel intake-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Markdown</h2>
+            <p class="panel-sub">Drop a Markdown file or choose it from your computer.</p>
           </div>
-        </header>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+        </div>
 
         <div class="panel-body">
-          <div class="field">
-            <label class="label" for="md-input-path">Input Markdown</label>
-            <div class="path-row">
-              <input
-                id="md-input-path"
-                class="input"
-                type="text"
-                [value]="form.controls.inputPath.value"
-                (input)="form.patchValue({ inputPath: $any($event.target).value })"
-                placeholder="/path/file.md"
-                autocomplete="off"
-                spellcheck="false"
-                aria-describedby="md-input-help"
-              />
-              <button type="button" class="btn btn-secondary" (click)="selectMarkdownFromDialog()">
-                <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Browse
-              </button>
-            </div>
-            <p id="md-input-help" class="field-help">Accepts .md and .markdown files.</p>
+          <app-file-drop
+            accept=".md,.markdown"
+            title="Drop a Markdown file here"
+            hint="MD · MARKDOWN"
+            ariaLabel="Drop or choose a Markdown file to convert"
+            [multiple]="false"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
+          <div class="toolbar" role="group" aria-label="Markdown selection actions">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+              <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Choose file
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
+            >
+              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Clear
+            </button>
           </div>
+
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ note.text }}</span>
+            </div>
+          }
+
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
         </div>
       </section>
 
-      <section class="panel" aria-labelledby="md-output-title">
-        <header class="panel-head">
-          <div class="panel-head-copy">
-            <h2 id="md-output-title" class="panel-title">Output</h2>
-            <p class="panel-sub">Leave the file field empty to write beside the source.</p>
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Output</h2>
+            <p class="panel-sub">Check the exact file name and where it will be saved.</p>
           </div>
-        </header>
+        </div>
 
         <div class="panel-body">
-          <div class="field">
-            <label class="label" for="md-output-dir">
-              Output directory
-              <span class="label-hint">optional</span>
-            </label>
-            <div class="path-row">
-              <input
-                id="md-output-dir"
-                class="input"
-                type="text"
-                [value]="form.controls.outputDir.value"
-                (input)="form.patchValue({ outputDir: $any($event.target).value })"
-                placeholder="/path/out"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">
-                <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Browse
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useMarkdownFolder()">
+                Use the Markdown file's folder
               </button>
             </div>
-          </div>
+          }
 
-          <div class="field">
-            <label class="label" for="md-output-path">
-              Output file
-              <span class="label-hint">optional</span>
-            </label>
-            <input
-              id="md-output-path"
-              class="input"
-              type="text"
-              [value]="form.controls.outputPath.value"
-              (input)="form.patchValue({ outputPath: $any($event.target).value })"
-              placeholder="/path/out/file.pdf"
-              autocomplete="off"
-              spellcheck="false"
-              aria-describedby="md-output-help"
-            />
-            <p id="md-output-help" class="field-help">
-              When empty, the backend writes with non-destructive naming: *_md2pdf, then -2/-3 on
-              collisions.
-            </p>
+          <details class="advanced">
+            <summary class="advanced-summary">
+              <span class="advanced-title">Header &amp; footer</span>
+              <span class="advanced-hint">Optional page bands</span>
+            </summary>
+
+            <div class="advanced-body" [formGroup]="form">
+              <div class="bands-grid">
+                <fieldset class="band" formGroupName="header">
+                  <legend class="band-title">Header</legend>
+
+                  <label class="check-row" for="md-header-enabled">
+                    <input id="md-header-enabled" type="checkbox" formControlName="enabled" />
+                    Enabled
+                  </label>
+
+                  <div class="field">
+                    <label class="label" for="md-header-text">Text</label>
+                    <input
+                      id="md-header-text"
+                      class="input"
+                      type="text"
+                      formControlName="text"
+                      placeholder="Header text with {page}"
+                      autocomplete="off"
+                    />
+                  </div>
+
+                  <div class="field-grid band-grid">
+                    <div class="field">
+                      <label class="label" for="md-header-align">Align</label>
+                      <select id="md-header-align" class="select" formControlName="align">
+                        <option value="left">Left</option>
+                        <option value="center">Center</option>
+                        <option value="right">Right</option>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label class="label" for="md-header-font">Font</label>
+                      <select id="md-header-font" class="select" formControlName="font">
+                        <option value="helvetica">Helvetica</option>
+                        <option value="times">Times</option>
+                        <option value="courier">Courier</option>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label class="label" for="md-header-margin-top">Top margin (px)</label>
+                      <input
+                        id="md-header-margin-top"
+                        class="input"
+                        type="number"
+                        min="0"
+                        formControlName="marginTop"
+                      />
+                    </div>
+
+                    <div class="field">
+                      <label class="label" for="md-header-margin-bottom">Bottom margin (px)</label>
+                      <input
+                        id="md-header-margin-bottom"
+                        class="input"
+                        type="number"
+                        min="0"
+                        formControlName="marginBottom"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <label class="label" for="md-header-color">Color</label>
+                    <input
+                      id="md-header-color"
+                      class="input"
+                      type="text"
+                      formControlName="color"
+                      placeholder="#RRGGBB"
+                      autocomplete="off"
+                      spellcheck="false"
+                      aria-describedby="md-header-color-help"
+                    />
+                    <p id="md-header-color-help" class="field-help">Hex color in #RRGGBB form.</p>
+                  </div>
+                </fieldset>
+
+                <fieldset class="band" formGroupName="footer">
+                  <legend class="band-title">Footer</legend>
+
+                  <label class="check-row" for="md-footer-enabled">
+                    <input id="md-footer-enabled" type="checkbox" formControlName="enabled" />
+                    Enabled
+                  </label>
+
+                  <div class="field">
+                    <label class="label" for="md-footer-text">Text</label>
+                    <input
+                      id="md-footer-text"
+                      class="input"
+                      type="text"
+                      formControlName="text"
+                      placeholder="Footer text with {totalPages}"
+                      autocomplete="off"
+                    />
+                  </div>
+
+                  <div class="field-grid band-grid">
+                    <div class="field">
+                      <label class="label" for="md-footer-align">Align</label>
+                      <select id="md-footer-align" class="select" formControlName="align">
+                        <option value="left">Left</option>
+                        <option value="center">Center</option>
+                        <option value="right">Right</option>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label class="label" for="md-footer-font">Font</label>
+                      <select id="md-footer-font" class="select" formControlName="font">
+                        <option value="helvetica">Helvetica</option>
+                        <option value="times">Times</option>
+                        <option value="courier">Courier</option>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label class="label" for="md-footer-margin-top">Top margin (px)</label>
+                      <input
+                        id="md-footer-margin-top"
+                        class="input"
+                        type="number"
+                        min="0"
+                        formControlName="marginTop"
+                      />
+                    </div>
+
+                    <div class="field">
+                      <label class="label" for="md-footer-margin-bottom">Bottom margin (px)</label>
+                      <input
+                        id="md-footer-margin-bottom"
+                        class="input"
+                        type="number"
+                        min="0"
+                        formControlName="marginBottom"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <label class="label" for="md-footer-color">Color</label>
+                    <input
+                      id="md-footer-color"
+                      class="input"
+                      type="text"
+                      formControlName="color"
+                      placeholder="#RRGGBB"
+                      autocomplete="off"
+                      spellcheck="false"
+                      aria-describedby="md-footer-color-help"
+                    />
+                    <p id="md-footer-color-help" class="field-help">Hex color in #RRGGBB form.</p>
+                  </div>
+                </fieldset>
+              </div>
+
+              <div class="approx-sheet" aria-label="Approximate A4 header and footer preview">
+                <div
+                  class="approx-band approx-header"
+                  [class.is-off]="!previewEnabled('header')"
+                  [style]="previewStyle('header')"
+                >
+                  {{ previewEnabled('header') ? previewText('header') : 'Header off' }}
+                </div>
+
+                <div class="approx-body">
+                  <span class="approx-note">Approximate A4 preview</span>
+                  <span class="approx-note approx-note-small">
+                    Placeholders: {{ '{page}' }}, {{ '{totalPages}' }}, {{ '{date}' }},
+                    {{ '{fileName}' }}
+                  </span>
+                </div>
+
+                <div
+                  class="approx-band approx-footer"
+                  [class.is-off]="!previewEnabled('footer')"
+                  [style]="previewStyle('footer')"
+                >
+                  {{ previewEnabled('footer') ? previewText('footer') : 'Footer off' }}
+                </div>
+              </div>
+            </div>
+          </details>
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (selectedPaths().length === 0) {
+            <p class="action-helper">Drop a Markdown file to get started.</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            }
           </div>
         </div>
       </section>
     </div>
 
-    <section class="panel" aria-labelledby="md-bands-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="md-bands-title" class="panel-title">Header &amp; footer</h2>
-          <p class="panel-sub">
-            Optional bands drawn on every page. Placeholders: {{ '{page}' }}, {{ '{totalPages}' }},
-            {{ '{date}' }}, {{ '{fileName}' }}.
-          </p>
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Conversion progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
         </div>
-      </header>
+      </section>
+    }
 
-      <div class="panel-body">
-        <div class="bands-grid">
-          <fieldset class="band">
-            <legend class="band-title">Header</legend>
-
-            <label class="check-row" for="md-header-enabled">
-              <input
-                id="md-header-enabled"
-                type="checkbox"
-                [checked]="form.controls.header.controls.enabled.value"
-                (change)="form.controls.header.controls.enabled.setValue($any($event.target).checked)"
-              />
-              Enabled
-            </label>
-
-            <div class="field">
-              <label class="label" for="md-header-text">Text</label>
-              <input
-                id="md-header-text"
-                class="input"
-                type="text"
-                [value]="form.controls.header.controls.text.value"
-                (input)="form.controls.header.controls.text.setValue($any($event.target).value)"
-                placeholder="Header text with {page}"
-                autocomplete="off"
-              />
-            </div>
-
-            <div class="field-grid band-grid">
-              <div class="field">
-                <label class="label" for="md-header-align">Align</label>
-                <select
-                  id="md-header-align"
-                  class="select"
-                  [value]="form.controls.header.controls.align.value"
-                  (change)="form.controls.header.controls.align.setValue($any($event.target).value)"
-                >
-                  <option value="left">left</option>
-                  <option value="center">center</option>
-                  <option value="right">right</option>
-                </select>
-              </div>
-
-              <div class="field">
-                <label class="label" for="md-header-font">Font</label>
-                <select
-                  id="md-header-font"
-                  class="select"
-                  [value]="form.controls.header.controls.font.value"
-                  (change)="form.controls.header.controls.font.setValue($any($event.target).value)"
-                >
-                  <option value="helvetica">helvetica</option>
-                  <option value="times">times</option>
-                  <option value="courier">courier</option>
-                </select>
-              </div>
-
-              <div class="field">
-                <label class="label" for="md-header-margin-top">Top margin (px)</label>
-                <input
-                  id="md-header-margin-top"
-                  class="input"
-                  type="number"
-                  min="0"
-                  [value]="form.controls.header.controls.marginTop.value"
-                  (input)="form.controls.header.controls.marginTop.setValue(+$any($event.target).value)"
-                  placeholder="0"
-                />
-              </div>
-
-              <div class="field">
-                <label class="label" for="md-header-margin-bottom">Bottom margin (px)</label>
-                <input
-                  id="md-header-margin-bottom"
-                  class="input"
-                  type="number"
-                  min="0"
-                  [value]="form.controls.header.controls.marginBottom.value"
-                  (input)="form.controls.header.controls.marginBottom.setValue(+$any($event.target).value)"
-                  placeholder="0"
-                />
-              </div>
-            </div>
-
-            <div class="field">
-              <label class="label" for="md-header-color">Color</label>
-              <input
-                id="md-header-color"
-                class="input"
-                type="text"
-                [value]="form.controls.header.controls.color.value"
-                (input)="form.controls.header.controls.color.setValue($any($event.target).value)"
-                placeholder="#RRGGBB"
-                autocomplete="off"
-                spellcheck="false"
-                aria-describedby="md-header-color-help"
-              />
-              <p id="md-header-color-help" class="field-help">Hex color in #RRGGBB form.</p>
-            </div>
-          </fieldset>
-
-          <fieldset class="band">
-            <legend class="band-title">Footer</legend>
-
-            <label class="check-row" for="md-footer-enabled">
-              <input
-                id="md-footer-enabled"
-                type="checkbox"
-                [checked]="form.controls.footer.controls.enabled.value"
-                (change)="form.controls.footer.controls.enabled.setValue($any($event.target).checked)"
-              />
-              Enabled
-            </label>
-
-            <div class="field">
-              <label class="label" for="md-footer-text">Text</label>
-              <input
-                id="md-footer-text"
-                class="input"
-                type="text"
-                [value]="form.controls.footer.controls.text.value"
-                (input)="form.controls.footer.controls.text.setValue($any($event.target).value)"
-                placeholder="Footer text with {totalPages}"
-                autocomplete="off"
-              />
-            </div>
-
-            <div class="field-grid band-grid">
-              <div class="field">
-                <label class="label" for="md-footer-align">Align</label>
-                <select
-                  id="md-footer-align"
-                  class="select"
-                  [value]="form.controls.footer.controls.align.value"
-                  (change)="form.controls.footer.controls.align.setValue($any($event.target).value)"
-                >
-                  <option value="left">left</option>
-                  <option value="center">center</option>
-                  <option value="right">right</option>
-                </select>
-              </div>
-
-              <div class="field">
-                <label class="label" for="md-footer-font">Font</label>
-                <select
-                  id="md-footer-font"
-                  class="select"
-                  [value]="form.controls.footer.controls.font.value"
-                  (change)="form.controls.footer.controls.font.setValue($any($event.target).value)"
-                >
-                  <option value="helvetica">helvetica</option>
-                  <option value="times">times</option>
-                  <option value="courier">courier</option>
-                </select>
-              </div>
-
-              <div class="field">
-                <label class="label" for="md-footer-margin-top">Top margin (px)</label>
-                <input
-                  id="md-footer-margin-top"
-                  class="input"
-                  type="number"
-                  min="0"
-                  [value]="form.controls.footer.controls.marginTop.value"
-                  (input)="form.controls.footer.controls.marginTop.setValue(+$any($event.target).value)"
-                  placeholder="0"
-                />
-              </div>
-
-              <div class="field">
-                <label class="label" for="md-footer-margin-bottom">Bottom margin (px)</label>
-                <input
-                  id="md-footer-margin-bottom"
-                  class="input"
-                  type="number"
-                  min="0"
-                  [value]="form.controls.footer.controls.marginBottom.value"
-                  (input)="form.controls.footer.controls.marginBottom.setValue(+$any($event.target).value)"
-                  placeholder="0"
-                />
-              </div>
-            </div>
-
-            <div class="field">
-              <label class="label" for="md-footer-color">Color</label>
-              <input
-                id="md-footer-color"
-                class="input"
-                type="text"
-                [value]="form.controls.footer.controls.color.value"
-                (input)="form.controls.footer.controls.color.setValue($any($event.target).value)"
-                placeholder="#RRGGBB"
-                autocomplete="off"
-                spellcheck="false"
-                aria-describedby="md-footer-color-help"
-              />
-              <p id="md-footer-color-help" class="field-help">Hex color in #RRGGBB form.</p>
-            </div>
-          </fieldset>
-        </div>
-      </div>
-    </section>
-
-    <section class="run-bar" aria-label="Run controls">
-      <div class="actions">
-        <button type="button" class="btn btn-secondary" (click)="validate()">Check settings</button>
-        <button type="button" class="btn btn-primary" [disabled]="isSubmitting" (click)="run()">
-          {{ isSubmitting ? 'Submitting…' : 'Run Markdown → PDF' }}
-        </button>
-        <button
-          type="button"
-          class="btn btn-ghost btn-cancel"
-          [disabled]="!activeJobId || !isPolling"
-          (click)="cancel()"
-        >
-          Cancel job
-        </button>
-      </div>
-
-      <div *ngIf="validationMessage" class="banner banner-info" role="alert">
-        {{ validationMessage }}
-      </div>
-
-      <div *ngIf="submitMessage" class="banner banner-info" role="status" aria-live="polite">
-        {{ submitMessage }}
-      </div>
-
-      <div *ngIf="statusMessage" class="banner banner-warning" role="status" aria-live="polite">
-        {{ statusMessage }}
-      </div>
-    </section>
-
-    <section class="panel" aria-labelledby="md-preview-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="md-preview-title" class="panel-title">Approximate preview</h2>
-          <p class="panel-sub">{{ previewNotice }}</p>
-        </div>
-        <span class="badge badge-neutral">A4 portrait</span>
-      </header>
-
-      <div class="panel-body">
-        <div class="approx-sheet">
-          <div class="approx-header" [ngStyle]="previewStyle('header')">
-            <ng-container *ngIf="form.controls.header.controls.enabled.value; else headerOff">
-              {{ previewHeaderText() }}
-            </ng-container>
-            <ng-template #headerOff>Header disabled</ng-template>
-          </div>
-
-          <div class="approx-body">
-            <p class="approx-note">A4 portrait canvas simulation for quick feedback.</p>
-            <p class="approx-note approx-note-small">
-              Placeholders: {{ '{page}' }}, {{ '{totalPages}' }}, {{ '{date}' }},
-              {{ '{fileName}' }}
-            </p>
-          </div>
-
-          <div class="approx-footer" [ngStyle]="previewStyle('footer')">
-            <ng-container *ngIf="form.controls.footer.controls.enabled.value; else footerOff">
-              {{ previewFooterText() }}
-            </ng-container>
-            <ng-template #footerOff>Footer disabled</ng-template>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section *ngIf="jobResult" class="panel job-panel" aria-labelledby="md-job-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="md-job-title" class="panel-title">Job status</h2>
-          <p class="panel-sub">Live result from the local job queue.</p>
-        </div>
-        <span [class]="jobStatusBadgeClass()">{{ jobStatusLabel() }}</span>
-      </header>
-
-      <div class="panel-body">
-        <p class="job-id mono">{{ jobResult.jobId }}</p>
-        <app-job-card [job]="jobResult"></app-job-card>
-        <p *ngIf="jobResult.items.length > 0" class="job-summary mono">{{ jobSummaryText() }}</p>
-      </div>
-    </section>
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="document"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retry()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
   </div>
 </div>

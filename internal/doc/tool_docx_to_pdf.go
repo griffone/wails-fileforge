@@ -11,6 +11,7 @@ import (
 
 	"fileforge-desktop/internal/doc/engine"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/outputplan"
 )
 
 const ToolIDDocDOCXToPDFV1 = "tool.doc.docx_to_pdf"
@@ -67,68 +68,97 @@ func (t *DOCXToPDFTool) RuntimeState(ctx context.Context) models.ToolRuntimeStat
 }
 
 func (t *DOCXToPDFTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+	_, planErr := t.Plan(ctx, req)
+	return planErr
+}
+
+// Plan probes the conversion runtime, validates every input and resolves one
+// collision-safe output per input without writing anything. Execution calls
+// Plan again right before converting, so the shown destination and the written
+// file always agree.
+func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+
 	probe := t.probe
 	if probe == nil {
 		probe = engine.NewHybridRuntimeProbe()
 	}
 
 	if err := probe.Check(ctx); err != nil {
-		return mapDOCXEngineError(err)
+		return docPlanFailure(plan, mapDOCXEngineError(err))
 	}
 
-	parsed, jobErr := parseDOCXRequest(req)
-	if jobErr != nil {
-		return jobErr
+	parsed, parseErr := parseDOCXRequest(req)
+	if parseErr != nil {
+		return docPlanFailure(plan, parseErr)
 	}
 
 	for _, inputPath := range parsed.inputPaths {
 		if inputErr := validateDOCXInputPath(inputPath); inputErr != nil {
-			return inputErr
+			return docPlanFailure(plan, inputErr)
 		}
 		if protectedErr := engine.DetectProtectedDOCX(inputPath); protectedErr != nil {
-			return mapDOCXEngineError(protectedErr)
+			return docPlanFailure(plan, docxProtectedInputError(inputPath, protectedErr))
 		}
 	}
 
 	if parsed.mode == "single" {
-		_, outErr := resolveSingleDOCXOutput(parsed.inputPaths[0], parsed.outputPath, parsed.outputDir)
-		if outErr != nil {
-			return outErr
+		planned, planErr := planSingleDOCXOutput(parsed)
+		if planErr != nil {
+			return docPlanFailure(plan, planErr)
+		}
+
+		plan.Success = true
+		plan.Message = "Ready to convert 1 document."
+		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Warnings = planned.Warnings
+
+		return plan, nil
+	}
+
+	outputDir := strings.TrimSpace(parsed.outputDir)
+	if outputDir != "" {
+		if dirErr := validateDOCXOutputDir(outputDir); dirErr != nil {
+			return docPlanFailure(plan, dirErr)
 		}
 	}
 
-	if parsed.mode == "batch" {
-		if strings.TrimSpace(parsed.outputDir) == "" {
-			return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_DIR_REQUIRED", "outputDir is required in batch mode", nil)
-		}
-		if outDirErr := validateDOCXOutputDir(parsed.outputDir); outDirErr != nil {
-			return outDirErr
-		}
+	// Reserve every input path so an auto-derived output can never overwrite a
+	// different input of the same batch.
+	used := make(map[string]struct{}, len(parsed.inputPaths))
+	for _, inputPath := range parsed.inputPaths {
+		outputplan.MarkUsed(used, inputPath)
 	}
 
-	return nil
+	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
+	warnings := make([]string, 0)
+	for _, inputPath := range parsed.inputPaths {
+		targetDir := outputDir
+		if targetDir == "" {
+			targetDir = filepath.Dir(inputPath)
+		}
+
+		planned := planAutoDOCXOutput(inputPath, targetDir, used)
+		outputs = append(outputs, planned)
+		warnings = append(warnings, planned.Warnings...)
+	}
+
+	plan.Success = true
+	plan.Message = fmt.Sprintf("Ready to convert %d documents.", len(outputs))
+	plan.Outputs = outputs
+	plan.Warnings = warnings
+
+	return plan, nil
 }
 
 func (t *DOCXToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
-	parsed, parseErr := parseDOCXRequest(req)
-	if parseErr != nil {
-		return models.JobResultItemV1{InputPath: firstPath(req.InputPaths), Success: false, Message: parseErr.Message, Error: parseErr}, parseErr
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return models.JobResultItemV1{InputPath: firstPath(req.InputPaths), Success: false, Message: planErr.Message, Error: planErr}, planErr
 	}
 
-	inputPath := parsed.inputPaths[0]
-	if inputErr := validateDOCXInputPath(inputPath); inputErr != nil {
-		return models.JobResultItemV1{InputPath: inputPath, Success: false, Message: inputErr.Message, Error: inputErr}, inputErr
-	}
-
-	if protectedErr := engine.DetectProtectedDOCX(inputPath); protectedErr != nil {
-		jobErr := mapDOCXEngineError(protectedErr)
-		return models.JobResultItemV1{InputPath: inputPath, Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
-	}
-
-	outputPath, outErr := resolveSingleDOCXOutput(inputPath, parsed.outputPath, parsed.outputDir)
-	if outErr != nil {
-		return models.JobResultItemV1{InputPath: inputPath, Success: false, Message: outErr.Message, Error: outErr}, outErr
-	}
+	inputPath := plan.Outputs[0].InputPath
+	outputPath := plan.Outputs[0].OutputPath
 
 	result, err := engine.ConvertDOCX(ctx, t.probe, t.runner, engine.ConvertDOCXRequest{InputPath: inputPath, OutputPath: outputPath})
 	if err != nil {
@@ -152,24 +182,15 @@ func (t *DOCXToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequest
 }
 
 func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
-	parsed, parseErr := parseDOCXRequest(req)
-	if parseErr != nil {
-		return nil, parseErr
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return nil, planErr
 	}
 
-	if strings.TrimSpace(parsed.outputDir) == "" {
-		return nil, models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_DIR_REQUIRED", "outputDir is required in batch mode", nil)
-	}
-
-	if outDirErr := validateDOCXOutputDir(parsed.outputDir); outDirErr != nil {
-		return nil, outDirErr
-	}
-
-	usedOutputs := make(map[string]struct{}, len(parsed.inputPaths))
-	items := make([]models.JobResultItemV1, 0, len(parsed.inputPaths))
+	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
 	var firstErr *models.JobErrorV1
 
-	for index, inputPath := range parsed.inputPaths {
+	for index, planned := range plan.Outputs {
 		select {
 		case <-ctx.Done():
 			cancelErr := models.NewCanonicalJobError("DOC_DOCX_TO_PDF_CANCELLED", ctx.Err().Error(), nil)
@@ -177,42 +198,22 @@ func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequestV
 		default:
 		}
 
-		if inputErr := validateDOCXInputPath(inputPath); inputErr != nil {
-			if firstErr == nil {
-				firstErr = inputErr
-			}
-			items = append(items, models.JobResultItemV1{InputPath: inputPath, Success: false, Message: inputErr.Message, Error: inputErr})
-			emitDOCXBatchProgress(onProgress, index+1, len(parsed.inputPaths))
-			continue
-		}
-
-		if protectedErr := engine.DetectProtectedDOCX(inputPath); protectedErr != nil {
-			jobErr := mapDOCXEngineError(protectedErr)
-			if firstErr == nil {
-				firstErr = jobErr
-			}
-			items = append(items, models.JobResultItemV1{InputPath: inputPath, Success: false, Message: jobErr.Message, Error: jobErr})
-			emitDOCXBatchProgress(onProgress, index+1, len(parsed.inputPaths))
-			continue
-		}
-
-		outputPath := nextAvailableDOCXOutput(parsed.outputDir, inputPath, usedOutputs)
-		result, execErr := engine.ConvertDOCX(ctx, t.probe, t.runner, engine.ConvertDOCXRequest{InputPath: inputPath, OutputPath: outputPath})
+		result, execErr := engine.ConvertDOCX(ctx, t.probe, t.runner, engine.ConvertDOCXRequest{InputPath: planned.InputPath, OutputPath: planned.OutputPath})
 		if execErr != nil {
 			jobErr := mapDOCXEngineError(execErr)
 			if firstErr == nil {
 				firstErr = jobErr
 			}
-			items = append(items, models.JobResultItemV1{InputPath: inputPath, OutputPath: outputPath, Success: false, Message: jobErr.Message, Error: jobErr})
+			items = append(items, models.JobResultItemV1{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Success: false, Message: jobErr.Message, Error: jobErr})
 		} else {
 			message := "docx to pdf successful"
 			if result.FallbackUsed {
 				message = "docx to pdf successful (fallback engine: pandoc)"
 			}
-			items = append(items, models.JobResultItemV1{InputPath: inputPath, OutputPath: outputPath, Outputs: []string{outputPath}, OutputCount: 1, Success: true, Message: message})
+			items = append(items, models.JobResultItemV1{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Outputs: []string{planned.OutputPath}, OutputCount: 1, Success: true, Message: message})
 		}
 
-		emitDOCXBatchProgress(onProgress, index+1, len(parsed.inputPaths))
+		emitDOCXBatchProgress(onProgress, index+1, len(plan.Outputs))
 	}
 
 	return items, firstErr
@@ -262,17 +263,19 @@ func parseDOCXRequest(req models.JobRequestV1) (docxRequest, *models.JobErrorV1)
 }
 
 func validateDOCXInputPath(inputPath string) *models.JobErrorV1 {
+	name := filepath.Base(inputPath)
+
 	info, err := os.Stat(inputPath)
 	if err != nil {
-		return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_INPUT_NOT_FOUND", err.Error(), nil)
+		return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_INPUT_NOT_FOUND", fmt.Sprintf("%s was not found.", name), map[string]any{"inputPath": inputPath})
 	}
 
 	if info.IsDir() {
-		return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_INPUT_IS_DIR", "input path must be a .docx file", nil)
+		return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_INPUT_IS_DIR", fmt.Sprintf("%s is a folder, not a .docx file.", name), map[string]any{"inputPath": inputPath})
 	}
 
 	if strings.ToLower(filepath.Ext(inputPath)) != ".docx" {
-		return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_INPUT_UNSUPPORTED", "v1 supports only .docx inputs", nil)
+		return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_INPUT_UNSUPPORTED", fmt.Sprintf("%s is not a .docx file.", name), map[string]any{"inputPath": inputPath})
 	}
 
 	return nil
@@ -285,7 +288,10 @@ func validateDOCXOutputDir(dir string) *models.JobErrorV1 {
 
 	info, err := os.Stat(dir)
 	if err != nil {
-		return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_DIR_INVALID", err.Error(), nil)
+		if errors.Is(err, os.ErrNotExist) {
+			return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_DIR_INVALID", fmt.Sprintf("The output folder does not exist: %s", dir), map[string]any{"outputDir": dir})
+		}
+		return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_DIR_INVALID", fmt.Sprintf("The output folder cannot be used: %s", dir), map[string]any{"outputDir": dir})
 	}
 
 	if !info.IsDir() {
@@ -295,89 +301,117 @@ func validateDOCXOutputDir(dir string) *models.JobErrorV1 {
 	return nil
 }
 
-func resolveSingleDOCXOutput(inputPath, rawOutputPath, rawOutputDir string) (string, *models.JobErrorV1) {
-	outputPath := strings.TrimSpace(rawOutputPath)
-	if outputPath != "" {
-		if strings.ToLower(filepath.Ext(outputPath)) != ".pdf" {
-			return "", models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_INVALID", "outputPath must use .pdf extension", nil)
-		}
-		if outDirErr := validateDOCXOutputDir(filepath.Dir(outputPath)); outDirErr != nil {
-			return "", outDirErr
+// planSingleDOCXOutput resolves the single-mode destination. An explicit
+// outputPath keeps the established contract: .pdf extension, an existing
+// parent directory and a collision suffix instead of an overwrite. Otherwise
+// the output goes to req.OutputDir when provided, or next to the input.
+func planSingleDOCXOutput(parsed docxRequest) (models.PlannedOutputV1, *models.JobErrorV1) {
+	inputPath := parsed.inputPaths[0]
+
+	if explicit := strings.TrimSpace(parsed.outputPath); explicit != "" {
+		requestedPath := filepath.Clean(explicit)
+		planned := models.PlannedOutputV1{
+			InputPath:  inputPath,
+			OutputPath: requestedPath,
+			OutputKind: docPlannedOutputKindFile,
 		}
 
-		if sameDocFile(inputPath, outputPath) {
-			return "", models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
+		if strings.ToLower(filepath.Ext(requestedPath)) != ".pdf" {
+			return planned, models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_INVALID", "outputPath must use .pdf extension", nil)
+		}
+		if dirErr := validateDOCXOutputDir(filepath.Dir(requestedPath)); dirErr != nil {
+			return planned, dirErr
+		}
+		if sameDocFile(inputPath, requestedPath) {
+			return planned, models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
 		}
 
-		if isDocOutputAvailable(outputPath, nil) {
-			return outputPath, nil
+		stem := strings.TrimSuffix(filepath.Base(requestedPath), filepath.Ext(requestedPath))
+		if strings.TrimSpace(stem) == "" {
+			stem = "document"
 		}
 
-		base := strings.TrimSuffix(outputPath, filepath.Ext(outputPath))
-		for i := 2; ; i++ {
-			candidate := fmt.Sprintf("%s-%d.pdf", base, i)
-			if isDocOutputAvailable(candidate, nil) {
-				return candidate, nil
-			}
+		outputPath, adjusted := outputplan.UniqueFilePath(filepath.Dir(requestedPath), stem, "pdf", nil)
+		planned.OutputPath = outputPath
+		if adjusted {
+			planned.Adjusted = true
+			planned.Warnings = append(planned.Warnings, fmt.Sprintf(
+				"%s already exists. Saving as %s.",
+				filepath.Base(requestedPath),
+				filepath.Base(outputPath),
+			))
 		}
+
+		return planned, nil
 	}
 
-	outputDir := strings.TrimSpace(rawOutputDir)
-	if outputDir == "" {
-		outputDir = filepath.Dir(inputPath)
+	targetDir := strings.TrimSpace(parsed.outputDir)
+	if targetDir == "" {
+		targetDir = filepath.Dir(inputPath)
 	}
 
-	if outDirErr := validateDOCXOutputDir(outputDir); outDirErr != nil {
-		return "", outDirErr
+	if dirErr := validateDOCXOutputDir(targetDir); dirErr != nil {
+		return models.PlannedOutputV1{InputPath: inputPath, OutputKind: docPlannedOutputKindFile}, dirErr
 	}
 
-	candidate := nextAvailableDOCXOutput(outputDir, inputPath, nil)
-	if sameDocFile(inputPath, candidate) {
-		return "", models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
-	}
-
-	return candidate, nil
+	return planAutoDOCXOutput(inputPath, targetDir, nil), nil
 }
 
-func nextAvailableDOCXOutput(outputDir, inputPath string, used map[string]struct{}) string {
-	base := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
-	if strings.TrimSpace(base) == "" {
-		base = "document"
+// planAutoDOCXOutput derives <stem>_docx2pdf.pdf inside outputDir, suffixing
+// when the natural name is taken on disk or already used in the same plan.
+func planAutoDOCXOutput(inputPath, outputDir string, used map[string]struct{}) models.PlannedOutputV1 {
+	planned := models.PlannedOutputV1{
+		InputPath:  inputPath,
+		OutputKind: docPlannedOutputKindFile,
 	}
 
-	prefix := filepath.Join(outputDir, fmt.Sprintf("%s_docx2pdf", base))
-	first := prefix + ".pdf"
-	if isDocOutputAvailable(first, used) {
-		markDocOutputUsed(first, used)
-		return first
+	base := docxOutputBaseName(inputPath)
+	outputPath, adjusted := outputplan.UniqueFilePath(outputDir, base, "pdf", used)
+	planned.OutputPath = outputPath
+
+	if adjusted {
+		planned.Adjusted = true
+		planned.Warnings = append(planned.Warnings, fmt.Sprintf(
+			"%s already exists. Saving as %s.",
+			base+".pdf",
+			filepath.Base(outputPath),
+		))
 	}
 
-	for i := 2; ; i++ {
-		candidate := fmt.Sprintf("%s-%d.pdf", prefix, i)
-		if isDocOutputAvailable(candidate, used) {
-			markDocOutputUsed(candidate, used)
-			return candidate
-		}
-	}
+	return planned
 }
 
-func isDocOutputAvailable(outputPath string, used map[string]struct{}) bool {
-	cleaned := strings.ToLower(filepath.Clean(outputPath))
-	if used != nil {
-		if _, exists := used[cleaned]; exists {
-			return false
-		}
+func docxOutputBaseName(inputPath string) string {
+	stem := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	if strings.TrimSpace(stem) == "" {
+		stem = "document"
 	}
 
-	_, err := os.Stat(outputPath)
-	return err != nil
+	return stem + "_docx2pdf"
 }
 
-func markDocOutputUsed(outputPath string, used map[string]struct{}) {
-	if used == nil {
-		return
+// docxProtectedInputError keeps the engine's protected/encrypted detail code
+// while naming the offending file for the UI.
+func docxProtectedInputError(inputPath string, err error) *models.JobErrorV1 {
+	jobErr := mapDOCXEngineError(err)
+	if jobErr == nil {
+		return nil
 	}
-	used[strings.ToLower(filepath.Clean(outputPath))] = struct{}{}
+
+	if jobErr.DetailCode != engine.ErrorCodeDocxInputProtected && jobErr.DetailCode != engine.ErrorCodeDocxInputEncrypted {
+		return jobErr
+	}
+
+	details := map[string]any{"inputPath": inputPath}
+	for key, value := range jobErr.Details {
+		details[key] = value
+	}
+
+	return models.NewCanonicalJobError(
+		jobErr.DetailCode,
+		fmt.Sprintf("%s is protected, encrypted or not a valid .docx file.", filepath.Base(inputPath)),
+		details,
+	)
 }
 
 func sameDocFile(inputPath, outputPath string) bool {

@@ -1,324 +1,475 @@
-import { CommonModule } from '@angular/common';
-import { Component, OnDestroy } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { FolderOpen, LucideAngularModule, ShieldCheck, X } from 'lucide-angular';
-import { JobCard } from '../job-card/job-card';
+import { Component, OnDestroy, computed, signal } from '@angular/core';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import {
+  FolderOpen,
+  Info,
+  LucideAngularModule,
+  ShieldCheck,
+  TriangleAlert,
+  X,
+} from 'lucide-angular';
+
+import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
+import { FileQueue } from '../tool-flow/file-queue';
+import { OutputPlanCard } from '../tool-flow/output-plan-card';
+import { ResultCard } from '../tool-flow/result-card';
+import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  FileInfoV1,
+  InspectFilesResponseV1,
   JobErrorV1,
+  JobExecutionStatusV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
+  PlanJobResponseV1,
+  RunJobResponseV1,
   Wails,
 } from '../../services/wails';
+import { fileExtension, fileName, formatBytes } from '../../utils/format';
 
-const TOOL_ID = 'tool.doc.docx_to_pdf';
+const DOCX_TO_PDF_TOOL_ID = 'tool.doc.docx_to_pdf';
 const POLLING_INTERVAL_MS = 1000;
-const STANDARD_FIDELITY_WARNING =
-  'This conversion uses standard fidelity. Complex documents may differ in layout (tables, fonts, spacing). Do you want to continue?';
 
-type JobMode = 'single' | 'batch';
+const TERMINAL_STATUSES = new Set<string>([
+  'success',
+  'failed',
+  'partial_success',
+  'cancelled',
+  'interrupted',
+]);
+
+interface Notice {
+  tone: 'warning' | 'danger';
+  text: string;
+}
 
 @Component({
   selector: 'app-doc-docx-to-pdf',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, LucideAngularModule, JobCard],
+  imports: [
+    LucideAngularModule,
+    FileDrop,
+    FileQueue,
+    OutputPlanCard,
+    ResultCard,
+    JobCard,
+  ],
   templateUrl: './doc-docx-to-pdf.html',
   styleUrl: './doc-docx-to-pdf.css',
 })
 export class DocDocxToPdf implements OnDestroy {
+  private readonly destroy$ = new Subject<void>();
+
   readonly shieldIcon = ShieldCheck;
-  readonly folderOpenIcon = FolderOpen;
+  readonly folderIcon = FolderOpen;
   readonly closeIcon = X;
+  readonly alertIcon = TriangleAlert;
+  readonly infoIcon = Info;
 
-  readonly form;
+  readonly selectedPaths = signal<string[]>([]);
+  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly outputDir = signal('');
 
-  selectedInputPaths: string[] = [];
+  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly planError = signal<JobErrorV1 | null>(null);
+  readonly planLoading = signal(false);
 
-  validationMessage = '';
-  submitMessage = '';
-  statusMessage = '';
+  readonly jobResult = signal<JobResultV1 | null>(null);
+  readonly jobError = signal<JobErrorV1 | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
 
-  activeJobId = '';
-  isSubmitting = false;
-  isPolling = false;
-  jobResult: JobResultV1 | null = null;
+  readonly isSubmitting = signal(false);
+  readonly isPolling = signal(false);
+  readonly activeJobId = signal('');
+
+  readonly notice = signal<Notice | null>(null);
+  readonly actionMessage = signal('');
+
+  readonly canRun = computed(
+    () =>
+      this.selectedPaths().length > 0 &&
+      !this.isSubmitting() &&
+      !this.isPolling(),
+  );
+
+  readonly primaryLabel = computed(() => {
+    if (this.isSubmitting() || this.isPolling()) {
+      return 'Converting…';
+    }
+    const count = this.selectedPaths().length;
+    if (count === 0) {
+      return 'Convert to PDF';
+    }
+    return count === 1 ? 'Convert 1 document' : `Convert ${count} documents`;
+  });
+
+  readonly destinationLabel = computed(
+    () => this.outputDir().trim() || 'Next to each DOCX',
+  );
+
+  readonly isDefaultDestination = computed(
+    () => this.outputDir().trim().length === 0,
+  );
+
+  readonly terminalJob = computed<JobResultV1 | null>(() => {
+    const job = this.jobResult();
+    return job && this.isTerminalStatus(job.status) ? job : null;
+  });
+
+  readonly showProgress = computed(() => {
+    const job = this.jobResult();
+    return !!job && !this.isTerminalStatus(job.status);
+  });
+
+  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
+    const error = this.jobError();
+    return error
+      ? describeToolError(error, 'The conversion could not start.')
+      : null;
+  });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private planToken = 0;
+  private fileItemsGeneration = 0;
 
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly wailsService: Wails
-  ) {
-    this.form = this.fb.nonNullable.group({
-      mode: ['single' as JobMode, Validators.required],
-      inputPath: [''],
-      outputDir: [''],
-      outputPath: [''],
-    });
+  constructor(private readonly wailsService: Wails) {
+    this.wailsService.jobProgress$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.activeJobId()) {
+          return;
+        }
+
+        const current = this.jobResult();
+        if (!current) {
+          return;
+        }
+
+        this.jobResult.set({
+          ...current,
+          message: event.progress.message,
+          progress: event.progress,
+          // Wait for the status endpoint to settle the final items. The event
+          // can arrive before the job store has the complete result.
+          status: this.isTerminalStatus(event.status)
+            ? current.status
+            : (event.status as JobExecutionStatusV1),
+        });
+
+        if (this.isTerminalStatus(event.status)) {
+          void this.pollJobStatus();
+        }
+      });
   }
 
   ngOnDestroy(): void {
     this.stopPolling();
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
-  currentMode(): JobMode {
-    return this.form.controls.mode.value === 'batch' ? 'batch' : 'single';
+  fileCountLabel(): string {
+    const count = this.selectedPaths().length;
+    if (count === 0) {
+      return 'No files';
+    }
+    return count === 1 ? '1 DOCX' : `${count} DOCX files`;
   }
 
-  inputCountLabel(): string {
-    if (this.currentMode() === 'batch') {
-      const count = this.selectedInputPaths.length;
-      return count === 0 ? 'Queue empty' : `${count} queued`;
+  onPathsSelected(paths: string[]): void {
+    const incoming = (Array.isArray(paths) ? paths : [])
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (incoming.length === 0) {
+      return;
     }
 
-    return this.form.controls.inputPath.value.trim() ? '1 selected' : 'None selected';
-  }
+    const rejected: string[] = [];
+    const duplicates: string[] = [];
+    const added: string[] = [];
+    const known = new Set(this.selectedPaths().map((path) => this.pathKey(path)));
 
-  jobStatusLabel(): string {
-    switch (this.jobResult?.status) {
-      case 'success':
-        return 'Completed';
-      case 'partial_success':
-        return 'Completed with errors';
-      case 'failed':
-        return 'Failed';
-      case 'cancelled':
-        return 'Cancelled';
-      case 'interrupted':
-        return 'Interrupted';
-      case 'running':
-        return 'Running';
-      case 'queued':
-        return 'Queued';
-      default:
-        return this.jobResult?.status ?? 'Unknown';
-    }
-  }
-
-  jobStatusBadgeClass(): string {
-    switch (this.jobResult?.status) {
-      case 'success':
-        return 'badge badge-success';
-      case 'partial_success':
-        return 'badge badge-warning';
-      case 'failed':
-      case 'cancelled':
-      case 'interrupted':
-        return 'badge badge-danger';
-      default:
-        return 'badge badge-neutral';
-    }
-  }
-
-  jobSummaryText(): string {
-    const items = this.jobResult?.items ?? [];
-    if (items.length === 0) {
-      return '';
-    }
-
-    const succeeded = items.filter((item) => item.success).length;
-    const failed = items.length - succeeded;
-    return failed > 0
-      ? `${succeeded} of ${items.length} files succeeded · ${failed} failed`
-      : `${succeeded} of ${items.length} files succeeded`;
-  }
-
-  onModeChanged(): void {
-    this.clearMessages();
-    this.jobResult = null;
-    if (this.currentMode() === 'single') {
-      if (this.selectedInputPaths.length > 0) {
-        this.form.patchValue({ inputPath: this.selectedInputPaths[0] });
+    for (const path of incoming) {
+      if (fileExtension(path).toLowerCase() !== 'docx') {
+        rejected.push(path);
+        continue;
       }
-      this.selectedInputPaths = [];
+
+      const key = this.pathKey(path);
+      if (known.has(key)) {
+        duplicates.push(path);
+        continue;
+      }
+
+      known.add(key);
+      added.push(path);
+    }
+
+    this.notice.set(this.intakeNotice(rejected, duplicates));
+
+    if (added.length === 0) {
+      return;
+    }
+
+    this.actionMessage.set('');
+    this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  async chooseFiles(): Promise<void> {
+    const paths = await this.wailsService.openMultipleFilesDialog();
+    if (paths.length > 0) {
+      this.onPathsSelected(paths);
     }
   }
 
-  async selectDocxFromDialog(): Promise<void> {
-    const selected = (await this.wailsService.openFileDialog()).trim();
-    if (!selected) {
+  clear(): void {
+    if (this.selectedPaths().length === 0) {
       return;
     }
-
-    if (this.currentMode() === 'single') {
-      this.form.patchValue({ inputPath: selected });
-      return;
-    }
-
-    this.addBatchInput(selected);
+    this.selectedPaths.set([]);
+    this.notice.set(null);
+    this.actionMessage.set('');
+    this.syncFileItems();
+    void this.refreshPlan();
   }
 
-  async selectMultipleDocxFromDialog(): Promise<void> {
-    const selected = await this.wailsService.openMultipleFilesDialog();
-    if (!selected || selected.length === 0) {
+  removeFile(path: string): void {
+    const next = this.selectedPaths().filter((candidate) => candidate !== path);
+    if (next.length === this.selectedPaths().length) {
       return;
     }
-
-    if (this.currentMode() === 'single') {
-      this.form.patchValue({ inputPath: selected[0].trim() });
-      return;
-    }
-
-    for (const path of selected) {
-      this.addBatchInput(path);
-    }
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    void this.refreshPlan();
   }
 
-  async selectOutputDirectory(): Promise<void> {
-    const selectedDir = (await this.wailsService.openDirectoryDialog()).trim();
-    if (!selectedDir) {
+  async chooseOutputFolder(): Promise<void> {
+    const directory = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!directory) {
       return;
     }
-    this.form.patchValue({ outputDir: selectedDir });
+    this.outputDir.set(directory);
+    this.actionMessage.set('');
+    await this.refreshPlan();
   }
 
-  async validate(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.validationMessage = localError;
+  useOriginalFolders(): void {
+    if (this.outputDir() === '') {
       return;
     }
-
-    const response = await this.wailsService.validateJobV1(this.buildRequest());
-    this.validationMessage = response.valid
-      ? 'Validation OK. Ready to run DOCX → PDF.'
-      : this.mapJobError(response.error, response.message);
+    this.outputDir.set('');
+    void this.refreshPlan();
   }
 
   async run(): Promise<void> {
-    this.clearMessages();
-    this.jobResult = null;
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.submitMessage = localError;
+    if (!this.canRun()) {
       return;
     }
 
-    if (!window.confirm(STANDARD_FIDELITY_WARNING)) {
-      this.submitMessage = 'Execution cancelled by user before submit.';
+    this.actionMessage.set('');
+
+    if (this.planLoading() || !this.plan()?.success) {
+      const planned = await this.refreshPlan();
+      if (!planned) {
+        return;
+      }
+    }
+
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(true);
+
+    const response: RunJobResponseV1 = await this.wailsService
+      .runJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The conversion could not start.',
+        jobId: '',
+        status: 'failed' as const,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: 'The conversion could not start.',
+        },
+      }));
+    if (!response.success || !response.jobId) {
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: response.message || 'The conversion could not start.',
+        },
+      );
+      this.isSubmitting.set(false);
       return;
     }
 
-    this.isSubmitting = true;
-    const request = this.buildRequest();
-
-    const validation = await this.wailsService.validateJobV1(request);
-    if (!validation.valid) {
-      this.submitMessage = this.mapJobError(validation.error, validation.message);
-      this.isSubmitting = false;
-      return;
-    }
-
-    const runResponse = await this.wailsService.runJobV1(request);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.submitMessage = this.mapJobError(runResponse.error, runResponse.message);
-      this.isSubmitting = false;
-      return;
-    }
-
-    this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
+    const total = this.selectedPaths().length;
+    this.activeJobId.set(response.jobId);
+    this.jobResult.set({
+      jobId: response.jobId,
+      success: false,
+      message: 'Waiting to start',
+      toolId: DOCX_TO_PDF_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total,
+        stage: 'queued',
+        message: 'Waiting to start',
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isSubmitting.set(false);
+    this.isPolling.set(true);
     this.startPolling();
-    this.isSubmitting = false;
   }
 
   async cancel(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       return;
     }
-
-    const response = await this.wailsService.cancelJobV1(this.activeJobId);
-    this.statusMessage = response.success
-      ? 'Cancel requested.'
-      : this.mapJobError(response.error, response.message);
-  }
-
-  removeBatchInput(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length) {
-      return;
-    }
-    this.selectedInputPaths = this.selectedInputPaths.filter((_, i) => i !== index);
-  }
-
-  private addBatchInput(rawPath: string): void {
-    const path = rawPath.trim();
-    if (!path) {
-      return;
-    }
-    if (!this.selectedInputPaths.includes(path)) {
-      this.selectedInputPaths = [...this.selectedInputPaths, path];
+    const response = await this.wailsService.cancelJobV1(jobId);
+    if (!response.success) {
+      this.actionMessage.set(
+        response.message || 'The job could not be cancelled.',
+      );
     }
   }
 
-  private localValidationError(): string {
-    const mode = this.currentMode();
+  async onOpen(path: string): Promise<void> {
+    const response = await this.wailsService.openPath(path);
+    this.actionMessage.set(
+      response.success ? '' : response.message || 'The file could not be opened.',
+    );
+  }
 
-    if (mode === 'single') {
-      const inputPath = this.form.controls.inputPath.value.trim();
-      if (!inputPath) {
-        return 'inputPath is required in single mode.';
-      }
-      if (!inputPath.toLowerCase().endsWith('.docx')) {
-        return 'v1 supports only .docx input.';
-      }
-      const outputPath = this.form.controls.outputPath.value.trim();
-      if (outputPath && !outputPath.toLowerCase().endsWith('.pdf')) {
-        return 'outputPath must end in .pdf.';
-      }
-      return '';
+  async onReveal(path: string): Promise<void> {
+    const response = await this.wailsService.revealInFolder(path);
+    this.actionMessage.set(
+      response.success
+        ? ''
+        : response.message || 'The folder could not be opened.',
+    );
+  }
+
+  /** Reruns only the inputs that failed, as a fresh job. */
+  async retryFailed(): Promise<void> {
+    const failed = (this.jobResult()?.items ?? [])
+      .filter((item) => !item.success)
+      .map((item) => item.inputPath)
+      .filter((path) => path.length > 0);
+
+    if (failed.length === 0) {
+      return;
     }
 
-    if (this.selectedInputPaths.length < 1) {
-      return 'Select at least one .docx file in batch mode.';
-    }
-    for (const inputPath of this.selectedInputPaths) {
-      if (!inputPath.toLowerCase().endsWith('.docx')) {
-        return `Unsupported batch input (only .docx): ${inputPath}`;
-      }
-    }
+    this.selectedPaths.set([...new Set(failed)]);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+    this.syncFileItems();
 
-    const outputDir = this.form.controls.outputDir.value.trim();
-    if (!outputDir) {
-      return 'outputDir is required in batch mode.';
-    }
+    await this.refreshPlan();
+    await this.run();
+  }
 
-    return '';
+  reset(): void {
+    this.stopPolling();
+    this.planToken += 1;
+    this.fileItemsGeneration += 1;
+
+    this.selectedPaths.set([]);
+    this.fileItems.set([]);
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(false);
+    this.activeJobId.set('');
+    this.notice.set(null);
+    this.actionMessage.set('');
   }
 
   private buildRequest(): JobRequestV1 {
-    const mode = this.currentMode();
-
-    if (mode === 'single') {
-      return {
-        toolId: TOOL_ID,
-        mode,
-        inputPaths: [this.form.controls.inputPath.value.trim()],
-        outputDir: this.form.controls.outputDir.value.trim(),
-        options: {
-          outputPath: this.form.controls.outputPath.value.trim(),
-        },
-      };
-    }
-
+    const paths = this.selectedPaths();
     return {
-      toolId: TOOL_ID,
-      mode,
-      inputPaths: [...this.selectedInputPaths],
-      outputDir: this.form.controls.outputDir.value.trim(),
+      toolId: DOCX_TO_PDF_TOOL_ID,
+      mode: paths.length > 1 ? 'batch' : 'single',
+      inputPaths: [...paths],
+      outputDir: this.outputDir(),
       options: {},
     };
   }
 
+  private async refreshPlan(): Promise<boolean> {
+    if (this.selectedPaths().length === 0) {
+      this.planToken += 1;
+      this.plan.set(null);
+      this.planError.set(null);
+      this.planLoading.set(false);
+      return false;
+    }
+
+    const token = (this.planToken += 1);
+    this.planLoading.set(true);
+    this.plan.set(null);
+    this.planError.set(null);
+
+    const response: PlanJobResponseV1 = await this.wailsService
+      .planJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The output could not be planned.',
+        outputs: [],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PLAN_JOB_FAILED',
+          message: 'The output could not be planned.',
+        },
+      }));
+    if (token !== this.planToken) {
+      return false;
+    }
+
+    this.planLoading.set(false);
+
+    if (response.success && !response.error) {
+      this.plan.set(response);
+      return true;
+    }
+
+    const error: JobErrorV1 = response.error ?? {
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PLAN_JOB_FAILED',
+      message: response.message || 'The output could not be planned.',
+    };
+    // Keep the failed plan so the shared plan card can show the error in
+    // context, next to the destination it belongs to.
+    this.plan.set({ ...response, success: false, error });
+    this.planError.set(error);
+    return false;
+  }
+
   private startPolling(): void {
     this.stopPolling();
-    this.isPolling = true;
+    this.isPolling.set(true);
+    void this.pollJobStatus();
     this.pollingTimer = setInterval(() => {
       void this.pollJobStatus();
     }, POLLING_INTERVAL_MS);
-    void this.pollJobStatus();
   }
 
   private stopPolling(): void {
@@ -326,46 +477,182 @@ export class DocDocxToPdf implements OnDestroy {
       clearInterval(this.pollingTimer);
       this.pollingTimer = null;
     }
-    this.isPolling = false;
+    this.isPolling.set(false);
   }
 
   private async pollJobStatus(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       this.stopPolling();
       return;
     }
 
-    const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(this.activeJobId);
+    const response: JobStatusResponseV1 = await this.wailsService
+      .getJobStatusV1(jobId)
+      .catch(() => ({
+        success: false,
+        message: 'The job status could not be read.',
+        found: false,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_FAILED',
+          message: 'The job status could not be read.',
+        },
+      }));
+    if (this.activeJobId() !== jobId) {
+      return;
+    }
+
     if (!response.found || !response.result) {
-      this.statusMessage = this.mapJobError(response.error, response.message);
       this.stopPolling();
+      this.activeJobId.set('');
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_MISSING',
+          message: response.message || 'The job status could not be read.',
+        },
+      );
       return;
     }
 
-    this.jobResult = response.result;
-    this.statusMessage = `${response.result.status}: ${response.result.message}`;
-
-    if (
-      response.result.status === 'success' ||
-      response.result.status === 'failed' ||
-      response.result.status === 'partial_success' ||
-      response.result.status === 'cancelled' ||
-      response.result.status === 'interrupted'
-    ) {
+    this.jobResult.set(response.result);
+    if (this.isTerminalStatus(response.result.status)) {
       this.stopPolling();
-      this.activeJobId = '';
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
     }
   }
 
-  private clearMessages(): void {
-    this.validationMessage = '';
-    this.submitMessage = '';
+  private async loadOutputInfos(): Promise<void> {
+    const paths = this.collectOutputPaths();
+    if (paths.length === 0) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const response: InspectFilesResponseV1 = await this.wailsService
+      .inspectFilesV1(paths)
+      .catch(() => ({
+        success: false,
+        message: 'File sizes could not be read.',
+        files: [],
+      }));
+    if (!response.success) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const infos: Record<string, FileInfoV1> = {};
+    for (const info of response.files) {
+      if (info.path) {
+        infos[info.path] = info;
+      }
+    }
+    this.outputInfos.set(infos);
   }
 
-  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
-    if (!error) {
-      return fallback;
+  private collectOutputPaths(): string[] {
+    const paths = new Set<string>();
+    for (const item of this.jobResult()?.items ?? []) {
+      if (!item.success) {
+        continue;
+      }
+      const outputs =
+        item.outputs && item.outputs.length > 0
+          ? item.outputs
+          : item.outputPath
+            ? [item.outputPath]
+            : [];
+      for (const output of outputs) {
+        if (output) {
+          paths.add(output);
+        }
+      }
     }
-    return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
+    return [...paths];
+  }
+
+  private syncFileItems(): void {
+    const paths = this.selectedPaths();
+    const generation = (this.fileItemsGeneration += 1);
+    const existing = new Map(this.fileItems().map((item) => [item.path, item]));
+    this.fileItems.set(
+      paths.map(
+        (path) => existing.get(path) ?? { path, name: fileName(path) },
+      ),
+    );
+
+    if (paths.length > 0) {
+      void this.enrichFileItems(paths, generation);
+    }
+  }
+
+  private async enrichFileItems(
+    paths: string[],
+    generation: number,
+  ): Promise<void> {
+    try {
+      const response = await this.wailsService.inspectFilesV1(paths);
+      if (generation !== this.fileItemsGeneration || !response.success) {
+        return;
+      }
+
+      const infos = new Map(response.files.map((info) => [info.path, info]));
+      this.fileItems.update((items) =>
+        items.map((item) => {
+          const info = infos.get(item.path);
+          const meta = info ? this.describeFileInfo(info) : '';
+          return meta ? { ...item, meta } : item;
+        }),
+      );
+    } catch {
+      // Inspection is optional: the queue keeps the file name and path.
+    }
+  }
+
+  private describeFileInfo(info: FileInfoV1): string {
+    const parts: string[] = [];
+    if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
+      parts.push(formatBytes(info.sizeBytes));
+    }
+    return parts.join(' · ');
+  }
+
+  private intakeNotice(rejected: string[], duplicates: string[]): Notice | null {
+    const parts: string[] = [];
+
+    if (rejected.length === 1) {
+      parts.push(
+        `${fileName(rejected[0])} wasn't added because it isn't a DOCX file.`,
+      );
+    } else if (rejected.length > 1) {
+      parts.push(`${rejected.length} files weren't added because they aren't DOCX files.`);
+    }
+
+    if (duplicates.length === 1) {
+      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+    } else if (duplicates.length > 1) {
+      parts.push(`${duplicates.length} files are already in the queue.`);
+    }
+
+    return parts.length > 0
+      ? { tone: 'warning', text: parts.join(' ') }
+      : null;
+  }
+
+  /**
+   * Windows and UNC paths are case-insensitive, so the same file dropped with
+   * different casing is still a duplicate there.
+   */
+  private pathKey(path: string): string {
+    const normalized = path.trim().replace(/\\/g, '/');
+    return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//')
+      ? normalized.toLowerCase()
+      : normalized;
+  }
+
+  private isTerminalStatus(status: string): boolean {
+    return TERMINAL_STATUSES.has(status);
   }
 }

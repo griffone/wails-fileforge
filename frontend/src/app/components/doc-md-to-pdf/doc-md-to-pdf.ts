@@ -1,63 +1,86 @@
-import { Component, OnDestroy } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { FolderOpen, LucideAngularModule, ShieldCheck } from 'lucide-angular';
-import { JobCard } from '../job-card/job-card';
+import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import {
+  FolderOpen,
+  LucideAngularModule,
+  ShieldCheck,
+  TriangleAlert,
+  X,
+} from 'lucide-angular';
+
+import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
+import { FileQueue } from '../tool-flow/file-queue';
+import { OutputPlanCard } from '../tool-flow/output-plan-card';
+import { ResultCard } from '../tool-flow/result-card';
+import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  FileInfoV1,
+  InspectFilesResponseV1,
   JobErrorV1,
+  JobExecutionStatusV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
+  PlanJobResponseV1,
+  RunJobResponseV1,
   Wails,
 } from '../../services/wails';
+import { fileExtension, fileName, formatBytes } from '../../utils/format';
 
-const TOOL_ID = 'tool.doc.md_to_pdf';
+const MD_TO_PDF_TOOL_ID = 'tool.doc.md_to_pdf';
 const POLLING_INTERVAL_MS = 1000;
+const BAND_PLAN_DEBOUNCE_MS = 250;
+
+const TERMINAL_STATUSES = new Set<string>([
+  'success',
+  'failed',
+  'partial_success',
+  'cancelled',
+  'interrupted',
+]);
+
+interface Notice {
+  tone: 'warning' | 'danger';
+  text: string;
+}
+
+type BandRole = 'header' | 'footer';
 
 @Component({
   selector: 'app-doc-md-to-pdf',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, LucideAngularModule, JobCard],
+  imports: [
+    ReactiveFormsModule,
+    LucideAngularModule,
+    FileDrop,
+    FileQueue,
+    OutputPlanCard,
+    ResultCard,
+    JobCard,
+  ],
   templateUrl: './doc-md-to-pdf.html',
   styleUrl: './doc-md-to-pdf.css',
 })
 export class DocMdToPdf implements OnDestroy {
+  private readonly destroy$ = new Subject<void>();
+
   readonly shieldIcon = ShieldCheck;
-  readonly folderOpenIcon = FolderOpen;
+  readonly folderIcon = FolderOpen;
+  readonly closeIcon = X;
+  readonly alertIcon = TriangleAlert;
 
-  readonly form;
+  private readonly fb = inject(FormBuilder);
 
-  validationMessage = '';
-  submitMessage = '';
-  statusMessage = '';
-  previewNotice = 'Preview is approximate and not pixel-perfect with final PDF.';
-
-  activeJobId = '';
-  isSubmitting = false;
-  isPolling = false;
-  jobResult: JobResultV1 | null = null;
-
-  private pollingTimer: ReturnType<typeof setInterval> | null = null;
-
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly wailsService: Wails
-  ) {
-    this.form = this.fb.nonNullable.group({
-      inputPath: ['', Validators.required],
-      outputDir: [''],
-      outputPath: [''],
-      header: this.createHeaderFooterGroup(),
-      footer: this.createHeaderFooterGroup(),
-    });
-  }
-
-  ngOnDestroy(): void {
-    this.stopPolling();
-  }
-
-  private createHeaderFooterGroup() {
-    return this.fb.nonNullable.group({
+  /**
+   * Header and footer are the only settings worth a form: they are a fixed
+   * object with seven keys and the backend rejects a partial object.
+   */
+  readonly form = this.fb.nonNullable.group({
+    header: this.fb.nonNullable.group({
       enabled: false,
       text: '',
       align: 'left',
@@ -65,155 +88,369 @@ export class DocMdToPdf implements OnDestroy {
       marginTop: 0,
       marginBottom: 0,
       color: '#000000',
-    });
+    }),
+    footer: this.fb.nonNullable.group({
+      enabled: false,
+      text: '',
+      align: 'left',
+      font: 'helvetica',
+      marginTop: 0,
+      marginBottom: 0,
+      color: '#000000',
+    }),
+  });
+
+  readonly selectedPaths = signal<string[]>([]);
+  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly outputDir = signal('');
+
+  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly planError = signal<JobErrorV1 | null>(null);
+  readonly planLoading = signal(false);
+
+  readonly jobResult = signal<JobResultV1 | null>(null);
+  readonly jobError = signal<JobErrorV1 | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
+
+  readonly isSubmitting = signal(false);
+  readonly isPolling = signal(false);
+  readonly activeJobId = signal('');
+
+  readonly notice = signal<Notice | null>(null);
+  readonly actionMessage = signal('');
+
+  readonly canRun = computed(
+    () =>
+      this.selectedPaths().length === 1 &&
+      !this.isSubmitting() &&
+      !this.isPolling(),
+  );
+
+  readonly primaryLabel = computed(() =>
+    this.isSubmitting() || this.isPolling() ? 'Converting…' : 'Convert to PDF',
+  );
+
+  readonly destinationLabel = computed(
+    () => this.outputDir().trim() || 'Next to the Markdown file',
+  );
+
+  readonly isDefaultDestination = computed(
+    () => this.outputDir().trim().length === 0,
+  );
+
+  readonly terminalJob = computed<JobResultV1 | null>(() => {
+    const job = this.jobResult();
+    return job && this.isTerminalStatus(job.status) ? job : null;
+  });
+
+  readonly showProgress = computed(() => {
+    const job = this.jobResult();
+    return !!job && !this.isTerminalStatus(job.status);
+  });
+
+  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
+    const error = this.jobError();
+    return error
+      ? describeToolError(error, 'The conversion could not start.')
+      : null;
+  });
+
+  private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private planToken = 0;
+  private fileItemsGeneration = 0;
+
+  constructor(private readonly wailsService: Wails) {
+    this.form.valueChanges
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => this.schedulePlanRefresh());
+
+    this.wailsService.jobProgress$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.activeJobId()) {
+          return;
+        }
+
+        const current = this.jobResult();
+        if (!current) {
+          return;
+        }
+
+        this.jobResult.set({
+          ...current,
+          message: event.progress.message,
+          progress: event.progress,
+          // Wait for the status endpoint to settle the final items. The event
+          // can arrive before the job store has the complete result.
+          status: this.isTerminalStatus(event.status)
+            ? current.status
+            : (event.status as JobExecutionStatusV1),
+        });
+
+        if (this.isTerminalStatus(event.status)) {
+          void this.pollJobStatus();
+        }
+      });
   }
 
-  async validate(): Promise<void> {
-    this.clearMessages();
-    const localError = this.localValidationError();
-    if (localError) {
-      this.validationMessage = localError;
+  ngOnDestroy(): void {
+    this.stopPolling();
+    this.clearPlanRefreshTimer();
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  fileCountLabel(): string {
+    return this.selectedPaths().length === 1 ? '1 Markdown' : 'No file';
+  }
+
+  onPathsSelected(paths: string[]): void {
+    const incoming = (Array.isArray(paths) ? paths : [])
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (incoming.length === 0) {
       return;
     }
 
-    const response = await this.wailsService.validateJobV1(this.buildRequest());
-    this.validationMessage = response.valid
-      ? 'Validation OK. Ready to run Markdown → PDF.'
-      : this.mapJobError(response.error, response.message);
+    const supported = incoming.filter((path) => this.isMarkdown(path));
+    const rejected = incoming.filter((path) => !this.isMarkdown(path));
+    const chosen = supported[0] ?? '';
+    const previous = this.selectedPaths()[0] ?? '';
+
+    this.notice.set(
+      this.intakeNotice(rejected, chosen, previous, supported.length),
+    );
+
+    if (!chosen) {
+      return;
+    }
+
+    if (chosen === previous) {
+      return;
+    }
+
+    this.actionMessage.set('');
+    this.selectedPaths.set([chosen]);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  async chooseFiles(): Promise<void> {
+    const path = (await this.wailsService.openFileDialog()).trim();
+    if (path) {
+      this.onPathsSelected([path]);
+    }
+  }
+
+  clear(): void {
+    if (this.selectedPaths().length === 0) {
+      return;
+    }
+    this.selectedPaths.set([]);
+    this.notice.set(null);
+    this.actionMessage.set('');
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  removeFile(path: string): void {
+    if (this.selectedPaths()[0] !== path) {
+      return;
+    }
+    this.selectedPaths.set([]);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  async chooseOutputFolder(): Promise<void> {
+    const directory = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!directory) {
+      return;
+    }
+    this.outputDir.set(directory);
+    this.actionMessage.set('');
+    await this.refreshPlan();
+  }
+
+  useMarkdownFolder(): void {
+    if (this.outputDir() === '') {
+      return;
+    }
+    this.outputDir.set('');
+    void this.refreshPlan();
   }
 
   async run(): Promise<void> {
-    this.clearMessages();
-    this.jobResult = null;
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.submitMessage = localError;
+    if (!this.canRun()) {
       return;
     }
 
-    const request = this.buildRequest();
-    this.isSubmitting = true;
+    this.actionMessage.set('');
 
-    const validation = await this.wailsService.validateJobV1(request);
-    if (!validation.valid) {
-      this.submitMessage = this.mapJobError(validation.error, validation.message);
-      this.isSubmitting = false;
+    if (this.planLoading() || !this.plan()?.success) {
+      const planned = await this.refreshPlan();
+      if (!planned) {
+        return;
+      }
+    }
+
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(true);
+
+    const response: RunJobResponseV1 = await this.wailsService
+      .runJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The conversion could not start.',
+        jobId: '',
+        status: 'failed' as const,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: 'The conversion could not start.',
+        },
+      }));
+    if (!response.success || !response.jobId) {
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: response.message || 'The conversion could not start.',
+        },
+      );
+      this.isSubmitting.set(false);
       return;
     }
 
-    const runResponse = await this.wailsService.runJobV1(request);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.submitMessage = this.mapJobError(runResponse.error, runResponse.message);
-      this.isSubmitting = false;
-      return;
-    }
-
-    this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
+    this.activeJobId.set(response.jobId);
+    this.jobResult.set({
+      jobId: response.jobId,
+      success: false,
+      message: 'Waiting to start',
+      toolId: MD_TO_PDF_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total: 1,
+        stage: 'queued',
+        message: 'Waiting to start',
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isSubmitting.set(false);
+    this.isPolling.set(true);
     this.startPolling();
-    this.isSubmitting = false;
   }
 
   async cancel(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      return;
+    }
+    const response = await this.wailsService.cancelJobV1(jobId);
+    if (!response.success) {
+      this.actionMessage.set(
+        response.message || 'The job could not be cancelled.',
+      );
+    }
+  }
+
+  async onOpen(path: string): Promise<void> {
+    const response = await this.wailsService.openPath(path);
+    this.actionMessage.set(
+      response.success ? '' : response.message || 'The file could not be opened.',
+    );
+  }
+
+  async onReveal(path: string): Promise<void> {
+    const response = await this.wailsService.revealInFolder(path);
+    this.actionMessage.set(
+      response.success
+        ? ''
+        : response.message || 'The folder could not be opened.',
+    );
+  }
+
+  /** A failed conversion has no partial queue to retry: rerun the same file. */
+  async retry(): Promise<void> {
+    if (!this.canRun()) {
       return;
     }
 
-    const response = await this.wailsService.cancelJobV1(this.activeJobId);
-    this.statusMessage = response.success
-      ? 'Cancel requested.'
-      : this.mapJobError(response.error, response.message);
-  }
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
 
-  async selectMarkdownFromDialog(): Promise<void> {
-    const selectedPath = (await this.wailsService.openFileDialog()).trim();
-    if (!selectedPath) {
-      return;
-    }
-    this.form.patchValue({ inputPath: selectedPath });
-  }
-
-  async selectOutputDirectory(): Promise<void> {
-    const selectedDir = (await this.wailsService.openDirectoryDialog()).trim();
-    if (!selectedDir) {
+    const planned = await this.refreshPlan();
+    if (!planned) {
       return;
     }
 
-    this.form.patchValue({ outputDir: selectedDir });
+    await this.run();
   }
 
-  previewHeaderText(): string {
-    return this.previewBlockText('header');
+  reset(): void {
+    this.stopPolling();
+    this.clearPlanRefreshTimer();
+    this.planToken += 1;
+    this.fileItemsGeneration += 1;
+
+    this.selectedPaths.set([]);
+    this.fileItems.set([]);
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(false);
+    this.activeJobId.set('');
+    this.notice.set(null);
+    this.actionMessage.set('');
   }
 
-  previewFooterText(): string {
-    return this.previewBlockText('footer');
+  previewEnabled(role: BandRole): boolean {
+    return this.bandGroup(role).enabled.value;
   }
 
-  previewAlign(role: 'header' | 'footer'): string {
-    const value = role === 'header' ? this.form.controls.header.controls.align.value : this.form.controls.footer.controls.align.value;
-    return value;
+  previewText(role: BandRole): string {
+    const text = this.bandGroup(role).text.value;
+    const now = new Date();
+    const date = `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(
+      2,
+      '0',
+    )}-${`${now.getDate()}`.padStart(2, '0')}`;
+
+    return text
+      .replaceAll('{page}', '1')
+      .replaceAll('{totalPages}', '?')
+      .replaceAll('{date}', date)
+      .replaceAll('{fileName}', this.previewFileName() || 'document.md');
   }
 
-  previewStyle(role: 'header' | 'footer'): Record<string, string> {
-    const group = role === 'header' ? this.form.controls.header.controls : this.form.controls.footer.controls;
+  previewStyle(role: BandRole): Record<string, string> {
+    const group = this.bandGroup(role);
     return {
       color: group.color.value,
-      fontFamily: this.previewFont(group.font.value),
-      textAlign: group.align.value,
-      marginTop: `${group.marginTop.value}px`,
-      marginBottom: `${group.marginBottom.value}px`,
+      'font-family': this.previewFont(group.font.value),
+      'text-align': group.align.value,
+      'margin-top': `${group.marginTop.value}px`,
+      'margin-bottom': `${group.marginBottom.value}px`,
     };
   }
 
-  jobStatusLabel(): string {
-    switch (this.jobResult?.status) {
-      case 'success':
-        return 'Completed';
-      case 'partial_success':
-        return 'Completed with errors';
-      case 'failed':
-        return 'Failed';
-      case 'cancelled':
-        return 'Cancelled';
-      case 'interrupted':
-        return 'Interrupted';
-      case 'running':
-        return 'Running';
-      case 'queued':
-        return 'Queued';
-      default:
-        return this.jobResult?.status ?? 'Unknown';
-    }
+  private bandGroup(role: BandRole) {
+    return role === 'header'
+      ? this.form.controls.header.controls
+      : this.form.controls.footer.controls;
   }
 
-  jobStatusBadgeClass(): string {
-    switch (this.jobResult?.status) {
-      case 'success':
-        return 'badge badge-success';
-      case 'partial_success':
-        return 'badge badge-warning';
-      case 'failed':
-      case 'cancelled':
-      case 'interrupted':
-        return 'badge badge-danger';
-      default:
-        return 'badge badge-neutral';
-    }
-  }
-
-  jobSummaryText(): string {
-    const items = this.jobResult?.items ?? [];
-    if (items.length === 0) {
-      return '';
-    }
-
-    const succeeded = items.filter((item) => item.success).length;
-    const failed = items.length - succeeded;
-    return failed > 0
-      ? `${succeeded} of ${items.length} files succeeded · ${failed} failed`
-      : `${succeeded} of ${items.length} files succeeded`;
+  private previewFileName(): string {
+    return fileName(this.selectedPaths()[0] ?? '');
   }
 
   private previewFont(font: string): string {
@@ -227,91 +464,16 @@ export class DocMdToPdf implements OnDestroy {
     }
   }
 
-  private previewBlockText(role: 'header' | 'footer'): string {
-    const text = role === 'header' ? this.form.controls.header.controls.text.value : this.form.controls.footer.controls.text.value;
-    const now = new Date();
-    const date = `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, '0')}-${`${now.getDate()}`.padStart(2, '0')}`;
-    const fileName = this.fileNameFromPath(this.form.controls.inputPath.value);
-
-    return text
-      .replaceAll('{page}', '1')
-      .replaceAll('{totalPages}', '?')
-      .replaceAll('{date}', date)
-      .replaceAll('{fileName}', fileName || 'document.md');
-  }
-
-  private fileNameFromPath(path: string): string {
-    const normalized = path.replace(/\\/g, '/');
-    const idx = normalized.lastIndexOf('/');
-    return idx >= 0 ? normalized.slice(idx + 1) : normalized;
-  }
-
-  private localValidationError(): string {
-    const inputPath = this.form.controls.inputPath.value.trim();
-    if (!inputPath) {
-      return 'inputPath is required.';
-    }
-
-    if (!inputPath.toLowerCase().endsWith('.md') && !inputPath.toLowerCase().endsWith('.markdown')) {
-      return 'inputPath must be .md or .markdown.';
-    }
-
-    const outputPath = this.form.controls.outputPath.value.trim();
-    if (outputPath && !outputPath.toLowerCase().endsWith('.pdf')) {
-      return 'outputPath must end in .pdf.';
-    }
-
-    const headerError = this.validateHeaderFooterBlock('header');
-    if (headerError) {
-      return headerError;
-    }
-
-    const footerError = this.validateHeaderFooterBlock('footer');
-    if (footerError) {
-      return footerError;
-    }
-
-    return '';
-  }
-
-  private validateHeaderFooterBlock(role: 'header' | 'footer'): string {
-    const group = role === 'header' ? this.form.controls.header.controls : this.form.controls.footer.controls;
-    const blockName = role;
-
-    if (!['left', 'center', 'right'].includes(group.align.value)) {
-      return `${blockName}.align must be left/center/right.`;
-    }
-    if (!['helvetica', 'times', 'courier'].includes(group.font.value)) {
-      return `${blockName}.font must be helvetica/times/courier.`;
-    }
-    if (!/^#[0-9a-fA-F]{6}$/.test(group.color.value)) {
-      return `${blockName}.color must use #RRGGBB.`;
-    }
-    if (group.marginTop.value < 0 || group.marginBottom.value < 0) {
-      return `${blockName}.marginTop/marginBottom must be >= 0.`;
-    }
-
-    const placeholders = group.text.value.match(/\{[^}]+\}/g) ?? [];
-    for (const ph of placeholders) {
-      if (!['{page}', '{totalPages}', '{date}', '{fileName}'].includes(ph)) {
-        return `${blockName}.text has unsupported placeholder: ${ph}`;
-      }
-    }
-
-    return '';
-  }
-
   private buildRequest(): JobRequestV1 {
-    const header = this.form.controls.header.controls;
-    const footer = this.form.controls.footer.controls;
+    const header = this.bandGroup('header');
+    const footer = this.bandGroup('footer');
 
     return {
-      toolId: TOOL_ID,
+      toolId: MD_TO_PDF_TOOL_ID,
       mode: 'single',
-      inputPaths: [this.form.controls.inputPath.value.trim()],
-      outputDir: this.form.controls.outputDir.value.trim(),
+      inputPaths: [this.selectedPaths()[0] ?? ''],
+      outputDir: this.outputDir(),
       options: {
-        outputPath: this.form.controls.outputPath.value.trim(),
         header: {
           enabled: header.enabled.value,
           text: header.text.value,
@@ -334,13 +496,77 @@ export class DocMdToPdf implements OnDestroy {
     };
   }
 
+  private async refreshPlan(): Promise<boolean> {
+    if (this.selectedPaths().length !== 1) {
+      this.planToken += 1;
+      this.plan.set(null);
+      this.planError.set(null);
+      this.planLoading.set(false);
+      return false;
+    }
+
+    const token = (this.planToken += 1);
+    this.planLoading.set(true);
+    this.plan.set(null);
+    this.planError.set(null);
+
+    const response: PlanJobResponseV1 = await this.wailsService
+      .planJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The output could not be planned.',
+        outputs: [],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PLAN_JOB_FAILED',
+          message: 'The output could not be planned.',
+        },
+      }));
+    if (token !== this.planToken) {
+      return false;
+    }
+
+    this.planLoading.set(false);
+
+    if (response.success && !response.error) {
+      this.plan.set(response);
+      return true;
+    }
+
+    const error: JobErrorV1 = response.error ?? {
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PLAN_JOB_FAILED',
+      message: response.message || 'The output could not be planned.',
+    };
+    // Keep the failed plan so the shared plan card can show the error in
+    // context, next to the destination it belongs to.
+    this.plan.set({ ...response, success: false, error });
+    this.planError.set(error);
+    return false;
+  }
+
+  private schedulePlanRefresh(): void {
+    this.clearPlanRefreshTimer();
+    this.planRefreshTimer = setTimeout(() => {
+      this.planRefreshTimer = null;
+      void this.refreshPlan();
+    }, BAND_PLAN_DEBOUNCE_MS);
+  }
+
+  private clearPlanRefreshTimer(): void {
+    if (this.planRefreshTimer) {
+      clearTimeout(this.planRefreshTimer);
+      this.planRefreshTimer = null;
+    }
+  }
+
   private startPolling(): void {
     this.stopPolling();
-    this.isPolling = true;
+    this.isPolling.set(true);
+    void this.pollJobStatus();
     this.pollingTimer = setInterval(() => {
       void this.pollJobStatus();
     }, POLLING_INTERVAL_MS);
-    void this.pollJobStatus();
   }
 
   private stopPolling(): void {
@@ -348,46 +574,176 @@ export class DocMdToPdf implements OnDestroy {
       clearInterval(this.pollingTimer);
       this.pollingTimer = null;
     }
-    this.isPolling = false;
+    this.isPolling.set(false);
   }
 
   private async pollJobStatus(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       this.stopPolling();
       return;
     }
 
-    const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(this.activeJobId);
+    const response: JobStatusResponseV1 = await this.wailsService
+      .getJobStatusV1(jobId)
+      .catch(() => ({
+        success: false,
+        message: 'The job status could not be read.',
+        found: false,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_FAILED',
+          message: 'The job status could not be read.',
+        },
+      }));
+    if (this.activeJobId() !== jobId) {
+      return;
+    }
+
     if (!response.found || !response.result) {
-      this.statusMessage = this.mapJobError(response.error, response.message);
       this.stopPolling();
+      this.activeJobId.set('');
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_MISSING',
+          message: response.message || 'The job status could not be read.',
+        },
+      );
       return;
     }
 
-    this.jobResult = response.result;
-    this.statusMessage = `${response.result.status}: ${response.result.message}`;
-
-    if (
-      response.result.status === 'success' ||
-      response.result.status === 'failed' ||
-      response.result.status === 'partial_success' ||
-      response.result.status === 'cancelled' ||
-      response.result.status === 'interrupted'
-    ) {
+    this.jobResult.set(response.result);
+    if (this.isTerminalStatus(response.result.status)) {
       this.stopPolling();
-      this.activeJobId = '';
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
     }
   }
 
-  private clearMessages(): void {
-    this.validationMessage = '';
-    this.submitMessage = '';
+  private async loadOutputInfos(): Promise<void> {
+    const paths = this.collectOutputPaths();
+    if (paths.length === 0) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const response: InspectFilesResponseV1 = await this.wailsService
+      .inspectFilesV1(paths)
+      .catch(() => ({
+        success: false,
+        message: 'File sizes could not be read.',
+        files: [],
+      }));
+    if (!response.success) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const infos: Record<string, FileInfoV1> = {};
+    for (const info of response.files) {
+      if (info.path) {
+        infos[info.path] = info;
+      }
+    }
+    this.outputInfos.set(infos);
   }
 
-  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
-    if (!error) {
-      return fallback;
+  private collectOutputPaths(): string[] {
+    const paths = new Set<string>();
+    for (const item of this.jobResult()?.items ?? []) {
+      if (!item.success) {
+        continue;
+      }
+      const outputs =
+        item.outputs && item.outputs.length > 0
+          ? item.outputs
+          : item.outputPath
+            ? [item.outputPath]
+            : [];
+      for (const output of outputs) {
+        if (output) {
+          paths.add(output);
+        }
+      }
     }
-    return `${error.code}${error.detail_code ? ` [${error.detail_code}]` : ''}: ${error.message}`;
+    return [...paths];
+  }
+
+  private syncFileItems(): void {
+    const paths = this.selectedPaths();
+    const generation = (this.fileItemsGeneration += 1);
+    this.fileItems.set(paths.map((path) => ({ path, name: fileName(path) })));
+
+    if (paths.length > 0) {
+      void this.enrichFileItems(paths, generation);
+    }
+  }
+
+  private async enrichFileItems(
+    paths: string[],
+    generation: number,
+  ): Promise<void> {
+    try {
+      const response = await this.wailsService.inspectFilesV1(paths);
+      if (generation !== this.fileItemsGeneration || !response.success) {
+        return;
+      }
+
+      const infos = new Map(response.files.map((info) => [info.path, info]));
+      this.fileItems.update((items) =>
+        items.map((item) => {
+          const info = infos.get(item.path);
+          const meta = info ? this.describeFileInfo(info) : '';
+          return meta ? { ...item, meta } : item;
+        }),
+      );
+    } catch {
+      // Inspection is optional: the queue keeps the file name and path.
+    }
+  }
+
+  private describeFileInfo(info: FileInfoV1): string {
+    const parts: string[] = [];
+    if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
+      parts.push(formatBytes(info.sizeBytes));
+    }
+    return parts.join(' · ');
+  }
+
+  private intakeNotice(
+    rejected: string[],
+    chosen: string,
+    previous: string,
+    supportedCount: number,
+  ): Notice | null {
+    const parts: string[] = [];
+
+    if (rejected.length === 1) {
+      parts.push(
+        `${fileName(rejected[0])} wasn't added because it isn't a Markdown file.`,
+      );
+    } else if (rejected.length > 1) {
+      parts.push(`${rejected.length} files weren't added because they aren't Markdown files.`);
+    }
+
+    if (supportedCount > 1) {
+      parts.push(`Only one Markdown file is used. Using ${fileName(chosen)}.`);
+    } else if (previous && chosen && previous !== chosen) {
+      parts.push(`Replaced ${fileName(previous)}.`);
+    }
+
+    return parts.length > 0
+      ? { tone: 'warning', text: parts.join(' ') }
+      : null;
+  }
+
+  private isMarkdown(path: string): boolean {
+    const extension = fileExtension(path).toLowerCase();
+    return extension === 'md' || extension === 'markdown';
+  }
+
+  private isTerminalStatus(status: string): boolean {
+    return TERMINAL_STATUSES.has(status);
   }
 }

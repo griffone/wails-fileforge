@@ -5,8 +5,7 @@
         <p class="eyebrow">DOCUMENTS</p>
         <h1 class="page-title">DOCX → <em>PDF</em></h1>
         <p class="page-sub">
-          Convert one .docx file or a batch queue with LibreOffice and an automatic Pandoc fallback —
-          local-first, so your documents never leave this machine.
+          Convert one DOCX file or a whole batch into PDF. Everything runs on this machine.
         </p>
       </div>
 
@@ -18,206 +17,151 @@
   </header>
 
   <div class="page-stack">
-    <div class="setup-grid">
-      <section class="panel" aria-labelledby="docx-input-title">
-        <header class="panel-head">
-          <div class="panel-head-copy">
-            <h2 id="docx-input-title" class="panel-title">Input</h2>
-            <p class="panel-sub">One file or a queue, .docx only.</p>
+    <div class="flow-grid">
+      <section class="panel intake-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">DOCX files</h2>
+            <p class="panel-sub">One file converts alone; drop more to run them as a batch.</p>
           </div>
-          <span class="badge badge-neutral">{{ inputCountLabel() }}</span>
-        </header>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+        </div>
 
         <div class="panel-body">
-          <div class="field">
-            <label class="label" for="docx-mode">Mode</label>
-            <select
-              id="docx-mode"
-              class="select"
-              [value]="form.controls.mode.value"
-              (change)="form.controls.mode.setValue($any($event.target).value); onModeChanged()"
+          <app-file-drop
+            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            title="Drop DOCX files here"
+            hint="DOCX only"
+            ariaLabel="Drop or choose DOCX files to convert"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
+          <div class="toolbar" role="group" aria-label="DOCX selection actions">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+              <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Choose files
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
             >
-              <option value="single">Single file</option>
-              <option value="batch">Batch queue</option>
-            </select>
+              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Clear
+            </button>
           </div>
 
-          <ng-container *ngIf="currentMode() === 'single'; else batchInputs">
-            <div class="field">
-              <label class="label" for="docx-input-path">Input DOCX</label>
-              <div class="path-row">
-                <input
-                  id="docx-input-path"
-                  class="input"
-                  type="text"
-                  [value]="form.controls.inputPath.value"
-                  (input)="form.patchValue({ inputPath: $any($event.target).value })"
-                  placeholder="/path/file.docx"
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-describedby="docx-input-help"
-                />
-                <button type="button" class="btn btn-secondary" (click)="selectDocxFromDialog()">
-                  <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                  Browse
-                </button>
-              </div>
-              <p id="docx-input-help" class="field-help">Accepts .docx only.</p>
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ note.text }}</span>
             </div>
-          </ng-container>
+          }
 
-          <ng-template #batchInputs>
-            <div class="batch-stack">
-              <div class="toolbar" role="group" aria-label="Batch DOCX selection actions">
-                <button type="button" class="btn btn-secondary btn-sm" (click)="selectDocxFromDialog()">
-                  Add one DOCX
-                </button>
-                <button type="button" class="btn btn-secondary btn-sm" (click)="selectMultipleDocxFromDialog()">
-                  Add multiple DOCX
-                </button>
-              </div>
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
 
-              <ul
-                *ngIf="selectedInputPaths.length > 0; else emptyBatch"
-                class="file-list"
-                aria-label="Queued DOCX files"
-              >
-                <li *ngFor="let input of selectedInputPaths; let i = index" class="file-row">
-                  <span class="file-index mono">{{ i + 1 }}</span>
-                  <span class="file-path mono">{{ input }}</span>
-                  <button
-                    type="button"
-                    class="icon-btn file-remove"
-                    [attr.aria-label]="'Remove ' + input"
-                    (click)="removeBatchInput(i)"
-                  >
-                    <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                  </button>
-                </li>
-              </ul>
-
-              <ng-template #emptyBatch>
-                <div class="empty-state file-empty">
-                  <strong>No DOCX files queued</strong>
-                  <span>Add at least one .docx file to run a batch conversion.</span>
-                </div>
-              </ng-template>
-            </div>
-          </ng-template>
-
-          <div class="banner banner-warning">
-            <div>
-              <strong>Standard fidelity.</strong> Complex documents may differ in layout (tables,
-              fonts, spacing). You will be asked to confirm before the job runs.
-            </div>
+          <div class="banner banner-info error-banner">
+            <lucide-icon [img]="infoIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            <span>Standard fidelity. Complex layouts may shift, but the conversion runs locally.</span>
           </div>
         </div>
       </section>
 
-      <section class="panel" aria-labelledby="docx-output-title">
-        <header class="panel-head">
-          <div class="panel-head-copy">
-            <h2 id="docx-output-title" class="panel-title">Output</h2>
-            <p class="panel-sub">Batch mode requires a destination folder.</p>
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Output</h2>
+            <p class="panel-sub">Check the exact file names and where they will be saved.</p>
           </div>
-        </header>
+        </div>
 
         <div class="panel-body">
-          <div class="field">
-            <label class="label" for="docx-output-dir">
-              Output directory
-              <span *ngIf="currentMode() === 'single'" class="label-hint">optional</span>
-            </label>
-            <div class="path-row">
-              <input
-                id="docx-output-dir"
-                class="input"
-                type="text"
-                [value]="form.controls.outputDir.value"
-                (input)="form.patchValue({ outputDir: $any($event.target).value })"
-                placeholder="/path/out"
-                autocomplete="off"
-                spellcheck="false"
-                aria-describedby="docx-output-dir-help"
-              />
-              <button type="button" class="btn btn-secondary" (click)="selectOutputDirectory()">
-                <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Browse
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
+                Use each DOCX file's folder
               </button>
             </div>
-            <p id="docx-output-dir-help" class="field-help">
-              {{ currentMode() === 'batch' ? 'Required in batch mode.' : 'Defaults to the source folder.' }}
-            </p>
-          </div>
+          }
 
-          <div *ngIf="currentMode() === 'single'" class="field">
-            <label class="label" for="docx-output-path">
-              Output file
-              <span class="label-hint">optional</span>
-            </label>
-            <input
-              id="docx-output-path"
-              class="input"
-              type="text"
-              [value]="form.controls.outputPath.value"
-              (input)="form.patchValue({ outputPath: $any($event.target).value })"
-              placeholder="/path/out/file.pdf"
-              autocomplete="off"
-              spellcheck="false"
-              aria-describedby="docx-output-help"
-            />
-            <p id="docx-output-help" class="field-help">
-              When empty, the backend writes with non-destructive naming: *_docx2pdf, then -2/-3 on
-              collisions.
-            </p>
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (selectedPaths().length === 0) {
+            <p class="action-helper">Add at least one DOCX file to convert.</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            }
           </div>
         </div>
       </section>
     </div>
 
-    <section class="run-bar" aria-label="Run controls">
-      <div class="actions">
-        <button type="button" class="btn btn-secondary" (click)="validate()">Check settings</button>
-        <button type="button" class="btn btn-primary" [disabled]="isSubmitting" (click)="run()">
-          {{ isSubmitting ? 'Submitting…' : 'Run DOCX → PDF' }}
-        </button>
-        <button
-          type="button"
-          class="btn btn-ghost btn-cancel"
-          [disabled]="!activeJobId || !isPolling"
-          (click)="cancel()"
-        >
-          Cancel job
-        </button>
-      </div>
-
-      <div *ngIf="validationMessage" class="banner banner-info" role="alert">
-        {{ validationMessage }}
-      </div>
-
-      <div *ngIf="submitMessage" class="banner banner-info" role="status" aria-live="polite">
-        {{ submitMessage }}
-      </div>
-
-      <div *ngIf="statusMessage" class="banner banner-warning" role="status" aria-live="polite">
-        {{ statusMessage }}
-      </div>
-    </section>
-
-    <section *ngIf="jobResult" class="panel job-panel" aria-labelledby="docx-job-title">
-      <header class="panel-head">
-        <div class="panel-head-copy">
-          <h2 id="docx-job-title" class="panel-title">Job status</h2>
-          <p class="panel-sub">Live result from the local job queue.</p>
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Conversion progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
         </div>
-        <span [class]="jobStatusBadgeClass()">{{ jobStatusLabel() }}</span>
-      </header>
+      </section>
+    }
 
-      <div class="panel-body">
-        <p class="job-id mono">{{ jobResult.jobId }}</p>
-        <app-job-card [job]="jobResult"></app-job-card>
-        <p *ngIf="jobResult.items.length > 0" class="job-summary mono">{{ jobSummaryText() }}</p>
-      </div>
-    </section>
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="document"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
   </div>
 </div>

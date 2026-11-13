@@ -14,7 +14,11 @@ import (
 	"fileforge-desktop/internal/models"
 )
 
-const ToolIDDocMDToPDFV1 = "tool.doc.md_to_pdf"
+const (
+	ToolIDDocMDToPDFV1 = "tool.doc.md_to_pdf"
+
+	docPlannedOutputKindFile = "file"
+)
 
 var placeholderPattern = regexp.MustCompile(`\{([^}]+)\}`)
 
@@ -60,9 +64,46 @@ func (t *MDToPDFTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 
 	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
 }
 
-func (t *MDToPDFTool) Validate(_ context.Context, req models.JobRequestV1) *models.JobErrorV1 {
-	_, jobErr := parseAndPrepare(req)
-	return jobErr
+func (t *MDToPDFTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+	_, planErr := t.Plan(ctx, req)
+	return planErr
+}
+
+// Plan resolves the Markdown to PDF destination without writing anything.
+// Execution reuses parseAndPrepare, so the plan and the run resolve the exact
+// same collision-safe output path.
+func (t *MDToPDFTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+
+	prepared, jobErr := parseAndPrepare(req)
+	if jobErr != nil {
+		return docPlanFailure(plan, jobErr)
+	}
+
+	naturalPath := naturalMDOutputPath(prepared.inputPath, req.OutputDir, optionString(req.Options, "outputPath"))
+	adjusted := !sameFile(naturalPath, prepared.outputPath)
+
+	planned := models.PlannedOutputV1{
+		InputPath:  prepared.inputPath,
+		OutputPath: prepared.outputPath,
+		OutputKind: docPlannedOutputKindFile,
+	}
+	if adjusted {
+		planned.Adjusted = true
+		planned.Warnings = append(planned.Warnings, fmt.Sprintf(
+			"%s already exists. Saving as %s.",
+			filepath.Base(naturalPath),
+			filepath.Base(prepared.outputPath),
+		))
+	}
+
+	plan.Success = true
+	plan.Message = "Ready to convert 1 Markdown document."
+	plan.Outputs = []models.PlannedOutputV1{planned}
+	plan.Warnings = planned.Warnings
+	plan.EffectiveOptions = mdEffectiveOptions(req.Options, prepared.renderConfig)
+
+	return plan, nil
 }
 
 func (t *MDToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
@@ -151,21 +192,86 @@ func parseAndPrepare(req models.JobRequestV1) (preparedRequest, *models.JobError
 }
 
 func validateInputPath(inputPath string) *models.JobErrorV1 {
+	name := filepath.Base(inputPath)
+
 	info, err := os.Stat(inputPath)
 	if err != nil {
-		return models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_NOT_FOUND", err.Error(), nil)
+		return models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_NOT_FOUND", fmt.Sprintf("%s was not found.", name), map[string]any{"inputPath": inputPath})
 	}
 
 	if info.IsDir() {
-		return models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_IS_DIR", "input path must be a markdown file", nil)
+		return models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_IS_DIR", fmt.Sprintf("%s is a folder, not a Markdown file.", name), map[string]any{"inputPath": inputPath})
 	}
 
 	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(inputPath)), ".")
 	if ext != "md" && ext != "markdown" {
-		return models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_UNSUPPORTED", "input file must have .md or .markdown extension", nil)
+		return models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_UNSUPPORTED", fmt.Sprintf("%s must be a .md or .markdown file.", name), map[string]any{"inputPath": inputPath})
 	}
 
 	return nil
+}
+
+// naturalMDOutputPath returns the output path the user would expect before any
+// collision suffix is applied: the explicit outputPath when given, otherwise
+// <stem>_md2pdf.pdf inside the target directory.
+func naturalMDOutputPath(inputPath, outputDir, rawOutputPath string) string {
+	if explicit := strings.TrimSpace(rawOutputPath); explicit != "" {
+		return filepath.Clean(explicit)
+	}
+
+	targetDir := strings.TrimSpace(outputDir)
+	if targetDir == "" {
+		targetDir = filepath.Dir(inputPath)
+	}
+
+	base := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	if strings.TrimSpace(base) == "" {
+		base = "document"
+	}
+
+	return filepath.Join(targetDir, base+"_md2pdf.pdf")
+}
+
+// mdEffectiveOptions summarizes the resolved header/footer configuration. It
+// stays empty when the request did not configure either of them.
+func mdEffectiveOptions(options map[string]any, cfg engine.RenderConfig) map[string]any {
+	effective := map[string]any{}
+
+	if raw, ok := options["header"]; ok && raw != nil {
+		effective["header"] = headerFooterSummary(cfg.Header)
+	}
+	if raw, ok := options["footer"]; ok && raw != nil {
+		effective["footer"] = headerFooterSummary(cfg.Footer)
+	}
+
+	if len(effective) == 0 {
+		return nil
+	}
+
+	return effective
+}
+
+func headerFooterSummary(cfg engine.HeaderFooterConfig) map[string]any {
+	return map[string]any{
+		"enabled":      cfg.Enabled,
+		"text":         cfg.Text,
+		"align":        cfg.Align,
+		"font":         cfg.Font,
+		"marginTop":    cfg.MarginTop,
+		"marginBottom": cfg.MarginBottom,
+		"color":        cfg.Color,
+	}
+}
+
+// docPlanFailure attaches a canonical error to a plan that could not resolve.
+func docPlanFailure(plan models.PlanJobResponseV1, jobErr *models.JobErrorV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+	plan.Success = false
+	plan.Error = jobErr
+	if jobErr != nil && jobErr.Message != "" {
+		plan.Message = jobErr.Message
+	}
+
+	return plan, jobErr
 }
 
 func parseHeaderFooterOption(options map[string]any, key string) (engine.HeaderFooterConfig, *models.JobErrorV1) {
