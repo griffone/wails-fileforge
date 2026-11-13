@@ -1,6 +1,6 @@
 # FileForge UI/UX Overhaul — "Forge Workbench"
 
-- Status: in progress
+- Status: complete (pending user review)
 - Created: 2026-11-03
 - Feature branch: `feat/ui-ux-forge-overhaul`
 - Delivery strategy: `ask-on-risk` (no push/PR without explicit user request)
@@ -76,8 +76,8 @@ Out of scope:
 - [x] T07 System page — Tool Catalog restyle and status presentation.
 - [x] T08 Flagship pages — Image Converter and PDF Merge composition.
 - [x] T09 Remaining pages — crop, annotate, split, PDF crop, docs, video pages.
-- [ ] T10 A11y + QA — labels, live regions, focus, keyboard; build and tests.
-- [ ] T11 Docs + close — update repo docs, verify final state, report.
+- [x] T10 A11y + QA — labels, live regions, focus, keyboard; build and tests.
+- [x] T11 Docs + close — update repo docs, verify final state, report.
 
 ## Routing and delegation log
 
@@ -95,3 +95,15 @@ Out of scope:
 - 2026-11-03: T06–T07 complete. FileDrop rewritten (English copy, CloudUpload tile, Space key, drag state, described-by hint); JobCard extracted to template/CSS with a single progress bar, stage tones and accessible progress semantics; ToolExecutionPanel rebuilt around panels/field grid/banners, Spanish copy normalized to English; ToolCatalog rebuilt as System status with runtime panel, registry-driven cards, loading/error/empty states. Targeted specs: 21/21.
 - 2026-11-03: T08 complete. Image Convert and PDF Merge rebuilt as two-column workbenches with page headers, file/queue panels, styled settings/output panels and consistent banners. Fixed a real `File[]`/`FileList` crash in PDF Merge, fixed the Image Converter progress test subject, normalized all PDF Merge UI copy to English, and added modal Escape/focus handling. Targeted specs: 42/42; full suite 151/153 with only the two pre-existing PdfRenderer fixture failures.
 - 2026-11-03: T09 complete. All remaining pages (image crop/annotate, PDF split/crop, Markdown/DOCX → PDF, video convert/trim/merge) now use the shared page header, panel, field, banner and button system. Removed per-page back links, duplicate progress cards and raw preview colors; translated the remaining Spanish copy; added real Job status panels to both document tools; fixed label associations and icon-button labels. Targeted specs: 66/66; full suite 160/162 (two pre-existing PdfRenderer fixture failures).
+- 2026-11-03: T10 complete. Added the missing PDF fixtures (text + blank/image-only stand-in) so the renderer suite is green: 162/162. Swept page titles, TEP titles/subtitles, field labels and option labels to user-facing English; breadcrumbs now use the short tool name (`IMAGE / Crop`). Removed the last dev-facing "Job V1"/"Source: tool…" copy. Audited all 13 routes for unlabeled inputs, unnamed buttons, duplicate ids, overflow and Spanish copy: clean. Verified 1100/900/640/375px layouts, the mobile drawer, theme persistence, `Ctrl/Cmd+K` filtering/navigation and recent tools. Added friendly backend-error sanitization and a reachability-aware System status/Home runtime readout. Build passes; only component-style/bundle budget warnings remain.
+- 2026-11-03: T11 complete. Rewrote `README.md` (product, tools, stack, commands, UI architecture), added `docs/ui-ux.md` (tokens, shell anatomy, page recipe, shared components, adding-a-tool checklist, a11y baseline, known constraints), and updated `AGENTS.md` to point at the design system, registry and UI contract.
+
+## Final verification
+
+- `cd frontend && npm run build:dev` — passes.
+- `cd frontend && CHROME_BIN=/usr/bin/brave npx ng test --watch=false` — 162/162 passing.
+- Visual QA: all 13 routes at 1440px in dark and light; 1100/900/640/375px shell and Home; mobile drawer; no horizontal overflow.
+- Accessibility audit: no unlabeled visible inputs, unnamed buttons, duplicate ids, missing canvas labels, legacy wrappers or back links.
+- Interaction QA: `Ctrl/Cmd+K` filtering + Enter navigation, recent tools, theme persistence across reload, palette focus restore.
+- Known warnings: initial bundle above the pre-existing 500 kB warning; `home.css` (6.05 kB), `image-annotate.css` (4.73 kB) and `pdf-merge.css` (4.67 kB) over the 4 kB component warning but under the 8 kB error cap.
+- Uncommitted after this task: README/docs/AGENTS/task-doc updates and the final QA polish (committed as the closing work unit).

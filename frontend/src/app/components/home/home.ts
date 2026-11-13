@@ -107,6 +107,8 @@ export class Home implements OnInit {
   /** Kept for callers and specs; the runtime catalog is not the tool source. */
   catalogTools: ToolCatalogEntryV1[] = [];
   catalogToolsCount = 0;
+  /** True once the backend catalog responds; false when only the static registry is available. */
+  runtimeReachable = true;
 
   @ViewChild('searchInput') private searchInput?: ElementRef<HTMLInputElement>;
 
@@ -155,14 +157,17 @@ export class Home implements OnInit {
       if (!catalogResponse.success) {
         this.catalogTools = [];
         this.catalogToolsCount = 0;
+        this.runtimeReachable = false;
         return;
       }
 
       this.catalogTools = catalogResponse.tools;
       this.catalogToolsCount = catalogResponse.tools.length;
+      this.runtimeReachable = true;
     } catch {
       this.catalogTools = [];
       this.catalogToolsCount = 0;
+      this.runtimeReachable = false;
     }
   }
 

@@ -3,7 +3,7 @@
     <div class="page-head-row">
       <div class="page-head-copy">
         <p class="eyebrow">IMAGE</p>
-        <h1 class="page-title">Image <em>crop</em></h1>
+        <h1 class="page-title">Image <em>Crop</em></h1>
         <p class="page-sub">
           Draw a crop rectangle over a live preview and get a pixel-perfect result — local-first, so
           your images never leave this machine.
@@ -59,6 +59,8 @@
             #singleFileInput
             type="file"
             class="hidden"
+            aria-hidden="true"
+            tabindex="-1"
             accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
             (change)="onSingleFileInputChange($event)"
           />
@@ -106,6 +108,8 @@
               #batchFileInput
               type="file"
               class="hidden"
+              aria-hidden="true"
+              tabindex="-1"
               accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
               multiple
               (change)="onBatchFileInputChange($event)"
@@ -230,8 +234,8 @@
     </section>
 
     <app-tool-execution-panel
-      [title]="'Image Crop Job V1'"
-      [subtitle]="'Source: tool.image.crop — batch mode applies the same area to all items (Stage 1).'"
+      [title]="'Crop settings'"
+      [subtitle]="'Output path, ratio preset and exact crop bounds.'"
       [form]="form"
       [fields]="panelFields"
       [currentMode]="form.controls.jobMode.value"
@@ -242,8 +246,8 @@
       [isPolling]="isPolling"
       [canCancel]="!!activeJobId"
       [jobResult]="jobResult"
-      [runButtonText]="'Run crop job'"
-      [submittingButtonText]="'Submitting crop job...'"
+      [runButtonText]="'Crop images'"
+      [submittingButtonText]="'Cropping…'"
       (validate)="validate()"
       (run)="run()"
       (cancel)="cancel()"

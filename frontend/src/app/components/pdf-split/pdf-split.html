@@ -3,7 +3,7 @@
     <div class="page-head-row">
       <div class="page-head-copy">
         <p class="eyebrow">PDF</p>
-        <h1 class="page-title">PDF <em>split</em></h1>
+        <h1 class="page-title">PDF <em>Split</em></h1>
         <p class="page-sub">
           Split a PDF into one file per page or into explicit page ranges, previewed before you
           run — local-first, so your documents never leave this machine.
@@ -152,10 +152,8 @@
     </section>
 
     <app-tool-execution-panel
-      [title]="'PDF Split Execution'"
-      [subtitle]="
-        'Validate, run, poll and cancel using V1 contracts. Ranges example: 1-3,5,8-10.'
-      "
+      [title]="'Split settings'"
+      [subtitle]="'Output directory and split strategy.'"
       [form]="form"
       [fields]="panelFields"
       [currentMode]="form.controls.strategy.value"
@@ -166,8 +164,8 @@
       [isPolling]="isPolling"
       [canCancel]="!!activeJobId"
       [jobResult]="jobResult"
-      [runButtonText]="'Run PDF Split'"
-      [submittingButtonText]="'Submitting PDF Split...'"
+      [runButtonText]="'Split PDF'"
+      [submittingButtonText]="'Splitting…'"
       (validate)="validate()"
       (run)="run()"
       (cancel)="cancel()"

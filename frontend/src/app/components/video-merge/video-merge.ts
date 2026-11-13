@@ -55,8 +55,8 @@ export class VideoMerge implements OnDestroy {
       label: 'Target format',
       type: 'select',
       options: [
-        { value: 'mp4', label: 'mp4' },
-        { value: 'webm', label: 'webm' },
+        { value: 'mp4', label: 'MP4' },
+        { value: 'webm', label: 'WebM' },
       ],
     },
     {
@@ -64,9 +64,9 @@ export class VideoMerge implements OnDestroy {
       label: 'Quality preset',
       type: 'select',
       options: [
-        { value: 'high', label: 'high' },
-        { value: 'medium', label: 'medium' },
-        { value: 'low', label: 'low' },
+        { value: 'high', label: 'High' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'low', label: 'Low' },
       ],
     },
     {

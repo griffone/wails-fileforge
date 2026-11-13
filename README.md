@@ -1,59 +1,121 @@
-# Welcome to Your New Wails3 Project!
+# FileForge Desktop
 
-Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
+A local-first file workbench for Windows, macOS and Linux. FileForge wraps eleven conversion and editing tools in a single desktop app: image convert/crop/annotate, PDF merge/split/crop, Markdown and DOCX to PDF, and video convert/trim/merge.
 
-## Getting Started
+Everything runs on your machine. There are no uploads, accounts, or cloud calls.
 
-1. Navigate to your project directory in the terminal.
+## Tools
 
-2. To run your application in development mode, use the following command:
+| Domain | Tools |
+| --- | --- |
+| Image | Convert (PNG/JPG/WebP/GIF), Crop, Annotate (text, arrow, box, blur, redact) |
+| PDF | Merge (explicit order), Split (pages or ranges), Crop (presets or margins) |
+| Documents | Markdown → PDF (optional header/footer), DOCX → PDF (LibreOffice + Pandoc fallback) |
+| Video | Convert, Trim, Merge |
 
-   ```
-   wails3 dev
-   ```
+## Stack
 
-   This will start your application and enable hot-reloading for both frontend and backend changes.
+- **Backend:** Go 1.25 + Wails v3 (alpha)
+- **Frontend:** Angular 21, standalone components, TypeScript strict
+- **Styling:** Tailwind CSS v4 + a token-based design system (`frontend/src/styles.css`)
+- **Icons:** `lucide-angular`
+- **Fonts:** Archivo Variable, Instrument Serif, IBM Plex Mono (bundled via `@fontsource`, no CDN)
+- **Tests:** Karma + Jasmine
 
-3. To build your application for production, use:
+## Quick start
 
-   ```
-   wails3 build
-   ```
+```bash
+# Install frontend dependencies
+cd frontend && npm install
 
-   This will create a production-ready executable in the `build` directory.
+# Run the desktop app in dev mode (frontend + Wails)
+task dev
 
-## Exploring Wails3 Features
+# Production build
+task build
+```
 
-Now that you have your project set up, it's time to explore the features that Wails3 offers:
+`task dev` delegates to the Wails binary configured in `Taskfile.yml`. If your binary lives elsewhere, update the task or run:
 
-1. **Check out the examples**: The best way to learn is by example. Visit the `examples` directory in the `v3/examples` directory to see various sample applications.
+```bash
+/home/ivan/go/bin/wails3 dev -config ./build/config.yml -port 9245
+```
 
-2. **Run an example**: To run any of the examples, navigate to the example's directory and use:
+### Frontend only
 
-   ```
-   go run .
-   ```
+```bash
+cd frontend
+npm run dev        # Angular dev server on :4200
+npm run build:dev  # development build
+npm run build      # production build
+```
 
-   Note: Some examples may be under development during the alpha phase.
+The Angular dev server is useful for UI work, but Wails IPC is unavailable there. Pages fall back to the static tool registry and show a `Preview only` runtime state.
 
-3. **Explore the documentation**: Visit the [Wails3 documentation](https://v3.wails.io/) for in-depth guides and API references.
+## Tests
 
-4. **Join the community**: Have questions or want to share your progress? Join the [Wails Discord](https://discord.gg/JDdSxwjhGf) or visit the [Wails discussions on GitHub](https://github.com/wailsapp/wails/discussions).
+```bash
+cd frontend
+npx ng test --watch=false
+```
 
-## Project Structure
+Karma uses the Chromium bundled by Puppeteer. If that binary is missing, point `CHROME_BIN` at any Chromium-based browser:
 
-Take a moment to familiarize yourself with your project structure:
+```bash
+CHROME_BIN=/usr/bin/brave npx ng test --watch=false
+```
 
-- `frontend/`: Contains your frontend code (HTML, CSS, JavaScript/TypeScript)
-- `main.go`: The entry point of your Go backend
-- `app.go`: Define your application structure and methods here
-- `wails.json`: Configuration file for your Wails project
+Run one spec:
 
-## Next Steps
+```bash
+npx ng test --watch=false --include src/app/components/home/home.spec.ts
+```
 
-1. Modify the frontend in the `frontend/` directory to create your desired UI.
-2. Add backend functionality in `main.go`.
-3. Use `wails3 dev` to see your changes in real-time.
-4. When ready, build your application with `wails3 build`.
+Go tests:
 
-Happy coding with Wails3! If you encounter any issues or have questions, don't hesitate to consult the documentation or reach out to the Wails community.
+```bash
+go test ./...
+```
+
+## UI architecture
+
+The app is a single workbench shell with a persistent navigation rail, a command palette, and tool pages built from one composition recipe.
+
+- **Design system:** `frontend/src/styles.css` — semantic tokens for dark/light themes, typography, surfaces, buttons, fields, banners, badges and page composition. Existing Tailwind gray/blue/amber/red/slate utilities are remapped to these tokens, so every screen follows the active theme.
+- **Shell:** `frontend/src/app/app.ts|html` — brand rail grouped by domain, top bar with breadcrumb, `Ctrl/Cmd+K` palette trigger, theme toggle and runtime status.
+- **Command palette:** `frontend/src/app/components/command-palette/` — recent tools, grouped results, full keyboard navigation.
+- **Tool registry:** `frontend/src/app/config/tools.ts` + `services/tool-registry.service.ts` — the single source of truth for routes, names, descriptions, icons, formats and keywords.
+- **Theme:** `frontend/src/app/services/theme.service.ts` — persists `ff-theme`, follows the OS on first load.
+- **Recent tools:** `frontend/src/app/services/recent-tools.service.ts` — last four destinations, persisted locally.
+- **Shared components:** `components/file-drop`, `components/job-card`, `components/tool-execution-panel`.
+- **Page recipe:** `.page` → `.page-head` (eyebrow, title, subtitle) → `.panel` sections → `.field`/`.input` forms → `.banner` messages → `.btn` actions.
+
+See [`docs/ui-ux.md`](docs/ui-ux.md) for the token contract, page conventions and a checklist for adding a tool.
+
+## Project structure
+
+```
+main.go                          Wails bootstrap and asset embedding
+internal/                        Go services, converters, jobs, models
+frontend/src/app/
+  app.ts|html|css                Workbench shell
+  config/tools.ts                Tool registry data
+  services/                      Wails IPC, theme, recent tools, registry
+  components/                    Shell palette + tool pages + shared UI
+  styles.css                     Design system and global styles
+frontend/bindings/               Generated Wails bindings (do not edit)
+docs/                            Product and UI documentation
+odd/tasks/                       Organic development task tracking
+```
+
+## Generated bindings
+
+`frontend/bindings/` is generated. Never edit it by hand. After changing a Go-exposed API:
+
+```bash
+/home/ivan/go/bin/wails3 generate bindings -clean=true
+```
+
+## License
+
+See the repository for licensing information.

@@ -45,8 +45,8 @@ export class VideoTrim implements OnDestroy {
       label: 'Mode',
       type: 'select',
       options: [
-        { value: 'single', label: 'single' },
-        { value: 'batch', label: 'batch' },
+        { value: 'single', label: 'Single' },
+        { value: 'batch', label: 'Batch' },
       ],
     },
     {
@@ -84,8 +84,8 @@ export class VideoTrim implements OnDestroy {
       label: 'Target format',
       type: 'select',
       options: [
-        { value: 'mp4', label: 'mp4' },
-        { value: 'webm', label: 'webm' },
+        { value: 'mp4', label: 'MP4' },
+        { value: 'webm', label: 'WebM' },
       ],
     },
     {
@@ -93,9 +93,9 @@ export class VideoTrim implements OnDestroy {
       label: 'Quality preset',
       type: 'select',
       options: [
-        { value: 'high', label: 'high' },
-        { value: 'medium', label: 'medium' },
-        { value: 'low', label: 'low' },
+        { value: 'high', label: 'High' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'low', label: 'Low' },
       ],
     },
     {
@@ -103,9 +103,9 @@ export class VideoTrim implements OnDestroy {
       label: 'Trim mode',
       type: 'select',
       options: [
-        { value: 'auto', label: 'auto (copy → reencode)' },
-        { value: 'copy', label: 'copy (no fallback)' },
-        { value: 'reencode', label: 'reencode (direct)' },
+        { value: 'auto', label: 'Auto (copy → reencode)' },
+        { value: 'copy', label: 'Copy only' },
+        { value: 'reencode', label: 'Reencode' },
       ],
     },
   ];

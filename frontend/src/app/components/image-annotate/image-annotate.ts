@@ -87,7 +87,7 @@ export class ImageAnnotate implements OnDestroy {
   readonly panelFields: ExecutionPanelField[] = [
     {
       controlName: 'outputPath',
-      label: 'Output path (optional)',
+      label: 'Output file',
       type: 'text',
       placeholder: '/path/to/image_annotated.png',
       visibleModes: ['single'],
@@ -95,7 +95,7 @@ export class ImageAnnotate implements OnDestroy {
     },
     {
       controlName: 'outputDir',
-      label: 'Output directory (optional)',
+      label: 'Output directory',
       type: 'text',
       placeholder: '/path/to/output',
       visibleModes: ['batch'],
@@ -106,12 +106,12 @@ export class ImageAnnotate implements OnDestroy {
       label: 'Output format',
       type: 'select',
       options: [
-        { value: '', label: 'preserve original' },
-        { value: 'jpeg', label: 'jpeg' },
-        { value: 'png', label: 'png' },
-        { value: 'webp', label: 'webp' },
-        { value: 'gif', label: 'gif' },
-        { value: 'tiff', label: 'tiff' },
+        { value: '', label: 'Preserve original' },
+        { value: 'jpeg', label: 'JPEG' },
+        { value: 'png', label: 'PNG' },
+        { value: 'webp', label: 'WebP' },
+        { value: 'gif', label: 'GIF' },
+        { value: 'tiff', label: 'TIFF' },
       ],
     },
   ];

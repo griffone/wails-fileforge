@@ -70,14 +70,14 @@ export class PdfSplit implements OnDestroy {
   readonly panelFields: ExecutionPanelField[] = [
     {
       controlName: 'outputDir',
-      label: 'Output Directory',
+      label: 'Output directory',
       type: 'text',
       placeholder: '/path/to/output/folder',
       helpText: 'Required. The split files will be created in this directory.',
     },
     {
       controlName: 'strategy',
-      label: 'Split Strategy',
+      label: 'Split strategy',
       type: 'select',
       options: [
         { value: STRATEGY_EVERY_PAGE, label: 'Every page' },

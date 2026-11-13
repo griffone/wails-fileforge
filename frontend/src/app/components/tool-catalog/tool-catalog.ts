@@ -31,11 +31,14 @@ export class ToolCatalog implements OnInit {
   tools: ToolCatalogEntryV1[] = [];
   loading = false;
   errorMessage = '';
+  runtimeConnected = false;
 
   constructor(
     public readonly wailsService: Wails,
     public readonly registry: ToolRegistryService,
-  ) {}
+  ) {
+    this.runtimeConnected = wailsService.isRuntimeAvailable();
+  }
 
   async ngOnInit(): Promise<void> {
     await this.loadTools();
@@ -48,15 +51,31 @@ export class ToolCatalog implements OnInit {
     try {
       const response = await this.wailsService.listToolsV1();
       if (!response.success) {
-        this.errorMessage = response.message;
+        this.errorMessage = this.friendlyError(response.message);
         this.tools = [];
+        this.runtimeConnected = false;
         return;
       }
 
       this.tools = response.tools;
+      this.runtimeConnected = true;
+    } catch {
+      this.tools = [];
+      this.runtimeConnected = false;
+      this.errorMessage =
+        'The desktop backend did not respond. Open FileForge in the desktop app, then retry.';
     } finally {
       this.loading = false;
     }
+  }
+
+  private friendlyError(message: string): string {
+    const text = (message ?? '').trim();
+    if (!text || /<\/?[a-z][\s\S]*>/i.test(text) || /Cannot POST|DOCTYPE html/i.test(text)) {
+      return 'The desktop backend did not respond. Open FileForge in the desktop app, then retry.';
+    }
+
+    return text.length > 240 ? `${text.slice(0, 237)}…` : text;
   }
 
   getStatusClass(status: string): string {

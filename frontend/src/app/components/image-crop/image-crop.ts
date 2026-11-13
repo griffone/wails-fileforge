@@ -70,7 +70,7 @@ export class ImageCrop implements OnDestroy {
   readonly panelFields: ExecutionPanelField[] = [
     {
       controlName: 'outputPath',
-      label: 'Output path (optional)',
+      label: 'Output file',
       type: 'text',
       placeholder: '/path/to/image_cropped.png',
       visibleModes: ['single'],
@@ -78,7 +78,7 @@ export class ImageCrop implements OnDestroy {
     },
     {
       controlName: 'outputDir',
-      label: 'Output directory (optional)',
+      label: 'Output directory',
       type: 'text',
       placeholder: '/path/to/output',
       visibleModes: ['batch'],
@@ -92,7 +92,7 @@ export class ImageCrop implements OnDestroy {
         { value: '1:1', label: '1:1' },
         { value: '4:3', label: '4:3' },
         { value: '16:9', label: '16:9' },
-        { value: 'free', label: 'free' },
+        { value: 'free', label: 'Free' },
       ],
       helpText: 'Preset locks ratio. Free unlocks ratio.',
     },
@@ -101,19 +101,19 @@ export class ImageCrop implements OnDestroy {
       label: 'Output format',
       type: 'select',
       options: [
-        { value: '', label: 'preserve original' },
-        { value: 'jpeg', label: 'jpeg' },
-        { value: 'png', label: 'png' },
-        { value: 'webp', label: 'webp' },
-        { value: 'gif', label: 'gif' },
-        { value: 'tiff', label: 'tiff' },
+        { value: '', label: 'Preserve original' },
+        { value: 'jpeg', label: 'JPEG' },
+        { value: 'png', label: 'PNG' },
+        { value: 'webp', label: 'WebP' },
+        { value: 'gif', label: 'GIF' },
+        { value: 'tiff', label: 'TIFF' },
       ],
       helpText: 'Default preserves source format.',
     },
-    { controlName: 'x', label: 'x', type: 'text', placeholder: '0' },
-    { controlName: 'y', label: 'y', type: 'text', placeholder: '0' },
-    { controlName: 'width', label: 'width', type: 'text', placeholder: '1' },
-    { controlName: 'height', label: 'height', type: 'text', placeholder: '1' },
+    { controlName: 'x', label: 'X', type: 'text', placeholder: '0' },
+    { controlName: 'y', label: 'Y', type: 'text', placeholder: '0' },
+    { controlName: 'width', label: 'Width', type: 'text', placeholder: '1' },
+    { controlName: 'height', label: 'Height', type: 'text', placeholder: '1' },
   ];
 
   selectedInputPath = '';

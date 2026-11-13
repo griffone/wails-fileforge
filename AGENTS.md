@@ -11,8 +11,10 @@ Wails-specific IPC patterns, and important gotchas. Read it before making change
 - Go version: 1.25, module name: `fileforge-desktop`
 - Wails: v3.0.0-alpha.74 (ALPHA — APIs may change)
 - Frontend: Angular v21, standalone components, TypeScript strict
+- Product: one local-first workbench with 11 tools (image, PDF, documents, video)
 - Key Go deps: `github.com/h2non/bimg`, `github.com/wailsapp/wails/v3`
-- Key frontend deps: `@wailsio/runtime`, `@angular/*` v21, `lucide-angular`, `rxjs`
+- Key frontend deps: `@wailsio/runtime`, `@angular/*` v21, `lucide-angular`, `rxjs`, `@fontsource/*`
+- UI: token-based design system in `frontend/src/styles.css`; dark/light themes; command palette
 - Tests: Frontend uses Karma + Jasmine. No Go tests exist yet.
 
 ## Quick start — useful commands
@@ -108,14 +110,26 @@ internal/
   utils/workers.go         — WorkerPool with channels, context cancellation
 frontend/
   src/app/
-    app.ts                 — Root standalone component
+    app.ts|html|css        — Workbench shell (rail, top bar, palette trigger)
     app.config.ts          — Angular providers (router, http)
-    app.routes.ts          — Routes (Home, ImageConverter)
-    services/wails.ts      — Wails runtime wrapper (Call.ByID)
+    app.routes.ts          — Routes for all tools
+    config/tools.ts        — Tool registry data (routes, icons, copy, keywords)
+    services/
+      wails.ts             — Wails runtime wrapper (Call.ByID)
+      tool-registry.service.ts
+      theme.service.ts     — dark/light theme + persistence
+      recent-tools.service.ts
     components/
-      home/                — Home page, loads supported formats
-      image-converter/     — Main converter UI (drag-drop, single/batch)
+      command-palette/     — Ctrl/Cmd+K palette
+      home/                — Searchable tool launcher
+      file-drop/           — Shared drop zone
+      job-card/            — Shared job progress
+      tool-execution-panel/— Shared form/actions/job panel
+      image-*/ pdf-*/ doc-*/ video-*/ tool-catalog/
+    styles.css             — Design system, tokens, shell, page recipes
   bindings/                — Generated Wails bindings (DO NOT edit manually)
+docs/ui-ux.md              — UI contract, page recipe, adding a tool
+odd/tasks/                 — Organic development tracking
 ```
 
 Generated Wails bindings in `frontend/bindings/` are checked into the repo. Regenerate them when
@@ -159,8 +173,15 @@ you change Go-exposed APIs using the wails3 generate command above.
   - Use `Call.ByID(numericId, args)` from `@wailsio/runtime` (wrapped in frontend/services/wails.ts).
   - Always wrap Wails calls in try/catch and return safe fallback objects like `{ success: false, message: '...' }`.
 - No global state management libraries — keep component-local state and small services.
-- CSS must be component-scoped (no global Tailwind-only styling despite Tailwind possibly being present).
+- UI must follow `docs/ui-ux.md`:
+  - Use the design tokens and component classes in `frontend/src/styles.css`. Do not hardcode gray/blue/hex colors in pages.
+  - Compose pages with `.page` → `.page-head` → `.panel` → `.field`/`.banner`/`.btn`.
+  - Use `ToolRegistryService` for navigation, titles, icons and routes; do not hardcode tool links.
+  - Use tokens for both themes; no `dark:` utility variants. Theme is controlled by `data-theme` on `<html>`.
+  - Use `lucide-angular` icons; icon-only buttons need `aria-label`.
+  - All UI copy is English.
 - Testing: use Karma + Jasmine. Test files use `describe`/`it` blocks. Prefer small, isolated tests.
+  If Puppeteer's Chromium is unavailable, run with `CHROME_BIN=/usr/bin/brave npx ng test --watch=false`.
 
 ## Wails IPC and integration patterns
 
@@ -187,6 +208,9 @@ you change Go-exposed APIs using the wails3 generate command above.
 - The Taskfile references an absolute path to the wails binary: `/home/ivan/go/bin/wails3`.
 - Production Go build flags used in CI and packaging include `-tags production -trimpath -buildvcs=false -ldflags="-w -s"`.
 - Frontend dev server runs on port 4200 (Angular default); Wails dev proxies to it during `task dev`.
+- In the plain Angular dev server there is no Wails IPC. Pages fall back to the static registry and show `Preview only`; this is expected.
+- UI build warnings: the initial bundle is above the 500 kB warning budget (PDF.js + fonts), and `home.css`, `image-annotate.css`, `pdf-merge.css` are just over the 4 kB component warning. They are under the 8 kB error cap. Put shared page rules in `styles.css`.
+- PDF renderer specs use fixtures in `frontend/public/test-fixtures/`; keep them when touching preview tests.
 
 ## Agent operating rules (short)
 
@@ -205,6 +229,10 @@ you change Go-exposed APIs using the wails3 generate command above.
 - internal/registry/registry.go — converter lookup and lifecycle
 - internal/image/converter.go — image conversion implementation (bimg)
 - frontend/src/app/services/wails.ts — wrapper around Call.ByID
+- frontend/src/app/config/tools.ts — tool registry (routes, icons, copy, keywords)
+- frontend/src/styles.css — design tokens and shared component classes
+- frontend/src/app/app.ts|html — workbench shell and command palette trigger
+- docs/ui-ux.md — UI contract, page recipe and adding-a-tool checklist
 - frontend/bindings/ — generated Wails bindings (read-only)
 
 ---

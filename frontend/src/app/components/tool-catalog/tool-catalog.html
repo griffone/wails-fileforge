@@ -9,17 +9,17 @@
     <div class="catalog-runtime">
       <span
         class="status-dot"
-        [attr.data-state]="wailsService.isRuntimeAvailable() ? 'success' : 'idle'"
-        [attr.data-pulse]="wailsService.isRuntimeAvailable() ? 'true' : null"
+        [attr.data-state]="runtimeConnected ? 'success' : 'idle'"
+        [attr.data-pulse]="runtimeConnected ? 'true' : null"
         aria-hidden="true"
       ></span>
       <div class="catalog-runtime-text">
         <h2 id="catalog-runtime-title" class="catalog-runtime-title">
-          {{ wailsService.isRuntimeAvailable() ? 'Runtime connected' : 'Preview only' }}
+          {{ runtimeConnected ? 'Runtime connected' : 'Preview only' }}
         </h2>
         <p class="catalog-runtime-sub">
           {{
-            wailsService.isRuntimeAvailable()
+            runtimeConnected
               ? 'Backend IPC is reachable from this window.'
               : 'Backend IPC is unavailable, so tool states are static.'
           }}

@@ -3,7 +3,7 @@
     <div class="page-head-row">
       <div class="page-head-copy">
         <p class="eyebrow">IMAGE</p>
-        <h1 class="page-title">Image <em>annotate</em></h1>
+        <h1 class="page-title">Image <em>Annotate</em></h1>
         <p class="page-sub">
           Draw text, arrows, rectangles, blur and redaction directly on an image, then render a
           pixel-perfect result — local-first, so your files never leave this machine.
@@ -59,6 +59,8 @@
             #singleFileInput
             type="file"
             class="hidden"
+            aria-hidden="true"
+            tabindex="-1"
             accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
             (change)="onSingleFileInputChange($event)"
           />
@@ -106,6 +108,8 @@
               #batchFileInput
               type="file"
               class="hidden"
+              aria-hidden="true"
+              tabindex="-1"
               accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,image/*"
               multiple
               (change)="onBatchFileInputChange($event)"
@@ -388,7 +392,7 @@
               <button type="button" class="btn btn-ghost" (click)="clearOperations()">Clear all</button>
             </div>
 
-            <div class="banner banner-warning">
+            <div class="banner banner-info">
               <div>
                 <strong>Blur vs redact</strong>
                 <ul class="banner-list">
@@ -466,8 +470,8 @@
     </section>
 
     <app-tool-execution-panel
-      [title]="'Image Annotate Job V1'"
-      [subtitle]="'Source: tool.image.annotate — deterministic sequential operation order.'"
+      [title]="'Annotate settings'"
+      [subtitle]="'Output path, format and render options.'"
       [form]="form"
       [fields]="panelFields"
       [currentMode]="form.controls.jobMode.value"
@@ -478,8 +482,8 @@
       [isPolling]="isPolling"
       [canCancel]="!!activeJobId"
       [jobResult]="jobResult"
-      [runButtonText]="'Run annotate job'"
-      [submittingButtonText]="'Submitting annotate job...'"
+      [runButtonText]="'Annotate image'"
+      [submittingButtonText]="'Annotating…'"
       (validate)="validate()"
       (run)="run()"
       (cancel)="cancel()"

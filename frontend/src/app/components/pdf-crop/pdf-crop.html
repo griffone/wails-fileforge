@@ -3,7 +3,7 @@
     <div class="page-head-row">
       <div class="page-head-copy">
         <p class="eyebrow">PDF</p>
-        <h1 class="page-title">PDF <em>crop</em></h1>
+        <h1 class="page-title">PDF <em>Crop</em></h1>
         <p class="page-sub">
           Trim page margins with presets or exact values and preview the result before running —
           local-first, so your documents never leave this machine.
@@ -238,8 +238,8 @@
     </section>
 
     <app-tool-execution-panel
-      [title]="'PDF Crop Execution'"
-      [subtitle]="'Flow: validate → run → poll → cancel. Custom preset requires all margins.'"
+      [title]="'Crop settings'"
+      [subtitle]="'Output path, page selection and crop preset.'"
       [form]="form"
       [fields]="panelFields"
       [currentMode]="form.controls.cropPreset.value"
@@ -251,8 +251,8 @@
       [isPolling]="isPolling"
       [canCancel]="!!activeJobId"
       [jobResult]="jobResult"
-      [runButtonText]="'Run PDF Crop'"
-      [submittingButtonText]="'Submitting PDF Crop...'"
+      [runButtonText]="'Crop PDF'"
+      [submittingButtonText]="'Cropping…'"
       (validate)="validate()"
       (run)="run()"
       (cancel)="cancel()"

@@ -70,10 +70,10 @@
         <span class="home-index-runtime">
           <span
             class="status-dot"
-            [attr.data-state]="isRuntimeAvailable() ? 'success' : 'idle'"
+            [attr.data-state]="runtimeReachable ? 'success' : 'idle'"
             aria-hidden="true"
           ></span>
-          {{ isRuntimeAvailable() ? 'Runtime online' : 'Preview only' }}
+          {{ runtimeReachable ? 'Runtime online' : 'Preview only' }}
         </span>
         <span class="home-index-local">100% local</span>
       </div>
