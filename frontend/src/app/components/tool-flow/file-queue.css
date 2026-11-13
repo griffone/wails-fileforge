@@ -1,0 +1,104 @@
+:host {
+  display: block;
+}
+
+.file-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file-queue-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 6px 8px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+
+.file-queue-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.file-queue-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.file-queue-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.file-queue-name {
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-queue-meta {
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.file-queue-error {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--danger);
+}
+
+.file-queue-remove {
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+
+.file-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.file-queue-action {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+
+.file-queue-action:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.file-queue-action:disabled {
+  opacity: 0.3;
+}
+
+.file-queue-empty {
+  margin: 0;
+}

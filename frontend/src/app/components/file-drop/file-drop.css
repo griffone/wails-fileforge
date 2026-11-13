@@ -32,7 +32,8 @@
   border-color: var(--accent);
 }
 
-.file-drop.is-dragging {
+.file-drop.is-dragging,
+.file-drop.file-drop-target-active {
   border-color: var(--accent);
   background: var(--accent-soft);
   box-shadow:
@@ -53,7 +54,8 @@
 }
 
 .file-drop:hover .file-drop-icon,
-.file-drop.is-dragging .file-drop-icon {
+.file-drop.is-dragging .file-drop-icon,
+.file-drop.file-drop-target-active .file-drop-icon {
   transform: translateY(-2px);
   border-color: var(--accent-line);
   background: var(--accent-soft);

@@ -90,6 +90,18 @@ func (s *ToolingService) ValidateJobV1(req models.JobRequestV1) models.ValidateJ
 	return res
 }
 
+func (s *ToolingService) PlanJobV1(req models.JobRequestV1) models.PlanJobResponseV1 {
+	plan := s.orchestrator.Plan(s.contextOrBackground(), req)
+	if !plan.Success {
+		code := ""
+		if plan.Error != nil {
+			code = plan.Error.Code
+		}
+		log.Printf("tooling.plan.invalid toolId=%s mode=%s errorCode=%s", req.ToolID, req.Mode, code)
+	}
+	return plan
+}
+
 func (s *ToolingService) RunJobV1(req models.JobRequestV1) models.RunJobResponseV1 {
 	res, err := s.orchestrator.Submit(s.contextOrBackground(), req)
 	if err != nil {

@@ -1,0 +1,140 @@
+@if (job; as currentJob) {
+  <section class="panel result-card">
+    <div class="panel-head result-head">
+      <div class="result-summary" role="status" aria-live="polite">
+        <span class="result-icon" [attr.data-state]="summaryTone(currentJob)" aria-hidden="true">
+          <lucide-icon
+            [img]="summaryIcon(currentJob)"
+            [size]="16"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+        </span>
+        <div class="result-summary-text">
+          <h2 class="panel-title">{{ summaryTitle(currentJob) }}</h2>
+          @if (summaryDetail(currentJob); as detail) {
+            <p class="panel-sub">{{ detail }}</p>
+          }
+        </div>
+      </div>
+    </div>
+
+    <div class="result-body">
+      @if (outputRows().length > 0) {
+        <ul class="result-list" aria-label="Converted files">
+          @for (row of outputRows(); track row.path) {
+            <li class="result-row">
+              <span class="result-file">
+                <span class="result-name" [title]="row.path">{{ row.name }}</span>
+                @if (row.meta) {
+                  <span class="result-meta mono">{{ row.meta }}</span>
+                }
+              </span>
+              <span class="result-actions">
+                <button
+                  type="button"
+                  class="icon-btn result-open"
+                  [attr.aria-label]="'Open ' + row.name"
+                  (click)="open.emit(row.path)"
+                >
+                  <lucide-icon
+                    [img]="externalIcon"
+                    [size]="16"
+                    [strokeWidth]="1.75"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn result-reveal"
+                  [attr.aria-label]="'Show ' + row.name + ' in folder'"
+                  (click)="reveal.emit(row.path)"
+                >
+                  <lucide-icon
+                    [img]="folderIcon"
+                    [size]="16"
+                    [strokeWidth]="1.75"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                </button>
+              </span>
+            </li>
+          }
+        </ul>
+      }
+
+      @if (failedRows().length > 0) {
+        <ul class="result-list result-failures" aria-label="Files that failed">
+          @for (row of failedRows(); track row.path) {
+            <li class="result-row result-row-failed">
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span class="result-file">
+                <span class="result-name" [title]="row.path">{{ row.name }}</span>
+                <span class="result-error">{{ row.description }}</span>
+              </span>
+            </li>
+          }
+        </ul>
+      }
+
+      <div class="actions result-footer">
+        @if (hasFailedRows()) {
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm result-retry"
+            (click)="retryFailed.emit()"
+          >
+            <lucide-icon
+              [img]="retryIcon"
+              [size]="14"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            Retry failed
+          </button>
+        }
+        <button
+          type="button"
+          class="btn btn-primary btn-sm result-reset"
+          (click)="reset.emit()"
+        >
+          Convert more
+        </button>
+      </div>
+
+      <details class="result-details">
+        <summary>Details</summary>
+        <dl class="result-details-grid mono">
+          <div>
+            <dt>Job ID</dt>
+            <dd>{{ currentJob.jobId || '—' }}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd>{{ currentJob.status }}</dd>
+          </div>
+          <div>
+            <dt>Started</dt>
+            <dd>{{ startedAt() }}</dd>
+          </div>
+          <div>
+            <dt>Ended</dt>
+            <dd>{{ endedAt() }}</dd>
+          </div>
+        </dl>
+        @if (errorLines().length > 0) {
+          <ul class="result-error-lines mono">
+            @for (line of errorLines(); track line) {
+              <li>{{ line }}</li>
+            }
+          </ul>
+        }
+      </details>
+    </div>
+  </section>
+}

@@ -1,42 +1,81 @@
-import { Component, OnDestroy } from '@angular/core';
+import { Component, OnDestroy, computed, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
-import { CommonModule } from '@angular/common';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   FolderOpen,
-  FolderOutput,
-  Image,
   LucideAngularModule,
+  RotateCcw,
   ShieldCheck,
+  TriangleAlert,
   X,
 } from 'lucide-angular';
 
-import {
-  ExecutionPanelField,
-  ToolExecutionPanel,
-} from '../tool-execution-panel/tool-execution-panel';
 import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
+import { FileQueue } from '../tool-flow/file-queue';
+import { OutputPlanCard } from '../tool-flow/output-plan-card';
+import { ResultCard } from '../tool-flow/result-card';
+import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { IMAGE_PRESETS, ImagePreset } from '../../config/image-presets';
+import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
+  FileInfoV1,
+  InspectFilesResponseV1,
   JobErrorV1,
+  JobExecutionStatusV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
+  PlanJobResponseV1,
+  RunJobResponseV1,
   Wails,
 } from '../../services/wails';
+import {
+  fileExtension,
+  fileName,
+  formatBytes,
+  formatCount,
+} from '../../utils/format';
 
 const IMAGE_TOOL_ID = 'tool.image.convert';
 const POLLING_INTERVAL_MS = 1000;
+const ADVANCED_PLAN_DEBOUNCE_MS = 200;
+const THUMBNAIL_SIZE = 160;
+
+const SUPPORTED_IMAGE_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'bmp',
+  'tiff',
+  'tif',
+]);
+
+const TERMINAL_STATUSES = new Set<string>([
+  'success',
+  'failed',
+  'partial_success',
+  'cancelled',
+  'interrupted',
+]);
+
+interface Notice {
+  tone: 'warning' | 'danger';
+  text: string;
+}
 
 @Component({
   selector: 'app-image-converter',
   standalone: true,
   imports: [
-    CommonModule,
-    ReactiveFormsModule,
     LucideAngularModule,
-    ToolExecutionPanel,
     FileDrop,
+    FileQueue,
+    OutputPlanCard,
+    ResultCard,
+    JobCard,
   ],
   templateUrl: './image-converter.html',
   styleUrl: './image-converter.css',
@@ -44,362 +83,492 @@ const POLLING_INTERVAL_MS = 1000;
 export class ImageConverter implements OnDestroy {
   private readonly destroy$ = new Subject<void>();
 
-  readonly folderOpenIcon = FolderOpen;
-  readonly folderOutputIcon = FolderOutput;
-  readonly imageIcon = Image;
   readonly shieldIcon = ShieldCheck;
+  readonly folderIcon = FolderOpen;
   readonly closeIcon = X;
+  readonly alertIcon = TriangleAlert;
+  readonly resetIcon = RotateCcw;
 
-  readonly form;
-  readonly panelFields: ExecutionPanelField[] = [
-    {
-      controlName: 'jobMode',
-      label: 'Mode',
-      type: 'select',
-      options: [
-        { value: 'single', label: 'Single file' },
-        { value: 'batch', label: 'Batch' },
-      ],
-    },
-    {
-      controlName: 'outputPath',
-      label: 'Output file',
-      type: 'text',
-      placeholder: '/path/to/output.webp',
-      visibleModes: ['single'],
-    },
-    {
-      controlName: 'outputDir',
-      label: 'Output directory',
-      type: 'text',
-      placeholder: '/path/to/output',
-      visibleModes: ['batch'],
-    },
-    {
-      controlName: 'format',
-      label: 'Format',
-      type: 'select',
-      options: [
-        { value: 'webp', label: 'WebP' },
-        { value: 'jpeg', label: 'JPEG' },
-        { value: 'png', label: 'PNG' },
-        { value: 'gif', label: 'GIF' },
-      ],
-    },
-    {
-      controlName: 'quality',
-      label: 'Quality (1–100)',
-      type: 'text',
-      placeholder: '80',
-    },
-    {
-      controlName: 'resizeWidth',
-      label: 'Resize width',
-      type: 'text',
-      placeholder: '1024',
-    },
-    {
-      controlName: 'resizeHeight',
-      label: 'Resize height',
-      type: 'text',
-      placeholder: '768',
-    },
-  ];
+  readonly presets = IMAGE_PRESETS;
 
-  selectedInputPaths: string[] = [];
-  validationMessage = '';
-  submitMessage = '';
-  statusMessage = '';
-  jobResult: JobResultV1 | null = null;
-  isSubmitting = false;
-  isPolling = false;
-  activeJobId = '';
+  readonly selectedPaths = signal<string[]>([]);
+  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly selectedPresetId = signal('webp');
+  readonly outputDir = signal('');
+  readonly advancedOpen = signal(false);
+  readonly quality = signal<number | null>(null);
+  readonly maxWidth = signal<number | null>(null);
+
+  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly planError = signal<JobErrorV1 | null>(null);
+  readonly planLoading = signal(false);
+
+  readonly jobResult = signal<JobResultV1 | null>(null);
+  readonly jobError = signal<JobErrorV1 | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
+
+  readonly isSubmitting = signal(false);
+  readonly isPolling = signal(false);
+  readonly activeJobId = signal('');
+
+  readonly notice = signal<Notice | null>(null);
+  readonly actionMessage = signal('');
+
+  readonly selectedPreset = computed<ImagePreset>(
+    () =>
+      IMAGE_PRESETS.find((preset) => preset.id === this.selectedPresetId()) ??
+      IMAGE_PRESETS[0],
+  );
+  readonly isPng = computed(() => this.selectedPreset().format === 'png');
+  readonly qualityValue = computed(
+    () => this.quality() ?? this.selectedPreset().quality,
+  );
+
+  readonly primaryLabel = computed(() => {
+    if (this.isSubmitting() || this.isPolling()) {
+      return 'Converting…';
+    }
+    const count = this.selectedPaths().length;
+    if (count === 0) {
+      return 'Convert';
+    }
+    return count === 1 ? 'Convert 1 image' : `Convert ${count} images`;
+  });
+
+  readonly destinationLabel = computed(
+    () => this.outputDir().trim() || 'Next to each original',
+  );
+  readonly isDefaultDestination = computed(
+    () => this.outputDir().trim().length === 0,
+  );
+  readonly canRun = computed(
+    () =>
+      this.selectedPaths().length > 0 &&
+      !this.isSubmitting() &&
+      !this.isPolling(),
+  );
+
+  readonly terminalJob = computed<JobResultV1 | null>(() => {
+    const job = this.jobResult();
+    return job && this.isTerminalStatus(job.status) ? job : null;
+  });
+
+  readonly showProgress = computed(() => {
+    const job = this.jobResult();
+    return !!job && !this.isTerminalStatus(job.status);
+  });
+
+  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
+    const error = this.jobError();
+    return error
+      ? describeToolError(error, 'The conversion could not start.')
+      : null;
+  });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private planToken = 0;
+  private fileItemsGeneration = 0;
 
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly wailsService: Wails
-  ) {
-    this.form = this.fb.nonNullable.group({
-      jobMode: ['single', Validators.required],
-      outputPath: [''],
-      outputDir: [''],
-      format: ['webp', Validators.required],
-      quality: ['80', Validators.required],
-      resizeWidth: [''],
-      resizeHeight: [''],
-    });
+  constructor(private readonly wailsService: Wails) {
+    this.wailsService.jobProgress$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.activeJobId()) {
+          return;
+        }
 
-    // Subscribe to job progress events to update JobCard in real-time.
-    // Keep subscription hygiene using destroy$.
-    this.wailsService.jobProgress$.pipe(takeUntil(this.destroy$)).subscribe((ev) => {
-      if (!ev || ev.jobId !== this.activeJobId) return;
-      // convert JobProgressEvent into partial JobResultV1 update for UI
-      this.jobResult = {
-        jobId: ev.jobId,
-        success: false,
-        message: ev.progress.message,
-        toolId: ev.toolId,
-        status: ev.status as any,
-        progress: ev.progress,
-        items: this.jobResult?.items ?? [],
-        startedAt: Date.now(),
-      };
-      // announce stage transitions via aria-live: statusMessage is rendered with role=alert
-      this.statusMessage = `${ev.progress.stage}: ${ev.progress.message}`;
-      if (this.isTerminalStatus(ev.status)) {
-        this.activeJobId = '';
-        this.stopPolling();
-      }
-    });
-    // Note: we keep the existing polling loop for backward compatibility with older runtimes
-    // and as a fallback when jobProgress$ events may not be delivered.
-  }
+        const current = this.jobResult();
+        if (!current) {
+          return;
+        }
 
-  appendPaths(paths: string[]): void {
-    for (const p of paths) {
-      this.addInput(p);
-    }
-  }
+        this.jobResult.set({
+          ...current,
+          message: event.progress.message,
+          progress: event.progress,
+          // Wait for the status endpoint to settle the final items. The event
+          // can arrive before the job store has the complete result.
+          status: this.isTerminalStatus(event.status)
+            ? current.status
+            : (event.status as JobExecutionStatusV1),
+        });
 
-  // FileDrop emits File[]; keep local-only handling and fall back to the
-  // browser file name when the runtime does not expose a native path.
-  onFileDropFiles(files: File[]): void {
-    const paths = files.map((file) => (file as File & { path?: string }).path ?? file.name);
-    this.onFileDropPaths(paths);
-  }
-
-  onFileDropPaths(paths: string[]): void {
-    if (this.currentMode() === 'single') {
-      this.selectedInputPaths = [paths[0]];
-      return;
-    }
-
-    this.appendPaths(paths);
+        if (this.isTerminalStatus(event.status)) {
+          void this.pollJobStatus();
+        }
+      });
   }
 
   ngOnDestroy(): void {
     this.stopPolling();
+    this.clearPlanRefreshTimer();
     this.destroy$.next();
     this.destroy$.complete();
   }
 
-  async selectImageFromDialog(): Promise<void> {
-    this.clearMessages();
-    const path = (await this.wailsService.openFileDialog()).trim();
-    if (!path) {
-      return;
-    }
-
-    if (this.currentMode() === 'single') {
-      this.selectedInputPaths = [path];
-      return;
-    }
-
-    this.addInput(path);
-  }
-
-  async selectMultipleImagesFromDialog(): Promise<void> {
-    this.clearMessages();
-    const selected = await this.wailsService.openMultipleFilesDialog();
-    if (!selected || selected.length === 0) {
-      return;
-    }
-
-    if (this.currentMode() === 'single') {
-      this.selectedInputPaths = [selected[0].trim()];
-      return;
-    }
-
-    for (const path of selected) {
-      this.addInput(path);
-    }
-  }
-
-  async selectOutputDirectory(): Promise<void> {
-    const selected = (await this.wailsService.openDirectoryDialog()).trim();
-    if (!selected) {
-      return;
-    }
-
-    this.form.patchValue({ outputDir: selected });
-  }
-
-  removeInput(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length) {
-      return;
-    }
-    this.selectedInputPaths = this.selectedInputPaths.filter((_, i) => i !== index);
-  }
-
-  clearInputs(): void {
-    this.selectedInputPaths = [];
-  }
-
-  /** Badge copy for the input panel header. */
   fileCountLabel(): string {
-    const count = this.selectedInputPaths.length;
-    if (count === 0) {
-      return '0 files';
-    }
-    return count === 1 ? '1 file' : `${count} files`;
+    return formatCount(this.selectedPaths().length, 'image');
   }
 
-  /** Last path segment, safe for both POSIX and Windows separators. */
-  filenameFromPath(path: string): string {
-    const normalized = path.replace(/\\/g, '/');
-    const index = normalized.lastIndexOf('/');
-    return index >= 0 ? normalized.slice(index + 1) : normalized;
-  }
-
-  async validate(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.validationMessage = localError;
+  onPathsSelected(paths: string[]): void {
+    const incoming = (Array.isArray(paths) ? paths : [])
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (incoming.length === 0) {
       return;
     }
 
-    const response = await this.wailsService.validateJobV1(this.buildRequest());
-    this.validationMessage = response.valid
-      ? 'Validation OK. Ready to run image job.'
-      : this.mapJobError(response.error, response.message);
+    const supported: string[] = [];
+    const rejected: string[] = [];
+    for (const path of incoming) {
+      if (SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase())) {
+        supported.push(path);
+      } else {
+        rejected.push(path);
+      }
+    }
+
+    const selected = new Set(this.selectedPaths());
+    const added: string[] = [];
+    for (const path of supported) {
+      if (selected.has(path)) {
+        continue;
+      }
+      selected.add(path);
+      added.push(path);
+    }
+
+    this.notice.set(
+      rejected.length > 0
+        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
+        : null,
+    );
+
+    if (added.length === 0) {
+      return;
+    }
+
+    this.actionMessage.set('');
+    this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  async chooseFiles(): Promise<void> {
+    const paths = await this.wailsService.openMultipleFilesDialog();
+    if (paths.length > 0) {
+      this.onPathsSelected(paths);
+    }
+  }
+
+  clear(): void {
+    if (this.selectedPaths().length === 0) {
+      return;
+    }
+    this.selectedPaths.set([]);
+    this.notice.set(null);
+    this.actionMessage.set('');
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  removeFile(path: string): void {
+    const next = this.selectedPaths().filter((candidate) => candidate !== path);
+    if (next.length === this.selectedPaths().length) {
+      return;
+    }
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  selectPreset(presetId: string): void {
+    if (presetId === this.selectedPresetId()) {
+      return;
+    }
+    this.selectedPresetId.set(presetId);
+    this.quality.set(null);
+    void this.refreshPlan();
+  }
+
+  async chooseOutputFolder(): Promise<void> {
+    const directory = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!directory) {
+      return;
+    }
+    this.outputDir.set(directory);
+    this.actionMessage.set('');
+    await this.refreshPlan();
+  }
+
+  useOriginalFolders(): void {
+    if (this.outputDir() === '') {
+      return;
+    }
+    this.outputDir.set('');
+    void this.refreshPlan();
+  }
+
+  onAdvancedToggle(event: Event): void {
+    const target = event.target as HTMLDetailsElement | null;
+    this.advancedOpen.set(!!target?.open);
+  }
+
+  onQualityInput(event: Event): void {
+    if (this.isPng()) {
+      return;
+    }
+    const value = this.readNumber(event);
+    this.quality.set(
+      value === null ? null : Math.min(100, Math.max(1, Math.round(value))),
+    );
+    this.schedulePlanRefresh();
+  }
+
+  onMaxWidthInput(event: Event): void {
+    const value = this.readNumber(event);
+    this.maxWidth.set(
+      value === null || value <= 0 ? null : Math.max(1, Math.round(value)),
+    );
+    this.schedulePlanRefresh();
+  }
+
+  resetAdvanced(): void {
+    this.quality.set(null);
+    this.maxWidth.set(null);
+    this.schedulePlanRefresh();
   }
 
   async run(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.submitMessage = localError;
+    if (!this.canRun()) {
       return;
     }
 
-    const request = this.buildRequest();
-    this.isSubmitting = true;
-    this.jobResult = null;
+    this.actionMessage.set('');
 
-    const validation = await this.wailsService.validateJobV1(request);
-    if (!validation.valid) {
-      this.submitMessage = this.mapJobError(validation.error, validation.message);
-      this.isSubmitting = false;
+    if (this.planLoading() || !this.plan()?.success) {
+      const planned = await this.refreshPlan();
+      if (!planned) {
+        return;
+      }
+    }
+
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(true);
+
+    const response: RunJobResponseV1 = await this.wailsService
+      .runJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The conversion could not start.',
+        jobId: '',
+        status: 'failed' as const,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: 'The conversion could not start.',
+        },
+      }));
+    if (!response.success || !response.jobId) {
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: response.message || 'The conversion could not start.',
+        },
+      );
+      this.isSubmitting.set(false);
       return;
     }
 
-    const runResponse = await this.wailsService.runJobV1(request);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.submitMessage = this.mapJobError(runResponse.error, runResponse.message);
-      this.isSubmitting = false;
-      return;
-    }
-
-    this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
+    const total = this.selectedPaths().length;
+    this.activeJobId.set(response.jobId);
+    this.jobResult.set({
+      jobId: response.jobId,
+      success: false,
+      message: 'Waiting to start',
+      toolId: IMAGE_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total,
+        stage: 'queued',
+        message: 'Waiting to start',
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isSubmitting.set(false);
+    this.isPolling.set(true);
     this.startPolling();
-    this.isSubmitting = false;
   }
 
   async cancel(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      return;
+    }
+    const response = await this.wailsService.cancelJobV1(jobId);
+    if (!response.success) {
+      this.actionMessage.set(
+        response.message || 'The job could not be cancelled.',
+      );
+    }
+  }
+
+  async onOpen(path: string): Promise<void> {
+    const response = await this.wailsService.openPath(path);
+    this.actionMessage.set(
+      response.success ? '' : response.message || 'The file could not be opened.',
+    );
+  }
+
+  async onReveal(path: string): Promise<void> {
+    const response = await this.wailsService.revealInFolder(path);
+    this.actionMessage.set(
+      response.success
+        ? ''
+        : response.message || 'The folder could not be opened.',
+    );
+  }
+
+  async retryFailed(): Promise<void> {
+    const failed = (this.jobResult()?.items ?? [])
+      .filter((item) => !item.success)
+      .map((item) => item.inputPath)
+      .filter((path) => path.length > 0);
+
+    if (failed.length === 0) {
       return;
     }
 
-    const response = await this.wailsService.cancelJobV1(this.activeJobId);
-    this.statusMessage = response.success
-      ? 'Cancel requested.'
-      : this.mapJobError(response.error, response.message);
+    this.selectedPaths.set([...new Set(failed)]);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+    this.syncFileItems();
+
+    await this.refreshPlan();
+    await this.run();
   }
 
-  private localValidationError(): string {
-    const mode = this.currentMode();
-    const format = this.form.controls.format.value.trim();
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const outputDir = this.form.controls.outputDir.value.trim();
-    const quality = this.form.controls.quality.value.trim();
+  reset(): void {
+    this.stopPolling();
+    this.clearPlanRefreshTimer();
+    this.planToken += 1;
+    this.fileItemsGeneration += 1;
 
-    if (mode !== 'single' && mode !== 'batch') {
-      return `Unsupported mode: ${mode}`;
-    }
-
-    if (mode === 'single' && this.selectedInputPaths.length !== 1) {
-      return 'Select exactly one input image for single mode.';
-    }
-    if (mode === 'batch' && this.selectedInputPaths.length < 1) {
-      return 'Select at least one input image for batch mode.';
-    }
-
-    for (const inputPath of this.selectedInputPaths) {
-      if (!this.isImagePath(inputPath)) {
-        return `Input image extension is not supported: ${inputPath}`;
-      }
-    }
-
-    if (mode === 'single') {
-      if (!outputPath) {
-        return 'Output path is required in single mode.';
-      }
-      if (outputPath.endsWith('/') || outputPath.endsWith('\\')) {
-        return 'Output path must include filename.';
-      }
-      if (!outputPath.toLowerCase().endsWith(`.${format}`)) {
-        return `Output path must end with .${format}`;
-      }
-    }
-
-    if (mode === 'batch' && !outputDir) {
-      return 'Output directory is required in batch mode.';
-    }
-
-    const parsedQuality = Number.parseInt(quality, 10);
-    if (!Number.isFinite(parsedQuality) || parsedQuality < 1 || parsedQuality > 100) {
-      return 'Quality must be an integer between 1 and 100.';
-    }
-
-    return '';
+    this.selectedPaths.set([]);
+    this.fileItems.set([]);
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(false);
+    this.activeJobId.set('');
+    this.notice.set(null);
+    this.actionMessage.set('');
   }
 
   private buildRequest(): JobRequestV1 {
-    const mode = this.currentMode();
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const outputDir = this.form.controls.outputDir.value.trim();
-    const format = this.form.controls.format.value.trim();
-    const quality = Number.parseInt(this.form.controls.quality.value.trim(), 10);
-
+    const preset = this.selectedPreset();
     const options: Record<string, unknown> = {
-      format,
-      quality,
+      format: preset.format,
+      quality: this.quality() ?? preset.quality,
     };
 
-    const resizeWidth = this.parseOptionalInt(this.form.controls.resizeWidth.value);
-    const resizeHeight = this.parseOptionalInt(this.form.controls.resizeHeight.value);
-    if (resizeWidth !== null) {
-      options['width'] = resizeWidth;
-    }
-    if (resizeHeight !== null) {
-      options['height'] = resizeHeight;
-    }
-    if (mode === 'single') {
-      options['outputPath'] = outputPath;
+    const width = this.maxWidth();
+    if (width && width > 0) {
+      options['width'] = width;
     }
 
+    const paths = this.selectedPaths();
     return {
       toolId: IMAGE_TOOL_ID,
-      mode,
-      inputPaths: [...this.selectedInputPaths],
-      outputDir: mode === 'single' ? this.outputDirFromPath(outputPath) : outputDir,
+      mode: paths.length > 1 ? 'batch' : 'single',
+      inputPaths: [...paths],
+      outputDir: this.outputDir(),
       options,
     };
   }
 
+  private async refreshPlan(): Promise<boolean> {
+    if (this.selectedPaths().length === 0) {
+      this.planToken += 1;
+      this.plan.set(null);
+      this.planError.set(null);
+      this.planLoading.set(false);
+      return false;
+    }
+
+    const token = (this.planToken += 1);
+    this.planLoading.set(true);
+    this.plan.set(null);
+    this.planError.set(null);
+
+    const response: PlanJobResponseV1 = await this.wailsService
+      .planJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The output could not be planned.',
+        outputs: [],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PLAN_JOB_FAILED',
+          message: 'The output could not be planned.',
+        },
+      }));
+    if (token !== this.planToken) {
+      return false;
+    }
+
+    this.planLoading.set(false);
+
+    if (response.success && !response.error) {
+      this.plan.set(response);
+      return true;
+    }
+
+    const error: JobErrorV1 = response.error ?? {
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PLAN_JOB_FAILED',
+      message: response.message || 'The output could not be planned.',
+    };
+    // Keep the failed plan so the shared plan card can show the error in
+    // context, next to the destination it belongs to.
+    this.plan.set({ ...response, success: false, error });
+    this.planError.set(error);
+    return false;
+  }
+
+  private schedulePlanRefresh(): void {
+    this.clearPlanRefreshTimer();
+    this.planRefreshTimer = setTimeout(() => {
+      this.planRefreshTimer = null;
+      void this.refreshPlan();
+    }, ADVANCED_PLAN_DEBOUNCE_MS);
+  }
+
+  private clearPlanRefreshTimer(): void {
+    if (this.planRefreshTimer) {
+      clearTimeout(this.planRefreshTimer);
+      this.planRefreshTimer = null;
+    }
+  }
+
   private startPolling(): void {
     this.stopPolling();
-    this.isPolling = true;
+    this.isPolling.set(true);
+    void this.pollJobStatus();
     this.pollingTimer = setInterval(() => {
       void this.pollJobStatus();
     }, POLLING_INTERVAL_MS);
-    void this.pollJobStatus();
   }
 
   private stopPolling(): void {
@@ -407,119 +576,210 @@ export class ImageConverter implements OnDestroy {
       clearInterval(this.pollingTimer);
       this.pollingTimer = null;
     }
-    this.isPolling = false;
+    this.isPolling.set(false);
   }
 
   private async pollJobStatus(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       this.stopPolling();
       return;
     }
 
-    const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(this.activeJobId);
+    const response: JobStatusResponseV1 = await this.wailsService
+      .getJobStatusV1(jobId)
+      .catch(() => ({
+        success: false,
+        message: 'The job status could not be read.',
+        found: false,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_FAILED',
+          message: 'The job status could not be read.',
+        },
+      }));
+    if (this.activeJobId() !== jobId) {
+      return;
+    }
+
     if (!response.found || !response.result) {
-      this.statusMessage = this.mapJobError(response.error, response.message);
       this.stopPolling();
+      this.activeJobId.set('');
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_MISSING',
+          message: response.message || 'The job status could not be read.',
+        },
+      );
       return;
     }
 
-    this.jobResult = response.result;
-    this.statusMessage = `${response.result.status}: ${
-      response.result.error
-        ? this.mapJobError(response.result.error, response.result.message)
-        : response.result.message
-    }`;
-
+    this.jobResult.set(response.result);
     if (this.isTerminalStatus(response.result.status)) {
       this.stopPolling();
-      this.activeJobId = '';
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
     }
   }
 
-  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
-    if (!error) {
-      return fallback;
-    }
-
-    const tech = error.detail_code ? ` [${error.detail_code}]` : '';
-
-    switch (error.code) {
-      case 'VALIDATION_INVALID_INPUT':
-        return `Invalid input.${tech} ${error.message}`;
-      case 'RUNTIME_DEP_MISSING':
-        return `Runtime dependency missing.${tech} ${error.message}`;
-      case 'EXEC_IO_TRANSIENT':
-        return `Execution I/O issue.${tech} ${error.message}`;
-      case 'EXEC_TIMEOUT_TRANSIENT':
-        return `Execution timeout.${tech} ${error.message}`;
-      case 'UNSUPPORTED_FORMAT':
-        return `Unsupported format.${tech} ${error.message}`;
-      case 'CANCELLED_BY_USER':
-        return `Job cancelled by user.${tech}`;
-      default:
-        return `${error.code}${tech}: ${error.message}`;
-    }
-  }
-
-  private clearMessages(): void {
-    this.validationMessage = '';
-    this.submitMessage = '';
-  }
-
-  private currentMode(): 'single' | 'batch' {
-    return this.form.controls.jobMode.value === 'batch' ? 'batch' : 'single';
-  }
-
-  private addInput(rawPath: string): void {
-    const path = rawPath.trim();
-    if (!path || this.selectedInputPaths.includes(path)) {
+  private async loadOutputInfos(): Promise<void> {
+    const paths = this.collectOutputPaths();
+    if (paths.length === 0) {
+      this.outputInfos.set({});
       return;
     }
 
-    this.selectedInputPaths = [...this.selectedInputPaths, path];
+    const response: InspectFilesResponseV1 = await this.wailsService
+      .inspectFilesV1(paths)
+      .catch(() => ({
+        success: false,
+        message: 'File sizes could not be read.',
+        files: [],
+      }));
+    if (!response.success) {
+      this.outputInfos.set({});
+      return;
+    }
+
+    const infos: Record<string, FileInfoV1> = {};
+    for (const info of response.files) {
+      if (info.path) {
+        infos[info.path] = info;
+      }
+    }
+    this.outputInfos.set(infos);
   }
 
-  private isImagePath(path: string): boolean {
-    const lower = path.toLowerCase();
-    return (
-      lower.endsWith('.jpg') ||
-      lower.endsWith('.jpeg') ||
-      lower.endsWith('.png') ||
-      lower.endsWith('.gif') ||
-      lower.endsWith('.webp') ||
-      lower.endsWith('.bmp') ||
-      lower.endsWith('.tiff') ||
-      lower.endsWith('.tif')
+  private collectOutputPaths(): string[] {
+    const paths = new Set<string>();
+    for (const item of this.jobResult()?.items ?? []) {
+      if (!item.success) {
+        continue;
+      }
+      const outputs =
+        item.outputs && item.outputs.length > 0
+          ? item.outputs
+          : item.outputPath
+            ? [item.outputPath]
+            : [];
+      for (const output of outputs) {
+        if (output) {
+          paths.add(output);
+        }
+      }
+    }
+    return [...paths];
+  }
+
+  private syncFileItems(): void {
+    const paths = this.selectedPaths();
+    const generation = (this.fileItemsGeneration += 1);
+    this.fileItems.set(
+      paths.map((path) => ({ path, name: fileName(path) })),
     );
+
+    if (paths.length > 0) {
+      void this.enrichFileItems(paths, generation);
+    }
   }
 
-  private outputDirFromPath(outputPath: string): string {
-    const lastSlash = Math.max(outputPath.lastIndexOf('/'), outputPath.lastIndexOf('\\'));
-    if (lastSlash <= 0) {
-      return '';
+  private async enrichFileItems(
+    paths: string[],
+    generation: number,
+  ): Promise<void> {
+    try {
+      const response = await this.wailsService.inspectFilesV1(paths);
+      if (generation === this.fileItemsGeneration && response.success) {
+        const infos = new Map<string, FileInfoV1>();
+        for (const info of response.files) {
+          infos.set(info.path, info);
+        }
+
+        this.fileItems.update((items) =>
+          items.map((item) => {
+            const info = infos.get(item.path);
+            const meta = info ? this.describeFileInfo(info) : '';
+            return meta ? { ...item, meta } : item;
+          }),
+        );
+      }
+    } catch {
+      // Inspection is optional: the queue keeps the file name and path.
     }
-    return outputPath.slice(0, lastSlash);
+
+    if (generation !== this.fileItemsGeneration) {
+      return;
+    }
+
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
   }
 
-  private parseOptionalInt(raw: string): number | null {
-    const value = raw.trim();
-    if (!value) {
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the placeholder icon.
+      });
+  }
+
+  private describeFileInfo(info: FileInfoV1): string {
+    const parts: string[] = [];
+    if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
+      parts.push(formatBytes(info.sizeBytes));
+    }
+    if (typeof info.width === 'number' && typeof info.height === 'number') {
+      parts.push(`${info.width} × ${info.height}`);
+    }
+    return parts.join(' · ');
+  }
+
+  private rejectionNotice(rejected: string[]): string {
+    const extensions = [
+      ...new Set(
+        rejected.map(
+          (path) => fileExtension(path).toUpperCase() || 'UNKNOWN',
+        ),
+      ),
+    ];
+
+    const count = rejected.length;
+    const filesCopy =
+      count === 1 ? "1 file wasn't added." : `${count} files weren't added.`;
+
+    let extensionsCopy: string;
+    if (extensions.length === 1) {
+      extensionsCopy = `${extensions[0]} isn't supported.`;
+    } else {
+      const head = extensions.slice(0, -1).join(', ');
+      extensionsCopy = `${head} and ${extensions[extensions.length - 1]} aren't supported.`;
+    }
+
+    return `${filesCopy} ${extensionsCopy}`;
+  }
+
+  private readNumber(event: Event): number | null {
+    const raw = (event.target as HTMLInputElement | null)?.value ?? '';
+    if (raw.trim() === '') {
       return null;
     }
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return null;
-    }
-    return parsed;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   private isTerminalStatus(status: string): boolean {
-    return (
-      status === 'success' ||
-      status === 'failed' ||
-      status === 'partial_success' ||
-      status === 'cancelled' ||
-      status === 'interrupted'
-    );
+    return TERMINAL_STATUSES.has(status);
   }
 }

@@ -48,6 +48,69 @@ describe('FileDrop', () => {
     expect(hint.id).toBe(component.hintId);
   });
 
+  it('exposes a unique native drop target id', () => {
+    expect(surface().hasAttribute('data-file-drop-target')).toBeTrue();
+    expect(surface().id).toBe(component.dropId);
+
+    const second = TestBed.createComponent(FileDrop);
+    second.detectChanges();
+    const secondSurface = second.nativeElement.querySelector('.file-drop') as HTMLElement;
+    expect(secondSurface.id).not.toBe(surface().id);
+  });
+
+  it('emits native dropped paths for its own drop target', () => {
+    const spy = jasmine.createSpy('pathsSelected');
+    component.pathsSelected.subscribe(spy);
+
+    component.handleNativeDrop({
+      data: {
+        droppedFiles: ['/tmp/one.png', '/tmp/two.png'],
+        dropTargetDetails: { id: component.dropId },
+      },
+    });
+
+    expect(spy).toHaveBeenCalledOnceWith(['/tmp/one.png', '/tmp/two.png']);
+    expect(component.dragOver).toBeFalse();
+  });
+
+  it('accepts a native payload without a target id', () => {
+    const spy = jasmine.createSpy('pathsSelected');
+    component.pathsSelected.subscribe(spy);
+
+    component.handleNativeDrop({ data: { files: ['C:\\tmp\\one.png'] } });
+
+    expect(spy).toHaveBeenCalledOnceWith(['C:\\tmp\\one.png']);
+  });
+
+  it('ignores native drops aimed at another drop target', () => {
+    const spy = jasmine.createSpy('pathsSelected');
+    component.pathsSelected.subscribe(spy);
+
+    component.handleNativeDrop({
+      data: {
+        droppedFiles: ['/tmp/one.png'],
+        dropTargetDetails: { id: 'ff-drop-999' },
+      },
+    });
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('emits paths from browser drops when files expose a webview path', () => {
+    const spy = jasmine.createSpy('pathsSelected');
+    component.pathsSelected.subscribe(spy);
+    const file = Object.assign(new File(['x'], 'a.png', { type: 'image/png' }), {
+      path: '/tmp/a.png',
+    });
+
+    component['emitPaths']({
+      item: (i: number) => (i === 0 ? file : null),
+      length: 1,
+    } as unknown as FileList);
+
+    expect(spy).toHaveBeenCalledOnceWith(['/tmp/a.png']);
+  });
+
   it('opens the picker on Space without scrolling', () => {
     const trigger = spyOn(component, 'triggerFileInput');
     const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
@@ -63,6 +126,26 @@ describe('FileDrop', () => {
     surface().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 
     expect(trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the host for a native picker when nativePicker is enabled', () => {
+    const browse = jasmine.createSpy('browseRequested');
+    const inputClick = spyOn(component['fileInput']!.nativeElement, 'click');
+    component.browseRequested.subscribe(browse);
+    component.nativePicker = true;
+    fixture.detectChanges();
+
+    surface().click();
+
+    expect(browse).toHaveBeenCalledTimes(1);
+    expect(inputClick).not.toHaveBeenCalled();
+  });
+
+  it('renders a custom headline', () => {
+    component.title = 'Drop images here';
+    fixture.detectChanges();
+
+    expect(surface().textContent).toContain('Drop images here');
   });
 
   it('reflects the drag state on the surface', () => {

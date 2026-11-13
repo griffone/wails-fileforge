@@ -21,11 +21,15 @@ func main() {
 		},
 	})
 
-	win := app.Window.New()
-	win.SetTitle("FileForge Desktop").
-		SetURL("/").
-		SetMinSize(1080, 720).
-		Show()
+	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:           "main",
+		Title:          "FileForge Desktop",
+		URL:            "/",
+		MinWidth:       1080,
+		MinHeight:      720,
+		EnableFileDrop: true,
+	})
+	win.Show()
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

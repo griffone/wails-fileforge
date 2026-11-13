@@ -1,379 +1,577 @@
+import { Component, OnDestroy, computed, signal } from '@angular/core';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import {
-  Component,
-  ElementRef,
-  HostListener,
-  OnDestroy,
-  ViewChild,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import {
-  ArrowDown,
-  ArrowUp,
   FolderOpen,
-  GripVertical,
-  ListOrdered,
   LucideAngularModule,
   ShieldCheck,
-  Trash2,
+  TriangleAlert,
   X,
 } from 'lucide-angular';
+
+import { FileDrop } from '../file-drop/file-drop';
+import { JobCard } from '../job-card/job-card';
+import { FileQueue } from '../tool-flow/file-queue';
+import { OutputPlanCard } from '../tool-flow/output-plan-card';
+import { ResultCard } from '../tool-flow/result-card';
+import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
+  FileInfoV1,
+  InspectFilesResponseV1,
   JobErrorV1,
+  JobExecutionStatusV1,
   JobRequestV1,
   JobResultV1,
   JobStatusResponseV1,
+  PlanJobResponseV1,
+  RunJobResponseV1,
   Wails,
 } from '../../services/wails';
-import { FileDrop } from '../file-drop/file-drop';
-import { JobCard } from '../job-card/job-card';
+import {
+  fileDir,
+  fileExtension,
+  fileName,
+  fileStem,
+  formatBytes,
+  formatCount,
+} from '../../utils/format';
 
 const PDF_MERGE_TOOL_ID = 'tool.pdf.merge';
 const POLLING_INTERVAL_MS = 1000;
+const CUSTOM_NAME_DEBOUNCE_MS = 250;
+const THUMBNAIL_SIZE = 160;
+
+const TERMINAL_STATUSES = new Set<string>([
+  'success',
+  'failed',
+  'partial_success',
+  'cancelled',
+  'interrupted',
+]);
+
+interface Notice {
+  tone: 'warning' | 'danger';
+  text: string;
+}
 
 @Component({
   selector: 'app-pdf-merge',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, LucideAngularModule, FileDrop, JobCard],
+  imports: [
+    LucideAngularModule,
+    FileDrop,
+    FileQueue,
+    OutputPlanCard,
+    ResultCard,
+    JobCard,
+  ],
   templateUrl: './pdf-merge.html',
   styleUrl: './pdf-merge.css',
 })
 export class PdfMerge implements OnDestroy {
-  @ViewChild('runButton') runButton?: ElementRef<HTMLButtonElement>;
-  @ViewChild('confirmButton') confirmButton?: ElementRef<HTMLButtonElement>;
+  private readonly destroy$ = new Subject<void>();
 
-  readonly arrowUpIcon = ArrowUp;
-  readonly arrowDownIcon = ArrowDown;
-  readonly closeIcon = X;
-  readonly folderOpenIcon = FolderOpen;
-  readonly gripIcon = GripVertical;
-  readonly listOrderedIcon = ListOrdered;
   readonly shieldIcon = ShieldCheck;
-  readonly trashIcon = Trash2;
+  readonly folderIcon = FolderOpen;
+  readonly closeIcon = X;
+  readonly alertIcon = TriangleAlert;
 
-  readonly form;
-  selectedInputPaths: string[] = [];
+  readonly selectedPaths = signal<string[]>([]);
+  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly outputDir = signal('');
+  readonly customName = signal('');
+  readonly advancedOpen = signal(false);
 
-  validationMessage = '';
-  submitMessage = '';
-  statusMessage = '';
-  jobResult: JobResultV1 | null = null;
-  isSubmitting = false;
-  isPolling = false;
-  activeJobId = '';
-  draggedIndex: number | null = null;
-  showRunOrderConfirmation = false;
-  confirmedOrderSnapshot: string[] = [];
-  confirmedOutputPath = '';
+  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly planError = signal<JobErrorV1 | null>(null);
+  readonly planLoading = signal(false);
+
+  readonly jobResult = signal<JobResultV1 | null>(null);
+  readonly jobError = signal<JobErrorV1 | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
+
+  readonly isSubmitting = signal(false);
+  readonly isPolling = signal(false);
+  readonly activeJobId = signal('');
+
+  readonly notice = signal<Notice | null>(null);
+  readonly actionMessage = signal('');
+
+  readonly canRun = computed(
+    () =>
+      this.selectedPaths().length >= 2 &&
+      !this.isSubmitting() &&
+      !this.isPolling(),
+  );
+
+  readonly primaryLabel = computed(() => {
+    if (this.isSubmitting() || this.isPolling()) {
+      return 'Merging…';
+    }
+    const count = this.selectedPaths().length;
+    return count >= 2 ? `Merge ${count} PDFs` : 'Merge PDFs';
+  });
+
+  readonly destinationLabel = computed(
+    () => this.outputDir().trim() || 'Next to the first PDF',
+  );
+
+  readonly isDefaultDestination = computed(
+    () => this.outputDir().trim().length === 0,
+  );
+
+  readonly customNameInvalid = computed(() =>
+    /[\\/]/.test(this.customName().trim()),
+  );
+
+  /**
+   * A failed plan means the chosen name or folder cannot be used. The plan is
+   * the source of truth, so the primary action stays blocked until it passes.
+   */
+  readonly planBlocked = computed(
+    () => this.customNameInvalid() || this.plan()?.success === false,
+  );
+
+  readonly automaticName = computed(() => {
+    const first = this.selectedPaths()[0];
+    return first ? `${fileStem(first)}_merged.pdf` : '';
+  });
+
+  readonly actionHelper = computed(() => {
+    const count = this.selectedPaths().length;
+    if (count === 0) {
+      return 'Add at least two PDFs to merge.';
+    }
+    if (count === 1) {
+      return 'Add one more PDF to merge.';
+    }
+    return '';
+  });
+
+  readonly terminalJob = computed<JobResultV1 | null>(() => {
+    const job = this.jobResult();
+    return job && this.isTerminalStatus(job.status) ? job : null;
+  });
+
+  readonly showProgress = computed(() => {
+    const job = this.jobResult();
+    return !!job && !this.isTerminalStatus(job.status);
+  });
+
+  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
+    const error = this.jobError();
+    return error ? describeToolError(error, 'The merge could not start.') : null;
+  });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private planToken = 0;
+  private fileItemsGeneration = 0;
 
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly wailsService: Wails
-  ) {
-    this.form = this.fb.nonNullable.group({
-      outputPath: ['', Validators.required],
-    });
-  }
+  constructor(private readonly wailsService: Wails) {
+    this.wailsService.jobProgress$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.activeJobId()) {
+          return;
+        }
 
-  /** FileDrop emits the selected files; the native path wins when available. */
-  onFilesAdded(files: File[]): void {
-    const paths = files.map((file) => (file as File & { path?: string }).path ?? file.name);
-    this.appendInputPaths(paths);
+        const current = this.jobResult();
+        if (!current) {
+          return;
+        }
+
+        this.jobResult.set({
+          ...current,
+          message: event.progress.message,
+          progress: event.progress,
+          // Wait for the status endpoint to settle the final items. The event
+          // can arrive before the job store has the complete result.
+          status: this.isTerminalStatus(event.status)
+            ? current.status
+            : (event.status as JobExecutionStatusV1),
+        });
+
+        if (this.isTerminalStatus(event.status)) {
+          void this.pollJobStatus();
+        }
+      });
   }
 
   ngOnDestroy(): void {
     this.stopPolling();
+    this.clearPlanRefreshTimer();
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
-  @HostListener('document:keydown.escape')
-  onEscape(): void {
-    if (!this.showRunOrderConfirmation) {
-      return;
-    }
-    this.cancelRunOrderConfirmation();
+  fileCountLabel(): string {
+    const count = this.selectedPaths().length;
+    return count === 1 ? '1 PDF' : `${count} PDFs`;
   }
 
-  async validate(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.validationMessage = localError;
-      return;
-    }
-
-    const request = this.buildRequest();
-    const response = await this.wailsService.validateJobV1(request);
-    if (!response.valid) {
-      this.logSupportEvent('validate', response.error, 'ValidateJobV1 returned invalid request');
-    }
-    this.validationMessage = response.valid
-      ? 'Validation OK. Ready to run merge.'
-      : this.mapJobError(response.error, response.message);
-  }
-
-  async run(): Promise<void> {
-    this.clearMessages();
-
-    const localError = this.localValidationError();
-    if (localError) {
-      this.submitMessage = localError;
+  onPathsSelected(paths: string[]): void {
+    const incoming = (Array.isArray(paths) ? paths : [])
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (incoming.length === 0) {
       return;
     }
 
-    this.confirmedOrderSnapshot = [...this.selectedInputPaths];
-    this.confirmedOutputPath = this.form.controls.outputPath.value.trim();
-    this.showRunOrderConfirmation = true;
-    setTimeout(() => this.confirmButton?.nativeElement.focus(), 0);
-  }
+    const rejected: string[] = [];
+    const duplicates: string[] = [];
+    const added: string[] = [];
+    const known = new Set(this.selectedPaths().map((path) => this.pathKey(path)));
 
-  cancelRunOrderConfirmation(): void {
-    this.showRunOrderConfirmation = false;
-    this.submitMessage = 'Run cancelled: the final order was not confirmed.';
-    this.restoreRunFocus();
-  }
+    for (const path of incoming) {
+      if (fileExtension(path).toLowerCase() !== 'pdf') {
+        rejected.push(path);
+        continue;
+      }
 
-  async confirmRunOrderAndExecute(): Promise<void> {
-    if (!this.showRunOrderConfirmation) {
+      const key = this.pathKey(path);
+      if (known.has(key)) {
+        duplicates.push(path);
+        continue;
+      }
+
+      known.add(key);
+      added.push(path);
+    }
+
+    this.notice.set(this.intakeNotice(rejected, duplicates));
+
+    if (added.length === 0) {
       return;
     }
 
-    const localError = this.localValidationError();
-    if (localError) {
-      this.showRunOrderConfirmation = false;
-      this.submitMessage = localError;
-      this.restoreRunFocus();
-      return;
-    }
-
-    const request = this.buildRequestWithInputs(this.confirmedOrderSnapshot, this.confirmedOutputPath);
-    this.showRunOrderConfirmation = false;
-
-    await this.executeRunRequest(request);
-    this.restoreRunFocus();
+    this.actionMessage.set('');
+    this.selectedPaths.set([...this.selectedPaths(), ...added]);
+    this.syncFileItems();
+    void this.refreshPlan();
   }
 
-  private async executeRunRequest(request: JobRequestV1): Promise<void> {
-    this.clearMessages();
-
-    this.isSubmitting = true;
-    this.submitMessage = '';
-    this.statusMessage = '';
-    this.jobResult = null;
-
-    const validation = await this.wailsService.validateJobV1(request);
-    if (!validation.valid) {
-      this.logSupportEvent('run-validate', validation.error, 'Run blocked by validation error');
-      this.submitMessage = this.mapJobError(
-        validation.error,
-        'Validation failed before submit.'
-      );
-      this.isSubmitting = false;
-      return;
-    }
-
-    const runResponse = await this.wailsService.runJobV1(request);
-    if (!runResponse.success || !runResponse.jobId) {
-      this.logSupportEvent('run-submit', runResponse.error, 'RunJobV1 failed to submit');
-      this.submitMessage = this.mapJobError(
-        runResponse.error,
-        runResponse.message
-      );
-      this.isSubmitting = false;
-      return;
-    }
-
-    this.activeJobId = runResponse.jobId;
-    this.submitMessage = `Job submitted: ${runResponse.jobId}`;
-    this.logSupportEvent('run-submitted', undefined, 'Job submitted successfully');
-    this.startPolling();
-    this.isSubmitting = false;
-  }
-
-  async cancel(): Promise<void> {
-    if (!this.activeJobId) {
-      return;
-    }
-
-    const response = await this.wailsService.cancelJobV1(this.activeJobId);
-    this.statusMessage = response.success
-      ? 'Cancel requested.'
-      : this.mapJobError(response.error, response.message);
-
-    if (!response.success) {
-      this.logSupportEvent('cancel', response.error, 'Cancel request failed');
-    }
-  }
-
-  async selectFilesFromDialog(): Promise<void> {
-    this.clearMessages();
+  async chooseFiles(): Promise<void> {
     const paths = await this.wailsService.openMultipleFilesDialog();
-    this.appendInputPaths(paths);
+    if (paths.length > 0) {
+      this.onPathsSelected(paths);
+    }
   }
 
-  async selectOutputDirectory(): Promise<void> {
-    const selectedDir = (await this.wailsService.openDirectoryDialog()).trim();
-    if (!selectedDir) {
+  clear(): void {
+    if (this.selectedPaths().length === 0) {
       return;
     }
-
-    const currentOutput = this.form.controls.outputPath.value.trim();
-    const currentName = this.filenameFromPath(currentOutput);
-    const outputName = this.isPDFPath(currentName) ? currentName : 'merged.pdf';
-
-    this.form.patchValue({
-      outputPath: this.joinPathLikeHostOS(selectedDir, outputName),
-    });
-    this.validationMessage = 'Output folder selected. Review or adjust the final file name.';
+    this.selectedPaths.set([]);
+    this.notice.set(null);
+    this.actionMessage.set('');
+    this.syncFileItems();
+    void this.refreshPlan();
   }
 
-  moveUp(index: number): void {
-    if (index <= 0 || index >= this.selectedInputPaths.length) {
+  removeFile(path: string): void {
+    const next = this.selectedPaths().filter((candidate) => candidate !== path);
+    if (next.length === this.selectedPaths().length) {
+      return;
+    }
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  moveUp(path: string): void {
+    const index = this.selectedPaths().indexOf(path);
+    if (index <= 0) {
       return;
     }
     this.swap(index, index - 1);
   }
 
-  moveDown(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length - 1) {
+  moveDown(path: string): void {
+    const index = this.selectedPaths().indexOf(path);
+    if (index < 0 || index >= this.selectedPaths().length - 1) {
       return;
     }
     this.swap(index, index + 1);
   }
 
-  removeAt(index: number): void {
-    if (index < 0 || index >= this.selectedInputPaths.length) {
+  async chooseOutputFolder(): Promise<void> {
+    const directory = (await this.wailsService.openDirectoryDialog()).trim();
+    if (!directory) {
       return;
     }
-    this.selectedInputPaths.splice(index, 1);
+    this.outputDir.set(directory);
+    this.actionMessage.set('');
+    await this.refreshPlan();
   }
 
-  clearInputList(): void {
-    this.selectedInputPaths = [];
+  useFirstPdfFolder(): void {
+    if (this.outputDir() === '') {
+      return;
+    }
+    this.outputDir.set('');
+    void this.refreshPlan();
   }
 
-  onReorderDragStart(index: number): void {
-    this.draggedIndex = index;
+  onAdvancedToggle(event: Event): void {
+    const target = event.target as HTMLDetailsElement | null;
+    this.advancedOpen.set(!!target?.open);
   }
 
-  onReorderDragOver(event: DragEvent): void {
-    event.preventDefault();
+  onCustomNameInput(event: Event): void {
+    const value = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.customName.set(value);
+    this.actionMessage.set('');
+    this.schedulePlanRefresh();
   }
 
-  onReorderDrop(targetIndex: number): void {
-    if (this.draggedIndex === null || this.draggedIndex === targetIndex) {
-      this.draggedIndex = null;
+  async run(): Promise<void> {
+    if (!this.canRun() || this.planBlocked()) {
       return;
     }
 
-    const [moved] = this.selectedInputPaths.splice(this.draggedIndex, 1);
-    if (typeof moved === 'string') {
-      this.selectedInputPaths.splice(targetIndex, 0, moved);
+    this.actionMessage.set('');
+
+    if (this.planLoading() || !this.plan()?.success) {
+      const planned = await this.refreshPlan();
+      if (!planned) {
+        return;
+      }
     }
-    this.draggedIndex = null;
+
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(true);
+
+    const response: RunJobResponseV1 = await this.wailsService
+      .runJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The merge could not start.',
+        jobId: '',
+        status: 'failed' as const,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: 'The merge could not start.',
+        },
+      }));
+    if (!response.success || !response.jobId) {
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: response.message || 'The merge could not start.',
+        },
+      );
+      this.isSubmitting.set(false);
+      return;
+    }
+
+    const total = this.selectedPaths().length;
+    this.activeJobId.set(response.jobId);
+    this.jobResult.set({
+      jobId: response.jobId,
+      success: false,
+      message: 'Waiting to start',
+      toolId: PDF_MERGE_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total,
+        stage: 'queued',
+        message: 'Waiting to start',
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isSubmitting.set(false);
+    this.isPolling.set(true);
+    this.startPolling();
   }
 
-  onReorderDragEnd(): void {
-    this.draggedIndex = null;
+  async cancel(): Promise<void> {
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      return;
+    }
+    const response = await this.wailsService.cancelJobV1(jobId);
+    if (!response.success) {
+      this.actionMessage.set(
+        response.message || 'The job could not be cancelled.',
+      );
+    }
   }
 
-  filenameFromPath(path: string): string {
-    const normalized = path.replace(/\\/g, '/');
-    const idx = normalized.lastIndexOf('/');
-    return idx >= 0 ? normalized.slice(idx + 1) : normalized;
-  }
-
-  /** Two-digit queue position, matching the mono index in the list. */
-  formatPosition(index: number): string {
-    return String(index + 1).padStart(2, '0');
-  }
-
-  /** Badge copy for the queue panel header. */
-  fileCountLabel(): string {
-    const count = this.selectedInputPaths.length;
-    if (count === 0) {
-      return '0 files';
-    }
-    return count === 1 ? '1 file' : `${count} files`;
-  }
-
-  private localValidationError(): string {
-    const outputPath = this.form.controls.outputPath.value.trim();
-    const inputPaths = this.selectedInputPaths.map((path) => path.trim());
-
-    if (inputPaths.length < 2) {
-      return 'Select at least 2 PDFs to merge.';
-    }
-
-    const invalidInput = inputPaths.find((path) => !this.isPDFPath(path));
-    if (invalidInput) {
-      return `Invalid file in the queue: ${invalidInput}. Only .pdf files are allowed.`;
-    }
-
-    const duplicate = this.findDuplicatePath(inputPaths);
-    if (duplicate) {
-      return `Duplicate file detected: ${duplicate}. Remove the duplicate or reorder the queue.`;
-    }
-
-    if (!outputPath) {
-      return 'Enter an output path to save the merged PDF.';
-    }
-
-    if (outputPath.endsWith('/') || outputPath.endsWith('\\')) {
-      return 'The output path must include a file name (for example, merged.pdf), not just a folder.';
-    }
-
-    if (!this.isPDFPath(outputPath)) {
-      return 'The output path must end in .pdf.';
-    }
-
-    const collision = inputPaths.find(
-      (path) => this.normalizePathKey(path) === this.normalizePathKey(outputPath)
+  async onOpen(path: string): Promise<void> {
+    const response = await this.wailsService.openPath(path);
+    this.actionMessage.set(
+      response.success ? '' : response.message || 'The file could not be opened.',
     );
-    if (collision) {
-      return `The output path matches an input file: ${collision}. Choose a different output file.`;
+  }
+
+  async onReveal(path: string): Promise<void> {
+    const response = await this.wailsService.revealInFolder(path);
+    this.actionMessage.set(
+      response.success
+        ? ''
+        : response.message || 'The folder could not be opened.',
+    );
+  }
+
+  /** A failed merge has no partial queue to retry: rerun the same inputs. */
+  async retry(): Promise<void> {
+    if (!this.canRun()) {
+      return;
     }
 
-    return '';
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+
+    const planned = await this.refreshPlan();
+    if (!planned) {
+      return;
+    }
+
+    await this.run();
+  }
+
+  reset(): void {
+    this.stopPolling();
+    this.clearPlanRefreshTimer();
+    this.planToken += 1;
+    this.fileItemsGeneration += 1;
+
+    this.selectedPaths.set([]);
+    this.fileItems.set([]);
+    this.customName.set('');
+    this.plan.set(null);
+    this.planError.set(null);
+    this.planLoading.set(false);
+    this.jobResult.set(null);
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.isSubmitting.set(false);
+    this.activeJobId.set('');
+    this.notice.set(null);
+    this.actionMessage.set('');
   }
 
   private buildRequest(): JobRequestV1 {
-    const outputPath = this.form.controls.outputPath.value.trim();
-
-    return this.buildRequestWithInputs(this.selectedInputPaths, outputPath);
-  }
-
-  private buildRequestWithInputs(inputPaths: string[], outputPath: string): JobRequestV1 {
-    const normalizedInputPaths = inputPaths.map((path) => path.trim());
+    const options: Record<string, unknown> = {};
+    const name = this.sanitizedCustomName();
+    if (name) {
+      const dir =
+        this.outputDir().trim() || fileDir(this.selectedPaths()[0] ?? '');
+      options['outputPath'] = this.joinPath(dir, name);
+    }
 
     return {
       toolId: PDF_MERGE_TOOL_ID,
       mode: 'single',
-      inputPaths: normalizedInputPaths,
-      outputDir: this.outputDirFromPath(outputPath),
-      options: {
-        outputPath,
-      },
+      inputPaths: [...this.selectedPaths()],
+      outputDir: this.outputDir(),
+      options,
     };
   }
 
-  private outputDirFromPath(outputPath: string): string {
-    const lastSlash = Math.max(outputPath.lastIndexOf('/'), outputPath.lastIndexOf('\\'));
-    if (lastSlash <= 0) {
+  private sanitizedCustomName(): string {
+    const raw = this.customName().trim();
+    if (!raw || this.customNameInvalid()) {
       return '';
     }
-    return outputPath.slice(0, lastSlash);
+    const stem = raw.replace(/\.pdf$/i, '').trim();
+    return stem ? `${stem}.pdf` : '';
+  }
+
+  /** Keeps Windows separators when the directory uses them. */
+  private joinPath(dir: string, name: string): string {
+    const trimmed = (dir ?? '').trim();
+    if (!trimmed) {
+      return name;
+    }
+    if (/[\\/]$/.test(trimmed)) {
+      return `${trimmed}${name}`;
+    }
+    const separator =
+      trimmed.includes('\\') && !trimmed.includes('/') ? '\\' : '/';
+    return `${trimmed}${separator}${name}`;
+  }
+
+  private async refreshPlan(): Promise<boolean> {
+    if (this.selectedPaths().length < 2) {
+      this.planToken += 1;
+      this.plan.set(null);
+      this.planError.set(null);
+      this.planLoading.set(false);
+      return false;
+    }
+
+    const token = (this.planToken += 1);
+    this.planLoading.set(true);
+    this.plan.set(null);
+    this.planError.set(null);
+
+    const response: PlanJobResponseV1 = await this.wailsService
+      .planJobV1(this.buildRequest())
+      .catch(() => ({
+        success: false,
+        message: 'The output could not be planned.',
+        outputs: [],
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'PLAN_JOB_FAILED',
+          message: 'The output could not be planned.',
+        },
+      }));
+    if (token !== this.planToken) {
+      return false;
+    }
+
+    this.planLoading.set(false);
+
+    if (response.success && !response.error) {
+      this.plan.set(response);
+      return true;
+    }
+
+    const error: JobErrorV1 = response.error ?? {
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PLAN_JOB_FAILED',
+      message: response.message || 'The output could not be planned.',
+    };
+    // Keep the failed plan so the shared plan card can show the conflict in
+    // context, next to the destination it belongs to.
+    this.plan.set({ ...response, success: false, error });
+    this.planError.set(error);
+    return false;
+  }
+
+  private schedulePlanRefresh(): void {
+    this.clearPlanRefreshTimer();
+    this.planRefreshTimer = setTimeout(() => {
+      this.planRefreshTimer = null;
+      void this.refreshPlan();
+    }, CUSTOM_NAME_DEBOUNCE_MS);
+  }
+
+  private clearPlanRefreshTimer(): void {
+    if (this.planRefreshTimer) {
+      clearTimeout(this.planRefreshTimer);
+      this.planRefreshTimer = null;
+    }
   }
 
   private startPolling(): void {
     this.stopPolling();
-    this.isPolling = true;
+    this.isPolling.set(true);
+    void this.pollJobStatus();
     this.pollingTimer = setInterval(() => {
       void this.pollJobStatus();
     }, POLLING_INTERVAL_MS);
-    void this.pollJobStatus();
   }
 
   private stopPolling(): void {
@@ -381,212 +579,222 @@ export class PdfMerge implements OnDestroy {
       clearInterval(this.pollingTimer);
       this.pollingTimer = null;
     }
-    this.isPolling = false;
+    this.isPolling.set(false);
   }
 
   private async pollJobStatus(): Promise<void> {
-    if (!this.activeJobId) {
+    const jobId = this.activeJobId();
+    if (!jobId) {
       this.stopPolling();
       return;
     }
 
-    const response: JobStatusResponseV1 = await this.wailsService.getJobStatusV1(
-      this.activeJobId
-    );
+    const response: JobStatusResponseV1 = await this.wailsService
+      .getJobStatusV1(jobId)
+      .catch(() => ({
+        success: false,
+        message: 'The job status could not be read.',
+        found: false,
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_FAILED',
+          message: 'The job status could not be read.',
+        },
+      }));
+    if (this.activeJobId() !== jobId) {
+      return;
+    }
+
     if (!response.found || !response.result) {
-      this.statusMessage = this.mapJobError(response.error, response.message);
-      this.logSupportEvent('poll-not-found', response.error, 'GetJobStatusV1 returned not found');
       this.stopPolling();
+      this.activeJobId.set('');
+      this.jobError.set(
+        response.error ?? {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'JOB_STATUS_MISSING',
+          message: response.message || 'The job status could not be read.',
+        },
+      );
       return;
     }
 
-    this.jobResult = response.result;
-    const resultErrorMessage = response.result.error
-      ? this.mapJobError(response.result.error, response.result.message)
-      : response.result.message;
-    this.statusMessage = `${response.result.status}: ${resultErrorMessage}`;
-
-    if (response.result.error) {
-      this.logSupportEvent('poll-result-error', response.result.error, 'Terminal or intermediate job error received');
-    }
-
-    if (
-      response.result.status === 'success' ||
-      response.result.status === 'failed' ||
-      response.result.status === 'partial_success' ||
-      response.result.status === 'cancelled' ||
-      response.result.status === 'interrupted'
-    ) {
+    this.jobResult.set(response.result);
+    if (this.isTerminalStatus(response.result.status)) {
       this.stopPolling();
-      this.activeJobId = '';
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
     }
   }
 
-  private clearMessages(): void {
-    this.validationMessage = '';
-    this.submitMessage = '';
-  }
-
-  private mapJobError(error: JobErrorV1 | undefined, fallback: string): string {
-    if (!error) {
-      return fallback;
-    }
-
-    const tech = error.detail_code ? ` [${error.detail_code}]` : '';
-
-    switch (error.code) {
-      case 'VALIDATION_INVALID_INPUT':
-        return `Validation error${tech}: ${error.message}`;
-      case 'RUNTIME_DEP_MISSING':
-        return `Runtime dependency missing.${tech} ${error.message}`;
-      case 'EXEC_IO_TRANSIENT':
-        return `The merge could not finish because of an execution error.${tech} ${error.message}`;
-      case 'EXEC_TIMEOUT_TRANSIENT':
-        return `The merge timed out.${tech} ${error.message}`;
-      case 'UNSUPPORTED_FORMAT':
-        return `Unsupported format.${tech} ${error.message}`;
-      case 'CANCELLED_BY_USER':
-        return `The job was cancelled.${tech}`;
-      default:
-        return `${error.code}${tech}: ${error.message}`;
-    }
-  }
-
-  appendInputPaths(rawPaths: string[]): void {
-    const normalized = rawPaths
-      .map((path) => path.trim())
-      .filter((path) => path.length > 0);
-
-    if (normalized.length === 0) {
+  private async loadOutputInfos(): Promise<void> {
+    const paths = this.collectOutputPaths();
+    if (paths.length === 0) {
+      this.outputInfos.set({});
       return;
     }
 
-    const existing = new Set(this.selectedInputPaths.map((path) => this.normalizePathKey(path)));
-    const added: string[] = [];
-    const ignored: string[] = [];
-
-    for (const path of normalized) {
-      if (!this.isPDFPath(path)) {
-        ignored.push(path);
-        continue;
-      }
-
-      const key = this.normalizePathKey(path);
-      if (existing.has(key)) {
-        ignored.push(path);
-        continue;
-      }
-
-      this.selectedInputPaths.push(path);
-      existing.add(key);
-      added.push(path);
-    }
-
-    if (added.length > 0) {
-      this.validationMessage = `${added.length} file(s) added to the queue.`;
-    }
-
-    if (ignored.length > 0) {
-      this.submitMessage = `Ignored ${ignored.length} file(s) with an invalid extension or duplicate path.`;
-    }
-  }
-
-  private findDuplicatePath(paths: string[]): string {
-    const seen = new Set<string>();
-    for (const path of paths) {
-      const key = this.normalizePathKey(path);
-      if (seen.has(key)) {
-        return path;
-      }
-      seen.add(key);
-    }
-    return '';
-  }
-
-  private isPDFPath(path: string): boolean {
-    return path.toLowerCase().endsWith('.pdf');
-  }
-
-  private joinPathLikeHostOS(dir: string, fileName: string): string {
-    const trimmedDir = dir.trim().replace(/[\\/]+$/, '');
-    const separator = trimmedDir.includes('\\') && !trimmedDir.includes('/') ? '\\' : '/';
-    return `${trimmedDir}${separator}${fileName}`;
-  }
-
-  private normalizePathKey(rawPath: string): string {
-    const trimmed = rawPath.trim();
-    if (!trimmed) {
-      return '';
-    }
-
-    const normalizedSlashes = trimmed.replace(/\\/g, '/');
-
-    if (normalizedSlashes.startsWith('//')) {
-      const uncBody = normalizedSlashes.replace(/^\/+/, '');
-      return `unc://${this.cleanSlashPath(`/${uncBody}`).replace(/^\/+/, '').toLowerCase()}`;
-    }
-
-    const driveMatch = normalizedSlashes.match(/^([a-zA-Z]):(.*)$/);
-    if (driveMatch) {
-      const drive = driveMatch[1].toLowerCase();
-      const rest = driveMatch[2] ?? '';
-      return `win:${drive}:${this.cleanSlashPath(`/${rest.replace(/^\/+/, '')}`).toLowerCase()}`;
-    }
-
-    return `posix:${this.cleanSlashPath(normalizedSlashes).toLowerCase()}`;
-  }
-
-  private logSupportEvent(stage: string, error?: JobErrorV1, note?: string): void {
-    const payload = {
-      stage,
-      toolId: PDF_MERGE_TOOL_ID,
-      jobId: this.activeJobId || 'pending',
-      errorCode: error?.code,
-      errorMessage: error?.message,
-      note,
-    };
-
-    if (error) {
-      console.warn('[pdf-merge-support]', payload);
+    const response: InspectFilesResponseV1 = await this.wailsService
+      .inspectFilesV1(paths)
+      .catch(() => ({
+        success: false,
+        message: 'File sizes could not be read.',
+        files: [],
+      }));
+    if (!response.success) {
+      this.outputInfos.set({});
       return;
     }
 
-    console.info('[pdf-merge-support]', payload);
+    const infos: Record<string, FileInfoV1> = {};
+    for (const info of response.files) {
+      if (info.path) {
+        infos[info.path] = info;
+      }
+    }
+    this.outputInfos.set(infos);
   }
 
-  private cleanSlashPath(inputPath: string): string {
-    const absolute = inputPath.startsWith('/');
-    const segments = inputPath.split('/');
-    const stack: string[] = [];
-
-    for (const segment of segments) {
-      if (!segment || segment === '.') {
+  private collectOutputPaths(): string[] {
+    const paths = new Set<string>();
+    for (const item of this.jobResult()?.items ?? []) {
+      if (!item.success) {
         continue;
       }
-      if (segment === '..') {
-        if (stack.length > 0) {
-          stack.pop();
+      const outputs =
+        item.outputs && item.outputs.length > 0
+          ? item.outputs
+          : item.outputPath
+            ? [item.outputPath]
+            : [];
+      for (const output of outputs) {
+        if (output) {
+          paths.add(output);
         }
-        continue;
       }
-      stack.push(segment);
     }
-
-    const joined = stack.join('/');
-    if (!joined) {
-      return absolute ? '/' : '.';
-    }
-
-    return absolute ? `/${joined}` : joined;
-  }
-
-  private restoreRunFocus(): void {
-    setTimeout(() => this.runButton?.nativeElement.focus(), 0);
+    return [...paths];
   }
 
   private swap(leftIndex: number, rightIndex: number): void {
-    const left = this.selectedInputPaths[leftIndex];
-    this.selectedInputPaths[leftIndex] = this.selectedInputPaths[rightIndex];
-    this.selectedInputPaths[rightIndex] = left;
+    const next = [...this.selectedPaths()];
+    const left = next[leftIndex];
+    next[leftIndex] = next[rightIndex];
+    next[rightIndex] = left;
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    void this.refreshPlan();
+  }
+
+  private syncFileItems(): void {
+    const paths = this.selectedPaths();
+    const generation = (this.fileItemsGeneration += 1);
+    const existing = new Map(this.fileItems().map((item) => [item.path, item]));
+    this.fileItems.set(
+      paths.map(
+        (path) => existing.get(path) ?? { path, name: fileName(path) },
+      ),
+    );
+
+    if (paths.length > 0) {
+      void this.enrichFileItems(paths, generation);
+    }
+  }
+
+  private async enrichFileItems(
+    paths: string[],
+    generation: number,
+  ): Promise<void> {
+    try {
+      const response = await this.wailsService.inspectFilesV1(paths);
+      if (generation === this.fileItemsGeneration && response.success) {
+        const infos = new Map<string, FileInfoV1>();
+        for (const info of response.files) {
+          infos.set(info.path, info);
+        }
+
+        this.fileItems.update((items) =>
+          items.map((item) => {
+            const info = infos.get(item.path);
+            const meta = info ? this.describeFileInfo(info) : '';
+            return meta ? { ...item, meta } : item;
+          }),
+        );
+      }
+    } catch {
+      // Inspection is optional: the queue keeps the file name and path.
+    }
+
+    if (generation !== this.fileItemsGeneration) {
+      return;
+    }
+
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
+  }
+
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the placeholder icon.
+      });
+  }
+
+  private describeFileInfo(info: FileInfoV1): string {
+    const parts: string[] = [];
+    if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
+      parts.push(formatBytes(info.sizeBytes));
+    }
+    if (typeof info.pageCount === 'number' && info.pageCount > 0) {
+      parts.push(formatCount(info.pageCount, 'page'));
+    }
+    return parts.join(' · ');
+  }
+
+  private intakeNotice(rejected: string[], duplicates: string[]): Notice | null {
+    const parts: string[] = [];
+
+    if (rejected.length === 1) {
+      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a PDF.`);
+    } else if (rejected.length > 1) {
+      const names = rejected.map((path) => fileName(path)).join(', ');
+      parts.push(`${names} weren't added because they aren't PDFs.`);
+    }
+
+    if (duplicates.length === 1) {
+      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+    } else if (duplicates.length > 1) {
+      parts.push(`${duplicates.length} PDFs are already in the queue.`);
+    }
+
+    return parts.length > 0
+      ? { tone: 'warning', text: parts.join(' ') }
+      : null;
+  }
+
+  /**
+   * Windows and UNC paths are case-insensitive, so the same file dropped with
+   * different casing is still a duplicate there.
+   */
+  private pathKey(path: string): string {
+    const normalized = path.trim().replace(/\\/g, '/');
+    return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//')
+      ? normalized.toLowerCase()
+      : normalized;
+  }
+
+  private isTerminalStatus(status: string): boolean {
+    return TERMINAL_STATUSES.has(status);
   }
 }

@@ -1,6 +1,8 @@
 <div
   class="file-drop"
   [class.is-dragging]="dragOver"
+  [attr.id]="dropId"
+  data-file-drop-target
   role="button"
   tabindex="0"
   [attr.aria-label]="ariaLabel"
@@ -30,7 +32,7 @@
     <lucide-icon [img]="uploadIcon" [size]="22" [strokeWidth]="1.5"></lucide-icon>
   </span>
 
-  <p class="file-drop-title">{{ dragOver ? 'Drop to add files' : 'Drop files here' }}</p>
+  <p class="file-drop-title">{{ dragOver ? 'Drop to add files' : title }}</p>
   <p class="file-drop-sub">{{ dragOver ? 'Release to queue them' : 'or click to browse' }}</p>
   <p class="file-drop-hint mono" [id]="hintId">{{ displayHint() }}</p>
 </div>

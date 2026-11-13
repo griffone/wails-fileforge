@@ -5,8 +5,7 @@
         <p class="eyebrow">IMAGE</p>
         <h1 class="page-title">Image <em>Convert</em></h1>
         <p class="page-sub">
-          Transcode images between WebP, JPEG, PNG and GIF with optional resizing — local-first, so
-          nothing leaves this machine.
+          Turn images into WebP, JPEG, PNG or GIF. Everything runs on this machine.
         </p>
       </div>
 
@@ -17,93 +16,229 @@
     </div>
   </header>
 
-  <div class="workspace">
-    <section class="panel input-panel" aria-labelledby="image-input-title">
-      <header class="panel-head">
-        <h2 id="image-input-title" class="panel-title">Input images</h2>
-        <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
-      </header>
-
-      <div class="panel-body">
-        <app-file-drop
-          accept="image/*"
-          hint="PNG · JPG · WebP · GIF · BMP · TIFF"
-          ariaLabel="Drop or select images to convert"
-          (filesSelected)="onFileDropFiles($event)"
-        ></app-file-drop>
-
-        <div class="toolbar" role="group" aria-label="Image selection actions">
-          <button type="button" class="btn btn-secondary btn-sm" (click)="selectMultipleImagesFromDialog()">
-            <lucide-icon [img]="folderOpenIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Browse files
-          </button>
-          <button type="button" class="btn btn-ghost btn-sm" (click)="selectOutputDirectory()">
-            <lucide-icon [img]="folderOutputIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Choose output folder
-          </button>
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm toolbar-end"
-            [disabled]="selectedInputPaths.length === 0"
-            (click)="clearInputs()"
-          >
-            <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Clear
-          </button>
+  <div class="page-stack">
+    <div class="flow-grid">
+      <section class="panel intake-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Images</h2>
+            <p class="panel-sub">Drop images or choose them from your computer.</p>
+          </div>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
 
-        <ul
-          *ngIf="selectedInputPaths.length > 0; else emptyFiles"
-          class="file-list"
-          aria-label="Selected images"
-        >
-          <li *ngFor="let path of selectedInputPaths; let i = index" class="file-row">
-            <span class="file-tile" aria-hidden="true">
-              <lucide-icon [img]="imageIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>
-            </span>
-            <span class="file-copy">
-              <span class="file-name">{{ filenameFromPath(path) }}</span>
-              <span class="file-path mono">{{ path }}</span>
-            </span>
+        <div class="panel-body">
+          <app-file-drop
+            accept="image/*"
+            title="Drop images here"
+            hint="PNG · JPG · WebP · GIF · BMP · TIFF"
+            ariaLabel="Drop or choose images to convert"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
+          <div class="toolbar" role="group" aria-label="Image selection actions">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+              <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Choose files
+            </button>
             <button
               type="button"
-              class="icon-btn file-remove"
-              [attr.aria-label]="'Remove ' + filenameFromPath(path)"
-              (click)="removeInput(i)"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
             >
-              <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Clear
             </button>
-          </li>
-        </ul>
-
-        <ng-template #emptyFiles>
-          <div class="empty-state file-empty">
-            <lucide-icon [img]="imageIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
-            <strong>Drop images to get started</strong>
-            <span>Selected files appear here with their full path.</span>
           </div>
-        </ng-template>
-      </div>
-    </section>
 
-    <app-tool-execution-panel
-      [title]="'Conversion setup'"
-      [subtitle]="'Format, quality and destination.'"
-      [form]="form"
-      [fields]="panelFields"
-      [currentMode]="form.controls.jobMode.value"
-      [validationMessage]="validationMessage"
-      [submitMessage]="submitMessage"
-      [statusMessage]="statusMessage"
-      [isSubmitting]="isSubmitting"
-      [isPolling]="isPolling"
-      [canCancel]="!!activeJobId"
-      [jobResult]="jobResult"
-      [runButtonText]="'Convert images'"
-      [submittingButtonText]="'Converting…'"
-      (validate)="validate()"
-      (run)="run()"
-      (cancel)="cancel()"
-    ></app-tool-execution-panel>
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ note.text }}</span>
+            </div>
+          }
+
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
+        </div>
+      </section>
+
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Output</h2>
+            <p class="panel-sub">Pick a format and check where the files will go.</p>
+          </div>
+          <span class="badge badge-neutral">{{ selectedPreset().label }}</span>
+        </div>
+
+        <div class="panel-body">
+          <div class="preset-grid" role="group" aria-label="Output format">
+            @for (preset of presets; track preset.id) {
+              <button
+                type="button"
+                class="preset-card"
+                [class.is-active]="preset.id === selectedPresetId()"
+                [attr.aria-pressed]="preset.id === selectedPresetId()"
+                (click)="selectPreset(preset.id)"
+              >
+                <span class="preset-label">{{ preset.label }}</span>
+                <span class="preset-hint">{{ preset.hint }}</span>
+              </button>
+            }
+          </div>
+
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
+                Use original folders
+              </button>
+            </div>
+          }
+
+          <details class="advanced" (toggle)="onAdvancedToggle($event)">
+            <summary class="advanced-summary">
+              <span class="advanced-title">Advanced</span>
+              <span class="advanced-hint">Quality and size</span>
+            </summary>
+
+            <div class="advanced-body">
+              <div class="advanced-grid">
+                <div class="field">
+                  <label class="label" for="image-quality">Quality</label>
+                  <div class="quality-row">
+                    <input
+                      id="image-quality-range"
+                      class="quality-range"
+                      type="range"
+                      min="1"
+                      max="100"
+                      step="1"
+                      aria-label="Quality"
+                      [value]="qualityValue()"
+                      [disabled]="isPng()"
+                      (input)="onQualityInput($event)"
+                    />
+                    <input
+                      id="image-quality"
+                      class="input quality-number"
+                      type="number"
+                      min="1"
+                      max="100"
+                      step="1"
+                      [value]="qualityValue()"
+                      [disabled]="isPng()"
+                      (input)="onQualityInput($event)"
+                    />
+                  </div>
+                  @if (isPng()) {
+                    <p class="field-help">PNG is lossless, so quality doesn't apply.</p>
+                  } @else {
+                    <p class="field-help">Lower quality makes smaller files.</p>
+                  }
+                </div>
+
+                <div class="field">
+                  <label class="label" for="image-max-width">Max width (px)</label>
+                  <input
+                    id="image-max-width"
+                    class="input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="Original size"
+                    [value]="maxWidth() ?? ''"
+                    (input)="onMaxWidthInput($event)"
+                  />
+                  <p class="field-help">Leave empty to keep the original size.</p>
+                </div>
+              </div>
+
+              <button type="button" class="btn btn-ghost btn-sm advanced-reset" (click)="resetAdvanced()">
+                <lucide-icon [img]="resetIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Reset to preset defaults
+              </button>
+            </div>
+          </details>
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (selectedPaths().length === 0) {
+            <p class="action-helper">Add at least one image to convert.</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Conversion progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="image"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
   </div>
 </div>

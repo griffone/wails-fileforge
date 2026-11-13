@@ -107,11 +107,23 @@ export function GetPreviewStatus(jobID) {
 }
 
 /**
+ * InspectFilesV1 describes files for UI cards. Missing files are reported per
+ * item instead of failing the batch.
+ * @param {string[]} paths
+ * @returns {$CancellablePromise<models$0.InspectFilesResponseV1>}
+ */
+export function InspectFilesV1(paths) {
+    return $Call.ByID(3131092044, paths).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType9($result);
+    }));
+}
+
+/**
  * @returns {$CancellablePromise<models$0.ListToolsResponseV1>}
  */
 export function ListToolsV1() {
     return $Call.ByID(517184612).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType9($result);
+        return $$createType10($result);
     }));
 }
 
@@ -136,7 +148,39 @@ export function OpenFileDialog() {
  */
 export function OpenMultipleFilesDialog() {
     return $Call.ByID(3029276213).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType11($result);
+    }));
+}
+
+/**
+ * OpenPath opens an existing file with the operating system default handler.
+ * @param {string} path
+ * @returns {$CancellablePromise<models$0.PathActionResponseV1>}
+ */
+export function OpenPath(path) {
+    return $Call.ByID(12694641, path).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType12($result);
+    }));
+}
+
+/**
+ * @param {models$0.JobRequestV1} req
+ * @returns {$CancellablePromise<models$0.PlanJobResponseV1>}
+ */
+export function PlanJobV1(req) {
+    return $Call.ByID(254724065, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType13($result);
+    }));
+}
+
+/**
+ * RevealInFolder shows the given file or folder in the native file manager.
+ * @param {string} path
+ * @returns {$CancellablePromise<models$0.PathActionResponseV1>}
+ */
+export function RevealInFolder(path) {
+    return $Call.ByID(1778953856, path).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType12($result);
     }));
 }
 
@@ -146,7 +190,7 @@ export function OpenMultipleFilesDialog() {
  */
 export function RunJobV1(req) {
     return $Call.ByID(162380599, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType11($result);
+        return $$createType14($result);
     }));
 }
 
@@ -182,7 +226,7 @@ export function StartPreview(req) {
  */
 export function ValidateJobV1(req) {
     return $Call.ByID(1505194326, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType12($result);
+        return $$createType15($result);
     }));
 }
 
@@ -196,7 +240,10 @@ const $$createType5 = models$0.JobStatusResponseV1.createFrom;
 const $$createType6 = models$0.PDFPreviewSourceResponseV1.createFrom;
 const $$createType7 = preview$0.PreviewResult.createFrom;
 const $$createType8 = preview$0.JobStatus.createFrom;
-const $$createType9 = models$0.ListToolsResponseV1.createFrom;
-const $$createType10 = $Create.Array($Create.Any);
-const $$createType11 = models$0.RunJobResponseV1.createFrom;
-const $$createType12 = models$0.ValidateJobResponseV1.createFrom;
+const $$createType9 = models$0.InspectFilesResponseV1.createFrom;
+const $$createType10 = models$0.ListToolsResponseV1.createFrom;
+const $$createType11 = $Create.Array($Create.Any);
+const $$createType12 = models$0.PathActionResponseV1.createFrom;
+const $$createType13 = models$0.PlanJobResponseV1.createFrom;
+const $$createType14 = models$0.RunJobResponseV1.createFrom;
+const $$createType15 = models$0.ValidateJobResponseV1.createFrom;

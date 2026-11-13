@@ -59,6 +59,119 @@ export class CancelJobResponseV1 {
     }
 }
 
+export class FileInfoV1 {
+    /**
+     * Creates a new FileInfoV1 instance.
+     * @param {Partial<FileInfoV1>} [$$source = {}] - The source object to create the FileInfoV1.
+     */
+    constructor($$source = {}) {
+        if (!("path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["path"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("directory" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["directory"] = "";
+        }
+        if (!("extension" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["extension"] = "";
+        }
+        if (!("sizeBytes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["sizeBytes"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["modifiedAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["mimeType"] = undefined;
+        }
+        if (!("kind" in $$source)) {
+            /**
+             * image|pdf|video|document|other
+             * @member
+             * @type {string}
+             */
+            this["kind"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["width"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["height"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["pageCount"] = undefined;
+        }
+        if (!("exists" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["exists"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["error"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FileInfoV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FileInfoV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FileInfoV1(/** @type {Partial<FileInfoV1>} */($$parsedSource));
+    }
+}
+
 export class ImageAnnotateOperationV1 {
     /**
      * Creates a new ImageAnnotateOperationV1 instance.
@@ -516,6 +629,52 @@ export class ImagePreviewSourceResponseV1 {
     }
 }
 
+export class InspectFilesResponseV1 {
+    /**
+     * Creates a new InspectFilesResponseV1 instance.
+     * @param {Partial<InspectFilesResponseV1>} [$$source = {}] - The source object to create the InspectFilesResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("files" in $$source)) {
+            /**
+             * @member
+             * @type {FileInfoV1[]}
+             */
+            this["files"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InspectFilesResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {InspectFilesResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType5;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("files" in $$parsedSource) {
+            $$parsedSource["files"] = $$createField2_0($$parsedSource["files"]);
+        }
+        return new InspectFilesResponseV1(/** @type {Partial<InspectFilesResponseV1>} */($$parsedSource));
+    }
+}
+
 export class JobErrorV1 {
     /**
      * Creates a new JobErrorV1 instance.
@@ -560,7 +719,7 @@ export class JobErrorV1 {
      * @returns {JobErrorV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType4;
+        const $$createField3_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("details" in $$parsedSource) {
             $$parsedSource["details"] = $$createField3_0($$parsedSource["details"]);
@@ -684,8 +843,8 @@ export class JobRequestV1 {
      * @returns {JobRequestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType5;
-        const $$createField4_0 = $$createType4;
+        const $$createField2_0 = $$createType7;
+        const $$createField4_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputPaths" in $$parsedSource) {
             $$parsedSource["inputPaths"] = $$createField2_0($$parsedSource["inputPaths"]);
@@ -776,7 +935,7 @@ export class JobResultItemV1 {
      * @returns {JobResultItemV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType5;
+        const $$createField2_0 = $$createType7;
         const $$createField8_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
@@ -875,8 +1034,8 @@ export class JobResultV1 {
      * @returns {JobResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType6;
-        const $$createField6_0 = $$createType8;
+        const $$createField5_0 = $$createType8;
+        const $$createField6_0 = $$createType10;
         const $$createField7_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
@@ -943,7 +1102,7 @@ export class JobStatusResponseV1 {
      * @returns {JobStatusResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType10;
+        const $$createField3_0 = $$createType12;
         const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
@@ -993,7 +1152,7 @@ export class ListToolsResponseV1 {
      * @returns {ListToolsResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType12;
+        const $$createField2_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tools" in $$parsedSource) {
             $$parsedSource["tools"] = $$createField2_0($$parsedSource["tools"]);
@@ -1059,6 +1218,188 @@ export class PDFPreviewSourceResponseV1 {
             $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
         }
         return new PDFPreviewSourceResponseV1(/** @type {Partial<PDFPreviewSourceResponseV1>} */($$parsedSource));
+    }
+}
+
+export class PathActionResponseV1 {
+    /**
+     * Creates a new PathActionResponseV1 instance.
+     * @param {Partial<PathActionResponseV1>} [$$source = {}] - The source object to create the PathActionResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PathActionResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {PathActionResponseV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PathActionResponseV1(/** @type {Partial<PathActionResponseV1>} */($$parsedSource));
+    }
+}
+
+export class PlanJobResponseV1 {
+    /**
+     * Creates a new PlanJobResponseV1 instance.
+     * @param {Partial<PlanJobResponseV1>} [$$source = {}] - The source object to create the PlanJobResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("outputs" in $$source)) {
+            /**
+             * @member
+             * @type {PlannedOutputV1[]}
+             */
+            this["outputs"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any } | undefined}
+             */
+            this["effectiveOptions"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["warnings"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlanJobResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {PlanJobResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType16;
+        const $$createField3_0 = $$createType6;
+        const $$createField4_0 = $$createType7;
+        const $$createField5_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("outputs" in $$parsedSource) {
+            $$parsedSource["outputs"] = $$createField2_0($$parsedSource["outputs"]);
+        }
+        if ("effectiveOptions" in $$parsedSource) {
+            $$parsedSource["effectiveOptions"] = $$createField3_0($$parsedSource["effectiveOptions"]);
+        }
+        if ("warnings" in $$parsedSource) {
+            $$parsedSource["warnings"] = $$createField4_0($$parsedSource["warnings"]);
+        }
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField5_0($$parsedSource["error"]);
+        }
+        return new PlanJobResponseV1(/** @type {Partial<PlanJobResponseV1>} */($$parsedSource));
+    }
+}
+
+export class PlannedOutputV1 {
+    /**
+     * Creates a new PlannedOutputV1 instance.
+     * @param {Partial<PlannedOutputV1>} [$$source = {}] - The source object to create the PlannedOutputV1.
+     */
+    constructor($$source = {}) {
+        if (!("inputPath" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["inputPath"] = "";
+        }
+        if (!("outputPath" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["outputPath"] = "";
+        }
+        if (!("outputKind" in $$source)) {
+            /**
+             * file | directory
+             * @member
+             * @type {string}
+             */
+            this["outputKind"] = "";
+        }
+        if (!("exists" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["exists"] = false;
+        }
+        if (!("adjusted" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["adjusted"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["warnings"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PlannedOutputV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {PlannedOutputV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField5_0 = $$createType7;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("warnings" in $$parsedSource) {
+            $$parsedSource["warnings"] = $$createField5_0($$parsedSource["warnings"]);
+        }
+        return new PlannedOutputV1(/** @type {Partial<PlannedOutputV1>} */($$parsedSource));
     }
 }
 
@@ -1152,8 +1493,8 @@ export class ToolCatalogEntryV1 {
      * @returns {ToolCatalogEntryV1}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType13;
-        const $$createField1_0 = $$createType14;
+        const $$createField0_0 = $$createType17;
+        const $$createField1_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("manifest" in $$parsedSource) {
             $$parsedSource["manifest"] = $$createField0_0($$parsedSource["manifest"]);
@@ -1265,10 +1606,10 @@ export class ToolManifestV1 {
      * @returns {ToolManifestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField8_0 = $$createType5;
-        const $$createField9_0 = $$createType5;
-        const $$createField10_0 = $$createType5;
-        const $$createField11_0 = $$createType5;
+        const $$createField8_0 = $$createType7;
+        const $$createField9_0 = $$createType7;
+        const $$createField10_0 = $$createType7;
+        const $$createField11_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputExtensions" in $$parsedSource) {
             $$parsedSource["inputExtensions"] = $$createField8_0($$parsedSource["inputExtensions"]);
@@ -1387,14 +1728,18 @@ const $$createType0 = JobErrorV1.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
 const $$createType2 = ImageAnnotateOperationV1.createFrom;
 const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = $Create.Map($Create.Any, $Create.Any);
-const $$createType5 = $Create.Array($Create.Any);
-const $$createType6 = JobProgressV1.createFrom;
-const $$createType7 = JobResultItemV1.createFrom;
-const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = JobResultV1.createFrom;
-const $$createType10 = $Create.Nullable($$createType9);
-const $$createType11 = ToolCatalogEntryV1.createFrom;
-const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = ToolManifestV1.createFrom;
-const $$createType14 = ToolRuntimeStateV1.createFrom;
+const $$createType4 = FileInfoV1.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $Create.Map($Create.Any, $Create.Any);
+const $$createType7 = $Create.Array($Create.Any);
+const $$createType8 = JobProgressV1.createFrom;
+const $$createType9 = JobResultItemV1.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = JobResultV1.createFrom;
+const $$createType12 = $Create.Nullable($$createType11);
+const $$createType13 = ToolCatalogEntryV1.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = PlannedOutputV1.createFrom;
+const $$createType16 = $Create.Array($$createType15);
+const $$createType17 = ToolManifestV1.createFrom;
+const $$createType18 = ToolRuntimeStateV1.createFrom;

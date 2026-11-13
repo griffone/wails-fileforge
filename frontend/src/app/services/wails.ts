@@ -69,6 +69,51 @@ export interface JobRequestV1 {
   workers?: number;
 }
 
+export interface PlannedOutputV1 {
+  inputPath: string;
+  outputPath: string;
+  outputKind: string;
+  exists: boolean;
+  adjusted: boolean;
+  warnings?: string[];
+}
+
+export interface PlanJobResponseV1 {
+  success: boolean;
+  message: string;
+  outputs: PlannedOutputV1[];
+  effectiveOptions?: Record<string, unknown>;
+  warnings?: string[];
+  error?: JobErrorV1;
+}
+
+export interface FileInfoV1 {
+  path: string;
+  name: string;
+  directory: string;
+  extension: string;
+  sizeBytes: number;
+  modifiedAt?: number;
+  mimeType?: string;
+  kind: string;
+  width?: number;
+  height?: number;
+  pageCount?: number;
+  exists: boolean;
+  error?: string;
+}
+
+export interface InspectFilesResponseV1 {
+  success: boolean;
+  message: string;
+  files: FileInfoV1[];
+}
+
+export interface PathActionResponseV1 {
+  success: boolean;
+  message: string;
+}
+
 export interface JobProgressV1 {
   current: number;
   total: number;
@@ -236,6 +281,10 @@ export interface MarkdownToPdfOptionsV1 {
   providedIn: 'root',
 })
 export class Wails {
+  private static readonly THUMBNAIL_CACHE_LIMIT = 128;
+  private static readonly THUMBNAIL_POLL_ATTEMPTS = 20;
+  private static readonly THUMBNAIL_POLL_DELAY_MS = 120;
+
   // Job progress Subject / registration tracking to ensure we only register
   // the Wails Events.On handler once and avoid duplicate listeners.
   // We expose a public Observable that replays the last event for late
@@ -243,6 +292,10 @@ export class Wails {
   private jobProgressSubject: ReplaySubject<JobProgressEventV1> | null = null;
   private jobProgressUnsubscribe: (() => void) | null = null;
   private jobProgressRefCount = 0;
+
+  // Bounded thumbnail cache: key is `${path}:${size}`, value is a data URL or
+  // null when the preview could not be produced (browser dev mode, bad file).
+  private readonly thumbnailCache = new Map<string, string | null>();
 
   // Public observable that consumers can subscribe to. It will ensure the
   // native Events.On handler is registered while there are active
@@ -520,6 +573,145 @@ export class Wails {
         ),
       };
     }
+  }
+
+  async planJobV1(request: JobRequestV1): Promise<PlanJobResponseV1> {
+    try {
+      return await this.callByID(254724065, request);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Plan job failed', error),
+        outputs: [],
+        error: this.defaultError('EXEC_IO_TRANSIENT', 'IPC_PLAN_FAILED', error),
+      };
+    }
+  }
+
+  async inspectFilesV1(paths: string[]): Promise<InspectFilesResponseV1> {
+    try {
+      return await this.callByID(3131092044, paths);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Inspect files failed', error),
+        files: [],
+      };
+    }
+  }
+
+  async openPath(path: string): Promise<PathActionResponseV1> {
+    try {
+      return await this.callByID(12694641, path);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Open path failed', error),
+      };
+    }
+  }
+
+  async revealInFolder(path: string): Promise<PathActionResponseV1> {
+    try {
+      return await this.callByID(1778953856, path);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Reveal in folder failed', error),
+      };
+    }
+  }
+
+  /**
+   * Produces a small preview image for a file and returns it as a data URL.
+   * Returns null instead of throwing: previews are always optional.
+   */
+  async getThumbnail(path: string, size = 160): Promise<string | null> {
+    const trimmed = typeof path === 'string' ? path.trim() : '';
+    if (!trimmed) {
+      return null;
+    }
+
+    const key = `${trimmed}:${size}`;
+    if (this.thumbnailCache.has(key)) {
+      return this.thumbnailCache.get(key) ?? null;
+    }
+
+    const thumbnail = await this.loadThumbnail(trimmed, size);
+    this.rememberThumbnail(key, thumbnail);
+    return thumbnail;
+  }
+
+  private async loadThumbnail(path: string, size: number): Promise<string | null> {
+    try {
+      const started = await this.StartPreview({
+        path,
+        width: size,
+        height: size,
+        format: 'webp',
+        pageRange: { start: 1, end: 1 },
+        pageOffset: 0,
+      });
+
+      const jobID =
+        started && started.success && typeof started.jobID === 'string'
+          ? started.jobID
+          : '';
+      if (!jobID) {
+        return null;
+      }
+
+      for (
+        let attempt = 0;
+        attempt < Wails.THUMBNAIL_POLL_ATTEMPTS;
+        attempt += 1
+      ) {
+        const status = await this.GetPreviewStatus(jobID);
+        const state = typeof status?.status === 'string' ? status.status : '';
+
+        if (state === 'succeeded') {
+          const preview = await this.GetPreview(jobID);
+          if (
+            preview?.success &&
+            typeof preview.data === 'string' &&
+            preview.data.length > 0
+          ) {
+            const contentType =
+              typeof preview.contentType === 'string' && preview.contentType
+                ? preview.contentType
+                : 'image/webp';
+            return `data:${contentType};base64,${preview.data}`;
+          }
+          return null;
+        }
+
+        if (state === 'failed' || state === 'canceled' || state === 'timedout') {
+          return null;
+        }
+
+        if (attempt < Wails.THUMBNAIL_POLL_ATTEMPTS - 1) {
+          await this.delay(Wails.THUMBNAIL_POLL_DELAY_MS);
+        }
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private rememberThumbnail(key: string, value: string | null): void {
+    if (this.thumbnailCache.size >= Wails.THUMBNAIL_CACHE_LIMIT) {
+      const oldest = this.thumbnailCache.keys().next().value;
+      if (oldest !== undefined) {
+        this.thumbnailCache.delete(oldest);
+      }
+    }
+    this.thumbnailCache.set(key, value);
+  }
+
+  private delay(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
 
   async openFileDialog(): Promise<string> {

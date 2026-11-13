@@ -1,0 +1,71 @@
+<ul class="file-queue" aria-label="Selected files">
+  @for (item of items; track item.path; let i = $index) {
+    <li class="file-queue-row">
+      <span class="file-queue-thumb" aria-hidden="true">
+        @if (item.thumbnailUrl) {
+          <img class="file-queue-image" [src]="item.thumbnailUrl" alt="" loading="lazy" />
+        } @else {
+          <lucide-icon
+            [img]="itemIcon(item)"
+            [size]="18"
+            [strokeWidth]="1.5"
+            aria-hidden="true"
+          ></lucide-icon>
+        }
+      </span>
+
+      <span class="file-queue-body">
+        <span class="file-queue-name" [title]="item.name">{{ item.name }}</span>
+        @if (item.meta) {
+          <span class="file-queue-meta mono">{{ item.meta }}</span>
+        }
+        @if (item.error) {
+          <span class="file-queue-error">{{ item.error }}</span>
+        }
+      </span>
+
+      <span class="file-queue-actions">
+        @if (reorderable) {
+          <button
+            type="button"
+            class="icon-btn file-queue-action"
+            [disabled]="i === 0"
+            [attr.aria-label]="'Move ' + item.name + ' up'"
+            (click)="moveUp.emit(item.path)"
+          >
+            <lucide-icon [img]="upIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+          </button>
+          <button
+            type="button"
+            class="icon-btn file-queue-action"
+            [disabled]="i === items.length - 1"
+            [attr.aria-label]="'Move ' + item.name + ' down'"
+            (click)="moveDown.emit(item.path)"
+          >
+            <lucide-icon [img]="downIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+          </button>
+        }
+
+        <button
+          type="button"
+          class="icon-btn file-queue-remove"
+          [attr.aria-label]="removeLabel(item)"
+          (click)="remove.emit(item.path)"
+        >
+          <lucide-icon
+            [img]="removeIcon"
+            [size]="16"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+        </button>
+      </span>
+    </li>
+  } @empty {
+    <li class="file-queue-empty empty-state">
+      <lucide-icon [img]="fileIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
+      <strong>{{ emptyTitle }}</strong>
+      <span>{{ emptyHint }}</span>
+    </li>
+  }
+</ul>

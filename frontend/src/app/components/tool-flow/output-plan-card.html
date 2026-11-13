@@ -1,0 +1,71 @@
+<section class="panel output-plan">
+  <div class="panel-head">
+    <div>
+      <h2 class="panel-title">Save to</h2>
+      <p class="panel-sub">Choose where the converted files should go.</p>
+    </div>
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm output-plan-change"
+      (click)="changeDestination.emit()"
+    >
+      <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+      Change
+    </button>
+  </div>
+
+  <div class="output-plan-body">
+    <div class="output-plan-destination">
+      <span class="output-plan-label">Destination</span>
+      <span class="output-plan-value">{{ destinationLabel }}</span>
+      @if (isDefaultDestination) {
+        <span class="badge badge-neutral">Default</span>
+      }
+    </div>
+
+    @if (errorCopy(); as error) {
+      <div class="banner banner-danger output-plan-error" role="alert">
+        <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+        <div class="output-plan-error-text">
+          <strong>{{ error.title }}</strong>
+          <span>{{ error.description }}</span>
+        </div>
+      </div>
+    }
+
+    @if (loading) {
+      <p class="output-plan-status" role="status">Working out the output…</p>
+    } @else if (visibleOutputs().length > 0) {
+      <ul class="output-plan-list" aria-label="Planned outputs">
+        @for (output of visibleOutputs(); track output.outputPath) {
+          <li class="output-plan-item">
+            <span class="output-plan-file">
+              <span class="output-plan-name" [title]="output.outputPath">{{ outputName(output) }}</span>
+              <span class="output-plan-directory mono">{{ outputDirectory(output) }}</span>
+            </span>
+            @if (output.adjusted) {
+              <span class="badge badge-warning">Adjusted</span>
+            }
+          </li>
+        }
+        @if (remainingCount() > 0) {
+          <li class="output-plan-more mono">+ {{ remainingCount() }} more</li>
+        }
+      </ul>
+    } @else if (!errorCopy()) {
+      <p class="output-plan-status">Output details will appear once files are selected.</p>
+    }
+
+    @if (hasAdjusted()) {
+      <p class="output-plan-note">Existing names will be adjusted to avoid overwriting.</p>
+    }
+
+    @if (planWarnings().length > 0) {
+      <ul class="output-plan-warnings">
+        @for (warning of planWarnings(); track warning) {
+          <li>{{ warning }}</li>
+        }
+      </ul>
+    }
+  </div>
+</section>

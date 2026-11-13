@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	// Import for auto-registration
 	_ "fileforge-desktop/internal/doc"
 	_ "fileforge-desktop/internal/image"
+	"fileforge-desktop/internal/inspect"
 	"fileforge-desktop/internal/models"
 	_ "fileforge-desktop/internal/pdf"
 	"fileforge-desktop/internal/preview"
@@ -49,6 +51,20 @@ func (a *App) SetContext(ctx context.Context) {
 	a.toolingService.SetContext(ctx)
 }
 
+// ServiceStartup wires the Wails application context into the app services so
+// job persistence and interrupted-job recovery become active.
+func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	a.SetContext(ctx)
+	return nil
+}
+
+// ServiceShutdown gracefully stops services owned by App.
+func (a *App) ServiceShutdown() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return a.Shutdown(ctx)
+}
+
 // Shutdown gracefully stops services owned by App.
 func (a *App) Shutdown(ctx context.Context) error {
 	var firstErr error
@@ -73,6 +89,10 @@ func (a *App) ValidateJobV1(req models.JobRequestV1) models.ValidateJobResponseV
 	return a.toolingService.ValidateJobV1(req)
 }
 
+func (a *App) PlanJobV1(req models.JobRequestV1) models.PlanJobResponseV1 {
+	return a.toolingService.PlanJobV1(req)
+}
+
 func (a *App) RunJobV1(req models.JobRequestV1) models.RunJobResponseV1 {
 	return a.toolingService.RunJobV1(req)
 }
@@ -83,6 +103,67 @@ func (a *App) CancelJobV1(jobID string) models.CancelJobResponseV1 {
 
 func (a *App) GetJobStatusV1(jobID string) models.JobStatusResponseV1 {
 	return a.toolingService.GetJobStatusV1(jobID)
+}
+
+// InspectFilesV1 describes files for UI cards. Missing files are reported per
+// item instead of failing the batch.
+func (a *App) InspectFilesV1(paths []string) models.InspectFilesResponseV1 {
+	return models.InspectFilesResponseV1{
+		Success: true,
+		Message: "files inspected",
+		Files:   inspect.InspectFiles(paths),
+	}
+}
+
+// OpenPath opens an existing file with the operating system default handler.
+func (a *App) OpenPath(path string) models.PathActionResponseV1 {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return models.PathActionResponseV1{Success: false, Message: "Choose a file to open."}
+	}
+
+	info, err := os.Stat(trimmed)
+	if err != nil {
+		return models.PathActionResponseV1{Success: false, Message: "The file is no longer available."}
+	}
+	if info.IsDir() {
+		return models.PathActionResponseV1{Success: false, Message: "Choose a file to open, not a folder."}
+	}
+
+	app := application.Get()
+	if app == nil || app.Browser == nil {
+		return models.PathActionResponseV1{Success: false, Message: "Opening files is only available in the desktop app."}
+	}
+
+	if err := app.Browser.OpenFile(trimmed); err != nil {
+		return models.PathActionResponseV1{Success: false, Message: "The file could not be opened."}
+	}
+
+	return models.PathActionResponseV1{Success: true, Message: "file opened"}
+}
+
+// RevealInFolder shows the given file or folder in the native file manager.
+func (a *App) RevealInFolder(path string) models.PathActionResponseV1 {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return models.PathActionResponseV1{Success: false, Message: "Choose a file or folder to show."}
+	}
+
+	info, err := os.Stat(trimmed)
+	if err != nil {
+		return models.PathActionResponseV1{Success: false, Message: "The file is no longer available."}
+	}
+
+	app := application.Get()
+	if app == nil || app.Env == nil {
+		return models.PathActionResponseV1{Success: false, Message: "Showing files is only available in the desktop app."}
+	}
+
+	if err := app.Env.OpenFileManager(trimmed, !info.IsDir()); err != nil {
+		return models.PathActionResponseV1{Success: false, Message: "The file could not be shown in the folder."}
+	}
+
+	return models.PathActionResponseV1{Success: true, Message: "folder opened"}
 }
 
 // OpenFileDialog opens a native file dialog and returns the selected file path

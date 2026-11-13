@@ -25,3 +25,9 @@ type SingleExecutorWithProgress interface {
 type BatchExecutor interface {
 	ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1)
 }
+
+// Planner is an optional tool capability that resolves the exact output paths
+// and effective options for a request without touching the filesystem outputs.
+type Planner interface {
+	Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1)
+}

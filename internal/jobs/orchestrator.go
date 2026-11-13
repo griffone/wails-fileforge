@@ -585,6 +585,44 @@ func (o *Orchestrator) Validate(ctx context.Context, req models.JobRequestV1) mo
 	}
 }
 
+func (o *Orchestrator) Plan(ctx context.Context, req models.JobRequestV1) models.PlanJobResponseV1 {
+	tool, err := o.registry.GetToolV2(req.ToolID)
+	if err != nil {
+		return models.PlanJobResponseV1{
+			Success: false,
+			Message: "tool not found",
+			Outputs: []models.PlannedOutputV1{},
+			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", err.Error(), nil),
+		}
+	}
+
+	planner, ok := tool.(tools.Planner)
+	if !ok {
+		message := "planning is not available for this tool"
+		return models.PlanJobResponseV1{
+			Success: false,
+			Message: message,
+			Outputs: []models.PlannedOutputV1{},
+			Error:   models.NewCanonicalJobError("PLAN_UNSUPPORTED", message, nil),
+		}
+	}
+
+	plan, planErr := planner.Plan(ctx, req)
+	if plan.Outputs == nil {
+		plan.Outputs = []models.PlannedOutputV1{}
+	}
+	if planErr == nil {
+		return plan
+	}
+
+	plan.Success = false
+	if plan.Message == "" {
+		plan.Message = planErr.Message
+	}
+	plan.Error = normalizeJobError(planErr)
+	return plan
+}
+
 func normalizeJobError(jobErr *models.JobErrorV1) *models.JobErrorV1 {
 	if jobErr == nil {
 		return nil
