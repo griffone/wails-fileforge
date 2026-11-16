@@ -5,3 +5,8 @@ frontend/node_modules
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 .idea
+
+build/linux/appimage/appicon.png
+build/linux/appimage/fileforge-desktop
+build/linux/fileforge-desktop.desktop
+build/linux/appimage/*.AppImage
