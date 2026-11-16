@@ -12,6 +12,7 @@ import (
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/pdf/engine"
 )
 
 func optimizeTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
@@ -453,5 +454,197 @@ func TestOptimizeEngineRefusesToOverwriteExistingOutput(t *testing.T) {
 	}
 	if string(content) != "taken" {
 		t.Fatal("existing output must not be overwritten")
+	}
+}
+
+func TestOptimizeToolPlanTargetSize(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewOptimizeTool()
+	plan, planErr := tool.Plan(context.Background(), optimizeTestRequest("single", []string{input}, map[string]any{
+		"targetSizeBytes": float64(5 * 1024 * 1024),
+	}))
+	if planErr != nil {
+		t.Fatalf("expected target plan to succeed, got %v", planErr)
+	}
+	target, ok := plan.EffectiveOptions["targetSizeBytes"].(int64)
+	if !ok || target != int64(5*1024*1024) {
+		t.Fatalf("expected effective targetSizeBytes, got %v (%T)", plan.EffectiveOptions["targetSizeBytes"], plan.EffectiveOptions["targetSizeBytes"])
+	}
+
+	foundWarning := false
+	for _, warning := range plan.Warnings {
+		if strings.Contains(warning, "best effort") {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected a best-effort warning, got %v", plan.Warnings)
+	}
+}
+
+func TestOptimizeToolPlanRejectsInvalidTargetSize(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewOptimizeTool()
+	invalid := []any{
+		0,
+		-1,
+		-1024.0,
+		"10MB",
+		true,
+		1.5,
+		[]any{1024},
+	}
+	for _, value := range invalid {
+		_, planErr := tool.Plan(context.Background(), optimizeTestRequest("single", []string{input}, map[string]any{
+			"targetSizeBytes": value,
+		}))
+		if planErr == nil {
+			t.Fatalf("expected target %v to fail planning", value)
+		}
+		if planErr.DetailCode != "PDF_OPTIMIZE_TARGET_INVALID" {
+			t.Fatalf("expected PDF_OPTIMIZE_TARGET_INVALID for %v, got %q", value, planErr.DetailCode)
+		}
+	}
+
+	_, conflictErr := tool.Plan(context.Background(), optimizeTestRequest("single", []string{input}, map[string]any{
+		"compress":        false,
+		"targetSizeBytes": 1024,
+	}))
+	if conflictErr == nil {
+		t.Fatal("expected compress=false with a target to fail planning")
+	}
+	if conflictErr.DetailCode != "PDF_OPTIMIZE_TARGET_INVALID" {
+		t.Fatalf("expected PDF_OPTIMIZE_TARGET_INVALID, got %q", conflictErr.DetailCode)
+	}
+}
+
+func TestOptimizeToolExecuteLargeTargetReportsMet(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewOptimizeTool()
+	item, itemErr := tool.ExecuteSingle(context.Background(), optimizeTestRequest("single", []string{input}, map[string]any{
+		"targetSizeBytes": 100 * 1024 * 1024,
+	}))
+	if itemErr != nil {
+		t.Fatalf("expected optimize to succeed, got %v", itemErr)
+	}
+	if !strings.Contains(item.Message, "target of 100.0 MB met") {
+		t.Fatalf("expected a met-target message, got %q", item.Message)
+	}
+	if err := api.ValidateFile(item.Outputs[0], nil); err != nil {
+		t.Fatalf("expected a valid output PDF: %v", err)
+	}
+}
+
+func TestOptimizeToolExecuteTinyTargetReportsNotMet(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewOptimizeTool()
+	item, itemErr := tool.ExecuteSingle(context.Background(), optimizeTestRequest("single", []string{input}, map[string]any{
+		"targetSizeBytes": 1,
+	}))
+	if itemErr != nil {
+		t.Fatalf("expected the best effort to succeed, got %v", itemErr)
+	}
+	if !item.Success {
+		t.Fatalf("expected the output to be produced, got %+v", item)
+	}
+	if !strings.Contains(item.Message, "could not be met") {
+		t.Fatalf("expected an explicit unmet-target message, got %q", item.Message)
+	}
+	if !strings.Contains(item.Message, "1 B") {
+		t.Fatalf("expected the target in the message, got %q", item.Message)
+	}
+	if err := api.ValidateFile(item.Outputs[0], nil); err != nil {
+		t.Fatalf("expected a valid output PDF: %v", err)
+	}
+}
+
+func TestOptimizeToolExecuteMissingGhostscriptWarns(t *testing.T) {
+	originalLookPath := engine.GhostscriptLookPath
+	t.Cleanup(func() { engine.GhostscriptLookPath = originalLookPath })
+	engine.GhostscriptLookPath = func() bool { return false }
+
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewOptimizeTool()
+	plan, planErr := tool.Plan(context.Background(), optimizeTestRequest("single", []string{input}, map[string]any{
+		"targetSizeBytes": 1,
+	}))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	found := false
+	for _, warning := range plan.Warnings {
+		if strings.Contains(warning, "Ghostscript is not available") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a missing-Ghostscript warning, got %v", plan.Warnings)
+	}
+
+	item, itemErr := tool.ExecuteSingle(context.Background(), optimizeTestRequest("single", []string{input}, map[string]any{
+		"targetSizeBytes": 1,
+	}))
+	if itemErr != nil {
+		t.Fatalf("expected the pdfcpu best effort to succeed, got %v", itemErr)
+	}
+	if !strings.Contains(item.Message, "Ghostscript is not available") {
+		t.Fatalf("expected a clear missing-Ghostscript message, got %q", item.Message)
+	}
+	if err := api.ValidateFile(item.Outputs[0], nil); err != nil {
+		t.Fatalf("expected a valid pdfcpu output: %v", err)
+	}
+}
+
+func TestOptimizeToolExecuteTargetKeepsMetadata(t *testing.T) {
+	originalRunner := engine.GhostscriptRunner
+	originalLookPath := engine.GhostscriptLookPath
+	t.Cleanup(func() {
+		engine.GhostscriptRunner = originalRunner
+		engine.GhostscriptLookPath = originalLookPath
+	})
+	engine.GhostscriptLookPath = func() bool { return true }
+	validPDF := filepath.Join(t.TempDir(), "valid.pdf")
+	writePDFFixture(t, validPDF)
+	validBytes, readErr := os.ReadFile(validPDF)
+	if readErr != nil {
+		t.Fatalf("read valid pdf: %v", readErr)
+	}
+	engine.GhostscriptRunner = func(_ context.Context, _ string, outputPath, _ string) error {
+		return os.WriteFile(outputPath, validBytes, 0o644)
+	}
+
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewOptimizeTool()
+	item, itemErr := tool.ExecuteSingle(context.Background(), optimizeTestRequest("single", []string{input}, map[string]any{
+		"targetSizeBytes": 1,
+		"metadata": map[string]any{
+			"title": "Field notes",
+		},
+	}))
+	if itemErr != nil {
+		t.Fatalf("expected optimize to succeed, got %v", itemErr)
+	}
+
+	properties := readPDFInfo(t, item.Outputs[0])
+	if properties.Title != "Field notes" {
+		t.Fatalf("expected metadata applied after compression, got %q", properties.Title)
 	}
 }
