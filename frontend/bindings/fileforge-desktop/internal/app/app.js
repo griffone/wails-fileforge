@@ -175,7 +175,9 @@ export function PlanJobV1(req) {
 
 /**
  * RegisterMediaPath registers a local file for token-scoped streaming. The
- * returned URL is relative so it resolves against the WebView origin.
+ * relative URL is served by the embedded asset server in production; the
+ * loopback fallback covers Wails development mode, where the webview is served
+ * by the frontend dev server and never reaches the asset middleware.
  * @param {string} path
  * @returns {$CancellablePromise<models$0.MediaSourceResponseV1>}
  */

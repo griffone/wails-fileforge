@@ -122,6 +122,7 @@ export interface PathActionResponseV1 {
 export interface MediaSourceResponseV1 {
   success: boolean;
   url: string;
+  fallbackUrl?: string;
   message: string;
 }
 

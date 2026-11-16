@@ -357,6 +357,9 @@ export class VideoTrim implements OnDestroy, OnInit {
   private fileItemsGeneration = 0;
   private mediaRequestToken = 0;
   private mediaPath = '';
+  private mediaPrimaryUrl = '';
+  private mediaSecondaryUrl = '';
+  private mediaTryingSecondary = false;
   private dragHandle: TrimHandle | null = null;
   private dragCleanup: (() => void) | null = null;
   private selectionEndSeconds: number | null = null;
@@ -618,6 +621,15 @@ export class VideoTrim implements OnDestroy, OnInit {
   }
 
   onVideoError(): void {
+    if (this.mediaSecondaryUrl && !this.mediaTryingSecondary) {
+      this.mediaTryingSecondary = true;
+      this.videoError.set('');
+      this.videoReady.set(false);
+      this.mediaUrl.set(this.mediaSecondaryUrl);
+      queueMicrotask(() => this.videoElement()?.load());
+      return;
+    }
+
     if (!this.mediaUrl()) {
       return;
     }
@@ -901,6 +913,9 @@ export class VideoTrim implements OnDestroy, OnInit {
     this.fileItemsGeneration += 1;
     this.mediaRequestToken += 1;
     this.mediaPath = '';
+    this.mediaPrimaryUrl = '';
+    this.mediaSecondaryUrl = '';
+    this.mediaTryingSecondary = false;
 
     this.selectedPaths.set([]);
     this.fileItems.set([]);
@@ -939,6 +954,9 @@ export class VideoTrim implements OnDestroy, OnInit {
 
     this.mediaPath = path;
     const token = (this.mediaRequestToken += 1);
+    this.mediaPrimaryUrl = '';
+    this.mediaSecondaryUrl = '';
+    this.mediaTryingSecondary = false;
     this.mediaUrl.set(null);
     this.videoError.set('');
     this.videoReady.set(false);
@@ -963,12 +981,40 @@ export class VideoTrim implements OnDestroy, OnInit {
     }
 
     if (response.success && response.url) {
-      this.mediaUrl.set(response.url);
+      const preferLoopback = this.shouldPreferLoopback(
+        response.url,
+        response.fallbackUrl,
+      );
+      this.mediaPrimaryUrl = preferLoopback
+        ? response.fallbackUrl ?? response.url
+        : response.url;
+      this.mediaSecondaryUrl = preferLoopback
+        ? response.url
+        : response.fallbackUrl ?? '';
+      this.mediaUrl.set(this.mediaPrimaryUrl);
       return;
     }
 
     this.mediaUrl.set(null);
     this.videoError.set(PREVIEW_UNAVAILABLE_MESSAGE);
+  }
+
+  /**
+   * Wails dev loads the webview from the Angular dev server, so the relative
+   * asset-server path never reaches the Go middleware. Prefer the loopback URL
+   * there; production keeps the relative URL and only retries on error.
+   */
+  private shouldPreferLoopback(
+    primaryUrl: string,
+    fallbackUrl: string | undefined,
+  ): boolean {
+    if (!fallbackUrl || /^https?:/i.test(primaryUrl)) {
+      return false;
+    }
+
+    const host = window.location.hostname;
+    const port = window.location.port;
+    return (host === 'localhost' || host === '127.0.0.1') && port !== '';
   }
 
   private applyHandlePosition(handle: TrimHandle, seconds: number): void {

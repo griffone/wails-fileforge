@@ -50,7 +50,8 @@ type PathActionResponseV1 struct {
 }
 
 type MediaSourceResponseV1 struct {
-	Success bool   `json:"success"`
-	URL     string `json:"url,omitempty"`
-	Message string `json:"message"`
+	Success     bool   `json:"success"`
+	URL         string `json:"url,omitempty"`
+	FallbackURL string `json:"fallbackUrl,omitempty"`
+	Message     string `json:"message"`
 }

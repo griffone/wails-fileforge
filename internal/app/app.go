@@ -77,6 +77,9 @@ func (a *App) Shutdown(ctx context.Context) error {
 			}
 		}
 	}
+	if err := media.CloseServer(); err != nil && firstErr == nil {
+		firstErr = fmt.Errorf("app media server: %w", err)
+	}
 	// shutdown tooling service if it exposes a shutdown (none currently)
 	// TODO: if toolingService implements Shutdown(ctx) call it here
 	return firstErr
@@ -324,7 +327,9 @@ func (a *App) GetPDFPreviewSourceV1(inputPath string) models.PDFPreviewSourceRes
 }
 
 // RegisterMediaPath registers a local file for token-scoped streaming. The
-// returned URL is relative so it resolves against the WebView origin.
+// relative URL is served by the embedded asset server in production; the
+// loopback fallback covers Wails development mode, where the webview is served
+// by the frontend dev server and never reaches the asset middleware.
 func (a *App) RegisterMediaPath(path string) models.MediaSourceResponseV1 {
 	if strings.TrimSpace(path) == "" {
 		return models.MediaSourceResponseV1{Success: false, Message: "Choose a file to preview."}
@@ -335,9 +340,14 @@ func (a *App) RegisterMediaPath(path string) models.MediaSourceResponseV1 {
 		return models.MediaSourceResponseV1{Success: false, Message: "This file cannot be previewed."}
 	}
 
-	return models.MediaSourceResponseV1{
+	response := models.MediaSourceResponseV1{
 		Success: true,
 		URL:     "/media/" + token,
 		Message: "ok",
 	}
+	if baseURL, serverErr := media.EnsureServer(); serverErr == nil && baseURL != "" {
+		response.FallbackURL = baseURL + "/media/" + token
+	}
+
+	return response
 }

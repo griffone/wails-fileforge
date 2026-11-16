@@ -387,6 +387,42 @@ describe('VideoTrim', () => {
     expect(component.videoError()).toBe('');
   }));
 
+  it('prefers the loopback fallback when the webview is served by the dev server', fakeAsync(() => {
+    wailsSpy.registerMediaPath.and.resolveTo({
+      success: true,
+      url: '/media/token',
+      fallbackUrl: 'http://127.0.0.1:4567/media/token',
+      message: 'ok',
+    });
+
+    component.onPathsSelected(['/tmp/clip.mp4']);
+    flushMicrotasks();
+
+    expect(component.mediaUrl()).toBe('http://127.0.0.1:4567/media/token');
+    expect(component.videoError()).toBe('');
+  }));
+
+  it('retries the secondary media URL once before showing the fallback', fakeAsync(() => {
+    wailsSpy.registerMediaPath.and.resolveTo({
+      success: true,
+      url: '/media/token',
+      fallbackUrl: 'http://127.0.0.1:4567/media/token',
+      message: 'ok',
+    });
+
+    component.onPathsSelected(['/tmp/clip.mp4']);
+    flushMicrotasks();
+    expect(component.mediaUrl()).toBe('http://127.0.0.1:4567/media/token');
+
+    component.onVideoError();
+    expect(component.mediaUrl()).toBe('/media/token');
+    expect(component.videoError()).toBe('');
+
+    component.onVideoError();
+    expect(component.mediaUrl()).toBeNull();
+    expect(component.videoError()).toContain('Video preview unavailable');
+  }));
+
   it('falls back to time-only mode when media registration fails', fakeAsync(() => {
     wailsSpy.registerMediaPath.and.resolveTo({
       success: false,

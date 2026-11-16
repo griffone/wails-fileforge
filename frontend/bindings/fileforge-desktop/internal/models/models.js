@@ -1202,6 +1202,13 @@ export class MediaSourceResponseV1 {
              */
             this["url"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["fallbackUrl"] = undefined;
+        }
         if (!("message" in $$source)) {
             /**
              * @member
