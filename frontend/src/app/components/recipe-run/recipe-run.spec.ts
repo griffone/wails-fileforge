@@ -436,6 +436,40 @@ describe('RecipeRun (Email PDF)', () => {
     expect(text).toContain('2/2 checks passed');
   }));
 
+  it('shows the partial result message instead of the retry copy', fakeAsync(() => {
+    wailsSpy.getRecipeStatusV1.and.resolveTo(
+      statusResponse(
+        recipeResult({
+          status: 'partial_success',
+          message:
+            'Email PDF created, but it is 12.4 MB: above the 10 MB target.',
+        }),
+      ),
+    );
+
+    component.onPathsSelected(['/tmp/a.pdf']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.terminalResult()?.status).toBe('partial_success');
+    expect(component.resultJob()?.items.length).toBe(1);
+    expect(component.partialDetail()).toBe(
+      'Email PDF created, but it is 12.4 MB: above the 10 MB target.',
+    );
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(query('app-result-card')).not.toBeNull();
+    expect(text).toContain(
+      'Email PDF created, but it is 12.4 MB: above the 10 MB target.',
+    );
+    expect(text).not.toContain('Retry them below');
+  }));
+
   it('cancels a running recipe and keeps polling to terminal', fakeAsync(() => {
     let pollCount = 0;
     wailsSpy.getRecipeStatusV1.and.callFake(() => {

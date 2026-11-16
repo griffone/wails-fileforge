@@ -192,7 +192,37 @@ describe('ResultCard', () => {
     );
     expect(text).toContain('c.txt');
     expect(text).toContain('Choose a supported format or a different file.');
+    expect(text).toContain("Some files couldn't be converted. Retry them below.");
     expect(fixture.nativeElement.querySelector('.result-retry')).not.toBeNull();
+  });
+
+  it('prefers a supplied partialDetail over the retry copy', () => {
+    component.partialDetail =
+      'Result created, but it is 12.4 MB: above the 10 MB target.';
+    component.job = job({
+      jobId: 'job-partial-detail',
+      status: 'partial_success',
+      toolId: 'recipe.email_pdf',
+      items: [
+        {
+          inputPath: '/tmp/source.pdf',
+          outputPath: '/tmp/out/a.pdf',
+          success: true,
+          message: 'ok',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const detail = fixture.nativeElement.querySelector(
+      '.result-card .panel-sub',
+    ) as HTMLElement;
+    expect(detail.textContent).toContain(
+      'Result created, but it is 12.4 MB: above the 10 MB target.',
+    );
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Retry them below',
+    );
   });
 
   it('emits open and reveal for an output row', () => {

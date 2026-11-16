@@ -285,6 +285,16 @@ export class RecipeRun implements OnDestroy, OnInit {
   });
 
   /**
+   * Recipes report `partial_success` when the output exists but a target or
+   * verification check needs attention, so the backend message replaces the
+   * "retry them below" copy meant for failed inputs.
+   */
+  readonly partialDetail = computed(() => {
+    const result = this.terminalResult();
+    return result?.status === 'partial_success' ? (result.message ?? '') : '';
+  });
+
+  /**
    * Adapts the recipe snapshot to the shared ResultCard contract. Every final
    * output is its own row, so a six-file web set lists six files while Email
    * PDF still lists the one file it produced.
