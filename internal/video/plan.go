@@ -114,6 +114,29 @@ func videoOptionInt(options map[string]any, key, validationCode string) (int, *m
 	}
 }
 
+// videoOptionFloat reads an optional numeric option. Supplied values of the
+// wrong type are rejected. The boolean reports whether the option was supplied.
+func videoOptionFloat(options map[string]any, key, validationCode string) (float64, bool, *models.JobErrorV1) {
+	if !videoOptionSupplied(options, key) {
+		return 0, false, nil
+	}
+
+	switch value := options[key].(type) {
+	case float64:
+		return value, true, nil
+	case float32:
+		return float64(value), true, nil
+	case int:
+		return float64(value), true, nil
+	case int32:
+		return float64(value), true, nil
+	case int64:
+		return float64(value), true, nil
+	default:
+		return 0, true, &models.JobErrorV1{Code: validationCode, Message: fmt.Sprintf("options.%s must be numeric", key)}
+	}
+}
+
 // videoOptionBool reads an optional boolean option and returns false when the
 // option is absent. Textual values are accepted because some callers serialize
 // checkboxes as strings.

@@ -41,7 +41,14 @@ import {
 
 const VIDEO_MERGE_TOOL_ID = 'tool.video.merge';
 const POLLING_INTERVAL_MS = 1000;
+const PLAN_DEBOUNCE_MS = 200;
 const THUMBNAIL_SIZE = 160;
+
+const CROSSFADE_DURATION_DEFAULT = 0.5;
+const CROSSFADE_DURATION_MIN = 0.1;
+const CROSSFADE_DURATION_MAX = 3.0;
+
+type VideoTransition = 'none' | 'crossfade';
 
 const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm']);
 
@@ -88,6 +95,10 @@ export class VideoMerge implements OnDestroy, OnInit {
   readonly fileItems = signal<FileQueueItem[]>([]);
   readonly selectedPresetId = signal(VIDEO_PRESETS[0].id);
   readonly removeAudio = signal(false);
+  readonly transition = signal<VideoTransition>('none');
+  readonly transitionDuration = signal(
+    CROSSFADE_DURATION_DEFAULT.toFixed(1),
+  );
   readonly outputDir = signal(this.preferences.defaultOutputDir());
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
@@ -112,9 +123,34 @@ export class VideoMerge implements OnDestroy, OnInit {
       ) ?? VIDEO_PRESETS[0],
   );
 
+  readonly isCrossfade = computed(() => this.transition() === 'crossfade');
+
+  readonly transitionDurationValue = computed<number | null>(() => {
+    const raw = this.transitionDuration().trim();
+    if (raw === '') {
+      return null;
+    }
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  });
+
+  /** A crossfade needs a finite duration inside the backend's allowed range. */
+  readonly transitionDurationInvalid = computed(() => {
+    if (!this.isCrossfade()) {
+      return false;
+    }
+    const value = this.transitionDurationValue();
+    return (
+      value === null ||
+      value < CROSSFADE_DURATION_MIN ||
+      value > CROSSFADE_DURATION_MAX
+    );
+  });
+
   readonly canRun = computed(
     () =>
       this.selectedPaths().length >= 2 &&
+      !this.transitionDurationInvalid() &&
       !this.isSubmitting() &&
       !this.isPolling(),
   );
@@ -162,6 +198,7 @@ export class VideoMerge implements OnDestroy, OnInit {
   });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private planToken = 0;
   private fileItemsGeneration = 0;
 
@@ -197,6 +234,7 @@ export class VideoMerge implements OnDestroy, OnInit {
 
   ngOnDestroy(): void {
     this.stopPolling();
+    this.clearPlanRefreshTimer();
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -310,6 +348,20 @@ export class VideoMerge implements OnDestroy, OnInit {
     void this.refreshPlan();
   }
 
+  onTransitionChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement | null)?.value;
+    this.transition.set(value === 'crossfade' ? 'crossfade' : 'none');
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
+  onTransitionDurationInput(event: Event): void {
+    const value = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.transitionDuration.set(value);
+    this.actionMessage.set('');
+    this.schedulePlanRefresh();
+  }
+
   async chooseOutputFolder(): Promise<void> {
     const directory = (await this.wailsService.openDirectoryDialog()).trim();
     if (!directory) {
@@ -333,6 +385,7 @@ export class VideoMerge implements OnDestroy, OnInit {
       return;
     }
 
+    this.clearPlanRefreshTimer();
     this.actionMessage.set('');
 
     if (this.planLoading() || !this.plan()?.success) {
@@ -443,6 +496,7 @@ export class VideoMerge implements OnDestroy, OnInit {
 
   reset(): void {
     this.stopPolling();
+    this.clearPlanRefreshTimer();
     this.planToken += 1;
     this.fileItemsGeneration += 1;
 
@@ -468,6 +522,13 @@ export class VideoMerge implements OnDestroy, OnInit {
     };
     if (this.removeAudio()) {
       options['removeAudio'] = true;
+    }
+    if (this.isCrossfade()) {
+      options['transition'] = 'crossfade';
+      const duration = this.transitionDurationValue();
+      if (duration !== null) {
+        options['transitionDuration'] = duration;
+      }
     }
 
     return {
@@ -526,6 +587,21 @@ export class VideoMerge implements OnDestroy, OnInit {
     this.plan.set({ ...response, success: false, error });
     this.planError.set(error);
     return false;
+  }
+
+  private schedulePlanRefresh(): void {
+    this.clearPlanRefreshTimer();
+    this.planRefreshTimer = setTimeout(() => {
+      this.planRefreshTimer = null;
+      void this.refreshPlan();
+    }, PLAN_DEBOUNCE_MS);
+  }
+
+  private clearPlanRefreshTimer(): void {
+    if (this.planRefreshTimer) {
+      clearTimeout(this.planRefreshTimer);
+      this.planRefreshTimer = null;
+    }
   }
 
   private startPolling(): void {

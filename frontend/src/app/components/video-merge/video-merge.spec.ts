@@ -3,6 +3,7 @@ import {
   fakeAsync,
   flushMicrotasks,
   TestBed,
+  tick,
 } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 
@@ -115,6 +116,10 @@ describe('VideoMerge', () => {
 
   function checkedEvent(checked: boolean): Event {
     return { target: { checked } } as unknown as Event;
+  }
+
+  function valueEvent(value: string): Event {
+    return { target: { value } } as unknown as Event;
   }
 
   beforeEach(async () => {
@@ -307,6 +312,131 @@ describe('VideoMerge', () => {
 
     request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
     expect('removeAudio' in request.options).toBeFalse();
+  }));
+
+  it('omits transition options when the transition is None', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect('transition' in request.options).toBeFalse();
+    expect('transitionDuration' in request.options).toBeFalse();
+
+    fixture.detectChanges();
+    const durationInput = fixture.nativeElement.querySelector(
+      '#video-merge-transition-duration',
+    );
+    expect(durationInput).toBeNull();
+  }));
+
+  it('sends both transition options for a crossfade', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+
+    component.onTransitionChange(valueEvent('crossfade'));
+    flushMicrotasks();
+
+    let request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['transition']).toBe('crossfade');
+    expect(request.options['transitionDuration']).toBe(0.5);
+
+    component.onTransitionDurationInput(valueEvent('1.5'));
+    tick(200);
+    flushMicrotasks();
+
+    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(request.options['transitionDuration']).toBe(1.5);
+
+    void component.run();
+    flushMicrotasks();
+
+    const runRequest = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(runRequest.options['transition']).toBe('crossfade');
+    expect(runRequest.options['transitionDuration']).toBe(1.5);
+  }));
+
+  it('blocks the action and shows an inline error for an invalid crossfade duration', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+
+    component.onTransitionChange(valueEvent('crossfade'));
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    component.onTransitionDurationInput(valueEvent('5'));
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.transitionDurationInvalid()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+
+    const error = fixture.nativeElement.querySelector(
+      '.field-error',
+    ) as HTMLElement | null;
+    expect(error?.textContent).toContain('between 0.1 and 3.0 seconds');
+
+    const primary = fixture.nativeElement.querySelector(
+      '.action-primary',
+    ) as HTMLButtonElement;
+    expect(primary.disabled).toBeTrue();
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+  }));
+
+  it('refreshes the plan when the transition changes', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+    const plannedOnce = wailsSpy.planJobV1.calls.count();
+
+    component.onTransitionChange(valueEvent('crossfade'));
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 1);
+
+    component.onTransitionDurationInput(valueEvent('1.2'));
+    tick(199);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 1);
+
+    tick(1);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 2);
+
+    let request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['transitionDuration']).toBe(1.2);
+
+    component.onTransitionChange(valueEvent('none'));
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 3);
+
+    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect('transition' in request.options).toBeFalse();
+    expect('transitionDuration' in request.options).toBeFalse();
+  }));
+
+  it('sends crossfade and removeAudio together', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+
+    component.onTransitionChange(valueEvent('crossfade'));
+    flushMicrotasks();
+    component.onRemoveAudioToggle(checkedEvent(true));
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    const request = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['transition']).toBe('crossfade');
+    expect(request.options['transitionDuration']).toBe(0.5);
+    expect(request.options['removeAudio']).toBeTrue();
   }));
 
   it('loads video thumbnails for the queue and keeps the icon on failure', fakeAsync(() => {

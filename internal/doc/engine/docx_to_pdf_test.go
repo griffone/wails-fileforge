@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -156,5 +157,142 @@ func TestConvertDOCXFailsWhenBothEnginesFail(t *testing.T) {
 	}
 	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("expected no output file, got %v", statErr)
+	}
+}
+
+func TestLibreOfficeConvertTo(t *testing.T) {
+	tests := []struct {
+		name string
+		pdfa bool
+		want string
+	}{
+		{name: "default pdf", pdfa: false, want: "pdf"},
+		{name: "pdfa filter", pdfa: true, want: `pdf:writer_pdf_Export:{"SelectPdfVersion":{"type":"long","value":"1"}}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := libreOfficeConvertTo(test.pdfa); got != test.want {
+				t.Fatalf("expected %q, got %q", test.want, got)
+			}
+		})
+	}
+}
+
+// libreOfficePDFRunner simulates a successful LibreOffice run: it inspects the
+// --convert-to value and writes the produced PDF into the requested --outdir.
+func libreOfficePDFRunner(t *testing.T, wantConvertTo string) *fakeCommandRunner {
+	t.Helper()
+
+	return &fakeCommandRunner{run: func(_ context.Context, name string, args ...string) (CommandResult, error) {
+		if name != "libreoffice" {
+			t.Fatalf("expected libreoffice, got %q", name)
+		}
+
+		convertTo, outDir, inputPath := "", "", ""
+		for index := 0; index < len(args); index++ {
+			switch args[index] {
+			case "--convert-to":
+				convertTo = args[index+1]
+				index++
+			case "--outdir":
+				outDir = args[index+1]
+				index++
+			}
+		}
+		if len(args) > 0 {
+			inputPath = args[len(args)-1]
+		}
+
+		if convertTo != wantConvertTo {
+			t.Fatalf("expected --convert-to %q, got %q (args: %v)", wantConvertTo, convertTo, args)
+		}
+		if outDir == "" {
+			t.Fatalf("expected --outdir in args, got %v", args)
+		}
+
+		converted := filepath.Join(outDir, strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))+".pdf")
+		if err := os.WriteFile(converted, []byte("%PDF-1.7 libreoffice"), 0o644); err != nil {
+			t.Fatalf("write libreoffice output: %v", err)
+		}
+
+		return CommandResult{}, nil
+	}}
+}
+
+func TestConvertDOCXPDFAUsesLibreOfficePDFAFilter(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.docx")
+	outputPath := filepath.Join(dir, "output.pdf")
+	writeTestDOCX(t, inputPath)
+
+	runner := libreOfficePDFRunner(t, libreOfficePDFAFilter)
+
+	result, err := ConvertDOCX(context.Background(), &fakeRuntimeProbe{}, runner, ConvertDOCXRequest{
+		InputPath:  inputPath,
+		OutputPath: outputPath,
+		PDFA:       true,
+	})
+	if err != nil {
+		t.Fatalf("expected pdf/a conversion to succeed, got %v", err)
+	}
+	if result.EngineUsed != EngineLibreOffice || result.FallbackUsed {
+		t.Fatalf("expected a libreoffice-only result, got %+v", result)
+	}
+	if _, statErr := os.Stat(outputPath); statErr != nil {
+		t.Fatalf("expected converted output to exist: %v", statErr)
+	}
+}
+
+func TestConvertDOCXPlainUsesPlainPDFFilter(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.docx")
+	outputPath := filepath.Join(dir, "output.pdf")
+	writeTestDOCX(t, inputPath)
+
+	runner := libreOfficePDFRunner(t, "pdf")
+
+	if _, err := ConvertDOCX(context.Background(), &fakeRuntimeProbe{}, runner, ConvertDOCXRequest{
+		InputPath:  inputPath,
+		OutputPath: outputPath,
+	}); err != nil {
+		t.Fatalf("expected plain conversion to succeed, got %v", err)
+	}
+}
+
+func TestConvertDOCXPDFADoesNotFallbackToPandoc(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.docx")
+	outputPath := filepath.Join(dir, "output.pdf")
+	writeTestDOCX(t, inputPath)
+
+	runner := &fakeCommandRunner{run: func(_ context.Context, name string, args ...string) (CommandResult, error) {
+		if name != "libreoffice" {
+			t.Fatalf("pdf/a must never run the %q fallback, got args %v", name, args)
+		}
+		return CommandResult{}, errors.New("libreoffice crashed")
+	}}
+
+	result, err := ConvertDOCX(context.Background(), &fakeRuntimeProbe{}, runner, ConvertDOCXRequest{
+		InputPath:  inputPath,
+		OutputPath: outputPath,
+		PDFA:       true,
+	})
+	if err == nil {
+		t.Fatal("expected a pdf/a unsupported error")
+	}
+
+	var docxErr *DOCXError
+	if !errors.As(err, &docxErr) || docxErr.Code != ErrorCodeDocxPDFAUnsupported {
+		t.Fatalf("expected %s, got %v", ErrorCodeDocxPDFAUnsupported, err)
+	}
+	if result.FallbackUsed {
+		t.Fatal("expected FallbackUsed to stay false for pdf/a")
+	}
+	if result.PrimaryError == "" {
+		t.Fatal("expected PrimaryError to keep the libreoffice diagnostic")
+	}
+	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected no non-archival output file, got %v", statErr)
 	}
 }

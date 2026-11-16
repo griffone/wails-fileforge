@@ -1,6 +1,6 @@
 # Tool Advanced Features
 
-- Status: in progress
+- Status: PDF optimized/split advanced, DOCX PDF/A and video crossfade complete; multi-track deferred
 - Branch: `feat/tool-advanced`
 - Started: 2026-11-16
 - Related: `odd/tasks/tool-completeness.md`
@@ -89,3 +89,8 @@ Take the table-stakes tools to the next level with the advanced features explici
 ## Progress
 
 - 2026-11-16: Advanced phase started on `feat/tool-advanced`; PDF Split and PDF Optimize scoped first.
+- 2026-11-16: PDF advanced complete. Split supports `pages_per_file` and `bookmarks` (top-level outline, sanitized names, clear no-bookmark/invalid errors); PDF Optimize tool added with compression + title/author/subject/keywords/creator metadata, collision-safe outputs, batch partial success, registry/home/routes/frontend flow and global-drop recommendation.
+- 2026-11-16: DOCX PDF/A complete. `pdfa` option uses the LibreOffice PDF/A export filter; PDF/A only requires LibreOffice (PDFAProbe), Pandoc fallback is refused with a clear unsupported error, and page-selection + PDF/A emits a compliance warning. Frontend Advanced toggle with requirement copy.
+- 2026-11-16: Video Merge crossfade complete. `transition`/`transitionDuration` options, ffprobe duration probing, xfade/acrossfade filter chain with validated offsets, forced re-encode, remove-audio support; frontend Advanced select/duration with validation.
+- 2026-11-16: Verification: Go build/tests pass; frontend 379/379 Karma specs; build passes; visual checks for PDF Optimize/split strategies, DOCX PDF/A and video crossfade. LibreOffice is not installed in this environment, so PDF/A execution was verified with stubbed runners; a real desktop smoke test is pending.
+- Multi-track/PiP video remains a separate future tool; it is not half-implemented.

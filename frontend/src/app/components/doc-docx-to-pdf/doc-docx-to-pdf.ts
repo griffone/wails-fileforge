@@ -82,6 +82,9 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
   /** Page range applied to every input; empty keeps all pages. */
   readonly pageSelection = signal('');
 
+  /** PDF/A archival export; LibreOffice only, off by default. */
+  readonly pdfa = signal(false);
+
   readonly plan = signal<PlanJobResponseV1 | null>(null);
   readonly planError = signal<JobErrorV1 | null>(null);
   readonly planLoading = signal(false);
@@ -303,6 +306,17 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     this.schedulePlanRefresh();
   }
 
+  onPdfaToggle(event: Event): void {
+    const enabled = !!(event.target as HTMLInputElement | null)?.checked;
+    if (enabled === this.pdfa()) {
+      return;
+    }
+    this.pdfa.set(enabled);
+    this.actionMessage.set('');
+    // The plan probes LibreOffice for PDF/A, so the refresh is immediate.
+    void this.refreshPlan();
+  }
+
   async run(): Promise<void> {
     if (!this.canRun() || this.planBlocked()) {
       return;
@@ -430,6 +444,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     this.selectedPaths.set([]);
     this.fileItems.set([]);
     this.pageSelection.set('');
+    this.pdfa.set(false);
     this.planDirty = false;
     this.plan.set(null);
     this.planError.set(null);
@@ -449,6 +464,10 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     const pageSelection = this.pageSelection().trim();
     if (pageSelection) {
       options['pageSelection'] = pageSelection;
+    }
+    // PDF/A is opt-in; leaving it out keeps the regular PDF export.
+    if (this.pdfa()) {
+      options['pdfa'] = true;
     }
 
     return {

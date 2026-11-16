@@ -114,6 +114,40 @@
   color: var(--muted);
 }
 
+.check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.check-row input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.archival-note {
+  display: flex;
+  gap: 7px;
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.archival-note lucide-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--info);
+  opacity: 0.85;
+}
+
 .range-control {
   display: flex;
   align-items: center;

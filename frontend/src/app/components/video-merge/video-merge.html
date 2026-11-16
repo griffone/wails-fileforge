@@ -124,10 +124,52 @@
           <details class="advanced">
             <summary class="advanced-summary">
               <span class="advanced-title">Advanced</span>
-              <span class="advanced-hint">Audio</span>
+              <span class="advanced-hint">Transition and audio</span>
             </summary>
 
             <div class="advanced-body">
+              <div class="field">
+                <label class="label" for="video-merge-transition">Transition</label>
+                <select
+                  id="video-merge-transition"
+                  class="select"
+                  [value]="transition()"
+                  (change)="onTransitionChange($event)"
+                >
+                  <option value="none">None</option>
+                  <option value="crossfade">Crossfade</option>
+                </select>
+              </div>
+
+              @if (isCrossfade()) {
+                <div class="field">
+                  <label class="label" for="video-merge-transition-duration">
+                    Crossfade duration (seconds)
+                  </label>
+                  <input
+                    id="video-merge-transition-duration"
+                    class="input"
+                    type="number"
+                    inputmode="decimal"
+                    autocomplete="off"
+                    min="0.1"
+                    max="3"
+                    step="0.1"
+                    aria-describedby="video-merge-transition-duration-help"
+                    [value]="transitionDuration()"
+                    (input)="onTransitionDurationInput($event)"
+                  />
+                  <p id="video-merge-transition-duration-help" class="field-help">
+                    Crossfade re-encodes the merged video. Each clip must be longer than the transition.
+                  </p>
+                  @if (transitionDurationInvalid()) {
+                    <p class="field-error" role="alert">
+                      Enter a crossfade duration between 0.1 and 3.0 seconds.
+                    </p>
+                  }
+                </div>
+              }
+
               <div class="field">
                 <span class="label">Audio</span>
                 <label class="check-row" for="video-merge-remove-audio">

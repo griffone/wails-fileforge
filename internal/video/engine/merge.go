@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"fileforge-desktop/internal/inspect"
 )
 
 const (
@@ -29,7 +32,18 @@ const (
 	MergeModeAuto     = "auto"
 	MergeModeCopy     = "copy"
 	MergeModeReencode = "reencode"
+
+	MergeTransitionNone      = "none"
+	MergeTransitionCrossfade = "crossfade"
+
+	MergeTransitionDurationDefault = 0.5
+	MergeTransitionDurationMin     = 0.1
+	MergeTransitionDurationMax     = 3.0
 )
+
+// MergeInputDurationProbe reports clip durations before a crossfade is built.
+// It is a package variable so tests can simulate durations without ffprobe.
+var MergeInputDurationProbe = inspect.ProbeVideoDuration
 
 type MergeRequest struct {
 	InputPaths     []string
@@ -41,6 +55,42 @@ type MergeRequest struct {
 	ConcatListPath string
 	// RemoveAudio drops the audio streams from the merged output.
 	RemoveAudio bool
+	// Transition applies a transition between clips. Empty or "none"
+	// concatenates without one; "crossfade" always forces a re-encode.
+	Transition string
+	// TransitionDuration is the crossfade length in seconds (0.1-3.0).
+	TransitionDuration float64
+}
+
+// resolveMergeTransition normalizes the transition options. An empty transition
+// means none, and a zero crossfade duration keeps the default. Durations are
+// only meaningful for crossfade; a requested transition is ignored otherwise.
+func resolveMergeTransition(req MergeRequest) (string, float64, *VideoError) {
+	transition := strings.ToLower(strings.TrimSpace(req.Transition))
+	if transition == "" {
+		transition = MergeTransitionNone
+	}
+
+	switch transition {
+	case MergeTransitionNone:
+		return transition, 0, nil
+	case MergeTransitionCrossfade:
+	default:
+		return "", 0, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: "transition must be none or crossfade"}
+	}
+
+	duration := req.TransitionDuration
+	if math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return "", 0, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: "transitionDuration must be a finite number"}
+	}
+	if duration == 0 {
+		duration = MergeTransitionDurationDefault
+	}
+	if duration < MergeTransitionDurationMin || duration > MergeTransitionDurationMax {
+		return "", 0, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: fmt.Sprintf("transitionDuration must be between %.1f and %.1f seconds", MergeTransitionDurationMin, MergeTransitionDurationMax)}
+	}
+
+	return transition, duration, nil
 }
 
 func ValidateMergeRequest(req MergeRequest) *VideoError {
@@ -84,6 +134,10 @@ func ValidateMergeRequest(req MergeRequest) *VideoError {
 	}
 	if mergeMode != MergeModeAuto && mergeMode != MergeModeCopy && mergeMode != MergeModeReencode {
 		return &VideoError{Code: ErrorCodeVideoMergeModeInvalid, Message: "mergeMode must be auto, copy, or reencode"}
+	}
+
+	if _, _, transitionErr := resolveMergeTransition(req); transitionErr != nil {
+		return transitionErr
 	}
 
 	if outputExt := strings.TrimPrefix(strings.ToLower(filepath.Ext(outputPath)), "."); outputExt != targetFormat {
@@ -135,6 +189,31 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 	mergeMode := strings.ToLower(strings.TrimSpace(req.MergeMode))
 	if mergeMode == "" {
 		mergeMode = MergeModeAuto
+	}
+
+	transition, _, transitionErr := resolveMergeTransition(req)
+	if transitionErr != nil {
+		return transitionErr
+	}
+	if transition == MergeTransitionCrossfade {
+		durations := make([]float64, 0, len(req.InputPaths))
+		for _, inputPath := range req.InputPaths {
+			trimmed := strings.TrimSpace(inputPath)
+			duration, ok := MergeInputDurationProbe(ctx, trimmed)
+			if !ok || duration <= 0 {
+				return &VideoError{Code: ErrorCodeVideoMergeValidation, Message: fmt.Sprintf("could not determine duration for input: %s", trimmed)}
+			}
+			durations = append(durations, duration)
+		}
+
+		crossfadeArgs, argsErr := BuildMergeCrossfadeArgs(req.InputPaths, durations, req)
+		if argsErr != nil {
+			return argsErr
+		}
+		if err := runner.Run(ctx, "ffmpeg", crossfadeArgs); err != nil {
+			return mapMergeExecutionError(err)
+		}
+		return nil
 	}
 
 	listFilePath, listErr := createConcatListFile(req.InputPaths)
@@ -204,41 +283,94 @@ func buildMergeCopyArgs(listFilePath string, outputPath string, removeAudio bool
 	return append(args, outputPath)
 }
 
-// BuildMergeArgs builds the re-encode ffmpeg arguments for a merge request.
-// listFilePath is the concat demuxer list written by Merge.
-func BuildMergeArgs(listFilePath string, req MergeRequest) ([]string, *VideoError) {
-	targetFormat := strings.ToLower(strings.TrimSpace(req.TargetFormat))
-	qualityPreset := strings.ToLower(strings.TrimSpace(req.QualityPreset))
-	outputPath := strings.TrimSpace(req.OutputPath)
+// mergeEncoding holds the codec settings shared by concat and crossfade merges.
+type mergeEncoding struct {
+	videoCodec   string
+	videoBitrate string
+	videoCRF     string
+	videoPreset  string
+	audioCodec   string
+	faststart    bool
+}
 
-	videoCRF := "23"
-	videoBitrate := "2500k"
-	if targetFormat == TargetFormatWebM {
-		videoCRF = "32"
-		videoBitrate = "1800k"
+// resolveMergeEncoding maps a target format and quality preset to the same
+// encoder settings used by the concat re-encode path.
+func resolveMergeEncoding(targetFormat, qualityPreset string) (mergeEncoding, *VideoError) {
+	targetFormat = strings.ToLower(strings.TrimSpace(targetFormat))
+	qualityPreset = strings.ToLower(strings.TrimSpace(qualityPreset))
+
+	encoding := mergeEncoding{
+		videoCodec:   "libx264",
+		videoBitrate: "2500k",
+		videoCRF:     "23",
+		videoPreset:  "medium",
+		audioCodec:   "aac",
+		faststart:    true,
+	}
+
+	switch targetFormat {
+	case TargetFormatMP4:
+	case TargetFormatWebM:
+		encoding = mergeEncoding{
+			videoCodec:   "libvpx-vp9",
+			videoBitrate: "1800k",
+			videoCRF:     "32",
+			audioCodec:   "libopus",
+		}
+	default:
+		return mergeEncoding{}, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: "targetFormat must be mp4 or webm"}
 	}
 
 	switch qualityPreset {
 	case QualityPresetHigh:
 		if targetFormat == TargetFormatWebM {
-			videoCRF = "28"
-			videoBitrate = "2600k"
+			encoding.videoCRF = "28"
+			encoding.videoBitrate = "2600k"
 		} else {
-			videoCRF = "20"
-			videoBitrate = "4500k"
+			encoding.videoCRF = "20"
+			encoding.videoBitrate = "4500k"
 		}
 	case QualityPresetMedium:
 		// defaults
 	case QualityPresetLow:
 		if targetFormat == TargetFormatWebM {
-			videoCRF = "36"
-			videoBitrate = "1200k"
+			encoding.videoCRF = "36"
+			encoding.videoBitrate = "1200k"
 		} else {
-			videoCRF = "28"
-			videoBitrate = "1400k"
+			encoding.videoCRF = "28"
+			encoding.videoBitrate = "1400k"
 		}
 	default:
-		return nil, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: "qualityPreset must be high, medium, or low"}
+		return mergeEncoding{}, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: "qualityPreset must be high, medium, or low"}
+	}
+
+	return encoding, nil
+}
+
+func appendMergeEncodingArgs(args []string, encoding mergeEncoding, removeAudio bool) []string {
+	args = append(args, "-c:v", encoding.videoCodec, "-b:v", encoding.videoBitrate, "-crf", encoding.videoCRF)
+	if encoding.videoPreset != "" {
+		args = append(args, "-preset", encoding.videoPreset)
+	}
+	if !removeAudio {
+		args = append(args, "-c:a", encoding.audioCodec)
+	}
+	if encoding.faststart {
+		args = append(args, "-movflags", "+faststart")
+	}
+	if removeAudio {
+		args = append(args, "-an")
+	}
+
+	return args
+}
+
+// BuildMergeArgs builds the re-encode ffmpeg arguments for a merge request.
+// listFilePath is the concat demuxer list written by Merge.
+func BuildMergeArgs(listFilePath string, req MergeRequest) ([]string, *VideoError) {
+	encoding, encodingErr := resolveMergeEncoding(req.TargetFormat, req.QualityPreset)
+	if encodingErr != nil {
+		return nil, encodingErr
 	}
 
 	args := []string{
@@ -246,28 +378,107 @@ func BuildMergeArgs(listFilePath string, req MergeRequest) ([]string, *VideoErro
 		"-f", "concat",
 		"-safe", "0",
 		"-i", listFilePath,
-		"-c:v",
+	}
+	args = appendMergeEncodingArgs(args, encoding, req.RemoveAudio)
+
+	return append(args, strings.TrimSpace(req.OutputPath)), nil
+}
+
+// BuildMergeCrossfadeArgs builds the ffmpeg arguments that join clips with an
+// xfade video transition. durations must hold one probed duration per input.
+func BuildMergeCrossfadeArgs(inputPaths []string, durations []float64, req MergeRequest) ([]string, *VideoError) {
+	transition, transitionDuration, transitionErr := resolveMergeTransition(req)
+	if transitionErr != nil {
+		return nil, transitionErr
+	}
+	if transition != MergeTransitionCrossfade {
+		return nil, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: "transition must be crossfade to build crossfade arguments"}
+	}
+	if len(inputPaths) < 2 {
+		return nil, &VideoError{Code: ErrorCodeVideoMergeInsufficientInputs, Message: "at least 2 inputPaths are required for crossfade"}
+	}
+	if len(durations) != len(inputPaths) {
+		return nil, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: "durations must contain one value per input"}
 	}
 
-	if targetFormat == TargetFormatWebM {
-		args = append(args, "libvpx-vp9", "-b:v", videoBitrate, "-crf", videoCRF)
-		if !req.RemoveAudio {
-			args = append(args, "-c:a", "libopus")
+	offsets := make([]float64, 0, len(inputPaths)-1)
+	cumulative := 0.0
+	for index, duration := range durations {
+		if math.IsNaN(duration) || math.IsInf(duration, 0) || duration <= transitionDuration {
+			return nil, &VideoError{
+				Code:    ErrorCodeVideoMergeValidation,
+				Message: fmt.Sprintf("input %d is too short (%.2f s) for a %.2f s crossfade", index+1, duration, transitionDuration),
+			}
 		}
-	} else {
-		args = append(args, "libx264", "-b:v", videoBitrate, "-crf", videoCRF, "-preset", "medium")
-		if !req.RemoveAudio {
-			args = append(args, "-c:a", "aac")
+		if index == 0 {
+			continue
 		}
-		args = append(args, "-movflags", "+faststart")
+		cumulative += durations[index-1]
+		offset := cumulative - float64(index)*transitionDuration
+		if offset < 0 {
+			return nil, &VideoError{
+				Code:    ErrorCodeVideoMergeValidation,
+				Message: fmt.Sprintf("crossfade offset for input %d must be >= 0", index+1),
+			}
+		}
+		offsets = append(offsets, offset)
 	}
 
-	if req.RemoveAudio {
-		args = append(args, "-an")
+	encoding, encodingErr := resolveMergeEncoding(req.TargetFormat, req.QualityPreset)
+	if encodingErr != nil {
+		return nil, encodingErr
 	}
 
-	args = append(args, outputPath)
-	return args, nil
+	args := []string{"-y"}
+	for _, inputPath := range inputPaths {
+		args = append(args, "-i", strings.TrimSpace(inputPath))
+	}
+	args = append(args, "-filter_complex", buildMergeCrossfadeFilter(len(inputPaths), transitionDuration, offsets, !req.RemoveAudio))
+	args = append(args, "-map", "[vout]")
+	if !req.RemoveAudio {
+		args = append(args, "-map", "[aout]")
+	}
+	args = appendMergeEncodingArgs(args, encoding, req.RemoveAudio)
+
+	return append(args, strings.TrimSpace(req.OutputPath)), nil
+}
+
+// buildMergeCrossfadeFilter normalizes every video stream and chains xfade
+// transitions. offsets[i] is the xfade offset for input i+1.
+func buildMergeCrossfadeFilter(inputCount int, transitionDuration float64, offsets []float64, includeAudio bool) string {
+	parts := make([]string, 0, inputCount*2)
+	for index := 0; index < inputCount; index++ {
+		parts = append(parts, fmt.Sprintf("[%d:v]settb=AVTB,setpts=PTS-STARTPTS[v%d]", index, index))
+	}
+
+	videoLabel := "v0"
+	for index := 1; index < inputCount; index++ {
+		nextLabel := fmt.Sprintf("vc%d", index)
+		if index == inputCount-1 {
+			nextLabel = "vout"
+		}
+		parts = append(parts, fmt.Sprintf("[%s][v%d]xfade=transition=fade:duration=%s:offset=%s[%s]",
+			videoLabel, index, formatMergeSeconds(transitionDuration), formatMergeSeconds(offsets[index-1]), nextLabel))
+		videoLabel = nextLabel
+	}
+
+	if includeAudio {
+		audioLabel := "0:a"
+		for index := 1; index < inputCount; index++ {
+			nextLabel := fmt.Sprintf("ac%d", index)
+			if index == inputCount-1 {
+				nextLabel = "aout"
+			}
+			parts = append(parts, fmt.Sprintf("[%s][%d:a]acrossfade=d=%s[%s]", audioLabel, index, formatMergeSeconds(transitionDuration), nextLabel))
+			audioLabel = nextLabel
+		}
+	}
+
+	return strings.Join(parts, ";")
+}
+
+func formatMergeSeconds(value float64) string {
+	return fmt.Sprintf("%.3f", value)
 }
 
 func createConcatListFile(inputPaths []string) (string, *VideoError) {

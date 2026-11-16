@@ -104,6 +104,20 @@ describe('DocDocxToPdf', () => {
     return { target: { value } } as unknown as Event;
   }
 
+  function pdfaToggle(): HTMLInputElement {
+    return fixture.nativeElement.querySelector(
+      '#docx-pdfa',
+    ) as HTMLInputElement;
+  }
+
+  function setPdfa(checked: boolean): void {
+    const toggle = pdfaToggle();
+    toggle.checked = checked;
+    toggle.dispatchEvent(new Event('change'));
+    flushMicrotasks();
+    fixture.detectChanges();
+  }
+
   function lastPlanRequest(): JobRequestV1 {
     return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
   }
@@ -399,6 +413,167 @@ describe('DocDocxToPdf', () => {
     flushMicrotasks();
     expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 1);
     expect(lastPlanRequest().options['pageSelection']).toBe('1-2');
+  }));
+
+  it('renders the archival toggle with the LibreOffice requirement', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const toggle = pdfaToggle();
+    expect(toggle).toBeTruthy();
+    expect(toggle.checked).toBeFalse();
+
+    const helper = fixture.nativeElement.querySelector(
+      '#docx-pdfa-help',
+    ) as HTMLElement;
+    expect(helper.textContent).toContain('Requires LibreOffice.');
+    expect(helper.textContent).toContain(
+      'the conversion fails instead of producing a non-archival PDF',
+    );
+    expect(fixture.nativeElement.querySelector('.archival-note')).toBeNull();
+
+    setPdfa(true);
+
+    expect(toggle.checked).toBeTrue();
+    const note = fixture.nativeElement.querySelector(
+      '.archival-note',
+    ) as HTMLElement;
+    expect(note.textContent).toContain(
+      'Page selection can reduce strict PDF/A compliance.',
+    );
+  }));
+
+  it('adds pdfa to the plan and run payloads when archival export is on', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect('pdfa' in lastPlanRequest().options).toBeFalse();
+
+    setPdfa(true);
+
+    expect(component.pdfa()).toBeTrue();
+    expect(lastPlanRequest().options['pdfa']).toBeTrue();
+
+    void component.run();
+    flushMicrotasks();
+
+    const runRequest = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(runRequest.options['pdfa']).toBeTrue();
+  }));
+
+  it('omits pdfa from the plan and run payloads when archival export is off', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect('pdfa' in lastPlanRequest().options).toBeFalse();
+
+    setPdfa(true);
+    expect(lastPlanRequest().options['pdfa']).toBeTrue();
+
+    setPdfa(false);
+
+    expect(component.pdfa()).toBeFalse();
+    expect('pdfa' in lastPlanRequest().options).toBeFalse();
+
+    void component.run();
+    flushMicrotasks();
+
+    const runRequest = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect('pdfa' in runRequest.options).toBeFalse();
+  }));
+
+  it('refreshes the plan when the archival toggle changes', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    fixture.detectChanges();
+    const plannedOnce = wailsSpy.planJobV1.calls.count();
+
+    setPdfa(true);
+
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 1);
+    expect(component.plan()?.success).toBeTrue();
+    expect(component.plan()?.effectiveOptions?.['pdfa']).toBeTrue();
+
+    setPdfa(false);
+
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 2);
+    expect(component.plan()?.success).toBeTrue();
+    expect('pdfa' in lastPlanRequest().options).toBeFalse();
+  }));
+
+  it('sends the page selection and pdfa together', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    component.onPageSelectionInput(inputEvent('1-2'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    setPdfa(true);
+
+    const planRequest = lastPlanRequest();
+    expect(planRequest.options['pageSelection']).toBe('1-2');
+    expect(planRequest.options['pdfa']).toBeTrue();
+
+    void component.run();
+    flushMicrotasks();
+
+    const runRequest = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(runRequest.options['pageSelection']).toBe('1-2');
+    expect(runRequest.options['pdfa']).toBeTrue();
+  }));
+
+  it('blocks the action when the plan cannot export PDF/A', fakeAsync(() => {
+    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) => {
+      if (request.options['pdfa'] === true) {
+        return Promise.resolve({
+          success: false,
+          message: 'libreoffice binary not found in PATH',
+          outputs: [],
+          error: {
+            code: 'DOC_DOCX_TO_PDF_RUNTIME_LIBREOFFICE_MISSING',
+            detail_code: 'DOC_DOCX_TO_PDF_RUNTIME_LIBREOFFICE_MISSING',
+            message: 'libreoffice binary not found in PATH',
+          },
+        });
+      }
+      return Promise.resolve(planResponse(request));
+    });
+
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    setPdfa(true);
+
+    expect(component.plan()?.success).toBeFalse();
+    expect(component.planBlocked()).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain(
+      'A required tool is missing.',
+    );
+
+    const primary = fixture.nativeElement.querySelector(
+      '.action-primary',
+    ) as HTMLButtonElement;
+    expect(primary.disabled).toBeTrue();
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+
+    setPdfa(false);
+
+    expect(component.plan()?.success).toBeTrue();
+    expect(component.planBlocked()).toBeFalse();
+    expect(primary.disabled).toBeFalse();
   }));
 
   it('shows the all pages badge while the range is empty', fakeAsync(() => {

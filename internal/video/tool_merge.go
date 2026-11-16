@@ -3,6 +3,7 @@ package video
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,21 +116,30 @@ func (t *MergeTool) Plan(ctx context.Context, req models.JobRequestV1) (models.P
 		return planFailure(plan, audioErr)
 	}
 
+	transition, transitionDuration, transitionErr := resolveMergeTransitionOptions(req.Options)
+	if transitionErr != nil {
+		return planFailure(plan, transitionErr)
+	}
+
+	mergeRequest := engine.MergeRequest{
+		InputPaths:         inputPaths,
+		TargetFormat:       targetFormat,
+		QualityPreset:      qualityPreset,
+		MergeMode:          mergeMode,
+		RemoveAudio:        removeAudio,
+		Transition:         transition,
+		TransitionDuration: transitionDuration,
+	}
+
 	explicitOutput := optionString(req.Options, "outputPath")
 	var planned models.PlannedOutputV1
 	var planErr *models.JobErrorV1
 	if explicitOutput != "" {
-		planned, planErr = planExplicitMergeOutput(inputPaths, explicitOutput, targetFormat, qualityPreset, mergeMode, removeAudio)
+		planned, planErr = planExplicitMergeOutput(explicitOutput, mergeRequest)
 	} else {
 		planned = planAutoVideoOutput(inputPaths[0], req.OutputDir, videoMergeOutputSuffix, targetFormat, reserveInputPaths(inputPaths))
-		planErr = mapVideoError(engine.ValidateMergeRequest(engine.MergeRequest{
-			InputPaths:    inputPaths,
-			OutputPath:    planned.OutputPath,
-			TargetFormat:  targetFormat,
-			QualityPreset: qualityPreset,
-			MergeMode:     mergeMode,
-			RemoveAudio:   removeAudio,
-		}))
+		mergeRequest.OutputPath = planned.OutputPath
+		planErr = mapVideoError(engine.ValidateMergeRequest(mergeRequest))
 	}
 
 	if planErr != nil {
@@ -144,10 +154,12 @@ func (t *MergeTool) Plan(ctx context.Context, req models.JobRequestV1) (models.P
 	plan.Outputs = []models.PlannedOutputV1{planned}
 	plan.Warnings = append(plan.Warnings, planned.Warnings...)
 	plan.EffectiveOptions = map[string]any{
-		"targetFormat":  targetFormat,
-		"qualityPreset": qualityPreset,
-		"mergeMode":     mergeMode,
-		"removeAudio":   removeAudio,
+		"targetFormat":       targetFormat,
+		"qualityPreset":      qualityPreset,
+		"mergeMode":          mergeMode,
+		"removeAudio":        removeAudio,
+		"transition":         transition,
+		"transitionDuration": transitionDuration,
 	}
 
 	return plan, nil
@@ -170,9 +182,9 @@ func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) 
 	return models.JobResultItemV1{InputPath: firstInputPath(mergeReq.InputPaths), OutputPath: mergeReq.OutputPath, Outputs: []string{mergeReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video merge successful"}, nil
 }
 
-func planExplicitMergeOutput(inputPaths []string, outputPath, targetFormat, qualityPreset, mergeMode string, removeAudio bool) (models.PlannedOutputV1, *models.JobErrorV1) {
+func planExplicitMergeOutput(outputPath string, request engine.MergeRequest) (models.PlannedOutputV1, *models.JobErrorV1) {
 	planned := models.PlannedOutputV1{
-		InputPath:  strings.Join(inputPaths, ","),
+		InputPath:  strings.Join(request.InputPaths, ","),
 		OutputPath: filepath.Clean(strings.TrimSpace(outputPath)),
 		OutputKind: videoOutputKindFile,
 	}
@@ -181,14 +193,8 @@ func planExplicitMergeOutput(inputPaths []string, outputPath, targetFormat, qual
 		planned.Exists = true
 	}
 
-	validationErr := engine.ValidateMergeRequest(engine.MergeRequest{
-		InputPaths:    inputPaths,
-		OutputPath:    planned.OutputPath,
-		TargetFormat:  targetFormat,
-		QualityPreset: qualityPreset,
-		MergeMode:     mergeMode,
-		RemoveAudio:   removeAudio,
-	})
+	request.OutputPath = planned.OutputPath
+	validationErr := engine.ValidateMergeRequest(request)
 
 	return planned, mapVideoError(validationErr)
 }
@@ -200,14 +206,21 @@ func mergeRequestFromPlan(plan models.PlanJobResponseV1, inputPaths []string) en
 		mergeMode = engine.MergeModeAuto
 	}
 	removeAudio, _ := plan.EffectiveOptions["removeAudio"].(bool)
+	transition := optionString(plan.EffectiveOptions, "transition")
+	if transition == "" {
+		transition = engine.MergeTransitionNone
+	}
+	transitionDuration, _ := plan.EffectiveOptions["transitionDuration"].(float64)
 
 	return engine.MergeRequest{
-		InputPaths:    trimInputPaths(inputPaths),
-		OutputPath:    planned.OutputPath,
-		TargetFormat:  optionString(plan.EffectiveOptions, "targetFormat"),
-		QualityPreset: optionString(plan.EffectiveOptions, "qualityPreset"),
-		MergeMode:     mergeMode,
-		RemoveAudio:   removeAudio,
+		InputPaths:         trimInputPaths(inputPaths),
+		OutputPath:         planned.OutputPath,
+		TargetFormat:       optionString(plan.EffectiveOptions, "targetFormat"),
+		QualityPreset:      optionString(plan.EffectiveOptions, "qualityPreset"),
+		MergeMode:          mergeMode,
+		RemoveAudio:        removeAudio,
+		Transition:         transition,
+		TransitionDuration: transitionDuration,
 	}
 }
 
@@ -217,6 +230,41 @@ func trimInputPaths(inputPaths []string) []string {
 		trimmed = append(trimmed, strings.TrimSpace(inputPath))
 	}
 	return trimmed
+}
+
+// resolveMergeTransitionOptions normalizes the transition options and rejects
+// invalid values before any output path is planned.
+func resolveMergeTransitionOptions(options map[string]any) (string, float64, *models.JobErrorV1) {
+	transition := strings.ToLower(optionString(options, "transition"))
+	if transition == "" {
+		transition = engine.MergeTransitionNone
+	}
+	switch transition {
+	case engine.MergeTransitionNone:
+	case engine.MergeTransitionCrossfade:
+	default:
+		return "", 0, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "options.transition must be none or crossfade"}
+	}
+
+	duration := engine.MergeTransitionDurationDefault
+	supplied, isSupplied, durationErr := videoOptionFloat(options, "transitionDuration", engine.ErrorCodeVideoMergeValidation)
+	if durationErr != nil {
+		return "", 0, durationErr
+	}
+	if isSupplied {
+		if math.IsNaN(supplied) || math.IsInf(supplied, 0) {
+			return "", 0, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "options.transitionDuration must be a finite number"}
+		}
+		if supplied != 0 {
+			duration = supplied
+		}
+	}
+
+	if transition == engine.MergeTransitionCrossfade && (duration < engine.MergeTransitionDurationMin || duration > engine.MergeTransitionDurationMax) {
+		return "", 0, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeValidation, Message: "options.transitionDuration must be between 0.1 and 3.0 seconds"}
+	}
+
+	return transition, duration, nil
 }
 
 func videoMergePlanMessage(count int) string {

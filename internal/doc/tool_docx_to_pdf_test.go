@@ -451,6 +451,173 @@ func TestDOCXPlanIncludesPageSelectionInEffectiveOptions(t *testing.T) {
 	}
 }
 
+func TestDOCXPlanIncludesPDFAInEffectiveOptions(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	tool := newTestDOCXTool()
+
+	pdfaPlan, pdfaErr := tool.Plan(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pdfa": true}))
+	if pdfaErr != nil {
+		t.Fatalf("expected pdf/a plan to succeed, got %v", pdfaErr)
+	}
+	if got := pdfaPlan.EffectiveOptions["pdfa"]; got != true {
+		t.Fatalf("expected pdfa true in effective options, got %#v", got)
+	}
+	if len(pdfaPlan.Warnings) != 0 {
+		t.Fatalf("expected no warnings for pdf/a without a page selection, got %v", pdfaPlan.Warnings)
+	}
+
+	// pdfa false is the default and must not pollute the effective options.
+	plainPlan, plainErr := tool.Plan(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pdfa": false}))
+	if plainErr != nil {
+		t.Fatalf("expected plain plan to succeed, got %v", plainErr)
+	}
+	if plainPlan.EffectiveOptions != nil {
+		t.Fatalf("expected no effective options for pdfa false, got %#v", plainPlan.EffectiveOptions)
+	}
+
+	combinedPlan, combinedErr := tool.Plan(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pdfa": true, "pageSelection": "1-2"}))
+	if combinedErr != nil {
+		t.Fatalf("expected combined plan to succeed, got %v", combinedErr)
+	}
+	if got := combinedPlan.EffectiveOptions["pageSelection"]; got != "1-2" {
+		t.Fatalf("expected pageSelection in combined effective options, got %#v", got)
+	}
+	if got := combinedPlan.EffectiveOptions["pdfa"]; got != true {
+		t.Fatalf("expected pdfa in combined effective options, got %#v", got)
+	}
+	if len(combinedPlan.Warnings) != 1 || !strings.Contains(combinedPlan.Warnings[0], "PDF/A") {
+		t.Fatalf("expected a PDF/A page-selection warning, got %v", combinedPlan.Warnings)
+	}
+}
+
+func TestDOCXPlanRejectsInvalidPDFAOption(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	for _, value := range []any{"yes", 1, []string{"true"}} {
+		t.Run(fmt.Sprintf("%v", value), func(t *testing.T) {
+			tool := newTestDOCXTool()
+			plan, planErr := tool.Plan(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pdfa": value}))
+			if planErr == nil {
+				t.Fatal("expected an invalid pdfa option error")
+			}
+			if planErr.DetailCode != "DOC_DOCX_TO_PDF_OPTION_INVALID" {
+				t.Fatalf("expected DOC_DOCX_TO_PDF_OPTION_INVALID, got %q", planErr.DetailCode)
+			}
+			if !strings.Contains(planErr.Message, "pdfa") {
+				t.Fatalf("expected message to name the option, got %q", planErr.Message)
+			}
+			if plan.Success {
+				t.Fatal("expected plan to report failure")
+			}
+		})
+	}
+}
+
+// newLibreOfficePDFDOCXRunner writes a PDF fixture for every libreoffice call and
+// records the --convert-to value so tests can assert the export filter.
+func newLibreOfficePDFDOCXRunner(t *testing.T, pages int, wantConvertTo string) stubDOCXRunner {
+	t.Helper()
+
+	return stubDOCXRunner{run: func(_ context.Context, name string, args ...string) (engine.CommandResult, error) {
+		if name != "libreoffice" {
+			t.Fatalf("expected libreoffice, got %q with args %v", name, args)
+		}
+
+		convertTo, outDir := "", ""
+		for index := 0; index < len(args); index++ {
+			switch args[index] {
+			case "--convert-to":
+				convertTo = args[index+1]
+				index++
+			case "--outdir":
+				outDir = args[index+1]
+				index++
+			}
+		}
+		if convertTo != wantConvertTo {
+			t.Fatalf("expected --convert-to %q, got %q (args: %v)", wantConvertTo, convertTo, args)
+		}
+		if outDir == "" {
+			t.Fatalf("expected --outdir in args, got %v", args)
+		}
+		if len(args) == 0 {
+			t.Fatal("expected the input path as the last argument")
+		}
+
+		inputPath := args[len(args)-1]
+		converted := filepath.Join(outDir, strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))+".pdf")
+		writeDOCXPDFFixture(t, converted, pages)
+
+		return engine.CommandResult{}, nil
+	}}
+}
+
+func TestDOCXExecuteSingleUsesPDFAExportFilter(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, newLibreOfficePDFDOCXRunner(t, 3, `pdf:writer_pdf_Export:{"SelectPdfVersion":{"type":"long","value":"1"}}`))
+	item, itemErr := tool.ExecuteSingle(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pdfa": true}))
+	if itemErr != nil {
+		t.Fatalf("expected pdf/a execution to succeed, got %v", itemErr)
+	}
+	if !item.Success {
+		t.Fatalf("expected a successful item, got %q", item.Message)
+	}
+	if got := docxPDFPageCount(t, item.OutputPath); got != 3 {
+		t.Fatalf("expected 3 pages, got %d", got)
+	}
+}
+
+func TestDOCXExecuteBatchUsesPDFAExportFilter(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.docx")
+	second := filepath.Join(dir, "second.docx")
+	writePlainDOCXFixture(t, first)
+	writePlainDOCXFixture(t, second)
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, newLibreOfficePDFDOCXRunner(t, 2, `pdf:writer_pdf_Export:{"SelectPdfVersion":{"type":"long","value":"1"}}`))
+	items, batchErr := tool.ExecuteBatch(context.Background(), docxPlanRequest("batch", []string{first, second}, "", map[string]any{"pdfa": true}), nil)
+	if batchErr != nil {
+		t.Fatalf("expected pdf/a batch execution to succeed, got %v", batchErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 batch items, got %d", len(items))
+	}
+	for _, item := range items {
+		if !item.Success {
+			t.Fatalf("expected a successful item, got %q", item.Message)
+		}
+	}
+}
+
+func TestDOCXExecutePDFAFailsWhenLibreOfficeFails(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, newPDFProducingDOCXRunner(t, 3))
+	item, itemErr := tool.ExecuteSingle(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pdfa": true}))
+	if itemErr == nil {
+		t.Fatal("expected a pdf/a unsupported error")
+	}
+	if itemErr.DetailCode != engine.ErrorCodeDocxPDFAUnsupported {
+		t.Fatalf("expected %s, got %q", engine.ErrorCodeDocxPDFAUnsupported, itemErr.DetailCode)
+	}
+	if item.Success {
+		t.Fatal("expected the item to report failure")
+	}
+	if _, statErr := os.Stat(item.OutputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected no non-archival output, got %v", statErr)
+	}
+}
+
 func TestDOCXExecuteSingleAppliesPageSelection(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "report.docx")
@@ -525,5 +692,44 @@ func TestDOCXExecuteBatchAppliesPageSelectionToEveryDocument(t *testing.T) {
 		if got := docxPDFPageCount(t, item.OutputPath); got != 2 {
 			t.Fatalf("expected 2 pages for %s, got %d", filepath.Base(item.OutputPath), got)
 		}
+	}
+}
+
+type pdfaOnlyProbe struct {
+	checkErr error
+}
+
+func (p pdfaOnlyProbe) Check(context.Context) error { return p.checkErr }
+
+func (p pdfaOnlyProbe) CheckPDFA(context.Context) error { return nil }
+
+func TestDOCXPDFAPlanOnlyRequiresLibreOffice(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	probe := pdfaOnlyProbe{checkErr: &engine.DOCXError{
+		Code:    engine.ErrorCodeDocxRuntimeFallbackMissing,
+		Message: "pandoc binary not found in PATH",
+	}}
+	tool := NewDOCXToPDFToolWithDeps(probe, nil)
+
+	pdfaPlan, pdfaErr := tool.Plan(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pdfa": true}))
+	if pdfaErr != nil {
+		t.Fatalf("expected pdf/a plan to use only libreoffice, got %v", pdfaErr)
+	}
+	if !pdfaPlan.Success {
+		t.Fatal("expected pdf/a plan success")
+	}
+
+	plainPlan, plainErr := tool.Plan(context.Background(), docxPlanRequest("single", []string{input}, "", nil))
+	if plainErr == nil {
+		t.Fatal("expected non-pdf/a plan to require pandoc")
+	}
+	if !strings.Contains(plainErr.Message, "pandoc") {
+		t.Fatalf("expected pandoc runtime error, got %q", plainErr.Message)
+	}
+	if plainPlan.Success {
+		t.Fatal("expected plain plan failure")
 	}
 }

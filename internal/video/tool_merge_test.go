@@ -327,3 +327,151 @@ func TestMergeExecuteCopyAppliesRemoveAudio(t *testing.T) {
 		t.Fatalf("expected -an in ffmpeg args, got %v", args)
 	}
 }
+
+// stubMergeInputDuration simulates probed clip durations for crossfade
+// execution so tests never depend on ffprobe or real video files.
+func stubMergeInputDuration(t *testing.T, duration float64) {
+	t.Helper()
+
+	original := engine.MergeInputDurationProbe
+	t.Cleanup(func() {
+		engine.MergeInputDurationProbe = original
+	})
+
+	engine.MergeInputDurationProbe = func(context.Context, string) (float64, bool) {
+		return duration, true
+	}
+}
+
+func TestMergePlanDefaultsTransitionOptions(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	if got := plan.EffectiveOptions["transition"]; got != engine.MergeTransitionNone {
+		t.Fatalf("expected default transition none, got %v", got)
+	}
+	if got := plan.EffectiveOptions["transitionDuration"]; got != engine.MergeTransitionDurationDefault {
+		t.Fatalf("expected default transitionDuration %v, got %v", engine.MergeTransitionDurationDefault, got)
+	}
+}
+
+func TestMergePlanIncludesTransitionOptions(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	options := map[string]any{"transition": "crossfade", "transitionDuration": 1.5}
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	if got := plan.EffectiveOptions["transition"]; got != engine.MergeTransitionCrossfade {
+		t.Fatalf("expected transition crossfade, got %v", got)
+	}
+	if got := plan.EffectiveOptions["transitionDuration"]; got != 1.5 {
+		t.Fatalf("expected transitionDuration 1.5, got %v", got)
+	}
+}
+
+func TestMergePlanRejectsInvalidTransitionOptions(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	tests := []struct {
+		name    string
+		options map[string]any
+	}{
+		{name: "unknown transition", options: map[string]any{"transition": "dissolve"}},
+		{name: "crossfade duration too short", options: map[string]any{"transition": "crossfade", "transitionDuration": 0.05}},
+		{name: "crossfade duration too long", options: map[string]any{"transition": "crossfade", "transitionDuration": 4}},
+		{name: "non numeric duration", options: map[string]any{"transition": "crossfade", "transitionDuration": "fast"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, test.options))
+			if planErr == nil {
+				t.Fatal("expected a validation error")
+			}
+			if planErr.Code != engine.ErrorCodeVideoMergeValidation {
+				t.Fatalf("expected %q, got %q", engine.ErrorCodeVideoMergeValidation, planErr.Code)
+			}
+			if plan.Success {
+				t.Fatal("expected plan to report failure")
+			}
+		})
+	}
+}
+
+func TestMergePlanAllowsNoneTransitionWithAnyDuration(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	options := map[string]any{"transitionDuration": 5}
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	if got := plan.EffectiveOptions["transition"]; got != engine.MergeTransitionNone {
+		t.Fatalf("expected transition none, got %v", got)
+	}
+}
+
+func TestMergeExecuteSingleUsesCrossfade(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	runner := &stubCommandRunner{}
+	tool := NewMergeToolWithDeps(stubRuntimeProbe{}, runner)
+	stubMergeInputDuration(t, 10)
+	options := map[string]any{"transition": "crossfade", "transitionDuration": 1, "mergeMode": engine.MergeModeCopy}
+
+	item, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	if itemErr != nil {
+		t.Fatalf("expected merge to succeed, got %v", itemErr)
+	}
+	if item.OutputPath != filepath.Join(dir, "first_merged.mp4") {
+		t.Fatalf("unexpected output path %q", item.OutputPath)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected 1 ffmpeg call, got %d", len(runner.calls))
+	}
+	args := runner.calls[0]
+	filterComplex := ""
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == "-filter_complex" {
+			filterComplex = args[index+1]
+		}
+	}
+	if filterComplex == "" || !strings.Contains(filterComplex, "xfade=transition=fade") {
+		t.Fatalf("expected a crossfade filter chain, got %v", args)
+	}
+	if !hasArgSequence(args, "-map", "[vout]") {
+		t.Fatalf("expected the final video label to be mapped, got %v", args)
+	}
+	if hasArgSequence(args, "-c", "copy") {
+		t.Fatalf("crossfade must not stream copy, got %v", args)
+	}
+}

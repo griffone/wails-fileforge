@@ -26,7 +26,12 @@ const (
 	ErrorCodeDocxFontSubstitution       = "DOC_DOCX_TO_PDF_FONTS_MISSING_OR_SUBSTITUTED"
 	ErrorCodeDocxPrimaryExecution       = "DOC_DOCX_TO_PDF_PRIMARY_EXECUTION_FAILED"
 	ErrorCodeDocxFallbackExecution      = "DOC_DOCX_TO_PDF_FALLBACK_EXECUTION_FAILED"
+	ErrorCodeDocxPDFAUnsupported        = "DOC_DOCX_TO_PDF_PDFA_UNSUPPORTED"
 )
+
+// LibreOffice selects the PDF/A flavor through the writer_pdf_Export filter.
+// SelectPdfVersion 1 is PDF/A-1b, the archival profile the UI advertises.
+const libreOfficePDFAFilter = `pdf:writer_pdf_Export:{"SelectPdfVersion":{"type":"long","value":"1"}}`
 
 type CommandResult struct {
 	Stdout string
@@ -41,9 +46,19 @@ type RuntimeProbe interface {
 	Check(ctx context.Context) error
 }
 
+// PDFAProbe is implemented by probes that can validate the PDF/A path
+// separately. PDF/A export only needs LibreOffice; Pandoc has no PDF/A output.
+type PDFAProbe interface {
+	CheckPDFA(ctx context.Context) error
+}
+
 type ConvertDOCXRequest struct {
 	InputPath  string
 	OutputPath string
+	// PDFA requests a PDF/A-1b export. Only LibreOffice can honor it; Pandoc
+	// has no PDF/A output, so the fallback is refused instead of silently
+	// producing a non-archival PDF.
+	PDFA bool
 }
 
 type ConvertDOCXResult struct {
@@ -86,11 +101,7 @@ func NewHybridRuntimeProbe() *HybridRuntimeProbe {
 }
 
 func (p *HybridRuntimeProbe) Check(_ context.Context) error {
-	lookup := exec.LookPath
-	if p != nil && p.lookupPath != nil {
-		lookup = p.lookupPath
-	}
-
+	lookup := p.lookup()
 	if _, err := lookup("libreoffice"); err != nil {
 		return &DOCXError{Code: ErrorCodeDocxRuntimePrimaryMissing, Message: "libreoffice binary not found in PATH", Cause: err}
 	}
@@ -100,6 +111,24 @@ func (p *HybridRuntimeProbe) Check(_ context.Context) error {
 	}
 
 	return nil
+}
+
+// CheckPDFA validates only the LibreOffice runtime. PDF/A exports never use the
+// Pandoc fallback.
+func (p *HybridRuntimeProbe) CheckPDFA(_ context.Context) error {
+	lookup := p.lookup()
+	if _, err := lookup("libreoffice"); err != nil {
+		return &DOCXError{Code: ErrorCodeDocxRuntimePrimaryMissing, Message: "libreoffice binary not found in PATH", Cause: err}
+	}
+
+	return nil
+}
+
+func (p *HybridRuntimeProbe) lookup() func(string) (string, error) {
+	if p != nil && p.lookupPath != nil {
+		return p.lookupPath
+	}
+	return exec.LookPath
 }
 
 type ExecCommandRunner struct{}
@@ -130,9 +159,22 @@ func ConvertDOCX(ctx context.Context, probe RuntimeProbe, runner CommandRunner, 
 		return ConvertDOCXResult{}, err
 	}
 
-	primaryErr := runLibreOffice(ctx, runner, req.InputPath, req.OutputPath)
+	primaryErr := runLibreOffice(ctx, runner, req.InputPath, req.OutputPath, req.PDFA)
 	if primaryErr == nil {
 		return ConvertDOCXResult{EngineUsed: EngineLibreOffice, FallbackUsed: false}, nil
+	}
+
+	// Pandoc cannot emit PDF/A. Refusing the fallback keeps the archival
+	// promise of the request instead of returning a plain PDF.
+	if req.PDFA {
+		return ConvertDOCXResult{
+			PrimaryError: primaryErr.Error(),
+		}, &DOCXError{
+			Code:    ErrorCodeDocxPDFAUnsupported,
+			Message: "pdf/a export failed in libreoffice and the pandoc fallback cannot produce pdf/a",
+			Cause:   primaryErr,
+			Details: map[string]any{"primaryError": primaryErr.Error()},
+		}
 	}
 
 	fallbackErr := runPandoc(ctx, runner, req.InputPath, req.OutputPath)
@@ -152,14 +194,23 @@ func ConvertDOCX(ctx context.Context, probe RuntimeProbe, runner CommandRunner, 
 	}, fallbackErr
 }
 
-func runLibreOffice(ctx context.Context, runner CommandRunner, inputPath, outputPath string) error {
+// libreOfficeConvertTo returns the --convert-to value for the requested output
+// flavor. Everything that is not PDF/A keeps the plain pdf filter.
+func libreOfficeConvertTo(pdfa bool) string {
+	if pdfa {
+		return libreOfficePDFAFilter
+	}
+	return "pdf"
+}
+
+func runLibreOffice(ctx context.Context, runner CommandRunner, inputPath, outputPath string, pdfa bool) error {
 	tmpOutDir, err := os.MkdirTemp("", "fileforge-docx2pdf-lo-")
 	if err != nil {
 		return &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "unable to prepare libreoffice output dir", Cause: err}
 	}
 	defer func() { _ = os.RemoveAll(tmpOutDir) }()
 
-	result, execErr := runner.Run(ctx, "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", tmpOutDir, inputPath)
+	result, execErr := runner.Run(ctx, "libreoffice", "--headless", "--convert-to", libreOfficeConvertTo(pdfa), "--outdir", tmpOutDir, inputPath)
 	if execErr != nil {
 		if err := mapProtectedFromExecution(result.Stdout + "\n" + result.Stderr); err != nil {
 			return err

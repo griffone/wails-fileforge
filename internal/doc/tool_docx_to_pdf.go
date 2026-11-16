@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"fileforge-desktop/internal/doc/engine"
@@ -79,18 +80,28 @@ func (t *DOCXToPDFTool) Validate(ctx context.Context, req models.JobRequestV1) *
 func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
 	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
 
+	parsed, parseErr := parseDOCXRequest(req)
+	if parseErr != nil {
+		return docPlanFailure(plan, parseErr)
+	}
+
 	probe := t.probe
 	if probe == nil {
 		probe = engine.NewHybridRuntimeProbe()
 	}
 
-	if err := probe.Check(ctx); err != nil {
-		return docPlanFailure(plan, mapDOCXEngineError(err))
+	var probeErr error
+	if parsed.pdfa {
+		if pdfaProbe, ok := probe.(engine.PDFAProbe); ok {
+			probeErr = pdfaProbe.CheckPDFA(ctx)
+		} else {
+			probeErr = probe.Check(ctx)
+		}
+	} else {
+		probeErr = probe.Check(ctx)
 	}
-
-	parsed, parseErr := parseDOCXRequest(req)
-	if parseErr != nil {
-		return docPlanFailure(plan, parseErr)
+	if probeErr != nil {
+		return docPlanFailure(plan, mapDOCXEngineError(probeErr))
 	}
 
 	for _, inputPath := range parsed.inputPaths {
@@ -111,7 +122,7 @@ func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (mode
 		plan.Success = true
 		plan.Message = "Ready to convert 1 document."
 		plan.Outputs = []models.PlannedOutputV1{planned}
-		plan.Warnings = planned.Warnings
+		plan.Warnings = docxPlanWarnings(parsed, planned.Warnings)
 		plan.EffectiveOptions = docxEffectiveOptions(parsed)
 
 		return plan, nil
@@ -147,7 +158,7 @@ func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (mode
 	plan.Success = true
 	plan.Message = fmt.Sprintf("Ready to convert %d documents.", len(outputs))
 	plan.Outputs = outputs
-	plan.Warnings = warnings
+	plan.Warnings = docxPlanWarnings(parsed, warnings)
 	plan.EffectiveOptions = docxEffectiveOptions(parsed)
 
 	return plan, nil
@@ -167,7 +178,7 @@ func (t *DOCXToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequest
 	inputPath := plan.Outputs[0].InputPath
 	outputPath := plan.Outputs[0].OutputPath
 
-	result, err := engine.ConvertDOCX(ctx, t.probe, t.runner, engine.ConvertDOCXRequest{InputPath: inputPath, OutputPath: outputPath})
+	result, err := engine.ConvertDOCX(ctx, t.probe, t.runner, engine.ConvertDOCXRequest{InputPath: inputPath, OutputPath: outputPath, PDFA: parsed.pdfa})
 	if err != nil {
 		jobErr := mapDOCXEngineError(err)
 		return models.JobResultItemV1{InputPath: inputPath, OutputPath: outputPath, Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
@@ -214,7 +225,7 @@ func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequestV
 		default:
 		}
 
-		result, execErr := engine.ConvertDOCX(ctx, t.probe, t.runner, engine.ConvertDOCXRequest{InputPath: planned.InputPath, OutputPath: planned.OutputPath})
+		result, execErr := engine.ConvertDOCX(ctx, t.probe, t.runner, engine.ConvertDOCXRequest{InputPath: planned.InputPath, OutputPath: planned.OutputPath, PDFA: parsed.pdfa})
 		if execErr != nil {
 			jobErr := mapDOCXEngineError(execErr)
 			if firstErr == nil {
@@ -246,6 +257,7 @@ type docxRequest struct {
 	outputDir     string
 	outputPath    string
 	pageSelection string
+	pdfa          bool
 }
 
 func parseDOCXRequest(req models.JobRequestV1) (docxRequest, *models.JobErrorV1) {
@@ -270,12 +282,18 @@ func parseDOCXRequest(req models.JobRequestV1) (docxRequest, *models.JobErrorV1)
 		inputs = append(inputs, trimmed)
 	}
 
+	pdfa, pdfaErr := docxOptionBool(req.Options, "pdfa")
+	if pdfaErr != nil {
+		return docxRequest{}, pdfaErr
+	}
+
 	parsed := docxRequest{
 		mode:          mode,
 		inputPaths:    inputs,
 		outputDir:     strings.TrimSpace(req.OutputDir),
 		outputPath:    strings.TrimSpace(optionString(req.Options, "outputPath")),
 		pageSelection: engine.NormalizePageSelection(optionString(req.Options, "pageSelection")),
+		pdfa:          pdfa,
 	}
 
 	if parsed.pageSelection != "" {
@@ -295,14 +313,60 @@ func parseDOCXRequest(req models.JobRequestV1) (docxRequest, *models.JobErrorV1)
 	return parsed, nil
 }
 
+// docxOptionBool reads an optional boolean option. Absent options default to
+// false; a supplied value must be a bool or a "true"/"false" string so a typo
+// never silently disables the requested export flavor.
+func docxOptionBool(options map[string]any, key string) (bool, *models.JobErrorV1) {
+	raw, ok := options[key]
+	if !ok || raw == nil {
+		return false, nil
+	}
+
+	switch value := raw.(type) {
+	case bool:
+		return value, nil
+	case string:
+		if parsed, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
+			return parsed, nil
+		}
+	}
+
+	return false, models.NewCanonicalJobError(
+		"DOC_DOCX_TO_PDF_OPTION_INVALID",
+		fmt.Sprintf("options.%s must be a boolean", key),
+		map[string]any{"option": key},
+	)
+}
+
+// docxPDFASelectionWarning documents that the archival guarantee is soft once
+// the page selection step rewrites the exported PDF. The combination stays
+// supported; only strict PDF/A conformance is no longer guaranteed.
+const docxPDFASelectionWarning = "PDF/A compliance is not guaranteed when a page selection is applied: the page selection step rewrites the exported file and may drop its PDF/A metadata."
+
+// docxPlanWarnings appends the option-specific warnings to the output warnings.
+func docxPlanWarnings(parsed docxRequest, warnings []string) []string {
+	if parsed.pdfa && parsed.pageSelection != "" {
+		warnings = append(warnings, docxPDFASelectionWarning)
+	}
+	return warnings
+}
+
 // docxEffectiveOptions summarizes the options that change the conversion
 // result. It stays nil when the request kept every default.
 func docxEffectiveOptions(parsed docxRequest) map[string]any {
-	if parsed.pageSelection == "" {
+	options := make(map[string]any, 2)
+	if parsed.pageSelection != "" {
+		options["pageSelection"] = parsed.pageSelection
+	}
+	if parsed.pdfa {
+		options["pdfa"] = true
+	}
+
+	if len(options) == 0 {
 		return nil
 	}
 
-	return map[string]any{"pageSelection": parsed.pageSelection}
+	return options
 }
 
 // applyDOCXPageSelection keeps only the requested pages of a converted PDF.
