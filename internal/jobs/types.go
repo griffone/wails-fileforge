@@ -16,6 +16,7 @@ type trackedJob struct {
 	result          models.JobResultV1
 	onProgressEvent func(models.JobProgressEventV1)
 	onStateChanged  func()
+	onComplete      func(models.JobResultV1)
 }
 
 func (j *trackedJob) snapshot() models.JobResultV1 {
@@ -97,6 +98,8 @@ func (j *trackedJob) complete(status string, message string, items []models.JobR
 		Progress: j.result.Progress,
 	}
 	listener := j.onProgressEvent
+	onComplete := j.onComplete
+	completed := j.result
 	j.mu.Unlock()
 
 	if listener != nil {
@@ -105,5 +108,11 @@ func (j *trackedJob) complete(status string, message string, items []models.JobR
 
 	if j.onStateChanged != nil {
 		j.onStateChanged()
+	}
+
+	// complete is called exactly once per job and only for terminal statuses,
+	// so this hook is the single completion notification path.
+	if onComplete != nil {
+		onComplete(completed)
 	}
 }

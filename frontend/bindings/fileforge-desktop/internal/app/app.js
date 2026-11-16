@@ -35,12 +35,34 @@ export function CancelPreview(jobID) {
 }
 
 /**
+ * CancelRecipeV1 requests cancellation of a running recipe.
+ * @param {string} jobID
+ * @returns {$CancellablePromise<models$0.RecipeStatusResponseV1>}
+ */
+export function CancelRecipeV1(jobID) {
+    return $Call.ByID(2728388739, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType2($result);
+    }));
+}
+
+/**
+ * EmptyTrashV1 permanently removes the app-managed trash. User files outside
+ * the trash are never touched.
+ * @returns {$CancellablePromise<models$0.PathActionResponseV1>}
+ */
+export function EmptyTrashV1() {
+    return $Call.ByID(1508461378).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
  * @param {models$0.ImageAnnotatePreviewRequestV1} req
  * @returns {$CancellablePromise<models$0.ImageAnnotatePreviewResponseV1>}
  */
 export function GetImageAnnotatePreviewV1(req) {
     return $Call.ByID(372302096, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType4($result);
     }));
 }
 
@@ -50,7 +72,7 @@ export function GetImageAnnotatePreviewV1(req) {
  */
 export function GetImageCropPreviewV1(req) {
     return $Call.ByID(4006508154, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType5($result);
     }));
 }
 
@@ -60,7 +82,7 @@ export function GetImageCropPreviewV1(req) {
  */
 export function GetImagePreviewSourceV1(inputPath) {
     return $Call.ByID(2617279209, inputPath).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType6($result);
     }));
 }
 
@@ -70,7 +92,7 @@ export function GetImagePreviewSourceV1(inputPath) {
  */
 export function GetJobStatusV1(jobID) {
     return $Call.ByID(1961277890, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType7($result);
     }));
 }
 
@@ -80,7 +102,7 @@ export function GetJobStatusV1(jobID) {
  */
 export function GetPDFPreviewSourceV1(inputPath) {
     return $Call.ByID(632882064, inputPath).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType8($result);
     }));
 }
 
@@ -91,7 +113,7 @@ export function GetPDFPreviewSourceV1(inputPath) {
  */
 export function GetPreview(jobID) {
     return $Call.ByID(1152353978, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType9($result);
     }));
 }
 
@@ -102,7 +124,18 @@ export function GetPreview(jobID) {
  */
 export function GetPreviewStatus(jobID) {
     return $Call.ByID(1885578308, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType10($result);
+    }));
+}
+
+/**
+ * GetRecipeStatusV1 returns the per-step snapshot of a recipe run.
+ * @param {string} jobID
+ * @returns {$CancellablePromise<models$0.RecipeStatusResponseV1>}
+ */
+export function GetRecipeStatusV1(jobID) {
+    return $Call.ByID(938816715, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType2($result);
     }));
 }
 
@@ -114,7 +147,28 @@ export function GetPreviewStatus(jobID) {
  */
 export function InspectFilesV1(paths) {
     return $Call.ByID(3131092044, paths).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType9($result);
+        return $$createType11($result);
+    }));
+}
+
+/**
+ * ListJobHistoryV1 returns recorded terminal jobs with their output
+ * fingerprints, newest first. The history survives app restarts.
+ * @returns {$CancellablePromise<models$0.JobHistoryEntryV1[]>}
+ */
+export function ListJobHistoryV1() {
+    return $Call.ByID(2396679858).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType13($result);
+    }));
+}
+
+/**
+ * ListRecipesV1 lists the built-in outcome recipes. Email PDF is first.
+ * @returns {$CancellablePromise<models$0.ListRecipesResponseV1>}
+ */
+export function ListRecipesV1() {
+    return $Call.ByID(388441352).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType14($result);
     }));
 }
 
@@ -123,7 +177,7 @@ export function InspectFilesV1(paths) {
  */
 export function ListToolsV1() {
     return $Call.ByID(517184612).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType15($result);
     }));
 }
 
@@ -148,7 +202,7 @@ export function OpenFileDialog() {
  */
 export function OpenMultipleFilesDialog() {
     return $Call.ByID(3029276213).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType11($result);
+        return $$createType16($result);
     }));
 }
 
@@ -159,7 +213,7 @@ export function OpenMultipleFilesDialog() {
  */
 export function OpenPath(path) {
     return $Call.ByID(12694641, path).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType12($result);
+        return $$createType3($result);
     }));
 }
 
@@ -169,7 +223,19 @@ export function OpenPath(path) {
  */
 export function PlanJobV1(req) {
     return $Call.ByID(254724065, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType13($result);
+        return $$createType17($result);
+    }));
+}
+
+/**
+ * PlanRecipeV1 validates a recipe request and resolves its final output
+ * without running any tool.
+ * @param {models$0.RecipeRequestV1} req
+ * @returns {$CancellablePromise<models$0.RecipePlanResponseV1>}
+ */
+export function PlanRecipeV1(req) {
+    return $Call.ByID(2840622370, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType18($result);
     }));
 }
 
@@ -183,7 +249,19 @@ export function PlanJobV1(req) {
  */
 export function RegisterMediaPath(path) {
     return $Call.ByID(1853528726, path).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType14($result);
+        return $$createType19($result);
+    }));
+}
+
+/**
+ * RestoreJobV1 moves trashed outputs back to their original paths when the
+ * destination is free.
+ * @param {string} jobID
+ * @returns {$CancellablePromise<models$0.UndoResultV1>}
+ */
+export function RestoreJobV1(jobID) {
+    return $Call.ByID(666662266, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType20($result);
     }));
 }
 
@@ -194,7 +272,7 @@ export function RegisterMediaPath(path) {
  */
 export function RevealInFolder(path) {
     return $Call.ByID(1778953856, path).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType12($result);
+        return $$createType3($result);
     }));
 }
 
@@ -204,7 +282,18 @@ export function RevealInFolder(path) {
  */
 export function RunJobV1(req) {
     return $Call.ByID(162380599, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType15($result);
+        return $$createType21($result);
+    }));
+}
+
+/**
+ * RunRecipeV1 starts a recipe chain in the background and returns its job id.
+ * @param {models$0.RecipeRequestV1} req
+ * @returns {$CancellablePromise<models$0.RunRecipeResponseV1>}
+ */
+export function RunRecipeV1(req) {
+    return $Call.ByID(1732206072, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType22($result);
     }));
 }
 
@@ -235,30 +324,63 @@ export function StartPreview(req) {
 }
 
 /**
+ * UndoJobV1 moves the untouched outputs of a recorded job to the app trash.
+ * Modified or missing outputs are skipped and reported per file.
+ * @param {string} jobID
+ * @returns {$CancellablePromise<models$0.UndoResultV1>}
+ */
+export function UndoJobV1(jobID) {
+    return $Call.ByID(2249209138, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType20($result);
+    }));
+}
+
+/**
  * @param {models$0.JobRequestV1} req
  * @returns {$CancellablePromise<models$0.ValidateJobResponseV1>}
  */
 export function ValidateJobV1(req) {
     return $Call.ByID(1505194326, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType16($result);
+        return $$createType23($result);
+    }));
+}
+
+/**
+ * VerifyJobV1 verifies every output of a finished job: existence, readability,
+ * size, file type and media-specific metadata. The report lists passing and
+ * failing checks per output.
+ * @param {string} jobID
+ * @returns {$CancellablePromise<models$0.VerificationReportV1>}
+ */
+export function VerifyJobV1(jobID) {
+    return $Call.ByID(1020044031, jobID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType24($result);
     }));
 }
 
 // Private type creation functions
 const $$createType0 = models$0.CancelJobResponseV1.createFrom;
 const $$createType1 = preview$0.PreviewStartResponse.createFrom;
-const $$createType2 = models$0.ImageAnnotatePreviewResponseV1.createFrom;
-const $$createType3 = models$0.ImageCropPreviewResponseV1.createFrom;
-const $$createType4 = models$0.ImagePreviewSourceResponseV1.createFrom;
-const $$createType5 = models$0.JobStatusResponseV1.createFrom;
-const $$createType6 = models$0.PDFPreviewSourceResponseV1.createFrom;
-const $$createType7 = preview$0.PreviewResult.createFrom;
-const $$createType8 = preview$0.JobStatus.createFrom;
-const $$createType9 = models$0.InspectFilesResponseV1.createFrom;
-const $$createType10 = models$0.ListToolsResponseV1.createFrom;
-const $$createType11 = $Create.Array($Create.Any);
-const $$createType12 = models$0.PathActionResponseV1.createFrom;
-const $$createType13 = models$0.PlanJobResponseV1.createFrom;
-const $$createType14 = models$0.MediaSourceResponseV1.createFrom;
-const $$createType15 = models$0.RunJobResponseV1.createFrom;
-const $$createType16 = models$0.ValidateJobResponseV1.createFrom;
+const $$createType2 = models$0.RecipeStatusResponseV1.createFrom;
+const $$createType3 = models$0.PathActionResponseV1.createFrom;
+const $$createType4 = models$0.ImageAnnotatePreviewResponseV1.createFrom;
+const $$createType5 = models$0.ImageCropPreviewResponseV1.createFrom;
+const $$createType6 = models$0.ImagePreviewSourceResponseV1.createFrom;
+const $$createType7 = models$0.JobStatusResponseV1.createFrom;
+const $$createType8 = models$0.PDFPreviewSourceResponseV1.createFrom;
+const $$createType9 = preview$0.PreviewResult.createFrom;
+const $$createType10 = preview$0.JobStatus.createFrom;
+const $$createType11 = models$0.InspectFilesResponseV1.createFrom;
+const $$createType12 = models$0.JobHistoryEntryV1.createFrom;
+const $$createType13 = $Create.Array($$createType12);
+const $$createType14 = models$0.ListRecipesResponseV1.createFrom;
+const $$createType15 = models$0.ListToolsResponseV1.createFrom;
+const $$createType16 = $Create.Array($Create.Any);
+const $$createType17 = models$0.PlanJobResponseV1.createFrom;
+const $$createType18 = models$0.RecipePlanResponseV1.createFrom;
+const $$createType19 = models$0.MediaSourceResponseV1.createFrom;
+const $$createType20 = models$0.UndoResultV1.createFrom;
+const $$createType21 = models$0.RunJobResponseV1.createFrom;
+const $$createType22 = models$0.RunRecipeResponseV1.createFrom;
+const $$createType23 = models$0.ValidateJobResponseV1.createFrom;
+const $$createType24 = models$0.VerificationReportV1.createFrom;

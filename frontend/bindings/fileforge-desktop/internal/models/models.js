@@ -749,6 +749,137 @@ export class JobErrorV1 {
     }
 }
 
+/**
+ * JobHistoryEntryV1 is one recorded job with its undoable outputs.
+ */
+export class JobHistoryEntryV1 {
+    /**
+     * Creates a new JobHistoryEntryV1 instance.
+     * @param {Partial<JobHistoryEntryV1>} [$$source = {}] - The source object to create the JobHistoryEntryV1.
+     */
+    constructor($$source = {}) {
+        if (!("jobId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["jobId"] = "";
+        }
+        if (!("toolId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["toolId"] = "";
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["undone"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["trashEmptied"] = undefined;
+        }
+        if (!("outputs" in $$source)) {
+            /**
+             * @member
+             * @type {JobOutputRecordV1[]}
+             */
+            this["outputs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new JobHistoryEntryV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {JobHistoryEntryV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField5_0 = $$createType8;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("outputs" in $$parsedSource) {
+            $$parsedSource["outputs"] = $$createField5_0($$parsedSource["outputs"]);
+        }
+        return new JobHistoryEntryV1(/** @type {Partial<JobHistoryEntryV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * JobOutputRecordV1 records one output file produced by a terminal job. The
+ * size and modification time are the fingerprint used by undo: a file whose
+ * fingerprint no longer matches is never moved.
+ */
+export class JobOutputRecordV1 {
+    /**
+     * Creates a new JobOutputRecordV1 instance.
+     * @param {Partial<JobOutputRecordV1>} [$$source = {}] - The source object to create the JobOutputRecordV1.
+     */
+    constructor($$source = {}) {
+        if (!("path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["path"] = "";
+        }
+        if (!("sizeBytes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["sizeBytes"] = 0;
+        }
+        if (!("modifiedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["modifiedAt"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["trashedPath"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["undone"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new JobOutputRecordV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {JobOutputRecordV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new JobOutputRecordV1(/** @type {Partial<JobOutputRecordV1>} */($$parsedSource));
+    }
+}
+
 export class JobProgressV1 {
     /**
      * Creates a new JobProgressV1 instance.
@@ -864,7 +995,7 @@ export class JobRequestV1 {
      * @returns {JobRequestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType7;
+        const $$createField2_0 = $$createType9;
         const $$createField4_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputPaths" in $$parsedSource) {
@@ -956,7 +1087,7 @@ export class JobResultItemV1 {
      * @returns {JobResultItemV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType7;
+        const $$createField2_0 = $$createType9;
         const $$createField8_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
@@ -1055,8 +1186,8 @@ export class JobResultV1 {
      * @returns {JobResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType8;
-        const $$createField6_0 = $$createType10;
+        const $$createField5_0 = $$createType10;
+        const $$createField6_0 = $$createType12;
         const $$createField7_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
@@ -1123,7 +1254,7 @@ export class JobStatusResponseV1 {
      * @returns {JobStatusResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType12;
+        const $$createField3_0 = $$createType14;
         const $$createField4_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
@@ -1133,6 +1264,55 @@ export class JobStatusResponseV1 {
             $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
         }
         return new JobStatusResponseV1(/** @type {Partial<JobStatusResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * ListRecipesResponseV1 lists the built-in recipes available to the UI.
+ */
+export class ListRecipesResponseV1 {
+    /**
+     * Creates a new ListRecipesResponseV1 instance.
+     * @param {Partial<ListRecipesResponseV1>} [$$source = {}] - The source object to create the ListRecipesResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("recipes" in $$source)) {
+            /**
+             * @member
+             * @type {RecipeV1[]}
+             */
+            this["recipes"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ListRecipesResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ListRecipesResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType16;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("recipes" in $$parsedSource) {
+            $$parsedSource["recipes"] = $$createField2_0($$parsedSource["recipes"]);
+        }
+        return new ListRecipesResponseV1(/** @type {Partial<ListRecipesResponseV1>} */($$parsedSource));
     }
 }
 
@@ -1173,7 +1353,7 @@ export class ListToolsResponseV1 {
      * @returns {ListToolsResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType14;
+        const $$createField2_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tools" in $$parsedSource) {
             $$parsedSource["tools"] = $$createField2_0($$parsedSource["tools"]);
@@ -1384,9 +1564,9 @@ export class PlanJobResponseV1 {
      * @returns {PlanJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType16;
+        const $$createField2_0 = $$createType20;
         const $$createField3_0 = $$createType6;
-        const $$createField4_0 = $$createType7;
+        const $$createField4_0 = $$createType9;
         const $$createField5_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
@@ -1471,12 +1651,592 @@ export class PlannedOutputV1 {
      * @returns {PlannedOutputV1}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType7;
+        const $$createField6_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("warnings" in $$parsedSource) {
             $$parsedSource["warnings"] = $$createField6_0($$parsedSource["warnings"]);
         }
         return new PlannedOutputV1(/** @type {Partial<PlannedOutputV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * RecipePlanResponseV1 resolves what a run would produce without executing any
+ * tool: recipe metadata, validated inputs, the final destination and warnings.
+ * Intermediate paths never appear here.
+ */
+export class RecipePlanResponseV1 {
+    /**
+     * Creates a new RecipePlanResponseV1 instance.
+     * @param {Partial<RecipePlanResponseV1>} [$$source = {}] - The source object to create the RecipePlanResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {RecipeV1 | null | undefined}
+             */
+            this["recipe"] = undefined;
+        }
+        if (!("inputPaths" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["inputPaths"] = [];
+        }
+        if (!("outputDir" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["outputDir"] = "";
+        }
+        if (!("outputs" in $$source)) {
+            /**
+             * @member
+             * @type {PlannedOutputV1[]}
+             */
+            this["outputs"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["warnings"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecipePlanResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {RecipePlanResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType21;
+        const $$createField3_0 = $$createType9;
+        const $$createField5_0 = $$createType20;
+        const $$createField6_0 = $$createType9;
+        const $$createField7_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("recipe" in $$parsedSource) {
+            $$parsedSource["recipe"] = $$createField2_0($$parsedSource["recipe"]);
+        }
+        if ("inputPaths" in $$parsedSource) {
+            $$parsedSource["inputPaths"] = $$createField3_0($$parsedSource["inputPaths"]);
+        }
+        if ("outputs" in $$parsedSource) {
+            $$parsedSource["outputs"] = $$createField5_0($$parsedSource["outputs"]);
+        }
+        if ("warnings" in $$parsedSource) {
+            $$parsedSource["warnings"] = $$createField6_0($$parsedSource["warnings"]);
+        }
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField7_0($$parsedSource["error"]);
+        }
+        return new RecipePlanResponseV1(/** @type {Partial<RecipePlanResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * RecipeRequestV1 is the plan/run payload for a recipe. Options carries recipe
+ * specific knobs; Email PDF reads targetSizeBytes.
+ */
+export class RecipeRequestV1 {
+    /**
+     * Creates a new RecipeRequestV1 instance.
+     * @param {Partial<RecipeRequestV1>} [$$source = {}] - The source object to create the RecipeRequestV1.
+     */
+    constructor($$source = {}) {
+        if (!("recipeId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["recipeId"] = "";
+        }
+        if (!("inputPaths" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["inputPaths"] = [];
+        }
+        if (!("outputDir" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["outputDir"] = "";
+        }
+        if (!("options" in $$source)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any }}
+             */
+            this["options"] = {};
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecipeRequestV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {RecipeRequestV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType9;
+        const $$createField3_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("inputPaths" in $$parsedSource) {
+            $$parsedSource["inputPaths"] = $$createField1_0($$parsedSource["inputPaths"]);
+        }
+        if ("options" in $$parsedSource) {
+            $$parsedSource["options"] = $$createField3_0($$parsedSource["options"]);
+        }
+        return new RecipeRequestV1(/** @type {Partial<RecipeRequestV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * RecipeResultV1 is the terminal snapshot of a recipe run. CurrentStep is
+ * 1-based while a step is active and ends at TotalSteps once the chain
+ * completes.
+ */
+export class RecipeResultV1 {
+    /**
+     * Creates a new RecipeResultV1 instance.
+     * @param {Partial<RecipeResultV1>} [$$source = {}] - The source object to create the RecipeResultV1.
+     */
+    constructor($$source = {}) {
+        if (!("jobId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["jobId"] = "";
+        }
+        if (!("recipeId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["recipeId"] = "";
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("currentStep" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["currentStep"] = 0;
+        }
+        if (!("totalSteps" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["totalSteps"] = 0;
+        }
+        if (!("steps" in $$source)) {
+            /**
+             * @member
+             * @type {RecipeStepResultV1[]}
+             */
+            this["steps"] = [];
+        }
+        if (!("outputs" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["outputs"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["targetSizeBytes"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {VerificationReportV1 | null | undefined}
+             */
+            this["verification"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
+        }
+        if (!("startedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["startedAt"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["endedAt"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecipeResultV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {RecipeResultV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField6_0 = $$createType23;
+        const $$createField7_0 = $$createType9;
+        const $$createField9_0 = $$createType25;
+        const $$createField10_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("steps" in $$parsedSource) {
+            $$parsedSource["steps"] = $$createField6_0($$parsedSource["steps"]);
+        }
+        if ("outputs" in $$parsedSource) {
+            $$parsedSource["outputs"] = $$createField7_0($$parsedSource["outputs"]);
+        }
+        if ("verification" in $$parsedSource) {
+            $$parsedSource["verification"] = $$createField9_0($$parsedSource["verification"]);
+        }
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField10_0($$parsedSource["error"]);
+        }
+        return new RecipeResultV1(/** @type {Partial<RecipeResultV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * RecipeStatusResponseV1 returns the current per-step snapshot of a run.
+ */
+export class RecipeStatusResponseV1 {
+    /**
+     * Creates a new RecipeStatusResponseV1 instance.
+     * @param {Partial<RecipeStatusResponseV1>} [$$source = {}] - The source object to create the RecipeStatusResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("found" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["found"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {RecipeResultV1 | null | undefined}
+             */
+            this["result"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecipeStatusResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {RecipeStatusResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField3_0 = $$createType27;
+        const $$createField4_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("result" in $$parsedSource) {
+            $$parsedSource["result"] = $$createField3_0($$parsedSource["result"]);
+        }
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
+        }
+        return new RecipeStatusResponseV1(/** @type {Partial<RecipeStatusResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * RecipeStepResultV1 is the per-step outcome of a recipe run.
+ */
+export class RecipeStepResultV1 {
+    /**
+     * Creates a new RecipeStepResultV1 instance.
+     * @param {Partial<RecipeStepResultV1>} [$$source = {}] - The source object to create the RecipeStepResultV1.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("toolId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["toolId"] = "";
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["message"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["outputs"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecipeStepResultV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {RecipeStepResultV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField5_0 = $$createType9;
+        const $$createField6_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("outputs" in $$parsedSource) {
+            $$parsedSource["outputs"] = $$createField5_0($$parsedSource["outputs"]);
+        }
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField6_0($$parsedSource["error"]);
+        }
+        return new RecipeStepResultV1(/** @type {Partial<RecipeStepResultV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * RecipeStepV1 describes one tool invocation inside a recipe. Phase 1 recipes
+ * are curated Go definitions: the step only exposes the tool identity, not the
+ * full option template, so the UI can render a compact stepper.
+ */
+export class RecipeStepV1 {
+    /**
+     * Creates a new RecipeStepV1 instance.
+     * @param {Partial<RecipeStepV1>} [$$source = {}] - The source object to create the RecipeStepV1.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("toolId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["toolId"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecipeStepV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {RecipeStepV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RecipeStepV1(/** @type {Partial<RecipeStepV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * RecipeV1 is a curated outcome: one input kind, a linear chain of tools and a
+ * single verified result. Recipes are built-in Go definitions, not user files.
+ */
+export class RecipeV1 {
+    /**
+     * Creates a new RecipeV1 instance.
+     * @param {Partial<RecipeV1>} [$$source = {}] - The source object to create the RecipeV1.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("description" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["description"] = "";
+        }
+        if (!("category" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["category"] = "";
+        }
+        if (!("inputKind" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["inputKind"] = "";
+        }
+        if (!("acceptExtensions" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["acceptExtensions"] = [];
+        }
+        if (!("steps" in $$source)) {
+            /**
+             * @member
+             * @type {RecipeStepV1[]}
+             */
+            this["steps"] = [];
+        }
+        if (!("defaultTargetSizeBytes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["defaultTargetSizeBytes"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RecipeV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {RecipeV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField5_0 = $$createType9;
+        const $$createField6_0 = $$createType29;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("acceptExtensions" in $$parsedSource) {
+            $$parsedSource["acceptExtensions"] = $$createField5_0($$parsedSource["acceptExtensions"]);
+        }
+        if ("steps" in $$parsedSource) {
+            $$parsedSource["steps"] = $$createField6_0($$parsedSource["steps"]);
+        }
+        return new RecipeV1(/** @type {Partial<RecipeV1>} */($$parsedSource));
     }
 }
 
@@ -1540,6 +2300,70 @@ export class RunJobResponseV1 {
     }
 }
 
+/**
+ * RunRecipeResponseV1 acknowledges a recipe submission. Recipe jobs live in
+ * memory only for now, so a restart loses in-flight recipe runs.
+ */
+export class RunRecipeResponseV1 {
+    /**
+     * Creates a new RunRecipeResponseV1 instance.
+     * @param {Partial<RunRecipeResponseV1>} [$$source = {}] - The source object to create the RunRecipeResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("jobId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["jobId"] = "";
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RunRecipeResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {RunRecipeResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
+        }
+        return new RunRecipeResponseV1(/** @type {Partial<RunRecipeResponseV1>} */($$parsedSource));
+    }
+}
+
 export class ToolCatalogEntryV1 {
     /**
      * Creates a new ToolCatalogEntryV1 instance.
@@ -1570,8 +2394,8 @@ export class ToolCatalogEntryV1 {
      * @returns {ToolCatalogEntryV1}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType17;
-        const $$createField1_0 = $$createType18;
+        const $$createField0_0 = $$createType30;
+        const $$createField1_0 = $$createType31;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("manifest" in $$parsedSource) {
             $$parsedSource["manifest"] = $$createField0_0($$parsedSource["manifest"]);
@@ -1683,10 +2507,10 @@ export class ToolManifestV1 {
      * @returns {ToolManifestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField8_0 = $$createType7;
-        const $$createField9_0 = $$createType7;
-        const $$createField10_0 = $$createType7;
-        const $$createField11_0 = $$createType7;
+        const $$createField8_0 = $$createType9;
+        const $$createField9_0 = $$createType9;
+        const $$createField10_0 = $$createType9;
+        const $$createField11_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputExtensions" in $$parsedSource) {
             $$parsedSource["inputExtensions"] = $$createField8_0($$parsedSource["inputExtensions"]);
@@ -1747,6 +2571,104 @@ export class ToolRuntimeStateV1 {
     }
 }
 
+/**
+ * UndoResultV1 reports the per-file outcome of an undo or restore request.
+ */
+export class UndoResultV1 {
+    /**
+     * Creates a new UndoResultV1 instance.
+     * @param {Partial<UndoResultV1>} [$$source = {}] - The source object to create the UndoResultV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("moved" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["moved"] = [];
+        }
+        if (!("skipped" in $$source)) {
+            /**
+             * @member
+             * @type {UndoSkippedV1[]}
+             */
+            this["skipped"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UndoResultV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {UndoResultV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType9;
+        const $$createField3_0 = $$createType33;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("moved" in $$parsedSource) {
+            $$parsedSource["moved"] = $$createField2_0($$parsedSource["moved"]);
+        }
+        if ("skipped" in $$parsedSource) {
+            $$parsedSource["skipped"] = $$createField3_0($$parsedSource["skipped"]);
+        }
+        return new UndoResultV1(/** @type {Partial<UndoResultV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * UndoSkippedV1 reports one output that undo or restore refused to touch.
+ */
+export class UndoSkippedV1 {
+    /**
+     * Creates a new UndoSkippedV1 instance.
+     * @param {Partial<UndoSkippedV1>} [$$source = {}] - The source object to create the UndoSkippedV1.
+     */
+    constructor($$source = {}) {
+        if (!("path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["path"] = "";
+        }
+        if (!("reason" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["reason"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UndoSkippedV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {UndoSkippedV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new UndoSkippedV1(/** @type {Partial<UndoSkippedV1>} */($$parsedSource));
+    }
+}
+
 export class ValidateJobResponseV1 {
     /**
      * Creates a new ValidateJobResponseV1 instance.
@@ -1800,6 +2722,190 @@ export class ValidateJobResponseV1 {
     }
 }
 
+export class VerificationCheckV1 {
+    /**
+     * Creates a new VerificationCheckV1 instance.
+     * @param {Partial<VerificationCheckV1>} [$$source = {}] - The source object to create the VerificationCheckV1.
+     */
+    constructor($$source = {}) {
+        if (!("key" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["key"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("passed" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["passed"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["value"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["detail"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new VerificationCheckV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {VerificationCheckV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new VerificationCheckV1(/** @type {Partial<VerificationCheckV1>} */($$parsedSource));
+    }
+}
+
+export class VerificationReportV1 {
+    /**
+     * Creates a new VerificationReportV1 instance.
+     * @param {Partial<VerificationReportV1>} [$$source = {}] - The source object to create the VerificationReportV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("outputs" in $$source)) {
+            /**
+             * @member
+             * @type {VerifiedOutputV1[]}
+             */
+            this["outputs"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["warnings"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new VerificationReportV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {VerificationReportV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType35;
+        const $$createField3_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("outputs" in $$parsedSource) {
+            $$parsedSource["outputs"] = $$createField2_0($$parsedSource["outputs"]);
+        }
+        if ("warnings" in $$parsedSource) {
+            $$parsedSource["warnings"] = $$createField3_0($$parsedSource["warnings"]);
+        }
+        return new VerificationReportV1(/** @type {Partial<VerificationReportV1>} */($$parsedSource));
+    }
+}
+
+export class VerifiedOutputV1 {
+    /**
+     * Creates a new VerifiedOutputV1 instance.
+     * @param {Partial<VerifiedOutputV1>} [$$source = {}] - The source object to create the VerifiedOutputV1.
+     */
+    constructor($$source = {}) {
+        if (!("path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["path"] = "";
+        }
+        if (!("exists" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["exists"] = false;
+        }
+        if (!("sizeBytes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["sizeBytes"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["kind"] = undefined;
+        }
+        if (!("checks" in $$source)) {
+            /**
+             * @member
+             * @type {VerificationCheckV1[]}
+             */
+            this["checks"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["warnings"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new VerifiedOutputV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {VerifiedOutputV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType37;
+        const $$createField5_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("checks" in $$parsedSource) {
+            $$parsedSource["checks"] = $$createField4_0($$parsedSource["checks"]);
+        }
+        if ("warnings" in $$parsedSource) {
+            $$parsedSource["warnings"] = $$createField5_0($$parsedSource["warnings"]);
+        }
+        return new VerifiedOutputV1(/** @type {Partial<VerifiedOutputV1>} */($$parsedSource));
+    }
+}
+
 // Private type creation functions
 const $$createType0 = JobErrorV1.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
@@ -1808,15 +2914,34 @@ const $$createType3 = $Create.Array($$createType2);
 const $$createType4 = FileInfoV1.createFrom;
 const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = $Create.Map($Create.Any, $Create.Any);
-const $$createType7 = $Create.Array($Create.Any);
-const $$createType8 = JobProgressV1.createFrom;
-const $$createType9 = JobResultItemV1.createFrom;
-const $$createType10 = $Create.Array($$createType9);
-const $$createType11 = JobResultV1.createFrom;
-const $$createType12 = $Create.Nullable($$createType11);
-const $$createType13 = ToolCatalogEntryV1.createFrom;
-const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = PlannedOutputV1.createFrom;
+const $$createType7 = JobOutputRecordV1.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = $Create.Array($Create.Any);
+const $$createType10 = JobProgressV1.createFrom;
+const $$createType11 = JobResultItemV1.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = JobResultV1.createFrom;
+const $$createType14 = $Create.Nullable($$createType13);
+const $$createType15 = RecipeV1.createFrom;
 const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = ToolManifestV1.createFrom;
-const $$createType18 = ToolRuntimeStateV1.createFrom;
+const $$createType17 = ToolCatalogEntryV1.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = PlannedOutputV1.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = $Create.Nullable($$createType15);
+const $$createType22 = RecipeStepResultV1.createFrom;
+const $$createType23 = $Create.Array($$createType22);
+const $$createType24 = VerificationReportV1.createFrom;
+const $$createType25 = $Create.Nullable($$createType24);
+const $$createType26 = RecipeResultV1.createFrom;
+const $$createType27 = $Create.Nullable($$createType26);
+const $$createType28 = RecipeStepV1.createFrom;
+const $$createType29 = $Create.Array($$createType28);
+const $$createType30 = ToolManifestV1.createFrom;
+const $$createType31 = ToolRuntimeStateV1.createFrom;
+const $$createType32 = UndoSkippedV1.createFrom;
+const $$createType33 = $Create.Array($$createType32);
+const $$createType34 = VerifiedOutputV1.createFrom;
+const $$createType35 = $Create.Array($$createType34);
+const $$createType36 = VerificationCheckV1.createFrom;
+const $$createType37 = $Create.Array($$createType36);

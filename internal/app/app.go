@@ -18,6 +18,7 @@ import (
 	"fileforge-desktop/internal/models"
 	_ "fileforge-desktop/internal/pdf"
 	"fileforge-desktop/internal/preview"
+	"fileforge-desktop/internal/recipes"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/services"
 	_ "fileforge-desktop/internal/video"
@@ -28,14 +29,23 @@ import (
 type App struct {
 	ctx            context.Context
 	toolingService *services.ToolingService
+	recipeService  *recipes.Service
 	previewService *preview.PreviewService
 }
 
 func New() *App {
 	reg := registry.GetGlobalRegistry()
+	toolingService := services.NewToolingService(reg)
 	a := &App{
-		toolingService: services.NewToolingService(reg),
+		toolingService: toolingService,
 	}
+	a.recipeService = recipes.NewService(reg, toolingService.JobHistory(), func(evt models.RecipeProgressEventV1) {
+		app := application.Get()
+		if app == nil {
+			return
+		}
+		app.Event.Emit(recipes.ProgressEventNameV1, evt)
+	})
 	// initialize preview service with sensible defaults; AllowedRoots: $HOME + TMP
 	home, _ := os.UserHomeDir()
 	allowed := []string{}
@@ -50,6 +60,15 @@ func New() *App {
 func (a *App) SetContext(ctx context.Context) {
 	a.ctx = ctx
 	a.toolingService.SetContext(ctx)
+}
+
+// contextOrBackground returns the app lifetime context, falling back to a
+// background context in headless tests and early calls.
+func (a *App) contextOrBackground() context.Context {
+	if a.ctx == nil {
+		return context.Background()
+	}
+	return a.ctx
 }
 
 // ServiceStartup wires the Wails application context into the app services so
@@ -69,6 +88,9 @@ func (a *App) ServiceShutdown() error {
 // Shutdown gracefully stops services owned by App.
 func (a *App) Shutdown(ctx context.Context) error {
 	var firstErr error
+	if a.recipeService != nil {
+		a.recipeService.Shutdown()
+	}
 	// shutdown preview service
 	if a.previewService != nil {
 		if err := a.previewService.Shutdown(ctx); err != nil {
@@ -107,6 +129,67 @@ func (a *App) CancelJobV1(jobID string) models.CancelJobResponseV1 {
 
 func (a *App) GetJobStatusV1(jobID string) models.JobStatusResponseV1 {
 	return a.toolingService.GetJobStatusV1(jobID)
+}
+
+// VerifyJobV1 verifies every output of a finished job: existence, readability,
+// size, file type and media-specific metadata. The report lists passing and
+// failing checks per output.
+func (a *App) VerifyJobV1(jobID string) models.VerificationReportV1 {
+	return a.toolingService.VerifyJobV1(jobID)
+}
+
+// ListJobHistoryV1 returns recorded terminal jobs with their output
+// fingerprints, newest first. The history survives app restarts.
+func (a *App) ListJobHistoryV1() []models.JobHistoryEntryV1 {
+	return a.toolingService.ListJobHistoryV1()
+}
+
+// UndoJobV1 moves the untouched outputs of a recorded job to the app trash.
+// Modified or missing outputs are skipped and reported per file.
+func (a *App) UndoJobV1(jobID string) models.UndoResultV1 {
+	return a.toolingService.UndoJobV1(jobID)
+}
+
+// RestoreJobV1 moves trashed outputs back to their original paths when the
+// destination is free.
+func (a *App) RestoreJobV1(jobID string) models.UndoResultV1 {
+	return a.toolingService.RestoreJobV1(jobID)
+}
+
+// EmptyTrashV1 permanently removes the app-managed trash. User files outside
+// the trash are never touched.
+func (a *App) EmptyTrashV1() models.PathActionResponseV1 {
+	return a.toolingService.EmptyTrashV1()
+}
+
+// ListRecipesV1 lists the built-in outcome recipes. Email PDF is first.
+func (a *App) ListRecipesV1() models.ListRecipesResponseV1 {
+	return models.ListRecipesResponseV1{
+		Success: true,
+		Message: "recipes listed successfully",
+		Recipes: a.recipeService.List(),
+	}
+}
+
+// PlanRecipeV1 validates a recipe request and resolves its final output
+// without running any tool.
+func (a *App) PlanRecipeV1(req models.RecipeRequestV1) models.RecipePlanResponseV1 {
+	return a.recipeService.Plan(req)
+}
+
+// RunRecipeV1 starts a recipe chain in the background and returns its job id.
+func (a *App) RunRecipeV1(req models.RecipeRequestV1) models.RunRecipeResponseV1 {
+	return a.recipeService.Run(a.contextOrBackground(), req)
+}
+
+// GetRecipeStatusV1 returns the per-step snapshot of a recipe run.
+func (a *App) GetRecipeStatusV1(jobID string) models.RecipeStatusResponseV1 {
+	return a.recipeService.Status(jobID)
+}
+
+// CancelRecipeV1 requests cancellation of a running recipe.
+func (a *App) CancelRecipeV1(jobID string) models.RecipeStatusResponseV1 {
+	return a.recipeService.Cancel(jobID)
 }
 
 // InspectFilesV1 describes files for UI cards. Missing files are reported per
