@@ -346,6 +346,8 @@ export interface RecipeStepV1 {
   id: string;
   name: string;
   toolId: string;
+  /** Short per-step helper copy rendered in the recipe stepper. */
+  detail?: string;
 }
 
 export interface RecipeV1 {
@@ -355,6 +357,10 @@ export interface RecipeV1 {
   category: string;
   inputKind: string;
   acceptExtensions: string[];
+  /** 0 (or omitted) means the recipe accepts any number of inputs. */
+  maxInputs?: number;
+  /** Short capability notes shown as chips on the recipe page. */
+  highlights?: string[];
   steps: RecipeStepV1[];
   defaultTargetSizeBytes: number;
 }
@@ -453,6 +459,14 @@ export class Wails {
   private jobProgressUnsubscribe: (() => void) | null = null;
   private jobProgressRefCount = 0;
 
+  // Recipe progress follows the same lazy registration pipeline as job
+  // progress but keeps its own subject, refcount and native handler so the two
+  // streams never interfere with each other.
+  private recipeProgressSubject: ReplaySubject<RecipeProgressEventV1> | null =
+    null;
+  private recipeProgressUnsubscribe: (() => void) | null = null;
+  private recipeProgressRefCount = 0;
+
   // Bounded thumbnail cache: key is `${path}:${size}`, value is a data URL or
   // null when the preview could not be produced (browser dev mode, bad file).
   private readonly thumbnailCache = new Map<string, string | null>();
@@ -483,6 +497,30 @@ export class Wails {
       };
     },
   );
+
+  // Same contract as jobProgress$ for the recipes/progress/v1 stream: the
+  // native handler only lives while at least one consumer is subscribed and
+  // the last event is replayed to late subscribers.
+  public readonly recipeProgress$: Observable<RecipeProgressEventV1> =
+    new Observable((subscriber) => {
+      const unregister = this.ensureRecipeProgressRegistered();
+
+      const sub = this.recipeProgressSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    });
+
   private callByID(id: number, ...args: unknown[]): Promise<any> {
     return Call.ByID(id, ...args);
   }
@@ -1020,6 +1058,25 @@ export class Wails {
     };
   }
 
+  subscribeRecipeProgressV1(
+    callback: (event: RecipeProgressEventV1) => void,
+  ): () => void {
+    const unregister = this.ensureRecipeProgressRegistered();
+
+    const subscription: Subscription =
+      this.recipeProgressSubject!.subscribe(callback);
+
+    return () => {
+      try {
+        subscription.unsubscribe();
+      } catch {
+        // ignore
+      }
+      // decrement refcount / cleanup
+      unregister();
+    };
+  }
+
   // Ensure the replay subject exists and the native Events.On handler is
   // registered. Increments an internal refcount and returns an unregister
   // function that should be called when the consumer unsubscribes.
@@ -1077,6 +1134,84 @@ export class Wails {
         this.jobProgressRefCount = 0;
       }
     };
+  }
+
+  // Ensure the recipe replay subject exists and the native recipe event
+  // handler is registered. Mirrors ensureJobProgressRegistered so both streams
+  // share the same lazy lifecycle without sharing state.
+  private ensureRecipeProgressRegistered(): () => void {
+    if (!this.recipeProgressSubject) {
+      this.recipeProgressSubject = new ReplaySubject<RecipeProgressEventV1>(1);
+      this.recipeProgressUnsubscribe = Events.On(
+        'recipes/progress/v1',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<RecipeProgressEventV1>;
+          // A job id and a usable percent are the minimum needed to drive the
+          // stepper; anything else can be defaulted.
+          if (
+            typeof candidate.jobId !== 'string' ||
+            candidate.jobId.trim().length === 0 ||
+            typeof candidate.percent !== 'number' ||
+            !Number.isFinite(candidate.percent)
+          ) {
+            return;
+          }
+
+          this.recipeProgressSubject?.next({
+            jobId: candidate.jobId,
+            recipeId:
+              typeof candidate.recipeId === 'string' ? candidate.recipeId : '',
+            status:
+              typeof candidate.status === 'string'
+                ? candidate.status
+                : 'running',
+            currentStep: this.toStepCount(candidate.currentStep),
+            totalSteps: this.toStepCount(candidate.totalSteps),
+            stepName:
+              typeof candidate.stepName === 'string' ? candidate.stepName : '',
+            stage: typeof candidate.stage === 'string' ? candidate.stage : '',
+            message:
+              typeof candidate.message === 'string' ? candidate.message : '',
+            percent: candidate.percent,
+          });
+        },
+      );
+    }
+
+    this.recipeProgressRefCount += 1;
+
+    return () => {
+      this.recipeProgressRefCount -= 1;
+      if (this.recipeProgressRefCount <= 0) {
+        try {
+          this.recipeProgressUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.recipeProgressUnsubscribe = null;
+        try {
+          this.recipeProgressSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.recipeProgressSubject = null;
+        this.recipeProgressRefCount = 0;
+      }
+    };
+  }
+
+  /** Coerces a step counter to a non-negative integer, else 0. */
+  private toStepCount(value: unknown): number {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return 0;
+    }
+    return Math.trunc(numeric);
   }
 
   isRuntimeAvailable(): boolean {

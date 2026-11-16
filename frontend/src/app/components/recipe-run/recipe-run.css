@@ -19,6 +19,32 @@
   opacity: 0.85;
 }
 
+.recipe-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recipe-highlight {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.59375rem;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .page-stack {
   display: flex;
   flex-direction: column;
@@ -70,6 +96,11 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
   gap: 18px;
   align-items: start;
+}
+
+/* Recipes without a target size render one wider settings field. */
+.settings-grid-single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .input-suffix {
