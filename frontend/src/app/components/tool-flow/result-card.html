@@ -101,6 +101,110 @@
         </ul>
       }
 
+      @if (showVerifyBlock()) {
+        <section
+          class="verify-block"
+          aria-label="Output verification"
+          aria-live="polite"
+        >
+          @if (verifyLoading) {
+            <p class="verify-state">Checking the output…</p>
+          } @else if (verifyUnavailable) {
+            <p class="verify-state">Verification unavailable for this job.</p>
+          } @else if (verifyReport) {
+            <div class="verify-head">
+              <span
+                class="verify-icon"
+                [attr.data-tone]="verifyTone()"
+                aria-hidden="true"
+              >
+                <lucide-icon
+                  [img]="verifyIcon()"
+                  [size]="14"
+                  [strokeWidth]="1.75"
+                  aria-hidden="true"
+                ></lucide-icon>
+              </span>
+              <div class="verify-copy">
+                <p class="verify-title">{{ verifyTitle() }}</p>
+                @if (verifySummary()) {
+                  <p class="verify-summary">{{ verifySummary() }}</p>
+                }
+              </div>
+            </div>
+
+            @if (verifyOutputs().length > 0) {
+              <ul class="verify-outputs" aria-label="Verified files">
+                @for (output of verifyOutputs(); track $index) {
+                  <li
+                    class="verify-output"
+                    [class.verify-output-failed]="!output.passed"
+                  >
+                    <lucide-icon
+                      class="verify-output-icon"
+                      [img]="output.passed ? checkIcon : cancelIcon"
+                      [size]="13"
+                      [strokeWidth]="1.75"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                    <span class="verify-output-copy">
+                      <span class="verify-output-name" [title]="output.path">{{
+                        output.name
+                      }}</span>
+                      <span class="verify-output-meta mono">
+                        {{ output.size }}
+                        @if (output.passed) {
+                          · Checks passed: {{ output.checksPassed }}/{{
+                            output.totalChecks
+                          }}
+                        } @else if (output.warning) {
+                          · {{ output.warning }}
+                        }
+                      </span>
+                    </span>
+                  </li>
+                }
+              </ul>
+            }
+
+            @if (verifyChecks().length > 0) {
+              <ul class="verify-checks" aria-label="Verification checks">
+                @for (check of verifyChecks(); track $index) {
+                  <li
+                    class="verify-check"
+                    [class.verify-check-failed]="!check.passed"
+                  >
+                    <lucide-icon
+                      class="verify-check-icon"
+                      [img]="check.passed ? checkIcon : cancelIcon"
+                      [size]="12"
+                      [strokeWidth]="2"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                    <span class="verify-check-label">{{
+                      verifyCheckText(check)
+                    }}</span>
+                    @if (!check.passed && check.detail) {
+                      <span class="verify-check-detail">{{
+                        check.detail
+                      }}</span>
+                    }
+                  </li>
+                }
+              </ul>
+            }
+
+            @if (verifyWarnings().length > 0) {
+              <ul class="verify-warnings" aria-label="Verification warnings">
+                @for (warning of verifyWarnings(); track $index) {
+                  <li>{{ warning }}</li>
+                }
+              </ul>
+            }
+          }
+        </section>
+      }
+
       <div class="actions result-footer">
         @if (hasFailedRows()) {
           <button
@@ -117,6 +221,23 @@
             Retry failed
           </button>
         }
+        @if (canUndoAction()) {
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm result-undo"
+            [disabled]="undoBusy"
+            [attr.aria-busy]="undoBusy"
+            (click)="runUndoAction()"
+          >
+            <lucide-icon
+              [img]="undoActionIcon()"
+              [size]="14"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            {{ undoLabel() }}
+          </button>
+        }
         <button
           type="button"
           class="btn btn-primary btn-sm result-reset"
@@ -125,6 +246,23 @@
           Convert more
         </button>
       </div>
+
+      @if (undoMessage) {
+        <div
+          class="result-undo-feedback"
+          role="status"
+          [attr.data-tone]="undoTone"
+        >
+          <p class="result-undo-message">{{ undoMessage }}</p>
+          @if (undoSkippedRows().length > 0) {
+            <ul class="result-undo-skipped">
+              @for (skip of undoSkippedRows(); track $index) {
+                <li><span class="mono">{{ skip.name }}</span> — {{ skip.reason }}</li>
+              }
+            </ul>
+          }
+        </div>
+      }
 
       <details class="result-details">
         <summary>Details</summary>

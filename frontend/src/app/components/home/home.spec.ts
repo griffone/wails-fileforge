@@ -326,6 +326,27 @@ describe('Home', () => {
     expect(section?.textContent).toContain('PDF Merge');
   });
 
+  it('renders the Email PDF recipe card outside the tool grid', () => {
+    fixture.detectChanges();
+
+    const card = query<HTMLAnchorElement>('.home-recipe-card');
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain('Email PDF');
+    expect(card?.textContent).toContain('Use recipe');
+    expect(card?.getAttribute('href')).toBe('/recipe/email-pdf');
+    expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
+      'Outcomes, not one tool at a time.',
+    );
+    expect(cardNames().length).toBe(12);
+  });
+
+  it('hides recipes while a search query is active', () => {
+    fixture.detectChanges();
+    typeQuery('pdf');
+
+    expect(query('.home-recipes')).toBeNull();
+  });
+
   it('hides the recent conversions section when the history is empty', () => {
     fixture.detectChanges();
 

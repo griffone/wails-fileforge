@@ -289,6 +289,154 @@ export interface MarkdownToPdfOptionsV1 {
   footer: HeaderFooterConfigV1;
 }
 
+export interface VerificationCheckV1 {
+  key: string;
+  label: string;
+  passed: boolean;
+  value?: string;
+  detail?: string;
+}
+
+export interface VerifiedOutputV1 {
+  path: string;
+  exists: boolean;
+  sizeBytes: number;
+  kind?: string;
+  checks: VerificationCheckV1[];
+  warnings?: string[];
+}
+
+export interface VerificationReportV1 {
+  success: boolean;
+  message: string;
+  outputs: VerifiedOutputV1[];
+  warnings?: string[];
+}
+
+export interface JobOutputRecordV1 {
+  path: string;
+  sizeBytes: number;
+  modifiedAt: number;
+  trashedPath?: string;
+  undone?: boolean;
+}
+
+export interface JobHistoryEntryV1 {
+  jobId: string;
+  toolId: string;
+  createdAt: number;
+  undone?: boolean;
+  trashEmptied?: boolean;
+  outputs: JobOutputRecordV1[];
+}
+
+export interface UndoSkippedV1 {
+  path: string;
+  reason: string;
+}
+
+export interface UndoResultV1 {
+  success: boolean;
+  message: string;
+  moved: string[];
+  skipped: UndoSkippedV1[];
+}
+
+export interface RecipeStepV1 {
+  id: string;
+  name: string;
+  toolId: string;
+}
+
+export interface RecipeV1 {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  inputKind: string;
+  acceptExtensions: string[];
+  steps: RecipeStepV1[];
+  defaultTargetSizeBytes: number;
+}
+
+export interface RecipeRequestV1 {
+  recipeId: string;
+  inputPaths: string[];
+  outputDir: string;
+  options: Record<string, unknown>;
+}
+
+export interface RecipePlanResponseV1 {
+  success: boolean;
+  message: string;
+  recipe?: RecipeV1;
+  inputPaths: string[];
+  outputDir: string;
+  outputs: PlannedOutputV1[];
+  warnings?: string[];
+  error?: JobErrorV1;
+}
+
+export interface RecipeStepResultV1 {
+  id: string;
+  name: string;
+  toolId: string;
+  status: string;
+  message?: string;
+  outputs?: string[];
+  error?: JobErrorV1;
+}
+
+export interface RecipeResultV1 {
+  jobId: string;
+  recipeId: string;
+  status: string;
+  message: string;
+  currentStep: number;
+  totalSteps: number;
+  steps: RecipeStepResultV1[];
+  outputs: string[];
+  targetSizeBytes?: number;
+  verification?: VerificationReportV1;
+  error?: JobErrorV1;
+  startedAt: number;
+  endedAt?: number;
+}
+
+export interface RunRecipeResponseV1 {
+  success: boolean;
+  message: string;
+  jobId: string;
+  status: string;
+  error?: JobErrorV1;
+}
+
+export interface RecipeStatusResponseV1 {
+  success: boolean;
+  found: boolean;
+  message: string;
+  result?: RecipeResultV1;
+  error?: JobErrorV1;
+}
+
+export interface ListRecipesResponseV1 {
+  success: boolean;
+  message: string;
+  recipes: RecipeV1[];
+}
+
+export interface RecipeProgressEventV1 {
+  jobId: string;
+  recipeId: string;
+  status: string;
+  currentStep: number;
+  totalSteps: number;
+  stepName?: string;
+  stage: string;
+  message: string;
+  percent: number;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -412,6 +560,63 @@ export class Wails {
           'IPC_STATUS_FAILED',
           error,
         ),
+      };
+    }
+  }
+
+  async verifyJobV1(jobId: string): Promise<VerificationReportV1> {
+    try {
+      return await this.callByID(1020044031, jobId);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Verify job failed', error),
+        outputs: [],
+      };
+    }
+  }
+
+  async listJobHistoryV1(): Promise<JobHistoryEntryV1[]> {
+    try {
+      return await this.callByID(2396679858);
+    } catch {
+      return [];
+    }
+  }
+
+  async undoJobV1(jobId: string): Promise<UndoResultV1> {
+    try {
+      return await this.callByID(2249209138, jobId);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Undo job failed', error),
+        moved: [],
+        skipped: [],
+      };
+    }
+  }
+
+  async restoreJobV1(jobId: string): Promise<UndoResultV1> {
+    try {
+      return await this.callByID(666662266, jobId);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Restore job failed', error),
+        moved: [],
+        skipped: [],
+      };
+    }
+  }
+
+  async emptyTrashV1(): Promise<PathActionResponseV1> {
+    try {
+      return await this.callByID(1508461378);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Empty trash failed', error),
       };
     }
   }
@@ -576,6 +781,81 @@ export class Wails {
         success: false,
         message: this.formatMessage('Inspect files failed', error),
         files: [],
+      };
+    }
+  }
+
+  async listRecipesV1(): Promise<ListRecipesResponseV1> {
+    try {
+      return await this.callByID(388441352);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('List recipes failed', error),
+        recipes: [],
+      };
+    }
+  }
+
+  async planRecipeV1(
+    request: RecipeRequestV1,
+  ): Promise<RecipePlanResponseV1> {
+    try {
+      return await this.callByID(2840622370, request);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Plan recipe failed', error),
+        inputPaths: [],
+        outputDir: '',
+        outputs: [],
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'RECIPE_PLAN_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async runRecipeV1(request: RecipeRequestV1): Promise<RunRecipeResponseV1> {
+    try {
+      return await this.callByID(1732206072, request);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Run recipe failed', error),
+        jobId: '',
+        status: 'failed',
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'RECIPE_RUN_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async getRecipeStatusV1(jobId: string): Promise<RecipeStatusResponseV1> {
+    try {
+      return await this.callByID(938816715, jobId);
+    } catch (error) {
+      return {
+        success: false,
+        found: false,
+        message: this.formatMessage('Get recipe status failed', error),
+      };
+    }
+  }
+
+  async cancelRecipeV1(jobId: string): Promise<RecipeStatusResponseV1> {
+    try {
+      return await this.callByID(2728388739, jobId);
+    } catch (error) {
+      return {
+        success: false,
+        found: false,
+        message: this.formatMessage('Cancel recipe failed', error),
       };
     }
   }

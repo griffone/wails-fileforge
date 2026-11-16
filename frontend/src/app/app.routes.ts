@@ -14,6 +14,7 @@ import { VideoConvert } from './components/video-convert/video-convert';
 import { VideoTrim } from './components/video-trim/video-trim';
 import { VideoMerge } from './components/video-merge/video-merge';
 import { Settings } from './components/settings/settings';
+import { RecipeEmailPdf } from './components/recipe-email-pdf/recipe-email-pdf';
 
 export const routes: Routes = [
   { path: '', component: Home },
@@ -31,5 +32,6 @@ export const routes: Routes = [
   { path: 'video-convert', component: VideoConvert },
   { path: 'video-trim', component: VideoTrim },
   { path: 'video-merge', component: VideoMerge },
+  { path: 'recipe/email-pdf', component: RecipeEmailPdf },
   { path: '**', redirectTo: '' },
 ];

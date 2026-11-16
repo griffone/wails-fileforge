@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-angular';
 
+import { RECIPES } from '../../config/recipes';
 import { ToolCategory, ToolDefinition } from '../../config/tools';
 import {
   RecentConversion,
@@ -122,6 +123,9 @@ export class Home implements OnInit {
   readonly hasFilters = computed(
     () => this.activeCategory() !== 'all' || this.query().trim().length > 0,
   );
+
+  readonly recipes = RECIPES;
+  readonly showRecipes = computed(() => !this.hasFilters());
 
   readonly recent = this.recentTools.recent;
   readonly showRecent = computed(() => !this.hasFilters() && this.recent().length > 0);

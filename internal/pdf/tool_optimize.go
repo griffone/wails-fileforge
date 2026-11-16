@@ -2,8 +2,10 @@ package pdf
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 
@@ -88,7 +90,7 @@ func (t *OptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (models.
 		plan.Success = true
 		plan.Message = optimizePlanMessage(1)
 		plan.Outputs = []models.PlannedOutputV1{planned}
-		plan.Warnings = planned.Warnings
+		plan.Warnings = append(planned.Warnings, optimizeTargetWarnings(parsed)...)
 		plan.EffectiveOptions = optimizeEffectiveOptions(parsed)
 
 		return plan, nil
@@ -123,7 +125,7 @@ func (t *OptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (models.
 	plan.Success = true
 	plan.Message = optimizePlanMessage(len(outputs))
 	plan.Outputs = outputs
-	plan.Warnings = warnings
+	plan.Warnings = append(warnings, optimizeTargetWarnings(parsed)...)
 	plan.EffectiveOptions = optimizeEffectiveOptions(parsed)
 
 	return plan, nil
@@ -146,7 +148,8 @@ func (t *OptimizeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV
 	}
 
 	planned := plan.Outputs[0]
-	if err := engine.Optimize(ctx, planned.InputPath, planned.OutputPath, parsed.Compress, parsed.Metadata.properties()); err != nil {
+	outcome, err := engine.OptimizeWithOptions(ctx, planned.InputPath, planned.OutputPath, optimizeEngineOptions(parsed))
+	if err != nil {
 		jobErr := mapOptimizeError(err)
 		return optimizeFailureItem(planned.InputPath, planned.OutputPath, jobErr), jobErr
 	}
@@ -157,7 +160,7 @@ func (t *OptimizeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV
 		Outputs:     []string{planned.OutputPath},
 		OutputCount: 1,
 		Success:     true,
-		Message:     optimizeSuccessMessage(parsed),
+		Message:     optimizeSuccessMessage(parsed, outcome),
 	}, nil
 }
 
@@ -176,7 +179,6 @@ func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 		return nil, planErr
 	}
 
-	properties := parsed.Metadata.properties()
 	fileErrors := make([]map[string]any, 0)
 	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
 	for i, planned := range plan.Outputs {
@@ -191,8 +193,9 @@ func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 			OutputPath: planned.OutputPath,
 		}
 
-		if err := engine.Optimize(ctx, planned.InputPath, planned.OutputPath, parsed.Compress, properties); err != nil {
-			jobErr := mapOptimizeError(err)
+		outcome, optimizeErr := engine.OptimizeWithOptions(ctx, planned.InputPath, planned.OutputPath, optimizeEngineOptions(parsed))
+		if optimizeErr != nil {
+			jobErr := mapOptimizeError(optimizeErr)
 			item.Success = false
 			item.Message = jobErr.Message
 			item.Error = jobErr
@@ -203,7 +206,7 @@ func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 			})
 		} else {
 			item.Success = true
-			item.Message = optimizeSuccessMessage(parsed)
+			item.Message = optimizeSuccessMessage(parsed, outcome)
 			item.Outputs = []string{planned.OutputPath}
 			item.OutputCount = 1
 		}
@@ -230,13 +233,14 @@ func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 }
 
 type optimizeRequestFields struct {
-	Mode       string
-	InputPath  string
-	InputPaths []string
-	OutputPath string
-	OutputDir  string
-	Compress   bool
-	Metadata   optimizeMetadata
+	Mode            string
+	InputPath       string
+	InputPaths      []string
+	OutputPath      string
+	OutputDir       string
+	Compress        bool
+	TargetSizeBytes int64
+	Metadata        optimizeMetadata
 }
 
 type optimizeMetadata struct {
@@ -331,19 +335,28 @@ func optimizeReqFields(req models.JobRequestV1) (optimizeRequestFields, *models.
 		return optimizeRequestFields{}, compressErr
 	}
 
+	targetSizeBytes, targetErr := optimizeOptionTargetSize(req.Options, "targetSizeBytes")
+	if targetErr != nil {
+		return optimizeRequestFields{}, targetErr
+	}
+	if targetSizeBytes > 0 && !compress {
+		return optimizeRequestFields{}, optimizeTargetError("options.targetSizeBytes requires compression; enable compress or clear the target")
+	}
+
 	metadata, metadataErr := optimizeOptionMetadata(req.Options, "metadata")
 	if metadataErr != nil {
 		return optimizeRequestFields{}, metadataErr
 	}
 
 	return optimizeRequestFields{
-		Mode:       mode,
-		InputPath:  firstInputPath(inputPaths),
-		InputPaths: inputPaths,
-		OutputPath: outputPath,
-		OutputDir:  outputDir,
-		Compress:   compress,
-		Metadata:   metadata,
+		Mode:            mode,
+		InputPath:       firstInputPath(inputPaths),
+		InputPaths:      inputPaths,
+		OutputPath:      outputPath,
+		OutputDir:       outputDir,
+		Compress:        compress,
+		TargetSizeBytes: targetSizeBytes,
+		Metadata:        metadata,
 	}, nil
 }
 
@@ -371,6 +384,105 @@ func optimizeOptionBool(options map[string]any, key string) (bool, *models.JobEr
 	}
 
 	return false, optimizeRequestError(engine.ErrorCodeValidation, "options.compress must be a boolean")
+}
+
+// optimizeOptionTargetSize parses options.targetSizeBytes. Absent or null means
+// no target; numeric int/float values are accepted when positive and whole.
+func optimizeOptionTargetSize(options map[string]any, key string) (int64, *models.JobErrorV1) {
+	if options == nil {
+		return 0, nil
+	}
+
+	raw, ok := options[key]
+	if !ok || raw == nil {
+		return 0, nil
+	}
+
+	switch value := raw.(type) {
+	case int:
+		if value <= 0 {
+			return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+		}
+		return int64(value), nil
+	case int8:
+		if value <= 0 {
+			return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+		}
+		return int64(value), nil
+	case int16:
+		if value <= 0 {
+			return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+		}
+		return int64(value), nil
+	case int32:
+		if value <= 0 {
+			return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+		}
+		return int64(value), nil
+	case int64:
+		if value <= 0 {
+			return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+		}
+		return value, nil
+	case uint:
+		if value == 0 {
+			return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+		}
+		return floatTargetSize(float64(value))
+	case uint8:
+		if value == 0 {
+			return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+		}
+		return int64(value), nil
+	case uint16:
+		if value == 0 {
+			return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+		}
+		return int64(value), nil
+	case uint32:
+		if value == 0 {
+			return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+		}
+		return int64(value), nil
+	case uint64:
+		return floatTargetSize(float64(value))
+	case float32:
+		return floatTargetSize(float64(value))
+	case float64:
+		return floatTargetSize(value)
+	case json.Number:
+		if integer, err := value.Int64(); err == nil {
+			if integer <= 0 {
+				return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+			}
+			return integer, nil
+		}
+		parsed, err := value.Float64()
+		if err != nil {
+			return 0, optimizeTargetError("options.targetSizeBytes must be a positive number of bytes")
+		}
+		return floatTargetSize(parsed)
+	default:
+		return 0, optimizeTargetError("options.targetSizeBytes must be a positive number of bytes")
+	}
+}
+
+func floatTargetSize(value float64) (int64, *models.JobErrorV1) {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+		return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
+	}
+	if value > float64(math.MaxInt64) {
+		return 0, optimizeTargetError("options.targetSizeBytes is too large")
+	}
+	if math.Trunc(value) != value {
+		return 0, optimizeTargetError("options.targetSizeBytes must be a whole number of bytes")
+	}
+
+	return int64(value), nil
+}
+
+func optimizeTargetError(message string) *models.JobErrorV1 {
+	return optimizeRequestError(engine.ErrorCodeOptimizeTargetInvalid, message)
 }
 
 func optimizeOptionMetadata(options map[string]any, key string) (optimizeMetadata, *models.JobErrorV1) {
@@ -478,11 +590,38 @@ func optimizeOutputBaseName(inputPath string) string {
 
 func optimizeEffectiveOptions(parsed optimizeRequestFields) map[string]any {
 	effective := map[string]any{"compress": parsed.Compress}
+	if parsed.TargetSizeBytes > 0 {
+		effective["targetSizeBytes"] = parsed.TargetSizeBytes
+	}
 	if metadata := parsed.Metadata.effective(); len(metadata) > 0 {
 		effective["metadata"] = metadata
 	}
 
 	return effective
+}
+
+func optimizeEngineOptions(parsed optimizeRequestFields) engine.OptimizeOptions {
+	return engine.OptimizeOptions{
+		Compress:        parsed.Compress,
+		Properties:      parsed.Metadata.properties(),
+		TargetSizeBytes: parsed.TargetSizeBytes,
+	}
+}
+
+// optimizeTargetWarnings explains the best-effort target policy before a run.
+func optimizeTargetWarnings(parsed optimizeRequestFields) []string {
+	if parsed.TargetSizeBytes <= 0 {
+		return nil
+	}
+
+	warnings := []string{
+		fmt.Sprintf("Compression to %s is best effort; the target may not be reachable without rasterizing pages.", formatByteSize(parsed.TargetSizeBytes)),
+	}
+	if !engine.GhostscriptLookPath() {
+		warnings = append(warnings, "Ghostscript is not available; only pdfcpu compression will be tried.")
+	}
+
+	return warnings
 }
 
 func optimizePlanMessage(count int) string {
@@ -493,18 +632,59 @@ func optimizePlanMessage(count int) string {
 	return fmt.Sprintf("Ready to optimize %d PDFs.", count)
 }
 
-func optimizeSuccessMessage(parsed optimizeRequestFields) string {
-	if parsed.Compress && len(parsed.Metadata.properties()) > 0 {
-		return "PDF optimized and metadata updated"
-	}
-	if parsed.Compress {
-		return "PDF optimize successful"
-	}
-	if len(parsed.Metadata.properties()) > 0 {
-		return "PDF metadata updated"
+func optimizeSuccessMessage(parsed optimizeRequestFields, outcome engine.OptimizeOutcome) string {
+	if parsed.TargetSizeBytes <= 0 {
+		if parsed.Compress && len(parsed.Metadata.properties()) > 0 {
+			return "PDF optimized and metadata updated"
+		}
+		if parsed.Compress {
+			return "PDF optimize successful"
+		}
+		if len(parsed.Metadata.properties()) > 0 {
+			return "PDF metadata updated"
+		}
+
+		return "PDF copied without changes"
 	}
 
-	return "PDF copied without changes"
+	actual := formatByteSize(outcome.SizeBytes)
+	target := formatByteSize(parsed.TargetSizeBytes)
+	if outcome.TargetMet {
+		return fmt.Sprintf("PDF optimized to %s; target of %s met", actual, target)
+	}
+
+	message := fmt.Sprintf("PDF optimized to %s; the target of %s could not be met (best effort)", actual, target)
+	if !outcome.GhostscriptAvailable {
+		message += ". Ghostscript is not available; install it for stronger compression"
+	} else if outcome.GhostscriptError != "" {
+		message += ". Ghostscript compression failed"
+	}
+
+	return message
+}
+
+// formatByteSize renders a byte count with a unit the UI can show as-is.
+func formatByteSize(bytes int64) string {
+	if bytes < 0 {
+		bytes = 0
+	}
+
+	const (
+		kib = 1024.0
+		mib = kib * 1024.0
+		gib = mib * 1024.0
+	)
+
+	switch {
+	case float64(bytes) >= gib:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/gib)
+	case float64(bytes) >= mib:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/mib)
+	case float64(bytes) >= kib:
+		return fmt.Sprintf("%.0f KB", float64(bytes)/kib)
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }
 
 func optimizeFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {

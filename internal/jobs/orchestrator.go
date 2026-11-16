@@ -25,10 +25,11 @@ const (
 )
 
 type Orchestrator struct {
-	registry    *registry.Registry
-	concurrency chan struct{}
-	onProgress  func(models.JobProgressEventV1)
-	storePath   string
+	registry      *registry.Registry
+	concurrency   chan struct{}
+	onProgress    func(models.JobProgressEventV1)
+	onJobComplete func(models.JobResultV1)
+	storePath     string
 
 	mu   sync.RWMutex
 	jobs map[string]*trackedJob
@@ -58,6 +59,29 @@ func (o *Orchestrator) SetPersistencePath(path string) {
 	o.mu.Lock()
 	o.storePath = path
 	o.mu.Unlock()
+}
+
+// SetOnJobComplete registers a hook that runs exactly once when a submitted job
+// reaches a terminal status (success, partial success, failure, cancellation).
+// Queued/running snapshots and interrupted-job recovery never trigger it.
+func (o *Orchestrator) SetOnJobComplete(onComplete func(models.JobResultV1)) {
+	o.mu.Lock()
+	o.onJobComplete = onComplete
+	o.mu.Unlock()
+}
+
+// completionCallback reads the current hook at completion time so a hook set
+// after submission still receives the terminal result.
+func (o *Orchestrator) completionCallback() func(models.JobResultV1) {
+	return func(result models.JobResultV1) {
+		o.mu.RLock()
+		onComplete := o.onJobComplete
+		o.mu.RUnlock()
+
+		if onComplete != nil {
+			onComplete(result)
+		}
+	}
 }
 
 func (o *Orchestrator) RecoverInterruptedJobs() error {
@@ -130,6 +154,7 @@ func (o *Orchestrator) Submit(ctx context.Context, req models.JobRequestV1) (mod
 		cancel:          cancel,
 		onProgressEvent: o.onProgress,
 		onStateChanged:  o.persistJobsSnapshot,
+		onComplete:      o.completionCallback(),
 		result: models.JobResultV1{
 			JobID:     jobID,
 			Success:   false,

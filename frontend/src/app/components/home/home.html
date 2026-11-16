@@ -125,6 +125,49 @@
     </aside>
   }
 
+  @if (showRecipes()) {
+    <section class="home-recipes" aria-labelledby="home-recipes-title">
+      <div class="section-head">
+        <div>
+          <h2 id="home-recipes-title" class="section-title">Recipes</h2>
+          <p class="home-recipes-sub">Outcomes, not one tool at a time.</p>
+        </div>
+      </div>
+
+      <div class="home-recipe-list">
+        @for (recipe of recipes; track recipe.id) {
+          <a class="tool-card home-recipe-card" [routerLink]="recipe.route">
+            <span class="home-recipe-top">
+              <span class="tool-icon" data-tone="pdf" aria-hidden="true">
+                <lucide-icon [img]="recipe.icon" [size]="18" [strokeWidth]="1.75"></lucide-icon>
+              </span>
+              <span class="badge badge-neutral">{{ recipe.inputLabel }}</span>
+            </span>
+            <span class="home-recipe-name">{{ recipe.name }}</span>
+            <span class="home-recipe-desc">{{ recipe.description }}</span>
+            <span class="home-recipe-meta mono">{{ recipe.highlights.join(' · ') }}</span>
+            <span class="home-recipe-foot">
+              <span class="home-recipe-formats">
+                @for (format of recipe.formats; track format) {
+                  <span class="chip home-format-chip">{{ format }}</span>
+                }
+              </span>
+              <span class="home-recipe-cta">
+                Use recipe
+                <lucide-icon
+                  [img]="arrowIcon"
+                  [size]="13"
+                  [strokeWidth]="2"
+                  aria-hidden="true"
+                ></lucide-icon>
+              </span>
+            </span>
+          </a>
+        }
+      </div>
+    </section>
+  }
+
   @if (showRecent()) {
     <section class="home-recent" aria-labelledby="home-recent-title">
       <div class="section-head">
