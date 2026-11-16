@@ -263,6 +263,84 @@
   color: var(--muted);
 }
 
+/* ---- Recipes ------------------------------------------------------------- */
+
+.home-recipes {
+  margin-top: 34px;
+}
+
+.home-recipes-sub {
+  margin: 4px 0 0;
+  font-size: 0.78125rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.home-recipe-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.home-recipe-card {
+  min-height: 0;
+  gap: 0;
+}
+
+.home-recipe-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.home-recipe-name {
+  margin-top: 14px;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.home-recipe-desc {
+  margin-top: 5px;
+  font-size: 0.78125rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.home-recipe-meta {
+  margin-top: 8px;
+  font-size: 0.59375rem;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+.home-recipe-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.home-recipe-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.home-recipe-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 /* ---- Tool index ---------------------------------------------------------- */
 
 .home-tools {

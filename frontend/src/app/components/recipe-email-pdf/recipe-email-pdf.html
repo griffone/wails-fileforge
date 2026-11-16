@@ -1,0 +1,255 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">RECIPE</p>
+        <h1 class="page-title">Email <em>PDF</em></h1>
+        <p class="page-sub">
+          Merge and compress your PDFs into one file that fits your email limit.
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        Local · Verified · Undoable
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    @if (notice(); as message) {
+      <div class="banner banner-warning" role="alert">
+        <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+        <span>{{ message }}</span>
+      </div>
+    }
+
+    <section class="panel" aria-labelledby="recipe-input-title">
+      <div class="panel-head">
+        <div>
+          <h2 id="recipe-input-title" class="panel-title">PDFs</h2>
+          <p class="panel-sub">Add one or more PDFs. They merge in the order shown.</p>
+        </div>
+        <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+      </div>
+
+      <div class="panel-body">
+        <app-file-drop
+          accept=".pdf,application/pdf"
+          title="Drop PDFs here"
+          hint="PDF files only · merged in order"
+          ariaLabel="Drop or choose PDFs for the Email PDF recipe"
+          [multiple]="true"
+          [nativePicker]="true"
+          (pathsSelected)="onPathsSelected($event)"
+          (browseRequested)="chooseFiles()"
+        ></app-file-drop>
+
+        <div class="toolbar" role="group" aria-label="PDF selection actions">
+          <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+            <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            Choose PDFs
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm toolbar-end"
+            [disabled]="selectedPaths().length === 0"
+            (click)="clear()"
+          >
+            <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            Clear
+          </button>
+        </div>
+
+        @if (fileItems().length > 0) {
+          <p class="order-hint">The order below is the merge order.</p>
+
+          <app-file-queue
+            [items]="fileItems()"
+            [reorderable]="true"
+            (remove)="removeFile($event)"
+            (moveUp)="moveUp($event)"
+            (moveDown)="moveDown($event)"
+          ></app-file-queue>
+        }
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="recipe-settings-title">
+      <div class="panel-head">
+        <div>
+          <h2 id="recipe-settings-title" class="panel-title">Settings</h2>
+          <p class="panel-sub">Set the email limit and where the result is saved.</p>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <div class="settings-grid">
+          <div class="field">
+            <label class="label" for="recipe-target-mb">Target size</label>
+            <div class="input-suffix">
+              <input
+                id="recipe-target-mb"
+                class="input"
+                type="number"
+                min="0.1"
+                step="0.5"
+                inputmode="decimal"
+                autocomplete="off"
+                aria-describedby="recipe-target-help"
+                [attr.aria-invalid]="targetInvalid() ? 'true' : null"
+                [value]="targetText()"
+                (input)="onTargetInput($event)"
+              />
+              <span class="input-suffix-label mono" aria-hidden="true">MB</span>
+            </div>
+            @if (targetInvalid()) {
+              <p id="recipe-target-help" class="field-help field-error" role="alert">
+                Enter a target size larger than 0 MB.
+              </p>
+            } @else {
+              <p id="recipe-target-help" class="field-help">
+                Best effort: the recipe compresses as far as the PDF allows.
+              </p>
+            }
+          </div>
+
+          <div class="field">
+            <span class="label">Output folder</span>
+            <div class="destination">
+              <span class="destination-path mono" [title]="destinationLabel()">{{ destinationLabel() }}</span>
+              <button type="button" class="btn btn-secondary btn-sm" (click)="chooseOutputFolder()">
+                <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Choose folder
+              </button>
+            </div>
+            @if (isDefaultDestination()) {
+              <p class="field-help">The result is saved next to the first PDF.</p>
+            } @else {
+              <button type="button" class="btn btn-ghost btn-sm settings-reset" (click)="useFirstPdfFolder()">
+                Use first PDF's folder
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="recipe-steps-title">
+      <div class="panel-head">
+        <div>
+          <h2 id="recipe-steps-title" class="panel-title">Steps</h2>
+          <p class="panel-sub">The recipe runs these tools in order.</p>
+        </div>
+        <span class="badge badge-neutral">{{ steps().length }} steps</span>
+      </div>
+
+      <div class="panel-body">
+        <ol class="recipe-steps" aria-label="Recipe steps">
+          @for (step of steps(); track step.id; let i = $index) {
+            <li class="recipe-step" [attr.data-state]="step.state">
+              <span class="recipe-step-index mono" aria-hidden="true">{{ i + 1 }}</span>
+              <span
+                class="status-dot recipe-step-dot"
+                [attr.data-state]="stepDotState(step.state)"
+                [attr.data-pulse]="step.state === 'running'"
+                aria-hidden="true"
+              ></span>
+              <span class="recipe-step-copy">
+                <span class="recipe-step-name">{{ step.name }}</span>
+                @if (step.message) {
+                  <span class="recipe-step-message">{{ step.message }}</span>
+                }
+              </span>
+              <span class="recipe-step-status mono">{{ stepStateLabel(step.state) }}</span>
+            </li>
+          }
+        </ol>
+      </div>
+    </section>
+
+    <app-output-plan-card
+      [plan]="plan()"
+      [loading]="planLoading()"
+      [destinationLabel]="destinationLabel()"
+      [isDefaultDestination]="isDefaultDestination()"
+      (changeDestination)="chooseOutputFolder()"
+    ></app-output-plan-card>
+
+    <section class="panel action-panel" aria-label="Create the email PDF">
+      <div class="panel-body">
+        @if (isRunning()) {
+          <div class="recipe-progress" role="status" aria-live="polite">
+            <div class="recipe-progress-head">
+              <span>{{ progressLabel() }}</span>
+              <span class="mono">{{ progressPercent() }}%</span>
+            </div>
+            <div
+              class="progress"
+              role="progressbar"
+              aria-label="Recipe progress"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              [attr.aria-valuenow]="progressPercent()"
+              [attr.aria-valuetext]="progressPercent() + '%'"
+            >
+              <div class="progress-fill" [style.width.%]="progressPercent()"></div>
+            </div>
+            @if (activeStepMessage(); as message) {
+              <p class="recipe-progress-message">{{ message }}</p>
+            }
+          </div>
+        }
+
+        @if (runErrorCopy(); as error) {
+          <div class="banner banner-danger error-banner" role="alert">
+            <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            <div class="banner-copy">
+              <strong>{{ error.title }}</strong>
+              <span>{{ error.description }}</span>
+            </div>
+          </div>
+        }
+
+        @if (actionHelper(); as helper) {
+          <p class="action-helper">{{ helper }}</p>
+        }
+
+        <div class="action-row">
+          <button
+            type="button"
+            class="btn btn-primary btn-lg action-primary"
+            [disabled]="!canRun()"
+            (click)="run()"
+          >
+            {{ primaryLabel() }}
+          </button>
+
+          @if (isRunning()) {
+            <button
+              type="button"
+              class="btn btn-ghost"
+              [disabled]="cancelRequested()"
+              (click)="cancel()"
+            >
+              {{ cancelRequested() ? 'Cancelling…' : 'Cancel' }}
+            </button>
+          }
+        </div>
+      </div>
+    </section>
+
+    @if (resultJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [verification]="verification()"
+        [recordRecent]="false"
+        toolLabel="PDF"
+        verbPast="prepared"
+        (open)="openPath($event)"
+        (reveal)="revealInFolder($event)"
+        (reset)="resetRun()"
+      ></app-result-card>
+    }
+  </div>
+</div>
