@@ -1,0 +1,514 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">SYSTEM</p>
+        <h1 class="page-title">Local <em>Automations</em></h1>
+        <p class="page-sub">
+          Watch a folder and run a recipe whenever a matching file arrives.
+          Everything stays on this machine.
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon
+          [img]="shieldIcon"
+          [size]="12"
+          [strokeWidth]="2"
+          aria-hidden="true"
+        ></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    @if (errorMessage(); as message) {
+      <div class="banner banner-danger" role="alert">
+        <lucide-icon
+          [img]="alertIcon"
+          [size]="16"
+          [strokeWidth]="1.75"
+          aria-hidden="true"
+        ></lucide-icon>
+        <span>{{ message }}</span>
+      </div>
+    }
+
+    @if (actionMessage(); as message) {
+      <div
+        [class]="'banner banner-' + message.tone"
+        role="status"
+        aria-live="polite"
+      >
+        <lucide-icon
+          [img]="message.tone === 'success' ? shieldIcon : alertIcon"
+          [size]="16"
+          [strokeWidth]="1.75"
+          aria-hidden="true"
+        ></lucide-icon>
+        <span>{{ message.text }}</span>
+      </div>
+    }
+
+    <section
+      class="panel automation-summary"
+      aria-labelledby="automation-summary-title"
+    >
+      <div class="panel-head">
+        <div>
+          <h2 id="automation-summary-title" class="panel-title">Folder rules</h2>
+          <p class="panel-sub">One recipe run per arriving file.</p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-primary btn-sm automation-new-rule"
+          (click)="openCreateForm()"
+        >
+          <lucide-icon
+            [img]="plusIcon"
+            [size]="14"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+          New rule
+        </button>
+      </div>
+
+      <div class="panel-body automation-summary-body">
+        <div class="automation-stat">
+          <span class="automation-stat-value mono">{{ totalRuleCount() }}</span>
+          <span class="automation-stat-label">Total rules</span>
+        </div>
+
+        <div class="automation-stat">
+          <span class="automation-stat-value mono">{{ activeRuleCount() }}</span>
+          <span class="automation-stat-label">Active rules</span>
+        </div>
+
+        <div class="automation-stat automation-stat-last">
+          @if (lastRun(); as run) {
+            <span class="automation-stat-value">{{ relativeTime(run.at) }}</span>
+            <span class="automation-stat-label">
+              <span [class]="statusBadgeClass(run.status)">{{
+                statusLabel(run.status)
+              }}</span>
+              Last run
+            </span>
+          } @else {
+            <span class="automation-stat-value automation-stat-empty">
+              No runs yet
+            </span>
+            <span class="automation-stat-label">Last run</span>
+          }
+        </div>
+      </div>
+    </section>
+
+    @if (loading()) {
+      <section class="panel">
+        <div class="panel-body automation-loading" role="status" aria-live="polite">
+          Loading automation rules…
+        </div>
+      </section>
+    }
+
+    @if (formOpen()) {
+      <section
+        class="panel automation-form"
+        aria-labelledby="automation-form-title"
+      >
+        <div class="panel-head">
+          <div>
+            <h2 id="automation-form-title" class="panel-title">
+              {{ editingId() ? 'Edit rule' : 'New rule' }}
+            </h2>
+            <p class="panel-sub">
+              A file in the watch folder runs the recipe once.
+            </p>
+          </div>
+          <span class="badge badge-neutral">{{
+            editingId() ? 'Editing' : 'Draft'
+          }}</span>
+        </div>
+
+        <form
+          class="panel-body automation-form-body"
+          novalidate
+          (submit)="$event.preventDefault(); save()"
+        >
+          <div class="field">
+            <label class="label" for="automation-name">Name</label>
+            <input
+              id="automation-name"
+              class="input"
+              type="text"
+              autocomplete="off"
+              placeholder="Inbox PDFs"
+              [value]="formName()"
+              [attr.aria-invalid]="nameInvalid() ? 'true' : null"
+              [attr.aria-describedby]="
+                nameInvalid() ? 'automation-form-error' : null
+              "
+              (input)="onNameInput($event)"
+            />
+            @if (nameInvalid()) {
+              <p class="field-help field-error">Give the rule a name.</p>
+            }
+          </div>
+
+          <div class="field">
+            <span class="label">Watch folder</span>
+            <div class="automation-path-row">
+              <span
+                class="automation-path mono"
+                [class.is-empty]="!formWatchDir()"
+                [title]="formWatchDir()"
+              >
+                {{ formWatchDir() || 'No folder chosen' }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm automation-watch-folder"
+                (click)="chooseWatchFolder()"
+              >
+                <lucide-icon
+                  [img]="folderIcon"
+                  [size]="14"
+                  [strokeWidth]="1.75"
+                  aria-hidden="true"
+                ></lucide-icon>
+                Choose folder
+              </button>
+            </div>
+            <p class="field-help">New files in this folder are processed automatically.</p>
+            @if (watchDirInvalid()) {
+              <p class="field-help field-error">Choose a folder to watch.</p>
+            }
+          </div>
+
+          <div class="field">
+            <label class="label" for="automation-recipe">Recipe</label>
+            <select
+              id="automation-recipe"
+              class="select"
+              (change)="onRecipeChange($event)"
+            >
+              <option value="" [selected]="formRecipeId() === ''">
+                Choose a recipe
+              </option>
+              @for (recipe of recipes(); track recipe.id) {
+                <option
+                  [value]="recipe.id"
+                  [selected]="formRecipeId() === recipe.id"
+                >
+                  {{ recipe.name }}
+                </option>
+              }
+            </select>
+            @if (acceptedExtensionsHelp(); as help) {
+              <p class="field-help">Accepts {{ help }}.</p>
+            }
+            @if (recipeInvalid()) {
+              <p class="field-help field-error">Choose a recipe to run.</p>
+            }
+          </div>
+
+          <div class="field">
+            <label class="label" for="automation-extensions">Extensions</label>
+            <input
+              id="automation-extensions"
+              class="input mono"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              [placeholder]="extensionsPlaceholder()"
+              [value]="formExtensionsText()"
+              aria-describedby="automation-extensions-help"
+              (input)="onExtensionsInput($event)"
+            />
+            <p id="automation-extensions-help" class="field-help">
+              Comma-separated. Leave empty to use the recipe's accepted types.
+            </p>
+          </div>
+
+          <div class="field">
+            <span class="label">Output folder</span>
+            <div class="automation-path-row">
+              <span
+                class="automation-path mono"
+                [class.is-empty]="!formOutputDir()"
+                [title]="formOutputDir()"
+              >
+                {{ formOutputDir() || 'Next to the source' }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm automation-output-folder"
+                (click)="chooseOutputFolder()"
+              >
+                <lucide-icon
+                  [img]="folderIcon"
+                  [size]="14"
+                  [strokeWidth]="1.75"
+                  aria-hidden="true"
+                ></lucide-icon>
+                Choose folder
+              </button>
+              @if (formOutputDir()) {
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm automation-clear-output"
+                  (click)="clearOutputFolder()"
+                >
+                  Use the source folder
+                </button>
+              }
+            </div>
+            <p class="field-help">Leave empty to save next to the source.</p>
+          </div>
+
+          <div class="field">
+            <label class="check-row" for="automation-enabled">
+              <input
+                id="automation-enabled"
+                type="checkbox"
+                [checked]="formEnabled()"
+                (change)="onEnabledToggle($event)"
+              />
+              Enabled
+            </label>
+          </div>
+
+          <div class="field">
+            <label class="check-row" for="automation-delete-source">
+              <input
+                id="automation-delete-source"
+                type="checkbox"
+                [checked]="formDeleteSource()"
+                (change)="onDeleteSourceToggle($event)"
+              />
+              Delete source after success
+            </label>
+            <p class="field-help field-warning">
+              Deletes the source file after a successful run. This cannot be
+              undone.
+            </p>
+          </div>
+
+          @if (formError(); as message) {
+            <p
+              id="automation-form-error"
+              class="field-error automation-form-error"
+              role="alert"
+            >
+              {{ message }}
+            </p>
+          }
+
+          <div class="actions automation-form-actions">
+            <button
+              type="submit"
+              class="btn btn-primary automation-save"
+              [disabled]="saving()"
+            >
+              {{ saving() ? 'Saving…' : editingId() ? 'Save changes' : 'Create rule' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost automation-cancel"
+              [disabled]="saving()"
+              (click)="closeForm()"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </section>
+    }
+
+    @if (!loading() && rules().length === 0 && !formOpen()) {
+      <div class="empty-state automation-empty">
+        <lucide-icon
+          [img]="workflowIcon"
+          [size]="22"
+          [strokeWidth]="1.5"
+          aria-hidden="true"
+        ></lucide-icon>
+        <strong>No folder rules yet</strong>
+        <p>
+          Watch a folder and FileForge runs the recipe whenever a file lands in
+          it. Nothing leaves this machine.
+        </p>
+        <button
+          type="button"
+          class="btn btn-primary empty-state-action"
+          (click)="openCreateForm()"
+        >
+          Create your first rule
+        </button>
+      </div>
+    }
+
+    @for (rule of rules(); track rule.id) {
+      <section
+        class="panel automation-rule"
+        [attr.aria-labelledby]="'automation-rule-title-' + rule.id"
+      >
+        <div class="panel-head automation-rule-head">
+          <div class="automation-rule-title">
+            <h2
+              [id]="'automation-rule-title-' + rule.id"
+              class="panel-title"
+            >
+              {{ rule.name }}
+            </h2>
+            <span [class]="runtimeBadgeClass(rule)">
+              <span
+                class="status-dot"
+                [attr.data-state]="runtimeDotState(rule)"
+                aria-hidden="true"
+              ></span>
+              {{ runtimeLabel(rule) }}
+            </span>
+          </div>
+
+          <div class="automation-rule-actions">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm automation-toggle"
+              [attr.aria-pressed]="rule.enabled"
+              [attr.aria-label]="
+                (rule.enabled ? 'Disable ' : 'Enable ') + rule.name
+              "
+              [disabled]="saving()"
+              (click)="toggleRule(rule)"
+            >
+              {{ rule.enabled ? 'Disable' : 'Enable' }}
+            </button>
+            <button
+              type="button"
+              class="icon-btn automation-edit"
+              [attr.aria-label]="'Edit ' + rule.name"
+              (click)="openEditForm(rule)"
+            >
+              <lucide-icon
+                [img]="editIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+            </button>
+            <button
+              type="button"
+              class="icon-btn automation-delete"
+              [attr.aria-label]="'Delete ' + rule.name"
+              (click)="requestDelete(rule)"
+            >
+              <lucide-icon
+                [img]="trashIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+            </button>
+          </div>
+        </div>
+
+        <div class="panel-body automation-rule-body">
+          @if (rule.runtimeStatus === 'degraded' && rule.runtimeReason) {
+            <div class="banner banner-danger" role="alert">
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span>{{ rule.runtimeReason }}</span>
+            </div>
+          }
+
+          <dl class="automation-meta">
+            <div class="automation-meta-row">
+              <dt>Watch folder</dt>
+              <dd class="mono" [title]="rule.watchDir">{{ rule.watchDir }}</dd>
+            </div>
+            <div class="automation-meta-row">
+              <dt>Recipe</dt>
+              <dd>{{ recipeName(rule) }}</dd>
+            </div>
+            <div class="automation-meta-row">
+              <dt>Output folder</dt>
+              <dd class="mono">{{ outputFolderLabel(rule) }}</dd>
+            </div>
+            <div class="automation-meta-row">
+              <dt>Extensions</dt>
+              <dd class="mono">{{ extensionsLabel(rule) }}</dd>
+            </div>
+          </dl>
+
+          <div class="automation-last">
+            <div class="automation-last-head">
+              <span class="automation-last-label mono">Last run</span>
+              @if (rule.lastRunAt) {
+                <span class="automation-last-time mono">{{
+                  relativeTime(rule.lastRunAt)
+                }}</span>
+                <span [class]="statusBadgeClass(rule.lastStatus)">{{
+                  statusLabel(rule.lastStatus)
+                }}</span>
+              } @else {
+                <span class="automation-last-time mono">Never</span>
+              }
+            </div>
+
+            @if (rule.lastFile) {
+              <p class="automation-last-file mono" [title]="rule.lastFile">
+                {{ rule.lastFile }}
+              </p>
+            }
+
+            @if (rule.lastMessage) {
+              <p class="automation-last-message">{{ rule.lastMessage }}</p>
+            }
+
+            @if (outputNames(rule).length > 0) {
+              <ul class="automation-outputs" aria-label="Last outputs">
+                @for (name of outputNames(rule); track name) {
+                  <li class="automation-output mono">{{ name }}</li>
+                }
+              </ul>
+            }
+          </div>
+
+          @if (confirmDeleteId() === rule.id) {
+            <div
+              class="automation-confirm"
+              role="group"
+              aria-label="Confirm delete"
+            >
+              <span class="automation-confirm-text">
+                Delete “{{ rule.name }}”?
+              </span>
+              <button
+                type="button"
+                class="btn btn-danger btn-sm automation-confirm-delete"
+                [disabled]="saving()"
+                (click)="deleteRule(rule)"
+              >
+                Confirm delete
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm automation-confirm-cancel"
+                (click)="cancelDelete()"
+              >
+                Cancel
+              </button>
+            </div>
+          }
+        </div>
+      </section>
+    }
+  </div>
+</div>

@@ -15,11 +15,11 @@ describe('ToolRegistryService', () => {
     expect(service.tools.length).toBe(12);
   });
 
-  it('exposes fifteen navigation entries', () => {
-    expect(service.navigation.length).toBe(15);
+  it('exposes sixteen navigation entries', () => {
+    expect(service.navigation.length).toBe(16);
     expect(service.navigation[0].route).toBe('/');
     expect(service.navigation[service.navigation.length - 2].route).toBe(
-      '/tool-catalog',
+      '/automations',
     );
     expect(service.navigation[service.navigation.length - 1].route).toBe(
       '/settings',
@@ -38,6 +38,7 @@ describe('ToolRegistryService', () => {
     expect(service.findByRoute('/')?.name).toBe('Home');
     expect(service.findByRoute('/image-converter')?.name).toBe('Image Convert');
     expect(service.findByRoute('/tool-catalog')?.name).toBe('System Status');
+    expect(service.findByRoute('/automations')?.name).toBe('Automations');
     expect(service.findByRoute('/settings')?.name).toBe('Settings');
     expect(service.findByRoute('/unknown-route')).toBeNull();
     expect(service.findByRoute(undefined)).toBeNull();
@@ -52,11 +53,13 @@ describe('ToolRegistryService', () => {
   it('only treats conversion entries as tools', () => {
     const home = service.findByRoute('/');
     const system = service.findByRoute('/tool-catalog');
+    const automations = service.findByRoute('/automations');
     const settings = service.findByRoute('/settings');
     const tool = service.findByRoute('/video-trim');
 
     expect(home && service.isTool(home)).toBeFalse();
     expect(system && service.isTool(system)).toBeFalse();
+    expect(automations && service.isTool(automations)).toBeFalse();
     expect(settings && service.isTool(settings)).toBeFalse();
     expect(tool && service.isTool(tool)).toBeTrue();
   });

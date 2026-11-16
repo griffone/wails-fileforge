@@ -445,6 +445,65 @@ export interface RecipeProgressEventV1 {
   percent: number;
 }
 
+/**
+ * One watch-folder rule. `runtimeStatus`/`runtimeReason` are response-only
+ * dynamic state: the backend never persists them.
+ */
+export interface AutomationRuleV1 {
+  id: string;
+  name: string;
+  enabled: boolean;
+  watchDir: string;
+  recipeId: string;
+  extensions?: string[];
+  outputDir?: string;
+  options?: Record<string, unknown>;
+  deleteSource?: boolean;
+  createdAt: number;
+  updatedAt?: number;
+  lastRunAt?: number;
+  lastStatus?: string;
+  lastMessage?: string;
+  lastFile?: string;
+  lastOutputs?: string[];
+  runtimeStatus?: string;
+  runtimeReason?: string;
+}
+
+export interface ListAutomationRulesResponseV1 {
+  success: boolean;
+  message: string;
+  rules: AutomationRuleV1[];
+}
+
+export interface AutomationRuleActionResponseV1 {
+  success: boolean;
+  message: string;
+  rule?: AutomationRuleV1;
+  error?: JobErrorV1;
+}
+
+export interface AutomationStatusResponseV1 {
+  success: boolean;
+  message: string;
+  totalRules: number;
+  activeRules: number;
+  lastRunAt?: number;
+  lastStatus?: string;
+  lastMessage?: string;
+  lastFile?: string;
+}
+
+export interface AutomationRunEventV1 {
+  ruleId: string;
+  ruleName: string;
+  filePath: string;
+  status: string;
+  message: string;
+  outputs?: string[];
+  at: number;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -468,6 +527,14 @@ export class Wails {
     null;
   private recipeProgressUnsubscribe: (() => void) | null = null;
   private recipeProgressRefCount = 0;
+
+  // Automation run events follow the same lazy lifecycle as recipe progress.
+  // A rule can run more than one file over time, so consumers filter by ruleId
+  // and must tolerate a stale replayed event.
+  private automationRunSubject: ReplaySubject<AutomationRunEventV1> | null =
+    null;
+  private automationRunUnsubscribe: (() => void) | null = null;
+  private automationRunRefCount = 0;
 
   // Bounded thumbnail cache: key is `${path}:${size}`, value is a data URL or
   // null when the preview could not be produced (browser dev mode, bad file).
@@ -508,6 +575,30 @@ export class Wails {
       const unregister = this.ensureRecipeProgressRegistered();
 
       const sub = this.recipeProgressSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    });
+
+  // Same contract as recipeProgress$ for the automation/run/v1 stream: the
+  // native handler only lives while at least one consumer is subscribed and
+  // the last event is replayed to late subscribers. The replayed event may
+  // belong to another rule, so consumers filter by ruleId.
+  public readonly automationRun$: Observable<AutomationRunEventV1> =
+    new Observable((subscriber) => {
+      const unregister = this.ensureAutomationRunRegistered();
+
+      const sub = this.automationRunSubject!.subscribe({
         next: (v) => subscriber.next(v),
         error: (e) => subscriber.error(e),
         complete: () => subscriber.complete(),
@@ -900,6 +991,86 @@ export class Wails {
     }
   }
 
+  async listAutomationRulesV1(): Promise<ListAutomationRulesResponseV1> {
+    try {
+      return await this.callByID(3321976981);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('List automation rules failed', error),
+        rules: [],
+      };
+    }
+  }
+
+  async saveAutomationRuleV1(
+    rule: AutomationRuleV1,
+  ): Promise<AutomationRuleActionResponseV1> {
+    try {
+      return await this.callByID(3106325659, rule);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Save automation rule failed', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'AUTOMATION_RULE_SAVE_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async deleteAutomationRuleV1(
+    id: string,
+  ): Promise<AutomationRuleActionResponseV1> {
+    try {
+      return await this.callByID(873633805, id);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Delete automation rule failed', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'AUTOMATION_RULE_DELETE_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async setAutomationRuleEnabledV1(
+    id: string,
+    enabled: boolean,
+  ): Promise<AutomationRuleActionResponseV1> {
+    try {
+      return await this.callByID(524410001, id, enabled);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Update automation rule failed', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'AUTOMATION_RULE_UPDATE_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async getAutomationStatusV1(): Promise<AutomationStatusResponseV1> {
+    try {
+      return await this.callByID(2297309282);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get automation status failed', error),
+        totalRules: 0,
+        activeRules: 0,
+      };
+    }
+  }
+
   async openPath(path: string): Promise<PathActionResponseV1> {
     try {
       return await this.callByID(12694641, path);
@@ -1079,6 +1250,24 @@ export class Wails {
     };
   }
 
+  subscribeAutomationRunV1(
+    callback: (event: AutomationRunEventV1) => void,
+  ): () => void {
+    const unregister = this.ensureAutomationRunRegistered();
+
+    const subscription: Subscription =
+      this.automationRunSubject!.subscribe(callback);
+
+    return () => {
+      try {
+        subscription.unsubscribe();
+      } catch {
+        // ignore
+      }
+      unregister();
+    };
+  }
+
   // Ensure the replay subject exists and the native Events.On handler is
   // registered. Increments an internal refcount and returns an unregister
   // function that should be called when the consumer unsubscribes.
@@ -1203,6 +1392,76 @@ export class Wails {
         }
         this.recipeProgressSubject = null;
         this.recipeProgressRefCount = 0;
+      }
+    };
+  }
+
+  // Ensure the automation replay subject exists and the native event handler
+  // is registered. Mirrors ensureRecipeProgressRegistered; the event stream
+  // only requires a rule id and a status string to be usable.
+  private ensureAutomationRunRegistered(): () => void {
+    if (!this.automationRunSubject) {
+      this.automationRunSubject = new ReplaySubject<AutomationRunEventV1>(1);
+      this.automationRunUnsubscribe = Events.On(
+        'automation/run/v1',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<AutomationRunEventV1>;
+          if (
+            typeof candidate.ruleId !== 'string' ||
+            candidate.ruleId.trim().length === 0 ||
+            typeof candidate.status !== 'string'
+          ) {
+            return;
+          }
+
+          this.automationRunSubject?.next({
+            ruleId: candidate.ruleId,
+            ruleName:
+              typeof candidate.ruleName === 'string' ? candidate.ruleName : '',
+            filePath:
+              typeof candidate.filePath === 'string' ? candidate.filePath : '',
+            status: candidate.status,
+            message:
+              typeof candidate.message === 'string' ? candidate.message : '',
+            outputs: Array.isArray(candidate.outputs)
+              ? candidate.outputs.filter(
+                  (output): output is string => typeof output === 'string',
+                )
+              : [],
+            at:
+              typeof candidate.at === 'number' &&
+              Number.isFinite(candidate.at) &&
+              candidate.at > 0
+                ? candidate.at
+                : 0,
+          });
+        },
+      );
+    }
+
+    this.automationRunRefCount += 1;
+
+    return () => {
+      this.automationRunRefCount -= 1;
+      if (this.automationRunRefCount <= 0) {
+        try {
+          this.automationRunUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.automationRunUnsubscribe = null;
+        try {
+          this.automationRunSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.automationRunSubject = null;
+        this.automationRunRefCount = 0;
       }
     };
   }

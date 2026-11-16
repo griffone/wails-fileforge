@@ -21,6 +21,7 @@ describe('Home', () => {
       'isRuntimeAvailable',
       'openPath',
       'revealInFolder',
+      'getAutomationStatusV1',
     ]);
     wailsSpy.listToolsV1.and.returnValue(
       Promise.resolve({ success: true, message: 'ok', tools: [] }),
@@ -28,6 +29,12 @@ describe('Home', () => {
     wailsSpy.isRuntimeAvailable.and.returnValue(false);
     wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
     wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+    wailsSpy.getAutomationStatusV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      totalRules: 0,
+      activeRules: 0,
+    });
 
     await TestBed.configureTestingModule({
       imports: [Home],
@@ -359,6 +366,41 @@ describe('Home', () => {
     typeQuery('pdf');
 
     expect(query('.home-recipes')).toBeNull();
+  });
+
+  it('shows folder rules with active count, last run and the manage link', async () => {
+    wailsSpy.getAutomationStatusV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      totalRules: 2,
+      activeRules: 1,
+      lastRunAt: Date.now() - 5 * 60_000,
+      lastStatus: 'failed',
+      lastMessage: 'Ghostscript is missing.',
+      lastFile: '/tmp/in/a.pdf',
+    });
+
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const section = query<HTMLElement>('.home-automation');
+    expect(section).not.toBeNull();
+    expect(section?.textContent).toContain('1 of 2 rules active');
+    expect(section?.textContent).toContain('5 min ago');
+    expect(section?.textContent).toContain('Failed');
+    expect(section?.querySelector('a')?.getAttribute('href')).toBe(
+      '/automations',
+    );
+    expect(cardNames().length).toBe(12);
+  });
+
+  it('hides the folder-rule card when there are no rules', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(query('.home-automation')).toBeNull();
   });
 
   it('hides the recent conversions section when the history is empty', () => {

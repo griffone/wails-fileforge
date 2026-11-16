@@ -15,6 +15,7 @@ import {
   Settings2,
   Timer,
   Video,
+  Workflow,
   type LucideIconData,
 } from 'lucide-angular';
 
@@ -94,6 +95,18 @@ export const SETTINGS_TOOL: ToolDefinition = {
   icon: Settings2,
   formats: [],
   keywords: ['settings', 'preferences', 'output folder', 'theme', 'history'],
+};
+
+export const AUTOMATION_TOOL: ToolDefinition = {
+  id: 'system.automations',
+  name: 'Automations',
+  navName: 'Automations',
+  description: 'Watch a folder and run a recipe when a file arrives.',
+  route: '/automations',
+  category: 'system',
+  icon: Workflow,
+  formats: [],
+  keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
 /** The twelve conversion tools. Ids mirror the backend toolId contract. */
@@ -250,11 +263,12 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status and Settings: the full 15-entry navigation model. */
+/** Home, every tool, then System Status, Automations and Settings: the full 16-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,
   SYSTEM_TOOL,
+  AUTOMATION_TOOL,
   SETTINGS_TOOL,
 ];
 
