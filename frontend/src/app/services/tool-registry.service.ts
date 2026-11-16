@@ -25,10 +25,10 @@ import {
   providedIn: 'root',
 })
 export class ToolRegistryService {
-  /** The eleven conversion tools, without Home or System Status. */
+  /** The twelve conversion tools, without Home or System Status. */
   readonly tools: readonly ToolDefinition[] = TOOLS;
 
-  /** Home + eleven tools + System Status + Settings (14 entries). */
+  /** Home + twelve tools + System Status + Settings (15 entries). */
   readonly navigation: readonly ToolDefinition[] = NAVIGATION;
 
   /** Navigation grouped for the sidebar rail. */

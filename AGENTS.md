@@ -11,7 +11,7 @@ Wails-specific IPC patterns, and important gotchas. Read it before making change
 - Go version: 1.25, module name: `fileforge-desktop`
 - Wails: v3.0.0-alpha.74 (ALPHA — APIs may change)
 - Frontend: Angular v21, standalone components, TypeScript strict
-- Product: one local-first workbench with 11 tools (image, PDF, documents, video)
+- Product: one local-first workbench with 12 tools (image, PDF, documents, video)
 - Key Go deps: `github.com/h2non/bimg`, `github.com/wailsapp/wails/v3`
 - Key frontend deps: `@wailsio/runtime`, `@angular/*` v21, `lucide-angular`, `rxjs`, `@fontsource/*`
 - UI: token-based design system in `frontend/src/styles.css`; dark/light themes; command palette

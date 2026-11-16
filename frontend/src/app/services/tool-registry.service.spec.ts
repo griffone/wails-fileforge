@@ -11,12 +11,12 @@ describe('ToolRegistryService', () => {
     service = TestBed.inject(ToolRegistryService);
   });
 
-  it('exposes the eleven conversion tools', () => {
-    expect(service.tools.length).toBe(11);
+  it('exposes the twelve conversion tools', () => {
+    expect(service.tools.length).toBe(12);
   });
 
-  it('exposes fourteen navigation entries', () => {
-    expect(service.navigation.length).toBe(14);
+  it('exposes fifteen navigation entries', () => {
+    expect(service.navigation.length).toBe(15);
     expect(service.navigation[0].route).toBe('/');
     expect(service.navigation[service.navigation.length - 2].route).toBe(
       '/tool-catalog',

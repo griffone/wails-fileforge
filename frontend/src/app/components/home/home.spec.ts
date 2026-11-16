@@ -249,7 +249,7 @@ describe('Home', () => {
   it('renders every workbench tool by default', () => {
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(11);
+    expect(cardNames().length).toBe(12);
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -269,6 +269,22 @@ describe('Home', () => {
 
     expect(cardNames().length).toBe(3);
     expect(filterChip('Image').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('shows the four PDF tools under the PDF category', () => {
+    fixture.detectChanges();
+
+    expect(component.categoryCounts()['pdf']).toBe(4);
+
+    filterChip('PDF').click();
+    fixture.detectChanges();
+
+    expect(cardNames()).toEqual([
+      'PDF Merge',
+      'PDF Split',
+      'PDF Crop',
+      'PDF Optimize',
+    ]);
   });
 
   it('opens the first filtered tool when Enter is pressed', () => {
@@ -294,7 +310,7 @@ describe('Home', () => {
     (fixture.nativeElement.querySelector('.empty-state-action') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(11);
+    expect(cardNames().length).toBe(12);
     expect(searchInput().value).toBe('');
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });

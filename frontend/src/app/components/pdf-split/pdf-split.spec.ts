@@ -336,10 +336,16 @@ describe('PdfSplit', () => {
     const presets = Array.from(
       fixture.nativeElement.querySelectorAll('.strategy-card'),
     ) as HTMLElement[];
-    expect(presets.length).toBe(3);
+    expect(presets.length).toBe(5);
     expect(presets[2].textContent).toContain('Selected pages');
     expect(presets[2].textContent).toContain(
       'Pick pages; consecutive ones group together',
+    );
+    expect(presets[3].textContent).toContain('Pages per file');
+    expect(presets[3].textContent).toContain('Split every N pages.');
+    expect(presets[4].textContent).toContain('Bookmarks');
+    expect(presets[4].textContent).toContain(
+      'One file per top-level bookmark.',
     );
 
     component.selectStrategy('selected');
@@ -353,6 +359,136 @@ describe('PdfSplit', () => {
     expect(preview.strategy).toBe('selected');
     expect(preview.selectable).toBeTrue();
     expect(component.activeStrategyLabel()).toBe('Selected pages');
+  }));
+
+  it('plans pages per file with the default chunk size of 5', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('pages_per_file');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    let request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['strategy']).toBe('pages_per_file');
+    expect(request.options['pagesPerFile']).toBe(5);
+    expect(request.options['ranges']).toBeUndefined();
+    expect(component.pagesPerFileInvalid()).toBeFalse();
+    expect(component.canRun()).toBeTrue();
+    expect(component.primaryLabel()).toBe('Split 1 PDF into 3 parts');
+
+    const preview = fixture.debugElement.query(By.directive(PdfSplitPreview))
+      .componentInstance as PdfSplitPreview;
+    expect(preview.strategy).toBe('pages_per_file');
+    expect(preview.pagesPerFile).toBe(5);
+
+    component.onPagesPerFileInput({
+      target: { value: '12' },
+    } as unknown as Event);
+    tick(250);
+    flushMicrotasks();
+
+    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(request.options['pagesPerFile']).toBe(12);
+  }));
+
+  it('blocks the action and clears the plan for invalid chunk sizes', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('pages_per_file');
+    flushMicrotasks();
+
+    component.onPagesPerFileInput({
+      target: { value: '0' },
+    } as unknown as Event);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.pagesPerFileInvalid()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+    expect(component.plan()).toBeNull();
+    expect(component.actionHelper()).toBe(
+      'Enter a whole number of pages from 1 to 1000.',
+    );
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeTrue();
+
+    component.onPagesPerFileInput({
+      target: { value: '1001' },
+    } as unknown as Event);
+    tick(250);
+    flushMicrotasks();
+
+    expect(component.pagesPerFileInvalid()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+  }));
+
+  it('plans bookmarks without extra split options', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('bookmarks');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.mode).toBe('batch');
+    expect(request.options['strategy']).toBe('bookmarks');
+    expect(request.options['pagesPerFile']).toBeUndefined();
+    expect(request.options['ranges']).toBeUndefined();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain(
+      "Uses the PDF's top-level outline. If it has no bookmarks, the plan will explain what to do.",
+    );
+    expect(component.activeStrategyLabel()).toBe('Bookmarks');
+
+    const preview = fixture.debugElement.query(By.directive(PdfSplitPreview))
+      .componentInstance as PdfSplitPreview;
+    expect(preview.strategy).toBe('bookmarks');
+  }));
+
+  it('blocks the split when the PDF has no bookmarks', fakeAsync(() => {
+    wailsSpy.planJobV1.and.resolveTo({
+      success: false,
+      message: 'PDF has no bookmarks to split by',
+      outputs: [],
+      error: {
+        code: 'VALIDATION_INVALID_INPUT',
+        detail_code: 'PDF_SPLIT_NO_BOOKMARKS',
+        message: 'PDF has no bookmarks to split by',
+      },
+    });
+
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectStrategy('bookmarks');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.planBlocked()).toBeTrue();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('This PDF has no bookmarks.');
+    expect(text).toContain('Choose Every page');
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeTrue();
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
   }));
 
   it('groups consecutive picked pages into backend ranges', () => {
@@ -658,7 +794,7 @@ describe('PdfSplit', () => {
 
     const text = element.textContent as string;
     expect(text).toContain(
-      'Split PDFs into one file per page, explicit ranges or picked pages.',
+      'Split PDFs by page, explicit ranges, picked pages, page count or bookmarks.',
     );
     expect(text).not.toContain('Split preview');
 

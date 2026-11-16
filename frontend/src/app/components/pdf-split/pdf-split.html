@@ -5,7 +5,7 @@
         <p class="eyebrow">PDF</p>
         <h1 class="page-title">PDF <em>Split</em></h1>
         <p class="page-sub">
-          Split PDFs into one file per page, explicit ranges or picked pages. Everything runs on this machine.
+          Split PDFs by page, explicit ranges, picked pages, page count or bookmarks. Everything runs on this machine.
         </p>
       </div>
 
@@ -130,6 +130,40 @@
             </p>
           }
 
+          @if (isPagesPerFileStrategy()) {
+            <div class="field">
+              <label class="label" for="pdf-split-pages-per-file">Pages per file</label>
+              <input
+                id="pdf-split-pages-per-file"
+                class="input"
+                type="number"
+                inputmode="numeric"
+                min="1"
+                max="1000"
+                step="1"
+                autocomplete="off"
+                aria-describedby="pdf-split-pages-per-file-help"
+                [value]="pagesPerFileInput()"
+                (input)="onPagesPerFileInput($event)"
+              />
+              <p id="pdf-split-pages-per-file-help" class="field-help">
+                Split every {{ pagesPerFile() ?? 'N' }} pages into one file.
+                The last file may hold fewer pages.
+              </p>
+              @if (pagesPerFileInvalid()) {
+                <p class="field-error" role="alert">
+                  Enter a whole number from 1 to 1000.
+                </p>
+              }
+            </div>
+          }
+
+          @if (isBookmarksStrategy()) {
+            <p class="field-help">
+              Uses the PDF's top-level outline. If it has no bookmarks, the plan will explain what to do.
+            </p>
+          }
+
           <app-output-plan-card
             [plan]="plan()"
             [loading]="planLoading()"
@@ -193,6 +227,8 @@
             <p class="panel-sub">
               @if (isSelectedStrategy()) {
                 Pick pages; consecutive pages become one file.
+              } @else if (isBookmarksStrategy()) {
+                Bookmark output is listed in the plan above.
               } @else {
                 Preview every file the split will create.
               }
@@ -205,6 +241,7 @@
             [strategy]="strategy()"
             [ranges]="ranges()"
             [selectedPages]="selectedPages()"
+            [pagesPerFile]="pagesPerFile() ?? 5"
             [selectable]="isSelectedStrategy()"
             (selectedPagesChange)="onSelectedPagesChange($event)"
           ></app-pdf-split-preview>

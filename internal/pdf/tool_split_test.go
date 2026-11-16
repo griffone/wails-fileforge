@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 
 	"fileforge-desktop/internal/models"
 )
@@ -40,6 +41,17 @@ func writePDFFixture(t *testing.T, path string) {
 
 	if err := api.ImportImagesFile([]string{pngPath}, path, nil, nil); err != nil {
 		t.Fatalf("import images into pdf: %v", err)
+	}
+}
+
+func writeBookmarkedPDFFixture(t *testing.T, path string, pages int, bookmarks []pdfcpu.Bookmark) {
+	t.Helper()
+
+	plain := filepath.Join(t.TempDir(), "plain.pdf")
+	writeMultiPagePDFFixture(t, plain, pages)
+
+	if err := api.AddBookmarksFile(plain, path, bookmarks, true, nil); err != nil {
+		t.Fatalf("add bookmarks: %v", err)
 	}
 }
 
@@ -414,6 +426,171 @@ func TestSplitToolExecuteBatchReportsPartialSuccess(t *testing.T) {
 	}
 	if len(items[2].Outputs) != 1 {
 		t.Fatalf("expected third item to expose its output, got %+v", items[2])
+	}
+}
+
+func TestSplitToolPlanPagesPerFile(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "manual.pdf")
+	second := filepath.Join(dir, "notes.pdf")
+	writeMultiPagePDFFixture(t, first, 11)
+	writeMultiPagePDFFixture(t, second, 3)
+
+	tool := NewSplitTool()
+	req := splitTestRequest("batch", []string{first, second}, map[string]any{
+		"strategy":     "pages_per_file",
+		"pagesPerFile": 5,
+	})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected 2 planned outputs, got %d", len(plan.Outputs))
+	}
+	if want := filepath.Join(dir, "manual_pages"); plan.Outputs[0].OutputPath != want {
+		t.Fatalf("expected first output %q, got %q", want, plan.Outputs[0].OutputPath)
+	}
+	if plan.Outputs[0].OutputCount != 3 {
+		t.Fatalf("expected 3 chunks for 11 pages, got %d", plan.Outputs[0].OutputCount)
+	}
+	if plan.Outputs[1].OutputCount != 1 {
+		t.Fatalf("expected 1 chunk for 3 pages, got %d", plan.Outputs[1].OutputCount)
+	}
+	if got := plan.EffectiveOptions["pagesPerFile"]; got != 5 {
+		t.Fatalf("expected effective pagesPerFile 5, got %v", got)
+	}
+
+	single, singleErr := tool.Plan(context.Background(), splitTestRequest("single", []string{first}, map[string]any{
+		"strategy":     "pages_per_file",
+		"pagesPerFile": 5,
+	}))
+	if singleErr != nil {
+		t.Fatalf("expected single plan to succeed, got %v", singleErr)
+	}
+
+	item, itemErr := tool.ExecuteSingle(context.Background(), splitTestRequest("single", []string{first}, map[string]any{
+		"strategy":     "pages_per_file",
+		"pagesPerFile": 5,
+	}))
+	if itemErr != nil {
+		t.Fatalf("expected split to succeed, got %v", itemErr)
+	}
+	if item.OutputPath != single.Outputs[0].OutputPath {
+		t.Fatalf("expected execution to use the planned directory %q, got %q", single.Outputs[0].OutputPath, item.OutputPath)
+	}
+	if item.OutputCount != 3 || len(item.Outputs) != 3 {
+		t.Fatalf("expected 3 output files, got count=%d outputs=%v", item.OutputCount, item.Outputs)
+	}
+
+	wantNames := []string{
+		"manual_part_001_p1-5.pdf",
+		"manual_part_002_p6-10.pdf",
+		"manual_part_003_p11.pdf",
+	}
+	for i, output := range item.Outputs {
+		if filepath.Base(output) != wantNames[i] {
+			t.Fatalf("expected output %d to be %q, got %q", i, wantNames[i], output)
+		}
+		if _, statErr := os.Stat(output); statErr != nil {
+			t.Fatalf("expected output %d on disk: %v", i, statErr)
+		}
+	}
+}
+
+func TestSplitToolPagesPerFileRejectsInvalidValues(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "manual.pdf")
+	writeMultiPagePDFFixture(t, input, 4)
+
+	tool := NewSplitTool()
+	for _, pagesPerFile := range []any{0, 1001, "five", 2.5} {
+		_, planErr := tool.Plan(context.Background(), splitTestRequest("single", []string{input}, map[string]any{
+			"strategy":     "pages_per_file",
+			"pagesPerFile": pagesPerFile,
+		}))
+		if planErr == nil {
+			t.Fatalf("expected pagesPerFile=%v to fail", pagesPerFile)
+		}
+		if planErr.DetailCode != "PDF_SPLIT_PAGES_PER_FILE_INVALID" {
+			t.Fatalf("expected PDF_SPLIT_PAGES_PER_FILE_INVALID for %v, got %q", pagesPerFile, planErr.DetailCode)
+		}
+	}
+
+	_, missingErr := tool.Plan(context.Background(), splitTestRequest("single", []string{input}, map[string]any{
+		"strategy": "pages_per_file",
+	}))
+	if missingErr == nil || missingErr.DetailCode != "PDF_SPLIT_PAGES_PER_FILE_INVALID" {
+		t.Fatalf("expected missing pagesPerFile to fail with PDF_SPLIT_PAGES_PER_FILE_INVALID, got %v", missingErr)
+	}
+}
+
+func TestSplitToolBookmarksPlanAndExecute(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "guide.pdf")
+	writeBookmarkedPDFFixture(t, input, 11, []pdfcpu.Bookmark{
+		{Title: "Chapter One", PageFrom: 1},
+		{Title: "Chapter Two", PageFrom: 6},
+		{Title: "Appendix", PageFrom: 9},
+	})
+
+	tool := NewSplitTool()
+	req := splitTestRequest("single", []string{input}, map[string]any{
+		"strategy": "bookmarks",
+	})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected bookmarks plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 1 {
+		t.Fatalf("expected 1 planned directory, got %d", len(plan.Outputs))
+	}
+	if want := filepath.Join(dir, "guide_pages"); plan.Outputs[0].OutputPath != want {
+		t.Fatalf("expected output directory %q, got %q", want, plan.Outputs[0].OutputPath)
+	}
+	if plan.Outputs[0].OutputCount != 3 {
+		t.Fatalf("expected 3 bookmark outputs, got %d", plan.Outputs[0].OutputCount)
+	}
+
+	item, itemErr := tool.ExecuteSingle(context.Background(), req)
+	if itemErr != nil {
+		t.Fatalf("expected bookmarks split to succeed, got %v", itemErr)
+	}
+	if item.OutputCount != 3 || len(item.Outputs) != 3 {
+		t.Fatalf("expected 3 output files, got count=%d outputs=%v", item.OutputCount, item.Outputs)
+	}
+
+	wantNames := []string{
+		"guide_bookmark_001_chapter-one.pdf",
+		"guide_bookmark_002_chapter-two.pdf",
+		"guide_bookmark_003_appendix.pdf",
+	}
+	for i, output := range item.Outputs {
+		if filepath.Base(output) != wantNames[i] {
+			t.Fatalf("expected output %d to be %q, got %q", i, wantNames[i], output)
+		}
+		if _, statErr := os.Stat(output); statErr != nil {
+			t.Fatalf("expected output %d on disk: %v", i, statErr)
+		}
+	}
+}
+
+func TestSplitToolBookmarksWithoutOutline(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "plain.pdf")
+	writeMultiPagePDFFixture(t, input, 3)
+
+	tool := NewSplitTool()
+	_, planErr := tool.Plan(context.Background(), splitTestRequest("single", []string{input}, map[string]any{
+		"strategy": "bookmarks",
+	}))
+	if planErr == nil {
+		t.Fatal("expected bookmarks plan without an outline to fail")
+	}
+	if planErr.DetailCode != "PDF_SPLIT_NO_BOOKMARKS" {
+		t.Fatalf("expected PDF_SPLIT_NO_BOOKMARKS, got %q", planErr.DetailCode)
 	}
 }
 

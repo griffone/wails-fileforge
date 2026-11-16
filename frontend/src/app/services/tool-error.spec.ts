@@ -57,6 +57,18 @@ describe('describeToolError', () => {
     expect(copy.action).toBe('installDependency');
   });
 
+  it('maps a PDF without bookmarks to actionable split guidance', () => {
+    const copy = describeToolError({
+      code: 'VALIDATION_INVALID_INPUT',
+      detail_code: 'PDF_SPLIT_NO_BOOKMARKS',
+      message: 'PDF has no bookmarks to split by',
+    });
+
+    expect(copy.title).toBe('This PDF has no bookmarks.');
+    expect(copy.description).toContain('Choose Every page');
+    expect(copy.action).toBe('none');
+  });
+
   it('maps cancellation codes', () => {
     const copy = describeToolError({
       code: 'CANCELLED_BY_USER',

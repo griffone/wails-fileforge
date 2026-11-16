@@ -1,6 +1,6 @@
 # FileForge Desktop
 
-A local-first file workbench for Windows, macOS and Linux. FileForge wraps eleven conversion and editing tools in a single desktop app: image convert/crop/annotate, PDF merge/split/crop, Markdown and DOCX to PDF, and video convert/trim/merge.
+A local-first file workbench for Windows, macOS and Linux. FileForge wraps twelve conversion and editing tools in a single desktop app: image convert/crop/annotate, PDF merge/split/crop/optimize, Markdown and DOCX to PDF, and video convert/trim/merge.
 
 Everything runs on your machine. There are no uploads, accounts, or cloud calls.
 
@@ -9,7 +9,7 @@ Everything runs on your machine. There are no uploads, accounts, or cloud calls.
 | Domain | Tools |
 | --- | --- |
 | Image | Convert (PNG/JPG/WebP/GIF), Crop, Annotate (text, arrow, box, blur, redact) |
-| PDF | Merge (explicit order), Split (pages or ranges), Crop (presets or margins) |
+| PDF | Merge (explicit order), Split (pages, ranges, page count or bookmarks), Crop (presets or margins), Optimize (compression + metadata) |
 | Documents | Markdown → PDF (optional header/footer), DOCX → PDF (LibreOffice + Pandoc fallback) |
 | Video | Convert, Trim, Merge |
 

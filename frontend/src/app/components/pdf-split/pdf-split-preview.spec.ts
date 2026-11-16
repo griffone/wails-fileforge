@@ -4,7 +4,12 @@ import { PdfSplitPreview } from './pdf-split-preview';
 import { PdfRendererService } from '../../services/pdf-renderer.service';
 import { PDFPreviewSourceResponseV1, Wails } from '../../services/wails';
 
-type PreviewStrategy = 'every_page' | 'ranges' | 'selected';
+type PreviewStrategy =
+  | 'every_page'
+  | 'ranges'
+  | 'selected'
+  | 'pages_per_file'
+  | 'bookmarks';
 
 describe('PdfSplitPreview', () => {
   let fixture: ComponentFixture<PdfSplitPreview>;
@@ -38,6 +43,7 @@ describe('PdfSplitPreview', () => {
     numPages = 3,
     selectedPages: number[] = [],
     selectable = false,
+    pagesPerFile = 5,
   ): Promise<void> {
     rendererSpy.loadFromBytes.and.resolveTo(fakePdf(numPages));
 
@@ -48,6 +54,7 @@ describe('PdfSplitPreview', () => {
     fixture.componentRef.setInput('ranges', ranges);
     fixture.componentRef.setInput('selectedPages', selectedPages);
     fixture.componentRef.setInput('selectable', selectable);
+    fixture.componentRef.setInput('pagesPerFile', pagesPerFile);
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -314,5 +321,61 @@ describe('PdfSplitPreview', () => {
     expect(element.querySelector('.select-hint')?.textContent).toContain(
       'Select pages above',
     );
+  });
+
+  it('chunks pages per file into parts with names and counts', async () => {
+    await render(['/tmp/a.pdf'], 'pages_per_file', '', 7, [], false, 3);
+
+    const element = fixture.nativeElement as HTMLElement;
+    const cards = element.querySelectorAll('.range-card');
+    const text = element.textContent as string;
+
+    expect(cards.length).toBe(3);
+    expect(text).toContain('Part 1 · Pages 1-3');
+    expect(text).toContain('part_001_p1-3.pdf');
+    expect(text).toContain('Part 2 · Pages 4-6');
+    expect(text).toContain('part_002_p4-6.pdf');
+    expect(text).toContain('Part 3 · Page 7');
+    expect(text).toContain('part_003_p7.pdf');
+    expect(text).toContain('3 files');
+    expect(cards[0].querySelectorAll('.range-page').length).toBe(3);
+    expect(cards[2].querySelectorAll('.range-page').length).toBe(1);
+  });
+
+  it('applies the 60-page render window to pages per file', async () => {
+    await render(['/tmp/a.pdf'], 'pages_per_file', '', 70, [], false, 10);
+
+    const element = fixture.nativeElement as HTMLElement;
+    const cards = element.querySelectorAll('.range-card');
+
+    expect(cards.length).toBe(7);
+    expect(cards[0].querySelectorAll('.range-page').length).toBe(10);
+    expect(cards[5].querySelectorAll('.range-page').length).toBe(10);
+    expect(cards[6].querySelectorAll('.range-page').length).toBe(0);
+    expect(element.querySelector('.preview-limit-copy')?.textContent).toContain(
+      'Showing first 60 of 70 pages',
+    );
+
+    const showAll = element.querySelector(
+      '.preview-limit button',
+    ) as HTMLButtonElement;
+    showAll.click();
+    fixture.detectChanges();
+
+    expect(cards[6].querySelectorAll('.range-page').length).toBe(10);
+    expect(element.querySelector('.preview-limit')).toBeNull();
+  });
+
+  it('explains bookmark output instead of faking thumbnails', async () => {
+    await render(['/tmp/a.pdf'], 'bookmarks', '', 3);
+
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelectorAll('.range-card').length).toBe(0);
+    expect(element.querySelectorAll('.page-card').length).toBe(0);
+    expect(element.querySelector('.bookmark-hint')?.textContent).toContain(
+      'Bookmark preview appears after planning. The plan lists each resulting file.',
+    );
+    expect(rendererSpy.renderPageToCanvasWithFallback).not.toHaveBeenCalled();
   });
 });

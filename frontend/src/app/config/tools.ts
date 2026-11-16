@@ -6,6 +6,7 @@ import {
   FileText,
   FileType,
   Frame,
+  Gauge,
   House,
   Image as ImageIcon,
   Layers,
@@ -95,7 +96,7 @@ export const SETTINGS_TOOL: ToolDefinition = {
   keywords: ['settings', 'preferences', 'output folder', 'theme', 'history'],
 };
 
-/** The eleven conversion tools. Ids mirror the backend toolId contract. */
+/** The twelve conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -145,12 +146,20 @@ export const TOOLS: readonly ToolDefinition[] = [
     id: 'tool.pdf.split',
     name: 'PDF Split',
     navName: 'Split',
-    description: 'Split a PDF into separate pages or the ranges you define.',
+    description: 'Split a PDF into separate pages, ranges, page chunks or bookmarks.',
     route: '/pdf-split',
     category: 'pdf',
     icon: Scissors,
     formats: ['PDF'],
-    keywords: ['pdf', 'split', 'pages', 'ranges', 'extract'],
+    keywords: [
+      'pdf',
+      'split',
+      'pages',
+      'ranges',
+      'extract',
+      'chunks',
+      'bookmarks',
+    ],
   },
   {
     id: 'tool.pdf.crop',
@@ -162,6 +171,27 @@ export const TOOLS: readonly ToolDefinition[] = [
     icon: Frame,
     formats: ['PDF'],
     keywords: ['pdf', 'crop', 'margins', 'presets', 'batch'],
+  },
+  {
+    id: 'tool.pdf.optimize',
+    name: 'PDF Optimize',
+    navName: 'Optimize',
+    description: 'Compress PDFs and edit title, author and document metadata.',
+    route: '/pdf-optimize',
+    category: 'pdf',
+    icon: Gauge,
+    formats: ['PDF'],
+    keywords: [
+      'pdf',
+      'optimize',
+      'compress',
+      'metadata',
+      'title',
+      'author',
+      'subject',
+      'keywords',
+      'creator',
+    ],
   },
   {
     id: 'tool.doc.md_to_pdf',
@@ -220,7 +250,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status and Settings: the full 14-entry navigation model. */
+/** Home, every tool, then System Status and Settings: the full 15-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,

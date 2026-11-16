@@ -1,0 +1,237 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">PDF</p>
+        <h1 class="page-title">PDF <em>Optimize</em></h1>
+        <p class="page-sub">
+          Compress PDFs and edit document metadata. Everything runs on this machine.
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    <div class="flow-grid">
+      <section class="panel intake-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">PDFs</h2>
+            <p class="panel-sub">Drop PDFs or choose them from your computer.</p>
+          </div>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+        </div>
+
+        <div class="panel-body">
+          <app-file-drop
+            accept=".pdf,application/pdf"
+            title="Drop PDFs here"
+            hint="PDF files only"
+            ariaLabel="Drop or choose PDFs to optimize"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
+          <div class="toolbar" role="group" aria-label="PDF selection actions">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+              <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Choose PDFs
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
+            >
+              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Clear
+            </button>
+          </div>
+
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ note.text }}</span>
+            </div>
+          }
+
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
+        </div>
+      </section>
+
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Output</h2>
+            <p class="panel-sub">Choose compression and metadata, then check where the files will go.</p>
+          </div>
+          <span class="badge badge-neutral">
+            {{ compress() ? 'Compress on' : 'Compress off' }}
+          </span>
+        </div>
+
+        <div class="panel-body">
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
+                Use original folders
+              </button>
+            </div>
+          }
+
+          <details class="advanced">
+            <summary class="advanced-summary">
+              <span class="advanced-title">Advanced</span>
+              <span class="advanced-hint">Compression and metadata</span>
+            </summary>
+
+            <div class="advanced-body">
+              <div class="field">
+                <span class="label">Compression</span>
+                <label class="check-row" for="pdf-optimize-compress">
+                  <input
+                    id="pdf-optimize-compress"
+                    type="checkbox"
+                    aria-describedby="pdf-optimize-compress-help"
+                    [checked]="compress()"
+                    (change)="onCompressToggle($event)"
+                  />
+                  Compress PDFs
+                </label>
+                <p id="pdf-optimize-compress-help" class="field-help">
+                  @if (compress()) {
+                    Recompress the document to reduce file size where possible.
+                  } @else {
+                    The original compression stays untouched.
+                  }
+                </p>
+              </div>
+
+              <div class="metadata-group">
+                <span class="label">Document metadata</span>
+                <p id="pdf-optimize-metadata-help" class="field-help">Leave blank to keep the existing value.</p>
+
+                @for (field of metadataFields; track field.key) {
+                  <div class="field">
+                    <label class="label" [for]="field.id">{{ field.label }}</label>
+                    <input
+                      class="input"
+                      [id]="field.id"
+                      type="text"
+                      autocomplete="off"
+                      spellcheck="false"
+                      maxlength="512"
+                      aria-describedby="pdf-optimize-metadata-help"
+                      [placeholder]="field.placeholder"
+                      [value]="metadata()[field.key]"
+                      (input)="onMetadataInput(field.key, $event)"
+                    />
+                  </div>
+                }
+
+                @if (metadataInvalid()) {
+                  <p class="field-error" role="alert">
+                    Each metadata value must be 512 characters or fewer.
+                  </p>
+                }
+
+                @if (compressionOnly()) {
+                  <p class="field-help">
+                    Compression is off and no metadata is set, so the PDF will be copied unchanged.
+                  </p>
+                }
+              </div>
+
+              <div class="advanced-actions">
+                <button type="button" class="btn btn-ghost btn-sm" (click)="resetAdvanced()">
+                  Reset options
+                </button>
+              </div>
+            </div>
+          </details>
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (actionHelper(); as helper) {
+            <p class="action-helper">{{ helper }}</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun() || planBlocked()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Optimization progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="PDF"
+        verbPast="optimized"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
+  </div>
+</div>

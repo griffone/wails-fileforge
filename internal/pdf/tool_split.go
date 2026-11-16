@@ -37,7 +37,7 @@ func (t *SplitTool) Manifest() models.ToolManifestV1 {
 	return models.ToolManifestV1{
 		ToolID:           t.ID(),
 		Name:             "PDF Split",
-		Description:      "Split one PDF into individual page PDF files",
+		Description:      "Split a PDF into pages, page ranges, page chunks, or bookmarks",
 		Domain:           "pdf",
 		Capability:       t.Capability(),
 		Version:          "v1",
@@ -46,7 +46,7 @@ func (t *SplitTool) Manifest() models.ToolManifestV1 {
 		InputExtensions:  []string{"pdf"},
 		OutputExtensions: []string{"pdf"},
 		RuntimeDeps:      []string{"pdfcpu"},
-		Tags:             []string{"pdf", "split", "pages"},
+		Tags:             []string{"pdf", "split", "pages", "bookmarks"},
 	}
 }
 
@@ -73,7 +73,7 @@ func (t *SplitTool) Plan(_ context.Context, req models.JobRequestV1) (models.Pla
 	outputs := make([]models.PlannedOutputV1, 0, len(parsed.InputPaths))
 	warnings := make([]string, 0)
 	for _, inputPath := range parsed.InputPaths {
-		planned, planErr := planSplitDirectory(inputPath, parsed.BaseDir, parsed.Strategy, parsed.RangesExpr, used)
+		planned, planErr := planSplitDirectory(inputPath, parsed.BaseDir, parsed.Strategy, parsed.RangesExpr, parsed.PagesPerFile, used)
 		if planErr != nil {
 			if planned.OutputPath != "" {
 				outputs = append(outputs, planned)
@@ -112,7 +112,7 @@ func (t *SplitTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) 
 	}
 
 	planned := plan.Outputs[0]
-	outputs, err := engine.Split(ctx, planned.InputPath, planned.OutputPath, parsed.Strategy, parsed.RangesExpr)
+	outputs, err := engine.SplitAdvanced(ctx, planned.InputPath, planned.OutputPath, parsed.Strategy, parsed.RangesExpr, parsed.PagesPerFile)
 	if err != nil {
 		jobErr := mapSplitError(err)
 		return splitFailureItem(planned.InputPath, planned.OutputPath, jobErr), jobErr
@@ -157,7 +157,7 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 			OutputPath: planned.OutputPath,
 		}
 
-		outputs, err := engine.Split(ctx, planned.InputPath, planned.OutputPath, parsed.Strategy, parsed.RangesExpr)
+		outputs, err := engine.SplitAdvanced(ctx, planned.InputPath, planned.OutputPath, parsed.Strategy, parsed.RangesExpr, parsed.PagesPerFile)
 		if err != nil {
 			jobErr := mapSplitError(err)
 			item.Success = false
@@ -197,12 +197,13 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 }
 
 type splitRequestFields struct {
-	Mode       string
-	InputPath  string
-	InputPaths []string
-	BaseDir    string
-	Strategy   string
-	RangesExpr string
+	Mode         string
+	InputPath    string
+	InputPaths   []string
+	BaseDir      string
+	Strategy     string
+	RangesExpr   string
+	PagesPerFile int
 }
 
 func splitReqFields(req models.JobRequestV1) (splitRequestFields, *models.JobErrorV1) {
@@ -242,11 +243,25 @@ func splitReqFields(req models.JobRequestV1) (splitRequestFields, *models.JobErr
 	if strategy == "" {
 		strategy = engine.SplitStrategyEveryPage
 	}
-	if strategy != engine.SplitStrategyEveryPage && strategy != engine.SplitStrategyRanges {
+	if !isSplitToolStrategy(strategy) {
 		return splitRequestFields{Mode: mode, InputPath: firstInputPath(inputPaths), InputPaths: inputPaths, BaseDir: baseDir, Strategy: strategy}, &models.JobErrorV1{
 			Code:       engine.ErrorCodeUnsupportedStrategy,
 			DetailCode: engine.ErrorCodeUnsupportedStrategy,
 			Message:    fmt.Sprintf("unsupported split strategy: %s", strategy),
+		}
+	}
+
+	pagesPerFile, pagesErr := splitPagesPerFileOption(req.Options)
+	if pagesErr != nil {
+		return splitRequestFields{Mode: mode, InputPath: firstInputPath(inputPaths), InputPaths: inputPaths, BaseDir: baseDir, Strategy: strategy}, pagesErr
+	}
+	if strategy == engine.SplitStrategyPagesPerFile {
+		if pagesPerFile < engine.SplitMinPagesPerFile || pagesPerFile > engine.SplitMaxPagesPerFile {
+			return splitRequestFields{Mode: mode, InputPath: firstInputPath(inputPaths), InputPaths: inputPaths, BaseDir: baseDir, Strategy: strategy}, &models.JobErrorV1{
+				Code:       engine.ErrorCodeSplitPagesPerFileInvalid,
+				DetailCode: engine.ErrorCodeSplitPagesPerFileInvalid,
+				Message:    fmt.Sprintf("options.pagesPerFile must be between %d and %d", engine.SplitMinPagesPerFile, engine.SplitMaxPagesPerFile),
+			}
 		}
 	}
 
@@ -262,18 +277,71 @@ func splitReqFields(req models.JobRequestV1) (splitRequestFields, *models.JobErr
 	}
 
 	return splitRequestFields{
-		Mode:       mode,
-		InputPath:  firstInputPath(inputPaths),
-		InputPaths: inputPaths,
-		BaseDir:    baseDir,
-		Strategy:   strategy,
-		RangesExpr: rangesExpr,
+		Mode:         mode,
+		InputPath:    firstInputPath(inputPaths),
+		InputPaths:   inputPaths,
+		BaseDir:      baseDir,
+		Strategy:     strategy,
+		RangesExpr:   rangesExpr,
+		PagesPerFile: pagesPerFile,
 	}, nil
+}
+
+func isSplitToolStrategy(strategy string) bool {
+	switch strategy {
+	case engine.SplitStrategyEveryPage, engine.SplitStrategyRanges, engine.SplitStrategyPagesPerFile, engine.SplitStrategyBookmarks:
+		return true
+	default:
+		return false
+	}
+}
+
+// splitPagesPerFileOption reads the optional pagesPerFile option and returns 0
+// when absent. Non-integral or non-numeric values are rejected instead of being
+// coerced.
+func splitPagesPerFileOption(options map[string]any) (int, *models.JobErrorV1) {
+	if options == nil {
+		return 0, nil
+	}
+
+	raw, ok := options["pagesPerFile"]
+	if !ok || raw == nil {
+		return 0, nil
+	}
+
+	switch value := raw.(type) {
+	case int:
+		return value, nil
+	case int32:
+		return int(value), nil
+	case int64:
+		return int(value), nil
+	case float64:
+		if value != float64(int(value)) {
+			return 0, splitPagesPerFileError("options.pagesPerFile must be an integer")
+		}
+		return int(value), nil
+	case float32:
+		if value != float32(int(value)) {
+			return 0, splitPagesPerFileError("options.pagesPerFile must be an integer")
+		}
+		return int(value), nil
+	default:
+		return 0, splitPagesPerFileError("options.pagesPerFile must be numeric")
+	}
+}
+
+func splitPagesPerFileError(message string) *models.JobErrorV1 {
+	return &models.JobErrorV1{
+		Code:       engine.ErrorCodeSplitPagesPerFileInvalid,
+		DetailCode: engine.ErrorCodeSplitPagesPerFileInvalid,
+		Message:    message,
+	}
 }
 
 // planSplitDirectory resolves one collision-safe output directory. It never
 // creates anything: UniqueDirPath only probes the filesystem.
-func planSplitDirectory(inputPath, baseDir, strategy, rangesExpr string, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
+func planSplitDirectory(inputPath, baseDir, strategy, rangesExpr string, pagesPerFile int, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
 	planned := models.PlannedOutputV1{
 		InputPath:  inputPath,
 		OutputKind: splitOutputKindDirectory,
@@ -304,7 +372,11 @@ func planSplitDirectory(inputPath, baseDir, strategy, rangesExpr string, used ma
 
 	// A directory plan cannot always know its file count (for example when the
 	// PDF is unreadable or page counts are unavailable). Leave 0 in that case.
-	planned.OutputCount = splitPlannedOutputCount(inputPath, strategy, rangesExpr)
+	outputCount, countErr := splitPlannedOutputCount(inputPath, strategy, rangesExpr, pagesPerFile)
+	if countErr != nil {
+		return planned, countErr
+	}
+	planned.OutputCount = outputCount
 
 	return planned, nil
 }
@@ -319,18 +391,26 @@ func splitDirectoryName(inputPath string) string {
 	return stem + splitDirSuffix
 }
 
-func splitPlannedOutputCount(inputPath, strategy, rangesExpr string) int {
+func splitPlannedOutputCount(inputPath, strategy, rangesExpr string, pagesPerFile int) (int, *models.JobErrorV1) {
 	switch strategy {
 	case engine.SplitStrategyEveryPage:
-		return engine.SplitPageCount(inputPath)
+		return engine.SplitPageCount(inputPath), nil
 	case engine.SplitStrategyRanges:
 		ranges, rangesErr := engine.ParseSplitRanges(rangesExpr)
 		if rangesErr != nil {
-			return 0
+			return 0, nil
 		}
-		return len(ranges)
+		return len(ranges), nil
+	case engine.SplitStrategyPagesPerFile:
+		return engine.SplitPagesPerFileChunkCount(engine.SplitPageCount(inputPath), pagesPerFile), nil
+	case engine.SplitStrategyBookmarks:
+		ranges, bookmarksErr := engine.SplitBookmarkPageRanges(inputPath)
+		if bookmarksErr != nil {
+			return 0, mapSplitError(bookmarksErr)
+		}
+		return len(ranges), nil
 	default:
-		return 0
+		return 0, nil
 	}
 }
 
@@ -338,6 +418,9 @@ func splitEffectiveOptions(parsed splitRequestFields) map[string]any {
 	options := map[string]any{"strategy": parsed.Strategy}
 	if parsed.Strategy == engine.SplitStrategyRanges {
 		options["ranges"] = parsed.RangesExpr
+	}
+	if parsed.PagesPerFile > 0 {
+		options["pagesPerFile"] = parsed.PagesPerFile
 	}
 
 	return options

@@ -54,6 +54,13 @@ const CANCELLED: ToolErrorSeed = {
   action: 'none',
 };
 
+const NO_BOOKMARKS: ToolErrorSeed = {
+  title: 'This PDF has no bookmarks.',
+  description:
+    'Choose Every page, Page ranges, Selected pages or Pages per file instead.',
+  action: 'none',
+};
+
 const GENERIC_DESCRIPTION =
   'Try again. If it keeps happening, open Details.';
 
@@ -119,6 +126,9 @@ function seedForCode(code: string): ToolErrorSeed | null {
   }
   if (matchesAny(code, INPUT_NOT_FOUND_CODES)) {
     return INPUT_NOT_FOUND;
+  }
+  if (matchesAny(code, ['*NO_BOOKMARKS*'])) {
+    return NO_BOOKMARKS;
   }
   if (matchesAny(code, FORMAT_CODES)) {
     return FORMAT_UNSUPPORTED;

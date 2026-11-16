@@ -111,6 +111,7 @@ export function recommendDropTools(
     }
     routes.add('/pdf-split');
     routes.add('/pdf-crop');
+    routes.add('/pdf-optimize');
   }
 
   if (markdownCount > 0) {

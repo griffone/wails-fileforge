@@ -44,7 +44,7 @@
       <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
       <span>{{ error }}</span>
     </div>
-  } @else if (isSelectable() || groups().length > 0) {
+  } @else if (isSelectable() || strategy === 'bookmarks' || groups().length > 0) {
     @if (isSelectable()) {
       <div class="select-toolbar">
         <div class="select-actions">
@@ -95,6 +95,12 @@
           </button>
         }
       </div>
+    }
+
+    @if (strategy === 'bookmarks') {
+      <p class="bookmark-hint">
+        Bookmark preview appears after planning. The plan lists each resulting file.
+      </p>
     }
 
     @if (strategy === 'every_page' && !isSelectable()) {

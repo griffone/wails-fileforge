@@ -56,10 +56,15 @@ describe('GlobalDrop', () => {
 
   it('only offers PDF Merge when there are at least two PDFs', () => {
     show(['/tmp/one.pdf']);
-    expect(cardNames()).toEqual(['PDF Split', 'PDF Crop']);
+    expect(cardNames()).toEqual(['PDF Split', 'PDF Crop', 'PDF Optimize']);
 
     show(['/tmp/one.pdf', '/tmp/two.pdf']);
-    expect(cardNames()).toEqual(['PDF Merge', 'PDF Split', 'PDF Crop']);
+    expect(cardNames()).toEqual([
+      'PDF Merge',
+      'PDF Split',
+      'PDF Crop',
+      'PDF Optimize',
+    ]);
   });
 
   it('recommends the document tools for Markdown and DOCX', () => {
@@ -87,6 +92,7 @@ describe('GlobalDrop', () => {
       'Image Annotate',
       'PDF Split',
       'PDF Crop',
+      'PDF Optimize',
       'Markdown → PDF',
       'Video Convert',
       'Video Trim',

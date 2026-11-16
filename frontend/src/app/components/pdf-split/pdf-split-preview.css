@@ -172,6 +172,17 @@
   color: var(--muted);
 }
 
+.bookmark-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 .output-name {
   margin: 0;
   font-family: var(--font-mono);

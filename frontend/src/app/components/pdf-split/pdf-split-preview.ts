@@ -22,11 +22,20 @@ import { fileName, formatCount } from '../../utils/format';
 const STRATEGY_EVERY_PAGE = 'every_page';
 const STRATEGY_RANGES = 'ranges';
 const STRATEGY_SELECTED = 'selected';
+const STRATEGY_PAGES_PER_FILE = 'pages_per_file';
+const STRATEGY_BOOKMARKS = 'bookmarks';
 const THUMBNAIL_WIDTH = 140;
 const INITIAL_PAGE_LIMIT = 60;
 const JPEG_QUALITY = 0.72;
+const DEFAULT_PAGES_PER_FILE = 5;
+const MAX_PAGES_PER_FILE = 1000;
 
-export type SplitPreviewStrategy = 'every_page' | 'ranges' | 'selected';
+export type SplitPreviewStrategy =
+  | 'every_page'
+  | 'ranges'
+  | 'selected'
+  | 'pages_per_file'
+  | 'bookmarks';
 
 interface PreviewPage {
   page: number;
@@ -70,6 +79,7 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
   @Input() strategy: SplitPreviewStrategy = STRATEGY_EVERY_PAGE;
   @Input() ranges = '';
   @Input() selectedPages: number[] = [];
+  @Input() pagesPerFile = DEFAULT_PAGES_PER_FILE;
   @Input() selectable = false;
 
   @Output() readonly selectedPagesChange = new EventEmitter<number[]>();
@@ -133,7 +143,7 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
       this.selection.set(normalizePageSelection(this.selectedPages));
     }
 
-    if (changes['strategy'] || changes['ranges']) {
+    if (changes['strategy'] || changes['ranges'] || changes['pagesPerFile']) {
       this.showAllRequested.set(false);
       this.rebuildView();
     } else if (changes['selectedPages'] || changes['selectable']) {
@@ -347,6 +357,16 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
       return;
     }
 
+    if (this.strategy === STRATEGY_BOOKMARKS) {
+      this.buildBookmarkPlaceholder();
+      return;
+    }
+
+    if (this.strategy === STRATEGY_PAGES_PER_FILE) {
+      this.buildPagesPerFileGroups(this.numPages());
+      return;
+    }
+
     this.buildEveryPageGroups(this.numPages());
   }
 
@@ -368,6 +388,51 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     this.totalPages.set(numPages);
     this.limited.set(visible < numPages);
     this.scheduleRender(pages);
+  }
+
+  private buildPagesPerFileGroups(numPages: number): void {
+    const chunkSize = normalizePagesPerFile(this.pagesPerFile);
+    const allPages = Array.from({ length: numPages }, (_, index) => index + 1);
+    const visiblePages = this.showAllRequested()
+      ? allPages
+      : allPages.slice(0, INITIAL_PAGE_LIMIT);
+
+    const groups: PreviewGroup[] = [];
+    let part = 1;
+    for (let start = 1; start <= numPages; start += chunkSize) {
+      const end = Math.min(start + chunkSize - 1, numPages);
+      const singlePage = start === end;
+      groups.push({
+        key: `pages-${part}-${start}-${end}`,
+        title: `Part ${part} · ${
+          singlePage ? `Page ${start}` : `Pages ${start}-${end}`
+        }`,
+        outputName: pagesPerFileOutputName(part, { start, end }),
+        pages: visiblePages
+          .filter((page) => page >= start && page <= end)
+          .map((page) => ({ page })),
+        pageCount: end - start + 1,
+      });
+      part += 1;
+    }
+
+    this.groups.set(groups);
+    this.countLabel.set(formatCount(groups.length, 'file'));
+    this.totalPages.set(numPages);
+    this.limited.set(visiblePages.length < numPages);
+    this.scheduleRender(visiblePages);
+  }
+
+  /**
+   * Bookmark spans are resolved by the backend plan, so the preview only
+   * explains where the results will appear instead of faking thumbnails.
+   */
+  private buildBookmarkPlaceholder(): void {
+    this.groups.set([]);
+    this.countLabel.set('');
+    this.totalPages.set(0);
+    this.limited.set(false);
+    this.selectablePages.set([]);
   }
 
   private buildRangeGroups(numPages: number): void {
@@ -576,6 +641,26 @@ function rangeOutputName(part: number, range: PageRange): string {
       ? `p${range.start}`
       : `p${range.start}-${range.end}`;
   return `range_${padThree(part)}_${suffix}.pdf`;
+}
+
+function pagesPerFileOutputName(part: number, range: PageRange): string {
+  const suffix =
+    range.start === range.end
+      ? `p${range.start}`
+      : `p${range.start}-${range.end}`;
+  return `part_${padThree(part)}_${suffix}.pdf`;
+}
+
+/** Falls back to the UI default when the caller sends an unusable chunk size. */
+export function normalizePagesPerFile(value: number): number {
+  if (
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_PAGES_PER_FILE
+  ) {
+    return value;
+  }
+  return DEFAULT_PAGES_PER_FILE;
 }
 
 function flattenRanges(ranges: PageRange[]): number[] {

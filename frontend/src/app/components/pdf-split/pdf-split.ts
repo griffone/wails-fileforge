@@ -47,9 +47,14 @@ const PDF_SPLIT_TOOL_ID = 'tool.pdf.split';
 const STRATEGY_EVERY_PAGE = 'every_page';
 const STRATEGY_RANGES = 'ranges';
 const STRATEGY_SELECTED = 'selected';
+const STRATEGY_PAGES_PER_FILE = 'pages_per_file';
+const STRATEGY_BOOKMARKS = 'bookmarks';
 const POLLING_INTERVAL_MS = 1000;
 const PLAN_DEBOUNCE_MS = 250;
 const THUMBNAIL_SIZE = 160;
+const DEFAULT_PAGES_PER_FILE = 5;
+const MIN_PAGES_PER_FILE = 1;
+const MAX_PAGES_PER_FILE = 1000;
 // Matches ResultCard: larger sets collapse into one folder summary row.
 const GROUP_OUTPUT_LIMIT = 4;
 
@@ -64,7 +69,9 @@ const TERMINAL_STATUSES = new Set<string>([
 type SplitStrategy =
   | typeof STRATEGY_EVERY_PAGE
   | typeof STRATEGY_RANGES
-  | typeof STRATEGY_SELECTED;
+  | typeof STRATEGY_SELECTED
+  | typeof STRATEGY_PAGES_PER_FILE
+  | typeof STRATEGY_BOOKMARKS;
 
 interface StrategyPreset {
   id: SplitStrategy;
@@ -87,6 +94,16 @@ const SPLIT_STRATEGIES: StrategyPreset[] = [
     id: STRATEGY_SELECTED,
     label: 'Selected pages',
     hint: 'Pick pages; consecutive ones group together',
+  },
+  {
+    id: STRATEGY_PAGES_PER_FILE,
+    label: 'Pages per file',
+    hint: 'Split every N pages.',
+  },
+  {
+    id: STRATEGY_BOOKMARKS,
+    label: 'Bookmarks',
+    hint: 'One file per top-level bookmark.',
   },
 ];
 
@@ -127,6 +144,7 @@ export class PdfSplit implements OnDestroy, OnInit {
   readonly strategy = signal<SplitStrategy>(STRATEGY_EVERY_PAGE);
   readonly ranges = signal('');
   readonly selectedPages = signal<number[]>([]);
+  readonly pagesPerFileInput = signal(String(DEFAULT_PAGES_PER_FILE));
   readonly outputDir = signal(this.preferences.defaultOutputDir());
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
@@ -151,6 +169,40 @@ export class PdfSplit implements OnDestroy, OnInit {
   readonly isSelectedStrategy = computed(
     () => this.strategy() === STRATEGY_SELECTED,
   );
+
+  readonly isPagesPerFileStrategy = computed(
+    () => this.strategy() === STRATEGY_PAGES_PER_FILE,
+  );
+
+  readonly isBookmarksStrategy = computed(
+    () => this.strategy() === STRATEGY_BOOKMARKS,
+  );
+
+  /** Validated chunk size; null while the input is empty or out of range. */
+  readonly pagesPerFile = computed<number | null>(() => {
+    const value = Number(this.pagesPerFileInput().trim());
+    return Number.isInteger(value) &&
+      value >= MIN_PAGES_PER_FILE &&
+      value <= MAX_PAGES_PER_FILE
+      ? value
+      : null;
+  });
+
+  readonly pagesPerFileInvalid = computed(
+    () => this.isPagesPerFileStrategy() && this.pagesPerFile() === null,
+  );
+
+  /** Total files the current plan expects, across every input PDF. */
+  readonly plannedPartCount = computed(() => {
+    const plan = this.plan();
+    if (!plan?.success) {
+      return 0;
+    }
+    return plan.outputs.reduce(
+      (total, output) => total + (output.outputCount ?? 0),
+      0,
+    );
+  });
 
   readonly activeStrategyLabel = computed(
     () =>
@@ -181,6 +233,12 @@ export class PdfSplit implements OnDestroy, OnInit {
       const parts = groupConsecutivePages(this.selectedPages()).length;
       return `${base} into ${formatCount(parts, 'part')}`;
     }
+    if (this.isPagesPerFileStrategy() && this.plannedPartCount() > 0) {
+      return `${base} into ${formatCount(this.plannedPartCount(), 'part')}`;
+    }
+    if (this.isBookmarksStrategy() && this.plannedPartCount() > 0) {
+      return `${base} into ${formatCount(this.plannedPartCount(), 'file')}`;
+    }
     return base;
   });
 
@@ -197,6 +255,7 @@ export class PdfSplit implements OnDestroy, OnInit {
       this.selectedPaths().length > 0 &&
       !this.rangesRequired() &&
       !this.selectionRequired() &&
+      !this.pagesPerFileInvalid() &&
       !this.isSubmitting() &&
       !this.isPolling(),
   );
@@ -213,6 +272,9 @@ export class PdfSplit implements OnDestroy, OnInit {
     }
     if (this.selectionRequired()) {
       return 'Select at least one page to build the split.';
+    }
+    if (this.pagesPerFileInvalid()) {
+      return 'Enter a whole number of pages from 1 to 1000.';
     }
     return '';
   });
@@ -373,6 +435,13 @@ export class PdfSplit implements OnDestroy, OnInit {
   onRangesInput(event: Event): void {
     const value = (event.target as HTMLInputElement | null)?.value ?? '';
     this.ranges.set(value);
+    this.actionMessage.set('');
+    this.schedulePlanRefresh();
+  }
+
+  onPagesPerFileInput(event: Event): void {
+    const value = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.pagesPerFileInput.set(value);
     this.actionMessage.set('');
     this.schedulePlanRefresh();
   }
@@ -568,6 +637,12 @@ export class PdfSplit implements OnDestroy, OnInit {
     if (strategy === STRATEGY_RANGES && ranges) {
       options['ranges'] = ranges;
     }
+    if (strategy === STRATEGY_PAGES_PER_FILE) {
+      const pagesPerFile = this.pagesPerFile();
+      if (pagesPerFile !== null) {
+        options['pagesPerFile'] = pagesPerFile;
+      }
+    }
 
     return {
       toolId: PDF_SPLIT_TOOL_ID,
@@ -593,7 +668,8 @@ export class PdfSplit implements OnDestroy, OnInit {
     if (
       this.selectedPaths().length === 0 ||
       this.rangesRequired() ||
-      this.selectionRequired()
+      this.selectionRequired() ||
+      this.pagesPerFileInvalid()
     ) {
       this.planToken += 1;
       this.plan.set(null);

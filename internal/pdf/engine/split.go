@@ -9,13 +9,21 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 )
 
 const (
-	SplitStrategyEveryPage              = "every_page"
-	SplitStrategyRanges                 = "ranges"
+	SplitStrategyEveryPage    = "every_page"
+	SplitStrategyRanges       = "ranges"
+	SplitStrategyPagesPerFile = "pages_per_file"
+	SplitStrategyBookmarks    = "bookmarks"
+
+	SplitMinPagesPerFile = 1
+	SplitMaxPagesPerFile = 1000
+
 	ErrorCodeSplitFailed                = "PDF_SPLIT_FAILED"
 	ErrorCodeUnsupportedStrategy        = "PDF_SPLIT_STRATEGY_UNSUPPORTED"
 	ErrorCodeSplitRangesRequired        = "PDF_SPLIT_RANGES_REQUIRED"
@@ -25,9 +33,20 @@ const (
 	ErrorCodeSplitOutputExists          = "PDF_SPLIT_OUTPUT_ALREADY_EXISTS"
 	ErrorCodeSplitBatchOutputCollision  = "PDF_SPLIT_BATCH_OUTPUT_COLLISION"
 	ErrorCodeSplitBatchInputDirConflict = "PDF_SPLIT_BATCH_INPUT_DIR_CONFLICT"
+	ErrorCodeSplitPagesPerFileInvalid   = "PDF_SPLIT_PAGES_PER_FILE_INVALID"
+	ErrorCodeSplitNoBookmarks           = "PDF_SPLIT_NO_BOOKMARKS"
+	ErrorCodeSplitBookmarksInvalid      = "PDF_SPLIT_BOOKMARKS_INVALID"
 )
 
 type SplitPageRange struct {
+	Start int
+	End   int
+}
+
+// SplitBookmarkRange is one top-level bookmark resolved to a page span. End is
+// inclusive and may be derived from the next bookmark or the last page.
+type SplitBookmarkRange struct {
+	Title string
 	Start int
 	End   int
 }
@@ -78,11 +97,17 @@ func (e *SplitError) Unwrap() error {
 // directory is created at execution time when its parent is writable, so the
 // planner can show a destination before anything exists.
 func Split(ctx context.Context, inputPath, outputDir, strategy, rangesExpr string) ([]string, error) {
+	return SplitAdvanced(ctx, inputPath, outputDir, strategy, rangesExpr, 0)
+}
+
+// SplitAdvanced is Split with the options needed by the pages_per_file
+// strategy. pagesPerFile is ignored by every other strategy.
+func SplitAdvanced(ctx context.Context, inputPath, outputDir, strategy, rangesExpr string, pagesPerFile int) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: err}
 	}
 
-	planned, validationErr := buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr, true)
+	planned, validationErr := buildSplitPlanWithAdvancedOptions(inputPath, outputDir, strategy, rangesExpr, pagesPerFile, true)
 	if validationErr != nil {
 		return nil, validationErr
 	}
@@ -91,7 +116,12 @@ func Split(ctx context.Context, inputPath, outputDir, strategy, rangesExpr strin
 }
 
 func ValidateSplitRequest(inputPath, outputDir, strategy, rangesExpr string) *SplitError {
-	_, err := buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr, true)
+	return ValidateSplitRequestAdvanced(inputPath, outputDir, strategy, rangesExpr, 0)
+}
+
+// ValidateSplitRequestAdvanced validates a request including pagesPerFile.
+func ValidateSplitRequestAdvanced(inputPath, outputDir, strategy, rangesExpr string, pagesPerFile int) *SplitError {
+	_, err := buildSplitPlanWithAdvancedOptions(inputPath, outputDir, strategy, rangesExpr, pagesPerFile, true)
 	return err
 }
 
@@ -145,16 +175,126 @@ func SplitPageCount(inputPath string) int {
 	return count
 }
 
+// SplitPagesPerFileChunkCount returns the number of outputs a pages_per_file
+// split produces for pageCount pages. It returns 0 when either input is
+// unusable, which planning reports as an unknown count.
+func SplitPagesPerFileChunkCount(pageCount, pagesPerFile int) int {
+	if pageCount <= 0 || pagesPerFile <= 0 {
+		return 0
+	}
+
+	return (pageCount + pagesPerFile - 1) / pagesPerFile
+}
+
+// SplitBookmarkPageRanges resolves the top-level bookmarks of inputPath to
+// inclusive page ranges. It returns PDF_SPLIT_NO_BOOKMARKS when the document
+// has no outline.
+func SplitBookmarkPageRanges(inputPath string) ([]SplitBookmarkRange, *SplitError) {
+	inputPath = strings.TrimSpace(inputPath)
+	if inputPath == "" {
+		return nil, &SplitError{Code: ErrorCodeValidation, Message: "inputPath is required"}
+	}
+
+	if !isPDFPath(inputPath) {
+		return nil, &SplitError{Code: ErrorCodeValidation, Message: fmt.Sprintf("input file must be .pdf: %s", inputPath)}
+	}
+
+	pageCount, pageCountErr := api.PageCountFile(inputPath)
+	if pageCountErr != nil {
+		return nil, &SplitError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("unable to determine page count for: %s", filepath.Base(inputPath)), Cause: pageCountErr}
+	}
+
+	file, openErr := os.Open(inputPath)
+	if openErr != nil {
+		return nil, &SplitError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("input PDF is not accessible: %s", filepath.Base(inputPath)), Cause: openErr}
+	}
+	defer file.Close()
+
+	bookmarks, bookmarksErr := api.Bookmarks(file, nil)
+	if bookmarksErr != nil {
+		return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to read PDF bookmarks: %s", filepath.Base(inputPath)), Cause: bookmarksErr}
+	}
+
+	return deriveBookmarkRanges(bookmarks, pageCount)
+}
+
+// deriveBookmarkRanges converts top-level bookmarks to page spans. A bookmark
+// without PageThru ends before the next usable bookmark, or on the last page.
+// Bookmarks whose page is unusable or whose span is empty are skipped; a
+// document left without any usable span reports PDF_SPLIT_NO_BOOKMARKS.
+func deriveBookmarkRanges(bookmarks []pdfcpu.Bookmark, pageCount int) ([]SplitBookmarkRange, *SplitError) {
+	if len(bookmarks) == 0 {
+		return nil, &SplitError{Code: ErrorCodeSplitNoBookmarks, Message: "PDF has no bookmarks to split by"}
+	}
+
+	ranges := make([]SplitBookmarkRange, 0, len(bookmarks))
+	for i, bookmark := range bookmarks {
+		start := bookmark.PageFrom
+		if start <= 0 {
+			continue
+		}
+		if start > pageCount {
+			return nil, &SplitError{
+				Code:    ErrorCodeSplitBookmarksInvalid,
+				Message: fmt.Sprintf("bookmark %q starts on page %d beyond the PDF page count %d", bookmark.Title, start, pageCount),
+			}
+		}
+
+		end := bookmark.PageThru
+		if end < start {
+			end = bookmarkRangeEnd(bookmarks[i+1:], start, pageCount)
+		}
+		if end > pageCount {
+			return nil, &SplitError{
+				Code:    ErrorCodeSplitBookmarksInvalid,
+				Message: fmt.Sprintf("bookmark %q ends on page %d beyond the PDF page count %d", bookmark.Title, end, pageCount),
+			}
+		}
+		if end < start {
+			continue
+		}
+
+		ranges = append(ranges, SplitBookmarkRange{Title: bookmark.Title, Start: start, End: end})
+	}
+
+	if len(ranges) == 0 {
+		return nil, &SplitError{Code: ErrorCodeSplitNoBookmarks, Message: "PDF bookmarks do not define any usable page ranges"}
+	}
+
+	return ranges, nil
+}
+
+// bookmarkRangeEnd derives the last page of a bookmark from the next usable
+// top-level bookmark, falling back to the last page of the document.
+func bookmarkRangeEnd(remaining []pdfcpu.Bookmark, start, pageCount int) int {
+	for _, next := range remaining {
+		if next.PageFrom >= start {
+			return next.PageFrom - 1
+		}
+	}
+
+	return pageCount
+}
+
 func ValidateSplitBatchRequest(inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) *SplitError {
-	return validateSplitBatchShape(inputPaths, outputDir, strategy, rangesExpr, perInputDir)
+	return ValidateSplitBatchRequestAdvanced(inputPaths, outputDir, strategy, rangesExpr, 0, perInputDir)
+}
+
+func ValidateSplitBatchRequestAdvanced(inputPaths []string, outputDir, strategy, rangesExpr string, pagesPerFile int, perInputDir bool) *SplitError {
+	return validateSplitBatchShape(inputPaths, outputDir, strategy, rangesExpr, pagesPerFile, perInputDir)
 }
 
 func SplitBatch(ctx context.Context, inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) ([]SplitBatchResult, error) {
+	return SplitBatchAdvanced(ctx, inputPaths, outputDir, strategy, rangesExpr, 0, perInputDir)
+}
+
+// SplitBatchAdvanced is SplitBatch with the pages_per_file option.
+func SplitBatchAdvanced(ctx context.Context, inputPaths []string, outputDir, strategy, rangesExpr string, pagesPerFile int, perInputDir bool) ([]SplitBatchResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: err}
 	}
 
-	plans, validationErr := planSplitBatch(inputPaths, outputDir, strategy, rangesExpr, perInputDir)
+	plans, validationErr := planSplitBatch(inputPaths, outputDir, strategy, rangesExpr, pagesPerFile, perInputDir)
 	if validationErr != nil {
 		return nil, validationErr
 	}
@@ -207,6 +347,13 @@ func SplitBatch(ctx context.Context, inputPaths []string, outputDir, strategy, r
 }
 
 func buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr string, allowCreateOutputDir bool) ([]splitPlannedOutput, *SplitError) {
+	return buildSplitPlanWithAdvancedOptions(inputPath, outputDir, strategy, rangesExpr, 0, allowCreateOutputDir)
+}
+
+// buildSplitPlanWithAdvancedOptions resolves every output of a split without
+// writing anything. Bookmark and pages_per_file plans read the PDF because
+// their output names depend on the document structure.
+func buildSplitPlanWithAdvancedOptions(inputPath, outputDir, strategy, rangesExpr string, pagesPerFile int, allowCreateOutputDir bool) ([]splitPlannedOutput, *SplitError) {
 	inputPath = strings.TrimSpace(inputPath)
 	if inputPath == "" {
 		return nil, &SplitError{Code: ErrorCodeValidation, Message: "inputPath is required"}
@@ -221,8 +368,14 @@ func buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr string
 		return nil, &SplitError{Code: ErrorCodeValidation, Message: "outputDir is required"}
 	}
 
-	if strategy != SplitStrategyEveryPage && strategy != SplitStrategyRanges {
+	if !isSupportedSplitStrategy(strategy) {
 		return nil, &SplitError{Code: ErrorCodeUnsupportedStrategy, Message: fmt.Sprintf("unsupported split strategy: %s", strategy)}
+	}
+
+	if strategy == SplitStrategyPagesPerFile {
+		if pagesErr := validatePagesPerFile(pagesPerFile); pagesErr != nil {
+			return nil, pagesErr
+		}
 	}
 
 	if validationErr := validateOutputDirectory(outputDir, allowCreateOutputDir); validationErr != nil {
@@ -239,17 +392,13 @@ func buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr string
 	}
 
 	planned := make([]splitPlannedOutput, 0)
-	if strategy == SplitStrategyEveryPage {
+	switch strategy {
+	case SplitStrategyEveryPage:
 		planned = buildEveryPagePlan(inputPath, outputDir, pageCount)
-	} else {
-		rangesExpr = strings.TrimSpace(rangesExpr)
-		if rangesExpr == "" {
-			return nil, &SplitError{Code: ErrorCodeSplitRangesRequired, Message: "options.ranges is required for strategy=ranges"}
-		}
-
-		ranges, err := ParseSplitRanges(rangesExpr)
-		if err != nil {
-			return nil, err
+	case SplitStrategyRanges:
+		ranges, rangesErr := resolveRangesExpr(rangesExpr)
+		if rangesErr != nil {
+			return nil, rangesErr
 		}
 
 		if boundsErr := validateRangesWithinPageCount(ranges, pageCount); boundsErr != nil {
@@ -257,6 +406,15 @@ func buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr string
 		}
 
 		planned = buildRangesPlan(inputPath, outputDir, ranges)
+	case SplitStrategyPagesPerFile:
+		planned = buildPagesPerFilePlan(inputPath, outputDir, pageCount, pagesPerFile)
+	case SplitStrategyBookmarks:
+		bookmarkRanges, bookmarksErr := SplitBookmarkPageRanges(inputPath)
+		if bookmarksErr != nil {
+			return nil, bookmarksErr
+		}
+
+		planned = buildBookmarksPlan(inputPath, outputDir, bookmarkRanges)
 	}
 
 	if err := ensureNoOutputCollisions(planned); err != nil {
@@ -270,7 +428,36 @@ func buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr string
 	return planned, nil
 }
 
-func validateSplitBatchShape(inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) *SplitError {
+func isSupportedSplitStrategy(strategy string) bool {
+	switch strategy {
+	case SplitStrategyEveryPage, SplitStrategyRanges, SplitStrategyPagesPerFile, SplitStrategyBookmarks:
+		return true
+	default:
+		return false
+	}
+}
+
+func validatePagesPerFile(pagesPerFile int) *SplitError {
+	if pagesPerFile < SplitMinPagesPerFile || pagesPerFile > SplitMaxPagesPerFile {
+		return &SplitError{
+			Code:    ErrorCodeSplitPagesPerFileInvalid,
+			Message: fmt.Sprintf("pagesPerFile must be between %d and %d", SplitMinPagesPerFile, SplitMaxPagesPerFile),
+		}
+	}
+
+	return nil
+}
+
+func resolveRangesExpr(rangesExpr string) ([]SplitPageRange, *SplitError) {
+	rangesExpr = strings.TrimSpace(rangesExpr)
+	if rangesExpr == "" {
+		return nil, &SplitError{Code: ErrorCodeSplitRangesRequired, Message: "options.ranges is required for strategy=ranges"}
+	}
+
+	return ParseSplitRanges(rangesExpr)
+}
+
+func validateSplitBatchShape(inputPaths []string, outputDir, strategy, rangesExpr string, pagesPerFile int, perInputDir bool) *SplitError {
 	outputDir = strings.TrimSpace(outputDir)
 	if outputDir == "" {
 		return &SplitError{Code: ErrorCodeValidation, Message: "outputDir is required"}
@@ -284,12 +471,18 @@ func validateSplitBatchShape(inputPaths []string, outputDir, strategy, rangesExp
 		return validationErr
 	}
 
-	if strategy != SplitStrategyEveryPage && strategy != SplitStrategyRanges {
+	if !isSupportedSplitStrategy(strategy) {
 		return &SplitError{Code: ErrorCodeUnsupportedStrategy, Message: fmt.Sprintf("unsupported split strategy: %s", strategy)}
 	}
 
+	if strategy == SplitStrategyPagesPerFile {
+		if pagesErr := validatePagesPerFile(pagesPerFile); pagesErr != nil {
+			return pagesErr
+		}
+	}
+
 	if strategy == SplitStrategyRanges {
-		if _, rangesErr := ParseSplitRanges(rangesExpr); rangesErr != nil {
+		if _, rangesErr := resolveRangesExpr(rangesExpr); rangesErr != nil {
 			return rangesErr
 		}
 	}
@@ -325,8 +518,8 @@ func resolveSplitBatchInputs(inputPaths []string, outputDir string, perInputDir 
 	return inputs, nil
 }
 
-func planSplitBatch(inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) ([]splitBatchItemPlan, *SplitError) {
-	if validationErr := validateSplitBatchShape(inputPaths, outputDir, strategy, rangesExpr, perInputDir); validationErr != nil {
+func planSplitBatch(inputPaths []string, outputDir, strategy, rangesExpr string, pagesPerFile int, perInputDir bool) ([]splitBatchItemPlan, *SplitError) {
+	if validationErr := validateSplitBatchShape(inputPaths, outputDir, strategy, rangesExpr, pagesPerFile, perInputDir); validationErr != nil {
 		return nil, validationErr
 	}
 
@@ -340,7 +533,7 @@ func planSplitBatch(inputPaths []string, outputDir, strategy, rangesExpr string,
 
 	for _, input := range inputs {
 		allowCreateOutputDir := perInputDir
-		planned, planErr := buildSplitPlanWithOptions(input.InputPath, input.OutputDir, strategy, rangesExpr, allowCreateOutputDir)
+		planned, planErr := buildSplitPlanWithAdvancedOptions(input.InputPath, input.OutputDir, strategy, rangesExpr, pagesPerFile, allowCreateOutputDir)
 		if planErr != nil {
 			plans = append(plans, splitBatchItemPlan{
 				InputPath: input.InputPath,
@@ -521,6 +714,47 @@ func buildRangesPlan(inputPath, outputDir string, ranges []SplitPageRange) []spl
 	return planned
 }
 
+func buildPagesPerFilePlan(inputPath, outputDir string, pageCount, pagesPerFile int) []splitPlannedOutput {
+	planned := make([]splitPlannedOutput, 0, SplitPagesPerFileChunkCount(pageCount, pagesPerFile))
+	part := 1
+	for start := 1; start <= pageCount; start += pagesPerFile {
+		end := start + pagesPerFile - 1
+		if end > pageCount {
+			end = pageCount
+		}
+
+		selection := fmt.Sprintf("%d-%d", start, end)
+		if start == end {
+			selection = strconv.Itoa(start)
+		}
+
+		planned = append(planned, splitPlannedOutput{
+			Selection: selection,
+			Output:    filepath.Join(outputDir, buildPagesPerFileOutputName(inputPath, part, start, end)),
+		})
+		part++
+	}
+
+	return planned
+}
+
+func buildBookmarksPlan(inputPath, outputDir string, ranges []SplitBookmarkRange) []splitPlannedOutput {
+	planned := make([]splitPlannedOutput, 0, len(ranges))
+	for i, r := range ranges {
+		selection := fmt.Sprintf("%d-%d", r.Start, r.End)
+		if r.Start == r.End {
+			selection = strconv.Itoa(r.Start)
+		}
+
+		planned = append(planned, splitPlannedOutput{
+			Selection: selection,
+			Output:    filepath.Join(outputDir, buildBookmarkOutputName(inputPath, i+1, r.Title)),
+		})
+	}
+
+	return planned
+}
+
 func buildEveryPageOutputName(inputPath string, page int) string {
 	base := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
 	return fmt.Sprintf("%s_page_%03d.pdf", base, page)
@@ -533,6 +767,61 @@ func buildRangeOutputName(inputPath string, index int, r SplitPageRange) string 
 	}
 
 	return fmt.Sprintf("%s_range_%03d_p%d-%d.pdf", base, index, r.Start, r.End)
+}
+
+func buildPagesPerFileOutputName(inputPath string, part, start, end int) string {
+	base := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	if start == end {
+		return fmt.Sprintf("%s_part_%03d_p%d.pdf", base, part, start)
+	}
+
+	return fmt.Sprintf("%s_part_%03d_p%d-%d.pdf", base, part, start, end)
+}
+
+func buildBookmarkOutputName(inputPath string, index int, title string) string {
+	base := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	return fmt.Sprintf("%s_bookmark_%03d_%s.pdf", base, index, bookmarkSlug(title))
+}
+
+const bookmarkSlugMaxLength = 40
+
+// bookmarkSlug turns a bookmark title into a filesystem-friendly token made of
+// letters, digits, '-' and '_'. Empty or fully filtered titles become "part".
+func bookmarkSlug(title string) string {
+	var builder strings.Builder
+	previousSeparator := true
+
+	for _, r := range strings.ToLower(strings.TrimSpace(title)) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			builder.WriteRune(r)
+			previousSeparator = false
+			continue
+		}
+
+		if r == '-' || r == '_' {
+			if !previousSeparator {
+				builder.WriteRune(r)
+				previousSeparator = true
+			}
+			continue
+		}
+
+		if !previousSeparator {
+			builder.WriteRune('-')
+			previousSeparator = true
+		}
+	}
+
+	slug := strings.Trim(builder.String(), "-_")
+	if runes := []rune(slug); len(runes) > bookmarkSlugMaxLength {
+		slug = strings.TrimRight(string(runes[:bookmarkSlugMaxLength]), "-_")
+	}
+
+	if slug == "" {
+		return "part"
+	}
+
+	return slug
 }
 
 func IsSplitErrorCode(err error, code string) bool {
