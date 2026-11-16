@@ -88,6 +88,10 @@ func (t *ImageToolAdapter) Plan(_ context.Context, req models.JobRequestV1) (mod
 		return planFailure(plan, models.NewCanonicalJobError("IMAGE_SINGLE_INPUT_COUNT", "single mode requires exactly one input path", nil))
 	}
 
+	if _, _, backgroundErr := backgroundOption(req.Options); backgroundErr != nil {
+		return planFailure(plan, models.NewCanonicalJobError("IMAGE_BACKGROUND_INVALID", backgroundErr.Error(), nil))
+	}
+
 	requestedFormat, autoFormat := t.resolveRequestedFormat(req.Options)
 	if !autoFormat {
 		if err := t.converter.validateOutputFormat(requestedFormat); err != nil {
@@ -433,6 +437,12 @@ func (t *ImageToolAdapter) effectiveOptions(options map[string]any, requestedFor
 		if value, ok := boolOption(options, key); ok {
 			effective[key] = value
 		}
+	}
+
+	// Report the normalized #rrggbb form so callers see exactly what the
+	// converter applies when flattening transparency.
+	if background, ok, err := backgroundOption(options); err == nil && ok {
+		effective["background"] = fmt.Sprintf("#%02x%02x%02x", background.R, background.G, background.B)
 	}
 
 	return effective

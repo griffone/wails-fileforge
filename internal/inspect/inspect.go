@@ -19,6 +19,7 @@ import (
 	"fileforge-desktop/internal/models"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	_ "golang.org/x/image/webp"
 )
 
 const (
@@ -26,6 +27,7 @@ const (
 	kindPDF      = "pdf"
 	kindVideo    = "video"
 	kindDocument = "document"
+	kindArchive  = "archive"
 	kindOther    = "other"
 
 	videoDurationTimeout = 2 * time.Second
@@ -166,7 +168,7 @@ func decodeImageConfig(path string) (int, int, error) {
 
 func supportsImageConfig(extension string) bool {
 	switch extension {
-	case "jpg", "jpeg", "png", "gif":
+	case "jpg", "jpeg", "png", "gif", "webp":
 		return true
 	default:
 		return false
@@ -181,14 +183,25 @@ func kindFromExtension(extension string) string {
 		return kindPDF
 	case "mp4", "mov", "mkv", "webm", "avi":
 		return kindVideo
-	case "md", "markdown", "docx":
+	case "md", "markdown", "docx", "html", "htm":
 		return kindDocument
+	case "zip":
+		return kindArchive
 	default:
 		return kindOther
 	}
 }
 
 func mimeTypeFor(extension, kind string) string {
+	// Pin the bundle types the recipe verification depends on instead of the
+	// platform MIME database, which may append a charset or differ per OS.
+	switch extension {
+	case "zip":
+		return "application/zip"
+	case "html", "htm":
+		return "text/html"
+	}
+
 	if extension != "" {
 		if detected := mime.TypeByExtension("." + extension); detected != "" {
 			return detected

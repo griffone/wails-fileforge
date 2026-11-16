@@ -39,14 +39,18 @@ const (
 	recipePlanFailureMessage = "recipe plan failed"
 )
 
-// resolvedRecipe is a validated request: inputs, destination, effective target
-// and the plan warnings. It contains no intermediate paths.
+// resolvedRecipe is a validated request: inputs, destination, planned outputs
+// and the plan warnings. It contains no intermediate paths. Web is set only for
+// the Web image set recipe, whose plan is fully resolved before execution.
 type resolvedRecipe struct {
 	Recipe          *models.RecipeV1
 	Inputs          []string
 	OutputDir       string
 	TargetSizeBytes int64
 	FinalPath       string
+	PlannedOutputs  []models.PlannedOutputV1
+	PlanMessage     string
+	Web             *webImageSetResolution
 	Warnings        []string
 }
 
@@ -60,9 +64,21 @@ func emailPDFRecipe() models.RecipeV1 {
 		AcceptExtensions: []string{
 			"pdf",
 		},
+		MaxInputs:  0,
+		Highlights: []string{"Merge when needed", "Target size", "Verified + undo"},
 		Steps: []models.RecipeStepV1{
-			{ID: stepIDMergePDFs, Name: "Merge PDFs", ToolID: pdf.ToolIDPDFMergeV1},
-			{ID: stepIDOptimizeTarget, Name: "Optimize to target", ToolID: pdf.ToolIDPDFOptimizeV1},
+			{
+				ID:     stepIDMergePDFs,
+				Name:   "Merge PDFs",
+				ToolID: pdf.ToolIDPDFMergeV1,
+				Detail: "Only when there are two or more PDFs",
+			},
+			{
+				ID:     stepIDOptimizeTarget,
+				Name:   "Optimize to target",
+				ToolID: pdf.ToolIDPDFOptimizeV1,
+				Detail: "Ghostscript when the target needs it",
+			},
 		},
 		DefaultTargetSizeBytes: emailPDFDefaultTargetBytes,
 	}
@@ -70,7 +86,7 @@ func emailPDFRecipe() models.RecipeV1 {
 
 func recipeByID(recipeID string) *models.RecipeV1 {
 	trimmed := strings.TrimSpace(recipeID)
-	for _, recipe := range []models.RecipeV1{emailPDFRecipe()} {
+	for _, recipe := range []models.RecipeV1{emailPDFRecipe(), webImageSetRecipe()} {
 		if recipe.ID == trimmed {
 			candidate := recipe
 			return &candidate
@@ -91,7 +107,7 @@ func resolveEmailPDF(recipe *models.RecipeV1, req models.RecipeRequestV1) (*reso
 		return nil, targetErr
 	}
 
-	outputDir, dirErr := resolveEmailPDFOutputDir(req.OutputDir, inputs[0])
+	outputDir, dirErr := resolveRecipeOutputDir(req.OutputDir, inputs[0])
 	if dirErr != nil {
 		return nil, dirErr
 	}
@@ -114,7 +130,14 @@ func resolveEmailPDF(recipe *models.RecipeV1, req models.RecipeRequestV1) (*reso
 		OutputDir:       outputDir,
 		TargetSizeBytes: targetSizeBytes,
 		FinalPath:       finalPath,
-		Warnings:        warnings,
+		PlannedOutputs: []models.PlannedOutputV1{{
+			InputPath:   strings.Join(inputs, ","),
+			OutputPath:  finalPath,
+			OutputKind:  "file",
+			OutputCount: 1,
+		}},
+		PlanMessage: emailPDFPlanMessage(len(inputs)),
+		Warnings:    warnings,
 	}, nil
 }
 
@@ -176,7 +199,10 @@ func validateEmailPDFInputs(rawInputs []string) ([]string, *models.JobErrorV1) {
 	return inputs, nil
 }
 
-func resolveEmailPDFOutputDir(rawDir, firstInput string) (string, *models.JobErrorV1) {
+// resolveRecipeOutputDir validates the destination folder shared by every
+// recipe: an empty value defaults to the first input's folder and the folder
+// must exist and accept a write probe.
+func resolveRecipeOutputDir(rawDir, firstInput string) (string, *models.JobErrorV1) {
 	dir := strings.TrimSpace(rawDir)
 	if dir == "" {
 		dir = filepath.Dir(firstInput)

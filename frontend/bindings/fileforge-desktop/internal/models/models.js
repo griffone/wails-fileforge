@@ -116,7 +116,7 @@ export class FileInfoV1 {
         }
         if (!("kind" in $$source)) {
             /**
-             * image|pdf|video|document|other
+             * image|pdf|video|document|archive|other
              * @member
              * @type {string}
              */
@@ -2136,6 +2136,13 @@ export class RecipeStepV1 {
              */
             this["toolId"] = "";
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["detail"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }
@@ -2152,8 +2159,9 @@ export class RecipeStepV1 {
 }
 
 /**
- * RecipeV1 is a curated outcome: one input kind, a linear chain of tools and a
- * single verified result. Recipes are built-in Go definitions, not user files.
+ * RecipeV1 is a curated outcome: one input kind, a chain of tools and one
+ * verified result set. Recipes are built-in Go definitions, not user files.
+ * MaxInputs is 0 when the recipe accepts any number of inputs.
  */
 export class RecipeV1 {
     /**
@@ -2203,6 +2211,20 @@ export class RecipeV1 {
              */
             this["acceptExtensions"] = [];
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["maxInputs"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["highlights"] = undefined;
+        }
         if (!("steps" in $$source)) {
             /**
              * @member
@@ -2228,13 +2250,17 @@ export class RecipeV1 {
      */
     static createFrom($$source = {}) {
         const $$createField5_0 = $$createType9;
-        const $$createField6_0 = $$createType29;
+        const $$createField7_0 = $$createType9;
+        const $$createField8_0 = $$createType29;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("acceptExtensions" in $$parsedSource) {
             $$parsedSource["acceptExtensions"] = $$createField5_0($$parsedSource["acceptExtensions"]);
         }
+        if ("highlights" in $$parsedSource) {
+            $$parsedSource["highlights"] = $$createField7_0($$parsedSource["highlights"]);
+        }
         if ("steps" in $$parsedSource) {
-            $$parsedSource["steps"] = $$createField6_0($$parsedSource["steps"]);
+            $$parsedSource["steps"] = $$createField8_0($$parsedSource["steps"]);
         }
         return new RecipeV1(/** @type {Partial<RecipeV1>} */($$parsedSource));
     }

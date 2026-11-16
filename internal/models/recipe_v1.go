@@ -7,10 +7,12 @@ type RecipeStepV1 struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	ToolID string `json:"toolId"`
+	Detail string `json:"detail,omitempty"`
 }
 
-// RecipeV1 is a curated outcome: one input kind, a linear chain of tools and a
-// single verified result. Recipes are built-in Go definitions, not user files.
+// RecipeV1 is a curated outcome: one input kind, a chain of tools and one
+// verified result set. Recipes are built-in Go definitions, not user files.
+// MaxInputs is 0 when the recipe accepts any number of inputs.
 type RecipeV1 struct {
 	ID                     string         `json:"id"`
 	Name                   string         `json:"name"`
@@ -18,6 +20,8 @@ type RecipeV1 struct {
 	Category               string         `json:"category"`
 	InputKind              string         `json:"inputKind"`
 	AcceptExtensions       []string       `json:"acceptExtensions"`
+	MaxInputs              int            `json:"maxInputs,omitempty"`
+	Highlights             []string       `json:"highlights,omitempty"`
 	Steps                  []RecipeStepV1 `json:"steps"`
 	DefaultTargetSizeBytes int64          `json:"defaultTargetSizeBytes"`
 }

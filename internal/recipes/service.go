@@ -1,7 +1,8 @@
 // Package recipes implements the curated outcome recipes that chain the
-// existing tools into one verified result. Phase 1 ships a single built-in
-// recipe (Email PDF) and a linear runner: merge when needed, optimize to a
-// target size, verify the output and record it for undo.
+// existing tools into one verified result. Phase 1 ships built-in recipes for
+// Email PDF (linear: merge when needed, optimize to a target size) and Web
+// image set (fan-out: responsive WebP/JPEG variants plus a ZIP and srcset
+// snippet). Both verify their outputs and record them for undo.
 package recipes
 
 import (
@@ -21,12 +22,17 @@ const (
 	// RecipeIDEmailPDF is the curated outcome "Email PDF".
 	RecipeIDEmailPDF = "recipe.email_pdf"
 
+	// RecipeIDWebImageSet is the curated outcome "Web image set".
+	RecipeIDWebImageSet = "recipe.web_image_set"
+
 	// ProgressEventNameV1 is the Wails event emitted for every recipe stage.
 	ProgressEventNameV1 = "recipes/progress/v1"
 
-	// emailPDFHistoryToolID is the job-history tool id used for recipe runs so
-	// the undo log can tell recipe outputs apart from direct tool outputs.
-	emailPDFHistoryToolID = "recipe.email_pdf"
+	// emailPDFHistoryToolID and webImageSetHistoryToolID are the job-history
+	// tool ids used for recipe runs so the undo log can tell recipe outputs
+	// apart from direct tool outputs.
+	emailPDFHistoryToolID    = "recipe.email_pdf"
+	webImageSetHistoryToolID = "recipe.web_image_set"
 
 	maxConcurrentJobs = 2
 )
@@ -70,10 +76,10 @@ func NewService(reg *registry.Registry, history *jobhistory.Store, emit func(mod
 	return service
 }
 
-// List returns the built-in recipes. Email PDF is the only curated recipe for
-// now and is always first.
+// List returns the built-in recipes. Email PDF is always first, followed by
+// Web image set.
 func (s *Service) List() []models.RecipeV1 {
-	return []models.RecipeV1{emailPDFRecipe()}
+	return []models.RecipeV1{emailPDFRecipe(), webImageSetRecipe()}
 }
 
 // Plan validates a recipe request without executing any tool and resolves the
@@ -91,27 +97,31 @@ func (s *Service) plan(req models.RecipeRequestV1) (models.RecipePlanResponseV1,
 		return recipePlanFailure(jobErr), nil
 	}
 
-	toolWarnings, toolErr := s.optimizePlanWarnings(resolved)
-	if toolErr != nil {
-		return recipePlanFailure(toolErr), nil
+	warnings := append([]string{}, resolved.Warnings...)
+
+	// Only Email PDF delegates part of its planning to the optimize tool; the
+	// Web image set plan is fully recipe-owned.
+	if resolved.Recipe.ID == RecipeIDEmailPDF {
+		toolWarnings, toolErr := s.optimizePlanWarnings(resolved)
+		if toolErr != nil {
+			return recipePlanFailure(toolErr), nil
+		}
+		warnings = append(warnings, toolWarnings...)
 	}
 
-	warnings := append([]string{}, resolved.Warnings...)
-	warnings = append(warnings, toolWarnings...)
+	outputs := resolved.PlannedOutputs
+	if outputs == nil {
+		outputs = []models.PlannedOutputV1{}
+	}
 
 	return models.RecipePlanResponseV1{
 		Success:    true,
-		Message:    emailPDFPlanMessage(len(resolved.Inputs)),
+		Message:    resolved.PlanMessage,
 		Recipe:     resolved.Recipe,
 		InputPaths: resolved.Inputs,
 		OutputDir:  resolved.OutputDir,
-		Outputs: []models.PlannedOutputV1{{
-			InputPath:   strings.Join(resolved.Inputs, ","),
-			OutputPath:  resolved.FinalPath,
-			OutputKind:  "file",
-			OutputCount: 1,
-		}},
-		Warnings: warnings,
+		Outputs:    outputs,
+		Warnings:   warnings,
 	}, resolved
 }
 
@@ -249,6 +259,8 @@ func (s *Service) resolve(req models.RecipeRequestV1) (*resolvedRecipe, *models.
 	switch recipe.ID {
 	case RecipeIDEmailPDF:
 		return resolveEmailPDF(recipe, req)
+	case RecipeIDWebImageSet:
+		return resolveWebImageSet(recipe, req)
 	default:
 		return nil, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", recipe.ID), nil)
 	}
@@ -320,6 +332,8 @@ func (s *Service) execute(ctx context.Context, tracked *recipeJob, resolved *res
 	switch resolved.Recipe.ID {
 	case RecipeIDEmailPDF:
 		s.executeEmailPDF(ctx, tracked, resolved)
+	case RecipeIDWebImageSet:
+		s.executeWebImageSet(ctx, tracked, resolved)
 	default:
 		s.failJob(tracked, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", resolved.Recipe.ID), nil))
 	}
