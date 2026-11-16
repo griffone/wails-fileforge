@@ -21,6 +21,9 @@ const (
 	checkImageDims   = "image_dimensions"
 	checkPageCount   = "page_count"
 	checkVideoLength = "video_duration"
+	checkVideoDims   = "video_dimensions"
+	checkVideoCodec  = "video_codec"
+	checkAudioCodec  = "audio_codec"
 	checkTargetSize  = "target_size"
 
 	kindImage = "image"
@@ -200,13 +203,46 @@ func imageChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []mode
 }
 
 func videoChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []models.VerificationCheckV1 {
+	checks := make([]models.VerificationCheckV1, 0, 4)
+
 	if info.DurationSeconds > 0 {
-		return []models.VerificationCheckV1{{
+		checks = append(checks, models.VerificationCheckV1{
 			Key:    checkVideoLength,
 			Label:  "Duration",
 			Passed: true,
 			Value:  fmt.Sprintf("%.1f s", info.DurationSeconds),
-		}}
+		})
+	}
+
+	if info.Width > 0 && info.Height > 0 {
+		checks = append(checks, models.VerificationCheckV1{
+			Key:    checkVideoDims,
+			Label:  "Dimensions",
+			Passed: true,
+			Value:  fmt.Sprintf("%d × %d px", info.Width, info.Height),
+		})
+	}
+
+	if info.VideoCodec != "" {
+		checks = append(checks, models.VerificationCheckV1{
+			Key:    checkVideoCodec,
+			Label:  "Video codec",
+			Passed: true,
+			Value:  info.VideoCodec,
+		})
+	}
+
+	if info.AudioCodec != "" {
+		checks = append(checks, models.VerificationCheckV1{
+			Key:    checkAudioCodec,
+			Label:  "Audio codec",
+			Passed: true,
+			Value:  info.AudioCodec,
+		})
+	}
+
+	if len(checks) > 0 {
+		return checks
 	}
 
 	output.Warnings = append(output.Warnings, fmt.Sprintf(

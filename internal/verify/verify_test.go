@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -99,6 +100,39 @@ func writeVerifyPDF(t *testing.T, path string, pages int) {
 	}
 	if err := api.ImportImagesFile(pngPaths, path, nil, nil); err != nil {
 		t.Fatalf("import images into pdf: %v", err)
+	}
+}
+
+// writeVerifyVideo generates a tiny H.264/AAC clip with ffmpeg so the video
+// metadata checks can be asserted against real media. Tests skip when the
+// ffmpeg toolchain is missing instead of failing.
+func writeVerifyVideo(t *testing.T, path string) {
+	t.Helper()
+
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg is not available")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe is not available")
+	}
+
+	args := []string{
+		"-y",
+		"-f", "lavfi",
+		"-i", "testsrc=size=160x120:rate=10",
+		"-f", "lavfi",
+		"-i", "sine=frequency=440:sample_rate=48000",
+		"-c:v", "libx264",
+		"-pix_fmt", "yuv420p",
+		"-preset", "ultrafast",
+		"-c:a", "aac",
+		"-t", "1",
+		"-shortest",
+		path,
+	}
+	if output, runErr := exec.Command(ffmpegPath, args...).CombinedOutput(); runErr != nil {
+		t.Fatalf("generate video fixture: %v (%s)", runErr, strings.TrimSpace(string(output)))
 	}
 }
 
@@ -363,5 +397,42 @@ func TestVerifyPathsVideoDurationIsTolerant(t *testing.T) {
 		if !foundWarning {
 			t.Fatalf("expected a duration warning when ffprobe cannot read the file, got %v", report.Outputs[0].Warnings)
 		}
+	}
+}
+
+func TestVerifyPathsRealVideoReportsDimensionsAndCodecs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clip.mp4")
+	writeVerifyVideo(t, path)
+
+	report := VerifyPaths([]string{path})
+	if !report.Success {
+		t.Fatalf("expected a real video to verify, got %s (%v)", report.Message, report.Warnings)
+	}
+
+	output := report.Outputs[0]
+	checks := checksByKey(output)
+	for _, key := range []string{checkVideoLength, checkVideoDims, checkVideoCodec, checkAudioCodec} {
+		passed, ok := checks[key]
+		if !ok {
+			t.Fatalf("expected check %q, got %v", key, checks)
+		}
+		if !passed {
+			t.Fatalf("expected check %q to pass, got %v", key, checks)
+		}
+	}
+
+	values := make(map[string]string, len(output.Checks))
+	for _, check := range output.Checks {
+		values[check.Key] = check.Value
+	}
+	if values[checkVideoDims] != "160 × 120 px" {
+		t.Fatalf("expected 160 × 120 px, got %q", values[checkVideoDims])
+	}
+	if values[checkVideoCodec] != "h264" {
+		t.Fatalf("expected h264, got %q", values[checkVideoCodec])
+	}
+	if values[checkAudioCodec] != "aac" {
+		t.Fatalf("expected aac, got %q", values[checkAudioCodec])
 	}
 }

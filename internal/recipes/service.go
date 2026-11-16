@@ -1,8 +1,9 @@
 // Package recipes implements the curated outcome recipes that chain the
 // existing tools into one verified result. Phase 1 ships built-in recipes for
-// Email PDF (linear: merge when needed, optimize to a target size) and Web
-// image set (fan-out: responsive WebP/JPEG variants plus a ZIP and srcset
-// snippet). Both verify their outputs and record them for undo.
+// Email PDF (linear: merge when needed, optimize to a target size), Web image
+// set (fan-out: responsive WebP/JPEG variants plus a ZIP and srcset snippet)
+// and Social clip (fan-out: MP4 + WebM encodes plus a poster frame). All of
+// them verify their outputs and record them for undo.
 package recipes
 
 import (
@@ -25,14 +26,18 @@ const (
 	// RecipeIDWebImageSet is the curated outcome "Web image set".
 	RecipeIDWebImageSet = "recipe.web_image_set"
 
+	// RecipeIDSocialClip is the curated outcome "Social clip".
+	RecipeIDSocialClip = "recipe.social_clip"
+
 	// ProgressEventNameV1 is the Wails event emitted for every recipe stage.
 	ProgressEventNameV1 = "recipes/progress/v1"
 
-	// emailPDFHistoryToolID and webImageSetHistoryToolID are the job-history
-	// tool ids used for recipe runs so the undo log can tell recipe outputs
-	// apart from direct tool outputs.
+	// emailPDFHistoryToolID, webImageSetHistoryToolID and
+	// socialClipHistoryToolID are the job-history tool ids used for recipe runs
+	// so the undo log can tell recipe outputs apart from direct tool outputs.
 	emailPDFHistoryToolID    = "recipe.email_pdf"
 	webImageSetHistoryToolID = "recipe.web_image_set"
+	socialClipHistoryToolID  = "recipe.social_clip"
 
 	maxConcurrentJobs = 2
 )
@@ -77,9 +82,9 @@ func NewService(reg *registry.Registry, history *jobhistory.Store, emit func(mod
 }
 
 // List returns the built-in recipes. Email PDF is always first, followed by
-// Web image set.
+// Web image set and Social clip.
 func (s *Service) List() []models.RecipeV1 {
-	return []models.RecipeV1{emailPDFRecipe(), webImageSetRecipe()}
+	return []models.RecipeV1{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe()}
 }
 
 // Plan validates a recipe request without executing any tool and resolves the
@@ -261,6 +266,8 @@ func (s *Service) resolve(req models.RecipeRequestV1) (*resolvedRecipe, *models.
 		return resolveEmailPDF(recipe, req)
 	case RecipeIDWebImageSet:
 		return resolveWebImageSet(recipe, req)
+	case RecipeIDSocialClip:
+		return resolveSocialClip(recipe, req)
 	default:
 		return nil, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", recipe.ID), nil)
 	}
@@ -334,6 +341,8 @@ func (s *Service) execute(ctx context.Context, tracked *recipeJob, resolved *res
 		s.executeEmailPDF(ctx, tracked, resolved)
 	case RecipeIDWebImageSet:
 		s.executeWebImageSet(ctx, tracked, resolved)
+	case RecipeIDSocialClip:
+		s.executeSocialClip(ctx, tracked, resolved)
 	default:
 		s.failJob(tracked, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", resolved.Recipe.ID), nil))
 	}

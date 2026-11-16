@@ -30,7 +30,6 @@ const (
 	writeSnippetStepIndex  = 2
 	webImageSetStepCount   = 3
 
-	webImageSetFallbackStem       = "image"
 	webImageSetSnippetEntry       = "srcset.html"
 	webImageSetZipSuffix          = "-web-set"
 	webImageSetSnippetSuffix      = "-srcset"
@@ -145,7 +144,7 @@ func resolveWebImageSet(recipe *models.RecipeV1, req models.RecipeRequestV1) (*r
 		)
 	}
 
-	stem := webImageSetSourceStem(sourcePath)
+	stem := recipeSourceStem(sourcePath)
 	widths := webImageSetWidths(info.Width)
 	used := make(map[string]struct{}, len(widths)*2+2)
 
@@ -301,37 +300,6 @@ func webImageSetPlanWarnings(sourceWidth int) []string {
 	}
 
 	return warnings
-}
-
-// webImageSetSourceStem turns the source file name into a web-friendly base
-// name: lowercase ASCII letters, digits, dots, underscores and dashes survive;
-// every other run is collapsed into a single dash. This keeps spaces and
-// ampersands out of folder names and srcset URLs.
-func webImageSetSourceStem(inputPath string) string {
-	raw := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
-	var builder strings.Builder
-	lastDash := false
-	for _, char := range strings.ToLower(raw) {
-		safe := (char >= 'a' && char <= 'z') ||
-			(char >= '0' && char <= '9') ||
-			char == '.' || char == '_' || char == '-'
-		if safe {
-			builder.WriteRune(char)
-			lastDash = false
-			continue
-		}
-		if !lastDash {
-			builder.WriteByte('-')
-			lastDash = true
-		}
-	}
-
-	stem := strings.Trim(builder.String(), "-._")
-	if stem == "" {
-		return webImageSetFallbackStem
-	}
-
-	return stem
 }
 
 func (s *Service) executeWebImageSet(ctx context.Context, tracked *recipeJob, resolved *resolvedRecipe) {

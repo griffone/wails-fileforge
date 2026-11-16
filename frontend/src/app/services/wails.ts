@@ -104,6 +104,8 @@ export interface FileInfoV1 {
   pageWidthPoints?: number;
   pageHeightPoints?: number;
   durationSeconds?: number;
+  videoCodec?: string;
+  audioCodec?: string;
   exists: boolean;
   error?: string;
 }
