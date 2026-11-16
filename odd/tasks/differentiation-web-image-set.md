@@ -76,13 +76,14 @@ Implement the second vertical slice from the differentiation roadmap.
 - 2026-11-16: Generic frontend recipe page implemented from the Email page: route data, target visibility, single/multi intake, highlights, step details, per-output result rows, six-output plan limit, and Home second card. Commit `7a4be22` and `e000939`.
 - 2026-11-16: Live `recipes/progress/v1` wiring added to the Wails service and recipe page; the stepper and bar update immediately, with the polled status remaining the source of truth for outputs. Part of `7a4be22`.
 - 2026-11-16: Web image set output base names sanitized to lowercase web-safe ASCII so folder names and `srcset` URLs never contain spaces or ampersands; snippet attribute escaping is still covered by a dedicated unit test.
+- 2026-11-16: Recipe partial results now show the backend message instead of the generic “Retry them below” copy, which does not apply when the files exist but verification needs attention. Commit `ec3a23d`.
 
 ## Verification evidence
 
 - `go build ./...` — pass.
 - `go test ./... -count=1` — pass (including `internal/recipes`, `internal/image`, `internal/inspect`, `internal/verify`).
 - `cd frontend && npm run build:dev` — success. Pre-existing budget warnings remain (initial bundle; `home.css`, `result-card.css`, other component styles), all under the 8 kB error cap.
-- `CHROME_BIN=/usr/bin/brave npx ng test --watch=false --browsers=ChromeHeadless` — 404/404 success.
+- `CHROME_BIN=/usr/bin/brave npx ng test --watch=false --browsers=ChromeHeadless` — 406/406 success.
 - `npx tsc --noEmit -p tsconfig.app.json` — exit 0.
 - `npx agent-browser` visual check at 1440×900:
   - Home shows Email PDF and Web image set cards side by side;
@@ -103,7 +104,7 @@ Implement the second vertical slice from the differentiation roadmap.
 | 5 | Automated | `TestRunWebImageSetFlattensTransparencyOnJPEG`, image background tests |
 | 6 | Automated + visual | recipe-run Email/Web specs, live progress spec, visual page check; backend cancel test |
 | 7 | Automated | `TestRunWebImageSetFailureRemovesCreatedFiles`, `TestRunWebImageSetCancelRemovesPartialOutputs` |
-| 8 | Verified | Go tests, 404 Karma specs, build, tsc; bindings regenerated only |
+| 8 | Verified | Go tests, 406 Karma specs, build, tsc; bindings regenerated only |
 | 9 | Verified | Full Go suite and frontend suite include Email PDF and all 12 tools |
 
 ## Next steps
