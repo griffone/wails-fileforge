@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-angular';
 
-import { RECIPES } from '../../config/recipes';
+import { RecipeDefinition, RECIPES } from '../../config/recipes';
 import { ToolCategory, ToolDefinition } from '../../config/tools';
 import {
   RecentConversion,
@@ -126,6 +126,14 @@ export class Home implements OnInit {
 
   readonly recipes = RECIPES;
   readonly showRecipes = computed(() => !this.hasFilters());
+
+  /** Recipe cards borrow the category tone of the inputs they consume. */
+  recipeTone(recipe: RecipeDefinition): string {
+    if (recipe.fallback.category === 'image') {
+      return 'image';
+    }
+    return recipe.fallback.inputKind === 'pdf' ? 'pdf' : 'docs';
+  }
 
   readonly recent = this.recentTools.recent;
   readonly showRecent = computed(() => !this.hasFilters() && this.recent().length > 0);
