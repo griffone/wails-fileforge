@@ -19,6 +19,7 @@ import (
 	"fileforge-desktop/internal/pdf"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/tools"
+	"fileforge-desktop/internal/video"
 )
 
 const testLargeTargetBytes = int64(200 * 1024 * 1024)
@@ -622,12 +623,12 @@ func TestRunEmailPDFFailureCleansTempWorkspace(t *testing.T) {
 	waitForEmptyDir(t, tempRoot)
 }
 
-func TestListRecipesReturnsEmailPDFThenWebImageSet(t *testing.T) {
+func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	service, _, _ := newTestService(t)
 
 	recipes := service.List()
-	if len(recipes) != 2 {
-		t.Fatalf("expected two built-in recipes, got %+v", recipes)
+	if len(recipes) != 3 {
+		t.Fatalf("expected three built-in recipes, got %+v", recipes)
 	}
 
 	email := recipes[0]
@@ -674,6 +675,38 @@ func TestListRecipesReturnsEmailPDFThenWebImageSet(t *testing.T) {
 	}
 	if web.Steps[1].ToolID != "" || web.Steps[2].ToolID != "" {
 		t.Fatalf("expected packaging steps without a tool, got %+v", web.Steps)
+	}
+
+	social := recipes[2]
+	if social.ID != RecipeIDSocialClip || social.Name != "Social clip" {
+		t.Fatalf("expected Social clip third, got %+v", social)
+	}
+	if social.Category != "video" || social.InputKind != "video" {
+		t.Fatalf("unexpected Social clip input metadata: %+v", social)
+	}
+	if social.MaxInputs != 1 {
+		t.Fatalf("expected Social clip to accept one input, got %d", social.MaxInputs)
+	}
+	if len(social.AcceptExtensions) != 5 {
+		t.Fatalf("expected five accepted extensions, got %+v", social.AcceptExtensions)
+	}
+	if len(social.Highlights) != 3 || social.Highlights[0] != "MP4 + WebM" {
+		t.Fatalf("unexpected Social clip highlights: %+v", social.Highlights)
+	}
+	if len(social.Steps) != 3 {
+		t.Fatalf("expected three Social clip steps, got %+v", social.Steps)
+	}
+	if social.Steps[0].ID != stepIDSocialMP4 || social.Steps[0].ToolID != video.ToolIDVideoConvertV1 {
+		t.Fatalf("unexpected MP4 step: %+v", social.Steps[0])
+	}
+	if social.Steps[1].ID != stepIDSocialWebM || social.Steps[1].ToolID != video.ToolIDVideoConvertV1 {
+		t.Fatalf("unexpected WebM step: %+v", social.Steps[1])
+	}
+	if social.Steps[2].ID != stepIDSocialPoster || social.Steps[2].ToolID != "" {
+		t.Fatalf("unexpected poster step: %+v", social.Steps[2])
+	}
+	if social.Steps[0].Detail == "" || social.Steps[1].Detail == "" || social.Steps[2].Detail == "" {
+		t.Fatalf("expected step details for every Social clip step, got %+v", social.Steps)
 	}
 }
 

@@ -196,12 +196,12 @@ func TestInspectFileMissing(t *testing.T) {
 	}
 }
 
-func TestInspectFileVideoToleratesMissingDuration(t *testing.T) {
-	original := videoDurationCommand
+func TestInspectFileVideoToleratesMissingMetadata(t *testing.T) {
+	original := videoMetadataCommand
 	t.Cleanup(func() {
-		videoDurationCommand = original
+		videoMetadataCommand = original
 	})
-	videoDurationCommand = func(context.Context, string) ([]byte, error) {
+	videoMetadataCommand = func(context.Context, string) ([]byte, error) {
 		return nil, errors.New("ffprobe not found")
 	}
 
@@ -221,18 +221,24 @@ func TestInspectFileVideoToleratesMissingDuration(t *testing.T) {
 	if info.Error != "" {
 		t.Fatalf("expected inspection to stay tolerant, got %q", info.Error)
 	}
-	if info.DurationSeconds != 0 {
-		t.Fatalf("expected no readable duration for a fake video, got %v", info.DurationSeconds)
+	if info.DurationSeconds != 0 || info.Width != 0 || info.Height != 0 || info.VideoCodec != "" || info.AudioCodec != "" {
+		t.Fatalf("expected no video metadata for a fake video, got %+v", info)
 	}
 }
 
-func TestInspectFileVideoSetsDuration(t *testing.T) {
-	original := videoDurationCommand
+func TestInspectFileVideoSetsMetadata(t *testing.T) {
+	original := videoMetadataCommand
 	t.Cleanup(func() {
-		videoDurationCommand = original
+		videoMetadataCommand = original
 	})
-	videoDurationCommand = func(context.Context, string) ([]byte, error) {
-		return []byte("9.75\n"), nil
+	videoMetadataCommand = func(context.Context, string) ([]byte, error) {
+		return []byte(`{
+			"streams": [
+				{"codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080},
+				{"codec_type": "audio", "codec_name": "aac"}
+			],
+			"format": {"duration": "9.75"}
+		}`), nil
 	}
 
 	dir := t.TempDir()
@@ -244,6 +250,12 @@ func TestInspectFileVideoSetsDuration(t *testing.T) {
 	info := InspectFile(path)
 	if info.DurationSeconds != 9.75 {
 		t.Fatalf("expected 9.75 seconds, got %v", info.DurationSeconds)
+	}
+	if info.Width != 1920 || info.Height != 1080 {
+		t.Fatalf("expected 1920x1080, got %dx%d", info.Width, info.Height)
+	}
+	if info.VideoCodec != "h264" || info.AudioCodec != "aac" {
+		t.Fatalf("expected h264/aac codecs, got %q/%q", info.VideoCodec, info.AudioCodec)
 	}
 }
 
@@ -299,6 +311,106 @@ func TestProbeVideoDurationIsTolerant(t *testing.T) {
 	videoDurationCommand = original
 	if _, ok := ProbeVideoDuration(context.Background(), "  "); ok {
 		t.Fatal("expected empty path to report no duration")
+	}
+}
+
+func TestProbeVideoMetadataParsesFFprobeJSON(t *testing.T) {
+	original := videoMetadataCommand
+	t.Cleanup(func() {
+		videoMetadataCommand = original
+	})
+
+	videoMetadataCommand = func(context.Context, string) ([]byte, error) {
+		return []byte(`{
+			"streams": [
+				{"codec_type": "audio", "codec_name": "opus"},
+				{"codec_type": "video", "codec_name": "vp9", "width": 160, "height": 120},
+				{"codec_type": "audio", "codec_name": "aac"},
+				{"codec_type": "video", "codec_name": "h264", "width": 640, "height": 480}
+			],
+			"format": {"duration": "12.5"}
+		}`), nil
+	}
+
+	metadata, ok := ProbeVideoMetadata(context.Background(), "/videos/clip.webm")
+	if !ok {
+		t.Fatal("expected the metadata to parse")
+	}
+	if metadata.DurationSeconds != 12.5 {
+		t.Fatalf("expected 12.5 seconds, got %v", metadata.DurationSeconds)
+	}
+	if metadata.Width != 160 || metadata.Height != 120 {
+		t.Fatalf("expected the first video stream dimensions 160x120, got %dx%d", metadata.Width, metadata.Height)
+	}
+	if metadata.VideoCodec != "vp9" {
+		t.Fatalf("expected the first video codec vp9, got %q", metadata.VideoCodec)
+	}
+	if metadata.AudioCodec != "opus" {
+		t.Fatalf("expected the first audio codec opus, got %q", metadata.AudioCodec)
+	}
+}
+
+func TestProbeVideoMetadataToleratesPartialAndBrokenOutput(t *testing.T) {
+	original := videoMetadataCommand
+	t.Cleanup(func() {
+		videoMetadataCommand = original
+	})
+
+	t.Run("video stream without duration", func(t *testing.T) {
+		videoMetadataCommand = func(context.Context, string) ([]byte, error) {
+			return []byte(`{"streams": [{"codec_type": "video", "codec_name": "h264"}], "format": {}}`), nil
+		}
+
+		metadata, ok := ProbeVideoMetadata(context.Background(), "/videos/clip.mp4")
+		if !ok {
+			t.Fatal("expected a video stream to be enough")
+		}
+		if metadata.DurationSeconds != 0 || metadata.VideoCodec != "h264" {
+			t.Fatalf("unexpected metadata: %+v", metadata)
+		}
+	})
+
+	t.Run("duration without streams", func(t *testing.T) {
+		videoMetadataCommand = func(context.Context, string) ([]byte, error) {
+			return []byte(`{"streams": [], "format": {"duration": "3.25"}}`), nil
+		}
+
+		metadata, ok := ProbeVideoMetadata(context.Background(), "/videos/clip.mp4")
+		if !ok {
+			t.Fatal("expected a duration to be enough")
+		}
+		if metadata.DurationSeconds != 3.25 || metadata.VideoCodec != "" || metadata.AudioCodec != "" {
+			t.Fatalf("unexpected metadata: %+v", metadata)
+		}
+	})
+
+	cases := []struct {
+		name   string
+		output []byte
+		err    error
+	}{
+		{name: "missing ffprobe", err: errors.New("executable file not found")},
+		{name: "invalid json", output: []byte("not json")},
+		{name: "empty payload", output: []byte(`{"streams": [], "format": {}}`)},
+		{name: "zero duration", output: []byte(`{"streams": [], "format": {"duration": "0"}}`)},
+		{name: "invalid duration", output: []byte(`{"streams": [], "format": {"duration": "N/A"}}`)},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			videoMetadataCommand = func(context.Context, string) ([]byte, error) {
+				return testCase.output, testCase.err
+			}
+
+			if metadata, ok := ProbeVideoMetadata(context.Background(), "/videos/clip.mp4"); ok {
+				t.Fatalf("expected no metadata, got %+v", metadata)
+			}
+		})
+	}
+
+	videoMetadataCommand = original
+	if _, ok := ProbeVideoMetadata(context.Background(), "  "); ok {
+		t.Fatal("expected an empty path to report no metadata")
 	}
 }
 

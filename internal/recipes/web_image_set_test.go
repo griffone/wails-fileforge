@@ -651,7 +651,7 @@ func TestRunWebImageSetSanitizesSnippetNames(t *testing.T) {
 	}
 }
 
-func TestWebImageSetSourceStemIsWebSafe(t *testing.T) {
+func TestRecipeSourceStemIsWebSafe(t *testing.T) {
 	cases := map[string]string{
 		"/tmp/photo.png":           "photo",
 		"/tmp/Photo & Friends.png": "photo-friends",
@@ -661,8 +661,8 @@ func TestWebImageSetSourceStemIsWebSafe(t *testing.T) {
 	}
 
 	for input, want := range cases {
-		if got := webImageSetSourceStem(input); got != want {
-			t.Fatalf("webImageSetSourceStem(%q) = %q, want %q", input, got, want)
+		if got := recipeSourceStem(input); got != want {
+			t.Fatalf("recipeSourceStem(%q) = %q, want %q", input, got, want)
 		}
 	}
 }

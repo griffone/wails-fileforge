@@ -2,6 +2,7 @@ package inspect
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"image"
 	_ "image/gif"
@@ -44,6 +45,47 @@ var videoDurationCommand = func(ctx context.Context, path string) ([]byte, error
 		"-of", "default=noprint_wrappers=1:nokey=1",
 		path,
 	).Output()
+}
+
+// videoMetadataCommand reads duration, stream codecs and video dimensions in a
+// single ffprobe JSON call. It is a package variable so tests can mock it.
+var videoMetadataCommand = func(ctx context.Context, path string) ([]byte, error) {
+	return exec.CommandContext(
+		ctx,
+		"ffprobe",
+		"-v", "error",
+		"-show_entries", "stream=codec_type,codec_name,width,height:format=duration",
+		"-of", "json",
+		path,
+	).Output()
+}
+
+// VideoMetadata is the subset of ffprobe output the workbench shows for video
+// files. Zero values mean the value could not be read.
+type VideoMetadata struct {
+	DurationSeconds float64
+	Width           int
+	Height          int
+	VideoCodec      string
+	AudioCodec      string
+}
+
+// videoProbeStream, videoProbeFormat and videoProbeOutput mirror the ffprobe
+// JSON shape produced by videoMetadataCommand.
+type videoProbeStream struct {
+	CodecType string `json:"codec_type"`
+	CodecName string `json:"codec_name"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+}
+
+type videoProbeFormat struct {
+	Duration string `json:"duration"`
+}
+
+type videoProbeOutput struct {
+	Streams []videoProbeStream `json:"streams"`
+	Format  videoProbeFormat   `json:"format"`
 }
 
 // InspectFile describes a single path for UI file cards. It never returns an
@@ -104,8 +146,12 @@ func InspectFile(path string) models.FileInfoV1 {
 	}
 
 	if info.Kind == kindVideo {
-		if duration, ok := ProbeVideoDuration(context.Background(), info.Path); ok {
-			info.DurationSeconds = duration
+		if metadata, ok := ProbeVideoMetadata(context.Background(), info.Path); ok {
+			info.DurationSeconds = metadata.DurationSeconds
+			info.Width = metadata.Width
+			info.Height = metadata.Height
+			info.VideoCodec = metadata.VideoCodec
+			info.AudioCodec = metadata.AudioCodec
 		}
 	}
 
@@ -138,6 +184,65 @@ func ProbeVideoDuration(ctx context.Context, path string) (float64, bool) {
 	}
 
 	return duration, true
+}
+
+// ProbeVideoMetadata reads duration, video dimensions and stream codecs in one
+// ffprobe call. It never fails the caller: a missing ffprobe, unreadable file
+// or malformed JSON return ok=false so inspection can stay tolerant. The first
+// video stream supplies the dimensions and video codec; the first audio stream
+// supplies the audio codec.
+func ProbeVideoMetadata(ctx context.Context, path string) (VideoMetadata, bool) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return VideoMetadata{}, false
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, videoDurationTimeout)
+	defer cancel()
+
+	output, err := videoMetadataCommand(probeCtx, trimmed)
+	if err != nil {
+		return VideoMetadata{}, false
+	}
+
+	var parsed videoProbeOutput
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		return VideoMetadata{}, false
+	}
+
+	metadata := VideoMetadata{}
+	if duration, durationErr := strconv.ParseFloat(strings.TrimSpace(parsed.Format.Duration), 64); durationErr == nil &&
+		!math.IsNaN(duration) && !math.IsInf(duration, 0) && duration > 0 {
+		metadata.DurationSeconds = duration
+	}
+
+	hasVideoStream := false
+	for _, stream := range parsed.Streams {
+		switch strings.ToLower(strings.TrimSpace(stream.CodecType)) {
+		case "video":
+			if hasVideoStream {
+				continue
+			}
+			hasVideoStream = true
+			metadata.Width = stream.Width
+			metadata.Height = stream.Height
+			metadata.VideoCodec = strings.ToLower(strings.TrimSpace(stream.CodecName))
+		case "audio":
+			if metadata.AudioCodec != "" {
+				continue
+			}
+			metadata.AudioCodec = strings.ToLower(strings.TrimSpace(stream.CodecName))
+		}
+	}
+
+	if metadata.DurationSeconds <= 0 && !hasVideoStream {
+		return VideoMetadata{}, false
+	}
+
+	return metadata, true
 }
 
 // InspectFiles describes every path in order. One bad file never fails the batch.

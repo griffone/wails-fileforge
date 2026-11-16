@@ -164,6 +164,20 @@ export class FileInfoV1 {
              */
             this["durationSeconds"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["videoCodec"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["audioCodec"] = undefined;
+        }
         if (!("exists" in $$source)) {
             /**
              * @member

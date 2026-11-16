@@ -34,6 +34,8 @@ type FileInfoV1 struct {
 	PageWidthPoints  float64 `json:"pageWidthPoints,omitempty"`
 	PageHeightPoints float64 `json:"pageHeightPoints,omitempty"`
 	DurationSeconds  float64 `json:"durationSeconds,omitempty"`
+	VideoCodec       string  `json:"videoCodec,omitempty"`
+	AudioCodec       string  `json:"audioCodec,omitempty"`
 	Exists           bool    `json:"exists"`
 	Error            string  `json:"error,omitempty"`
 }
