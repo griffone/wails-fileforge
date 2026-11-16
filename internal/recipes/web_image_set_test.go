@@ -613,7 +613,7 @@ func TestRunWebImageSetCancelRemovesPartialOutputs(t *testing.T) {
 	assertDirContainsOnly(t, dir, "photo.png")
 }
 
-func TestRunWebImageSetEscapesSnippetAttributes(t *testing.T) {
+func TestRunWebImageSetSanitizesSnippetNames(t *testing.T) {
 	service, _, _ := newWebImageSetTestService(t)
 
 	dir := t.TempDir()
@@ -633,13 +633,49 @@ func TestRunWebImageSetEscapesSnippetAttributes(t *testing.T) {
 		t.Fatalf("expected success, got %q (%s)", result.Status, result.Message)
 	}
 
-	snippetPath := filepath.Join(dir, "photo & friends-srcset.html")
+	snippetPath := filepath.Join(dir, "photo-friends-srcset.html")
 	snippetBytes, err := os.ReadFile(snippetPath)
 	if err != nil {
 		t.Fatalf("read snippet: %v", err)
 	}
 	snippet := string(snippetBytes)
 
+	if !strings.Contains(snippet, "photo-friends-1600.webp 1600w") {
+		t.Fatalf("expected sanitized WebP names in the snippet, got:\n%s", snippet)
+	}
+	if !strings.Contains(snippet, "photo-friends-800.jpg 800w") {
+		t.Fatalf("expected sanitized JPEG names in the snippet, got:\n%s", snippet)
+	}
+	if strings.Contains(snippet, "photo & friends") || strings.Contains(snippet, "photo%20") {
+		t.Fatalf("expected every attribute value to be web safe, got:\n%s", snippet)
+	}
+}
+
+func TestWebImageSetSourceStemIsWebSafe(t *testing.T) {
+	cases := map[string]string{
+		"/tmp/photo.png":           "photo",
+		"/tmp/Photo & Friends.png": "photo-friends",
+		"/tmp/  Hero__Shot  .png":  "hero__shot",
+		"/tmp/ñandú.png":           "and",
+		"/tmp/!!!.png":             "image",
+	}
+
+	for input, want := range cases {
+		if got := webImageSetSourceStem(input); got != want {
+			t.Fatalf("webImageSetSourceStem(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestBuildWebImageSetSnippetEscapesAttributes(t *testing.T) {
+	variants := []builtWebImageSetVariant{
+		{Path: "/tmp/photo & friends-800.webp", Format: "webp", Width: 800},
+		{Path: "/tmp/photo & friends-1600.webp", Format: "webp", Width: 1600},
+		{Path: "/tmp/photo & friends-800.jpg", Format: "jpeg", Width: 800},
+		{Path: "/tmp/photo & friends-1600.jpg", Format: "jpeg", Width: 1600},
+	}
+
+	snippet := buildWebImageSetSnippet(variants)
 	if !strings.Contains(snippet, "photo &amp; friends-1600.webp 1600w") {
 		t.Fatalf("expected escaped WebP names in the snippet, got:\n%s", snippet)
 	}

@@ -303,8 +303,30 @@ func webImageSetPlanWarnings(sourceWidth int) []string {
 	return warnings
 }
 
+// webImageSetSourceStem turns the source file name into a web-friendly base
+// name: lowercase ASCII letters, digits, dots, underscores and dashes survive;
+// every other run is collapsed into a single dash. This keeps spaces and
+// ampersands out of folder names and srcset URLs.
 func webImageSetSourceStem(inputPath string) string {
-	stem := strings.TrimSpace(strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath)))
+	raw := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	var builder strings.Builder
+	lastDash := false
+	for _, char := range strings.ToLower(raw) {
+		safe := (char >= 'a' && char <= 'z') ||
+			(char >= '0' && char <= '9') ||
+			char == '.' || char == '_' || char == '-'
+		if safe {
+			builder.WriteRune(char)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+
+	stem := strings.Trim(builder.String(), "-._")
 	if stem == "" {
 		return webImageSetFallbackStem
 	}
