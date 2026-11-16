@@ -1,0 +1,90 @@
+@if (open()) {
+  <div class="drop-backdrop" (click)="onBackdropClick($event)">
+    <section
+      #panel
+      id="global-drop"
+      class="drop-panel"
+      data-file-drop-target
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="global-drop-title"
+      tabindex="-1"
+    >
+      <header class="drop-head">
+        <div class="drop-heading">
+          <span class="drop-badge" aria-hidden="true">
+            <lucide-icon [img]="dropIcon" [size]="19" [strokeWidth]="1.75"></lucide-icon>
+          </span>
+          <div class="drop-heading-text">
+            <p class="eyebrow">DROP TO OPEN</p>
+            <h2 class="drop-title" id="global-drop-title">What do you want to do?</h2>
+          </div>
+        </div>
+
+        <button
+          class="icon-btn drop-close"
+          type="button"
+          aria-label="Close drop overlay"
+          (click)="close()"
+        >
+          <lucide-icon [img]="closeIcon" [size]="17" [strokeWidth]="1.75"></lucide-icon>
+        </button>
+      </header>
+
+      @if (summary().total > 0) {
+        <div class="drop-files">
+          <div class="drop-files-meta">
+            <span class="drop-files-count">{{ summary().countLabel }}</span>
+            <span class="drop-files-types">{{ summary().typeLabel }}</span>
+            @if (summary().unsupported > 0) {
+              <span class="drop-files-warning">
+                {{ summary().unsupported }} unsupported
+              </span>
+            }
+          </div>
+
+          <ul class="drop-file-list">
+            @for (name of summary().names; track $index) {
+              <li class="drop-file-name">{{ name }}</li>
+            }
+            @if (summary().more > 0) {
+              <li class="drop-file-name is-more">+ {{ summary().more }} more</li>
+            }
+          </ul>
+        </div>
+      }
+
+      @if (recommendations().length > 0) {
+        <div class="drop-grid">
+          @for (tool of recommendations(); track tool.id) {
+            <button class="drop-card" type="button" (click)="choose(tool)">
+              <span class="tool-icon" [attr.data-tone]="tool.category" aria-hidden="true">
+                <lucide-icon [img]="tool.icon" [size]="18" [strokeWidth]="1.75"></lucide-icon>
+              </span>
+              <span class="drop-card-body">
+                <span class="drop-card-name">{{ tool.name }}</span>
+                <span class="drop-card-desc">{{ tool.description }}</span>
+              </span>
+              <lucide-icon
+                class="drop-card-arrow"
+                [img]="arrowIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+            </button>
+          }
+        </div>
+
+        <p class="drop-foot">Pick a tool to load these files without leaving your machine.</p>
+      } @else {
+        <div class="drop-empty">
+          <lucide-icon [img]="emptyIcon" [size]="28" [strokeWidth]="1.5"></lucide-icon>
+          <p class="drop-empty-title">No tool handles these files yet.</p>
+          <p class="drop-empty-hint">Try images, PDFs, Markdown, DOCX or videos.</p>
+          <button class="btn btn-sm" type="button" (click)="close()">Close</button>
+        </div>
+      }
+    </section>
+  </div>
+}

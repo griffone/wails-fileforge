@@ -1,4 +1,9 @@
-<div class="app-frame" [class.is-nav-open]="mobileNavOpen()">
+<div
+  class="app-frame"
+  id="app-shell-drop"
+  data-file-drop-target
+  [class.is-nav-open]="mobileNavOpen()"
+>
   <aside class="rail" id="app-rail">
     <a class="rail-brand" routerLink="/" aria-label="FileForge home" (click)="onRailNavigate()">
       <span class="rail-brand-mark" aria-hidden="true">
@@ -114,6 +119,8 @@
 @if (mobileNavOpen()) {
   <div class="rail-backdrop" aria-hidden="true" (click)="closeMobileNav(true)"></div>
 }
+
+<app-global-drop></app-global-drop>
 
 <app-command-palette
   [open]="paletteOpen()"

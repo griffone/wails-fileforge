@@ -1,4 +1,4 @@
-import { Component, OnDestroy, computed, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import {
@@ -16,6 +16,8 @@ import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import { DropIntakeService } from '../../services/drop-intake.service';
+import { PreferencesService } from '../../services/preferences.service';
 import {
   FileInfoV1,
   InspectFilesResponseV1,
@@ -69,8 +71,10 @@ interface Notice {
   templateUrl: './pdf-merge.html',
   styleUrl: './pdf-merge.css',
 })
-export class PdfMerge implements OnDestroy {
+export class PdfMerge implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
+  private readonly dropIntake = inject(DropIntakeService);
+  private readonly preferences = inject(PreferencesService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -81,7 +85,7 @@ export class PdfMerge implements OnDestroy {
   readonly fileItems = signal<FileQueueItem[]>([]);
   /** Page ranges keyed by input path so reordering keeps them attached. */
   readonly pageRanges = signal<Record<string, string>>({});
-  readonly outputDir = signal('');
+  readonly outputDir = signal(this.preferences.defaultOutputDir());
   readonly customName = signal('');
   readonly advancedOpen = signal(false);
 
@@ -209,6 +213,13 @@ export class PdfMerge implements OnDestroy {
     this.clearPlanRefreshTimer();
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  ngOnInit(): void {
+    const pending = this.dropIntake.take('/pdf-merge');
+    if (pending.length > 0) {
+      this.onPathsSelected(pending);
+    }
   }
 
   fileCountLabel(): string {

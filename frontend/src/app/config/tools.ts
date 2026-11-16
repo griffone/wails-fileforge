@@ -11,6 +11,7 @@ import {
   Layers,
   PenTool,
   Scissors,
+  Settings2,
   Timer,
   Video,
   type LucideIconData,
@@ -80,6 +81,18 @@ export const SYSTEM_TOOL: ToolDefinition = {
   icon: Activity,
   formats: [],
   keywords: ['status', 'health', 'catalog', 'tools', 'runtime', 'dependencies', 'diagnostics'],
+};
+
+export const SETTINGS_TOOL: ToolDefinition = {
+  id: 'system.settings',
+  name: 'Settings',
+  navName: 'Settings',
+  description: 'Set the default output folder, theme and history preferences.',
+  route: '/settings',
+  category: 'system',
+  icon: Settings2,
+  formats: [],
+  keywords: ['settings', 'preferences', 'output folder', 'theme', 'history'],
 };
 
 /** The eleven conversion tools. Ids mirror the backend toolId contract. */
@@ -207,8 +220,13 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status: the full 13-entry navigation model. */
-export const NAVIGATION: readonly ToolDefinition[] = [HOME_TOOL, ...TOOLS, SYSTEM_TOOL];
+/** Home, every tool, then System Status and Settings: the full 14-entry navigation model. */
+export const NAVIGATION: readonly ToolDefinition[] = [
+  HOME_TOOL,
+  ...TOOLS,
+  SYSTEM_TOOL,
+  SETTINGS_TOOL,
+];
 
 export const NAV_GROUPS: readonly NavGroup[] = TOOL_CATEGORIES.map((category) => ({
   id: category.id,

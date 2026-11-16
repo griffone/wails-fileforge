@@ -3,8 +3,10 @@ import {
   ElementRef,
   HostListener,
   OnDestroy,
+  OnInit,
   ViewChild,
   computed,
+  inject,
   signal,
 } from '@angular/core';
 import { Subject } from 'rxjs';
@@ -26,6 +28,8 @@ import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import { DropIntakeService } from '../../services/drop-intake.service';
+import { PreferencesService } from '../../services/preferences.service';
 import {
   FileInfoV1,
   ImageCropPreviewRequestV1,
@@ -171,8 +175,10 @@ function readInteger(raw: string): number | null {
   templateUrl: './image-crop.html',
   styleUrl: './image-crop.css',
 })
-export class ImageCrop implements OnDestroy {
+export class ImageCrop implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
+  private readonly dropIntake = inject(DropIntakeService);
+  private readonly preferences = inject(PreferencesService);
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
 
   readonly shieldIcon = ShieldCheck;
@@ -199,7 +205,7 @@ export class ImageCrop implements OnDestroy {
   readonly rotate = signal<RotateAngle>(0);
   readonly flipH = signal(false);
   readonly flipV = signal(false);
-  readonly outputDir = signal('');
+  readonly outputDir = signal(this.preferences.defaultOutputDir());
   readonly advancedOpen = signal(false);
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
@@ -443,6 +449,13 @@ export class ImageCrop implements OnDestroy {
     this.clearCropPreviewTimer();
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  ngOnInit(): void {
+    const pending = this.dropIntake.take('/image-crop');
+    if (pending.length > 0) {
+      this.onPathsSelected(pending);
+    }
   }
 
   @HostListener('window:resize')

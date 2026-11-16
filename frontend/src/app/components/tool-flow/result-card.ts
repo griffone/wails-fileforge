@@ -1,4 +1,10 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  Output,
+  inject,
+} from '@angular/core';
 import {
   Check,
   ExternalLink,
@@ -10,6 +16,10 @@ import {
 } from 'lucide-angular';
 import { FileInfoV1, JobErrorV1, JobResultV1 } from '../../services/wails';
 import { describeToolError } from '../../services/tool-error';
+import {
+  RecentConversionsService,
+  isTerminalJobStatus,
+} from '../../services/recent-conversions.service';
 import { fileDir, fileName, formatBytes, formatCount } from '../../utils/format';
 
 const GROUP_OUTPUT_LIMIT = 4;
@@ -37,7 +47,18 @@ type SummaryTone = 'success' | 'warning' | 'danger' | 'neutral';
   styleUrl: './result-card.css',
 })
 export class ResultCard {
-  @Input() job: JobResultV1 | null = null;
+  private jobValue: JobResultV1 | null = null;
+
+  @Input()
+  set job(value: JobResultV1 | null) {
+    this.jobValue = value;
+    this.recordTerminalJob(value);
+  }
+
+  get job(): JobResultV1 | null {
+    return this.jobValue;
+  }
+
   @Input() fileInfos: Record<string, FileInfoV1> = {};
   @Input() toolLabel = 'file';
   /** Past-tense verb for the success summary, e.g. `converted`, `split`. */
@@ -48,12 +69,28 @@ export class ResultCard {
   @Output() retryFailed = new EventEmitter<void>();
   @Output() reset = new EventEmitter<void>();
 
+  private readonly recentConversions = inject(RecentConversionsService);
+  private readonly recordedJobIds = new Set<string>();
+
   readonly checkIcon = Check;
   readonly alertIcon = TriangleAlert;
   readonly folderIcon = FolderOpen;
   readonly externalIcon = ExternalLink;
   readonly retryIcon = RotateCcw;
   readonly cancelIcon = X;
+
+  private recordTerminalJob(job: JobResultV1 | null): void {
+    if (!job || !job.jobId || !isTerminalJobStatus(job.status)) {
+      return;
+    }
+
+    if (this.recordedJobIds.has(job.jobId)) {
+      return;
+    }
+
+    this.recordedJobIds.add(job.jobId);
+    this.recentConversions.record(job);
+  }
 
   summaryTitle(job: JobResultV1 | null): string {
     if (!job) {

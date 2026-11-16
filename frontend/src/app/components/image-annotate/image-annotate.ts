@@ -3,8 +3,10 @@ import {
   ElementRef,
   HostListener,
   OnDestroy,
+  OnInit,
   ViewChild,
   computed,
+  inject,
   signal,
 } from '@angular/core';
 import { Subject } from 'rxjs';
@@ -32,6 +34,8 @@ import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import { DropIntakeService } from '../../services/drop-intake.service';
+import { PreferencesService } from '../../services/preferences.service';
 import {
   FileInfoV1,
   ImageAnnotateOperationTypeV1,
@@ -197,8 +201,10 @@ interface CommitOptions {
   templateUrl: './image-annotate.html',
   styleUrl: './image-annotate.css',
 })
-export class ImageAnnotate implements OnDestroy {
+export class ImageAnnotate implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
+  private readonly dropIntake = inject(DropIntakeService);
+  private readonly preferences = inject(PreferencesService);
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
 
   readonly shieldIcon = ShieldCheck;
@@ -244,7 +250,7 @@ export class ImageAnnotate implements OnDestroy {
   readonly canRedo = signal(false);
 
   readonly outputFormat = signal('');
-  readonly outputDir = signal('');
+  readonly outputDir = signal(this.preferences.defaultOutputDir());
   readonly advancedOpen = signal(false);
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
@@ -398,6 +404,13 @@ export class ImageAnnotate implements OnDestroy {
     this.clearAnnotatePreviewTimer();
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  ngOnInit(): void {
+    const pending = this.dropIntake.take('/image-annotate');
+    if (pending.length > 0) {
+      this.onPathsSelected(pending);
+    }
   }
 
   fileCountLabel(): string {

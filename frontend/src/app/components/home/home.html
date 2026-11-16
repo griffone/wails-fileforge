@@ -80,6 +80,51 @@
     </aside>
   </section>
 
+  @if (!onboardingDismissed()) {
+    <aside class="home-onboarding" aria-labelledby="home-onboarding-title">
+      <h2 id="home-onboarding-title" class="eyebrow home-onboarding-eyebrow">
+        Getting started
+      </h2>
+
+      <ol class="home-onboarding-steps">
+        <li class="home-onboarding-step">
+          <span class="home-onboarding-index mono" aria-hidden="true">01</span>
+          <span class="home-onboarding-text">
+            <strong>Drop files</strong>
+            <span>Drag them anywhere or pick them from disk.</span>
+          </span>
+        </li>
+        <li class="home-onboarding-step">
+          <span class="home-onboarding-index mono" aria-hidden="true">02</span>
+          <span class="home-onboarding-text">
+            <strong>Pick a tool</strong>
+            <span>The bench matches the file type.</span>
+          </span>
+        </li>
+        <li class="home-onboarding-step">
+          <span class="home-onboarding-index mono" aria-hidden="true">03</span>
+          <span class="home-onboarding-text">
+            <strong>Open the result</strong>
+            <span>Open it or show the output in its folder.</span>
+          </span>
+        </li>
+      </ol>
+
+      <p class="home-onboarding-note">
+        Everything runs on this machine. No uploads, no accounts.
+      </p>
+
+      <button
+        type="button"
+        class="icon-btn home-onboarding-dismiss"
+        aria-label="Dismiss getting started"
+        (click)="dismissOnboarding()"
+      >
+        <lucide-icon [img]="clearIcon" [size]="14" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+      </button>
+    </aside>
+  }
+
   @if (showRecent()) {
     <section class="home-recent" aria-labelledby="home-recent-title">
       <div class="section-head">
@@ -178,6 +223,94 @@
       }
     </div>
   </section>
+
+  @if (recentConversions().length > 0) {
+    <section class="home-conversions" aria-labelledby="home-conversions-title">
+      <div class="section-head home-conversions-head">
+        <h2 id="home-conversions-title" class="section-title">Recent conversions</h2>
+        <div class="home-conversions-meta">
+          <span class="home-conversions-count mono" role="status">
+            {{ recentConversions().length }} finished
+          </span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm home-conversions-clear"
+            (click)="clearRecent()"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <ul class="home-conversion-list">
+        @for (entry of recentConversions(); track entry.id) {
+          <li class="home-conversion">
+            @if (toolFor(entry); as tool) {
+              <span class="tool-icon" [attr.data-tone]="tool.category" aria-hidden="true">
+                <lucide-icon [img]="tool.icon" [size]="14" [strokeWidth]="1.75"></lucide-icon>
+              </span>
+            }
+
+            <div class="home-conversion-main">
+              <div class="home-conversion-head">
+                <span class="home-conversion-tool">{{ toolName(entry) }}</span>
+                <span [class]="'badge ' + statusClass(entry.status)">
+                  {{ statusLabel(entry.status) }}
+                </span>
+                <span class="home-conversion-time mono">{{ relativeTime(entry.timestamp) }}</span>
+              </div>
+
+              <p class="home-conversion-output">
+                <span class="home-conversion-file" [title]="firstOutput(entry)">
+                  {{ outputSummary(entry) }}
+                </span>
+                @if (outputDirectory(entry); as dir) {
+                  <span class="home-conversion-dir mono" [title]="dir">{{ dir }}</span>
+                }
+              </p>
+            </div>
+
+            <span class="home-conversion-actions">
+              @if (canOpen(entry)) {
+                <button
+                  type="button"
+                  class="icon-btn home-conversion-open"
+                  [attr.aria-label]="'Open ' + outputFileName(entry)"
+                  (click)="openRecent(entry)"
+                >
+                  <lucide-icon
+                    [img]="openIcon"
+                    [size]="15"
+                    [strokeWidth]="1.75"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                </button>
+              }
+              @if (firstOutput(entry)) {
+                <button
+                  type="button"
+                  class="icon-btn home-conversion-reveal"
+                  [attr.aria-label]="'Show ' + outputFileName(entry) + ' in folder'"
+                  (click)="revealRecent(entry)"
+                >
+                  <lucide-icon
+                    [img]="folderIcon"
+                    [size]="15"
+                    [strokeWidth]="1.75"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                </button>
+              }
+            </span>
+          </li>
+        }
+      </ul>
+
+      @if (actionMessage(); as message) {
+        <p class="home-conversion-message" role="status">{{ message }}</p>
+      }
+    </section>
+  }
 
   <footer class="home-local">
     <p class="home-local-main">

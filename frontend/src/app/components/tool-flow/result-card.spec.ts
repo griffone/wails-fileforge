@@ -1,13 +1,23 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { JobResultV1 } from '../../services/wails';
+import { RecentConversionsService } from '../../services/recent-conversions.service';
 import { ResultCard } from './result-card';
 
 describe('ResultCard', () => {
   let fixture: ComponentFixture<ResultCard>;
   let component: ResultCard;
+  let recentSpy: jasmine.SpyObj<RecentConversionsService>;
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [ResultCard] }).compileComponents();
+    recentSpy = jasmine.createSpyObj<RecentConversionsService>(
+      'RecentConversionsService',
+      ['record'],
+    );
+
+    await TestBed.configureTestingModule({
+      imports: [ResultCard],
+      providers: [{ provide: RecentConversionsService, useValue: recentSpy }],
+    }).compileComponents();
     fixture = TestBed.createComponent(ResultCard);
     component = fixture.componentInstance;
   });
@@ -30,6 +40,39 @@ describe('ResultCard', () => {
   it('renders nothing without a job', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.result-card')).toBeNull();
+    expect(recentSpy.record).not.toHaveBeenCalled();
+  });
+
+  it('records a terminal job once and ignores repeat renders', () => {
+    component.job = job({ jobId: 'job-42' });
+    fixture.detectChanges();
+
+    expect(recentSpy.record).toHaveBeenCalledOnceWith(
+      jasmine.objectContaining({ jobId: 'job-42' }),
+    );
+
+    component.job = job({ jobId: 'job-42' });
+    fixture.detectChanges();
+
+    expect(recentSpy.record).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not record a non-terminal or missing job', () => {
+    component.job = job({ jobId: 'job-running', status: 'running' });
+    fixture.detectChanges();
+    component.job = null;
+    fixture.detectChanges();
+
+    expect(recentSpy.record).not.toHaveBeenCalled();
+  });
+
+  it('records a new job id on the same card', () => {
+    component.job = job({ jobId: 'job-a' });
+    fixture.detectChanges();
+    component.job = job({ jobId: 'job-b' });
+    fixture.detectChanges();
+
+    expect(recentSpy.record).toHaveBeenCalledTimes(2);
   });
 
   it('renders a partial summary and failed descriptions', () => {

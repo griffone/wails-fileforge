@@ -1,4 +1,4 @@
-import { Component, OnDestroy, computed, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import {
@@ -22,6 +22,8 @@ import {
   pagesToRangeSpec,
 } from './pdf-split-preview';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import { DropIntakeService } from '../../services/drop-intake.service';
+import { PreferencesService } from '../../services/preferences.service';
 import {
   FileInfoV1,
   InspectFilesResponseV1,
@@ -108,8 +110,10 @@ interface Notice {
   templateUrl: './pdf-split.html',
   styleUrl: './pdf-split.css',
 })
-export class PdfSplit implements OnDestroy {
+export class PdfSplit implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
+  private readonly dropIntake = inject(DropIntakeService);
+  private readonly preferences = inject(PreferencesService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -123,7 +127,7 @@ export class PdfSplit implements OnDestroy {
   readonly strategy = signal<SplitStrategy>(STRATEGY_EVERY_PAGE);
   readonly ranges = signal('');
   readonly selectedPages = signal<number[]>([]);
-  readonly outputDir = signal('');
+  readonly outputDir = signal(this.preferences.defaultOutputDir());
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
   readonly planError = signal<JobErrorV1 | null>(null);
@@ -270,6 +274,13 @@ export class PdfSplit implements OnDestroy {
     this.clearPlanRefreshTimer();
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  ngOnInit(): void {
+    const pending = this.dropIntake.take('/pdf-split');
+    if (pending.length > 0) {
+      this.onPathsSelected(pending);
+    }
   }
 
   fileCountLabel(): string {

@@ -9,6 +9,8 @@ import { Subject } from 'rxjs';
 
 import { ImageConverter } from './image-converter';
 import { IMAGE_PRESETS } from '../../config/image-presets';
+import { DropIntakeService } from '../../services/drop-intake.service';
+import { PreferencesService } from '../../services/preferences.service';
 import {
   FileInfoV1,
   JobProgressEventV1,
@@ -128,6 +130,7 @@ describe('ImageConverter', () => {
   }
 
   beforeEach(async () => {
+    localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJobV1',
       'inspectFilesV1',
@@ -204,6 +207,7 @@ describe('ImageConverter', () => {
 
   afterEach(() => {
     fixture.destroy();
+    localStorage.removeItem('ff-preferences');
   });
 
   it('plans a single image with the default WebP preset', fakeAsync(() => {
@@ -351,6 +355,25 @@ describe('ImageConverter', () => {
       .args[0] as JobRequestV1;
     expect(request.outputDir).toBe('/tmp/out');
     expect(wailsSpy.planJobV1.calls.count()).toBe(callsBefore + 1);
+  }));
+
+  it('seeds a new session with the saved default output folder', fakeAsync(() => {
+    TestBed.inject(PreferencesService).setDefaultOutputDir('/tmp/library');
+
+    const seededFixture = TestBed.createComponent(ImageConverter);
+    const seededComponent = seededFixture.componentInstance;
+    seededFixture.detectChanges();
+
+    expect(seededComponent.outputDir()).toBe('/tmp/library');
+    expect(seededComponent.isDefaultDestination()).toBeFalse();
+    expect(seededComponent.destinationLabel()).toBe('/tmp/library');
+
+    seededComponent.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+
+    expect(lastPlanRequest().outputDir).toBe('/tmp/library');
+
+    seededFixture.destroy();
   }));
 
   it('keeps each input format with the Original preset', fakeAsync(() => {
@@ -524,5 +547,24 @@ describe('ImageConverter', () => {
     flushMicrotasks();
 
     expect(component.savingsSummary()).toBe('Output is 40 KB larger');
+  }));
+
+  it('consumes queued drop intake paths on init', fakeAsync(() => {
+    TestBed.inject(DropIntakeService).queue('/image-converter', [
+      '/tmp/queued-one.png',
+      '/tmp/queued-two.jpg',
+    ]);
+
+    const queuedFixture = TestBed.createComponent(ImageConverter);
+    queuedFixture.detectChanges();
+    flushMicrotasks();
+
+    expect(queuedFixture.componentInstance.selectedPaths()).toEqual([
+      '/tmp/queued-one.png',
+      '/tmp/queued-two.jpg',
+    ]);
+    expect(wailsSpy.planJobV1).toHaveBeenCalled();
+
+    queuedFixture.destroy();
   }));
 });

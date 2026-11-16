@@ -1,6 +1,6 @@
 # Tool Completeness — "No tool left poor"
 
-- Status: Image, PDF, documents and video domains complete; shell pending
+- Status: complete across image, PDF, documents, video and shell
 - Branch: `feat/tool-usability` (continues after the file-first overhaul)
 - Started: 2026-11-13
 - Related: `odd/tasks/tool-usability-overhaul.md`
@@ -120,6 +120,13 @@
   - **Preview**: ffmpeg first-frame video thumbnail processor for file cards; webp/jpeg fallback.
   - **Verification**: Go tests pass (preview/video engine), frontend 286/286 specs, build passes; visual checks with `npx agent-browser`.
   - **Next**: Shell — global drop overlay, recent conversions, preferences/onboarding.
+- 2026-11-16: Shell domain complete.
+  - **Global drop/intake**: shell drop target + Wails native drop overlay; recommends tools by file type (images/PDFs/docs/videos, mixed); queues paths and navigates into the matching tool; local FileDrop targets are ignored; same-route reload strategy re-initializes the intake.
+  - **Recent conversions**: shared ResultCard records terminal jobs; Home shows recent outputs with status, relative time, Open/Show in folder and Clear; persisted locally.
+  - **Onboarding**: dismissible 3-step Home strip persisted in localStorage.
+  - **Settings/preferences**: `/settings` page with default output folder (preferred), light/dark theme, clear recent conversions, reset onboarding; all 11 tool pages seed their output destination from the preference. Registry/nav/command palette include Settings.
+  - **Verification**: Go tests pass; frontend 347/347 specs; build passes; visual checks via `npx agent-browser` for Home, Settings, global drop overlay, recent conversions and onboarding.
+  - **Deferred advanced features**: PDF split by size/bookmarks, PDF/A export, video transitions/multi-track, PDF compression/metadata. Core table-stakes features are complete.
 - 2026-11-16: Document backend page setup + page ranges (Go only; UI wiring pending).
   - **Markdown → PDF**: `pageSize` (A4/Letter/Legal), `orientation` (P/L) and `margins` (`top`/`right`/`bottom`/`left`, 0–100 mm) options with defaults A4 portrait 20/15/18/15 mm; rendered pages use the configured size and margins, images follow the content width, and header/footer footprints expand the content margins instead of overlapping; `EffectiveOptions.pageSetup` summarizes the resolved values; invalid values fail with `DOC_MD_TO_PDF_CONFIG_INVALID`.
   - **DOCX → PDF**: optional `pageSelection` (`1-3,5`) validated at plan time (`DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID`), applied after single/batch conversion via pdfcpu `CollectFile` into a temp file atomically renamed over the output; out-of-range selections remove the partial output and name the input; valid selection surfaces in `EffectiveOptions`.

@@ -1,4 +1,4 @@
-import { Component, OnDestroy, computed, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import {
@@ -23,6 +23,8 @@ import {
   ImagePreset,
 } from '../../config/image-presets';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import { DropIntakeService } from '../../services/drop-intake.service';
+import { PreferencesService } from '../../services/preferences.service';
 import {
   FileInfoV1,
   InspectFilesResponseV1,
@@ -105,8 +107,10 @@ const ROTATE_OPTIONS: readonly SelectOption<number>[] = [
   templateUrl: './image-converter.html',
   styleUrl: './image-converter.css',
 })
-export class ImageConverter implements OnDestroy {
+export class ImageConverter implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
+  private readonly dropIntake = inject(DropIntakeService);
+  private readonly preferences = inject(PreferencesService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -123,7 +127,7 @@ export class ImageConverter implements OnDestroy {
   readonly fileItems = signal<FileQueueItem[]>([]);
   readonly selectedPresetId = signal('webp');
   readonly format = signal<ImageOutputFormat>('webp');
-  readonly outputDir = signal('');
+  readonly outputDir = signal(this.preferences.defaultOutputDir());
   readonly advancedOpen = signal(false);
   readonly quality = signal<number | null>(null);
   readonly resizeMode = signal<ResizeMode>('none');
@@ -290,6 +294,13 @@ export class ImageConverter implements OnDestroy {
     this.clearPlanRefreshTimer();
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  ngOnInit(): void {
+    const pending = this.dropIntake.take('/image-converter');
+    if (pending.length > 0) {
+      this.onPathsSelected(pending);
+    }
   }
 
   fileCountLabel(): string {

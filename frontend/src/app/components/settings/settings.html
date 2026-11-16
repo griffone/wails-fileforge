@@ -1,0 +1,179 @@
+<div class="page">
+  <header class="page-head">
+    <p class="eyebrow">SYSTEM</p>
+    <h1 class="page-title">Settings</h1>
+    <p class="page-sub">Defaults for every tool. Everything stays on this machine.</p>
+  </header>
+
+  <div class="settings-stack">
+    <section class="panel settings-panel" aria-labelledby="settings-output-title">
+      <div class="panel-head">
+        <h2 id="settings-output-title" class="panel-title">Output</h2>
+        @if (hasDefaultDestination()) {
+          <span class="badge badge-info">Custom folder</span>
+        } @else {
+          <span class="badge badge-neutral">Next to the original</span>
+        }
+      </div>
+
+      <div class="settings-body">
+        <div class="field">
+          <span class="label" id="settings-destination-label">Default destination</span>
+          <div
+            class="settings-choice"
+            role="group"
+            aria-labelledby="settings-destination-label"
+          >
+            <button
+              type="button"
+              class="chip settings-next-to-original"
+              [attr.aria-pressed]="isNextToOriginal()"
+              (click)="useOriginalFolders()"
+            >
+              Next to the original
+            </button>
+            <button
+              type="button"
+              class="chip settings-choose-folder"
+              [attr.aria-pressed]="hasDefaultDestination()"
+              (click)="chooseFolder()"
+            >
+              <lucide-icon
+                [img]="folderIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              Choose a folder
+            </button>
+          </div>
+        </div>
+
+        @if (hasDefaultDestination()) {
+          <div class="settings-current">
+            <span class="settings-current-label">Current folder</span>
+            <p class="settings-path mono">{{ defaultOutputDir() }}</p>
+          </div>
+        }
+
+        <p class="settings-help">
+          New tool sessions start here. You can still change the destination for each job.
+        </p>
+
+        <div class="actions">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm settings-reset-output"
+            [disabled]="!hasDefaultDestination()"
+            (click)="useOriginalFolders()"
+          >
+            Use original folders
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel settings-panel" aria-labelledby="settings-appearance-title">
+      <div class="panel-head">
+        <h2 id="settings-appearance-title" class="panel-title">Appearance</h2>
+      </div>
+
+      <div class="settings-body">
+        <div class="field">
+          <span class="label" id="settings-theme-label">Theme</span>
+          <div
+            class="settings-choice"
+            role="group"
+            aria-labelledby="settings-theme-label"
+          >
+            <button
+              type="button"
+              class="chip settings-theme-light"
+              [attr.aria-pressed]="isLight()"
+              (click)="setTheme('light')"
+            >
+              <lucide-icon
+                [img]="sunIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              Light
+            </button>
+            <button
+              type="button"
+              class="chip settings-theme-dark"
+              [attr.aria-pressed]="isDark()"
+              (click)="setTheme('dark')"
+            >
+              <lucide-icon
+                [img]="moonIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              Dark
+            </button>
+          </div>
+        </div>
+        <p class="settings-help">
+          The theme applies to every page and is remembered on this machine.
+        </p>
+      </div>
+    </section>
+
+    <section class="panel settings-panel" aria-labelledby="settings-history-title">
+      <div class="panel-head">
+        <h2 id="settings-history-title" class="panel-title">History</h2>
+        <span class="settings-history-meta">
+          <lucide-icon
+            [img]="historyIcon"
+            [size]="13"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+          {{ recentCount() }}
+        </span>
+      </div>
+
+      <div class="settings-body">
+        <div class="settings-row">
+          <div class="settings-row-text">
+            <p class="settings-row-title">Recent conversions</p>
+            <p class="settings-row-sub">{{ historySummary() }}</p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm settings-clear-history"
+            [disabled]="recentCount() === 0"
+            (click)="clearHistory()"
+          >
+            Clear recent conversions
+          </button>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-row-text">
+            <p class="settings-row-title">Home onboarding</p>
+            <p class="settings-row-sub">
+              The welcome strip explains search, drag and drop, and shortcuts.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm settings-reset-onboarding"
+            (click)="resetOnboarding()"
+          >
+            Reset onboarding
+          </button>
+        </div>
+
+        @if (actionMessage()) {
+          <p class="settings-message" role="status">{{ actionMessage() }}</p>
+        }
+      </div>
+    </section>
+
+    <p class="settings-about">FileForge Desktop · local-first file tools</p>
+  </div>
+</div>

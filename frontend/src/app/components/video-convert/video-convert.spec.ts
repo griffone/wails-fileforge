@@ -115,6 +115,7 @@ describe('VideoConvert', () => {
   }
 
   beforeEach(async () => {
+    localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJobV1',
       'inspectFilesV1',

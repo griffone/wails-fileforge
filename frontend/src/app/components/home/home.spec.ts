@@ -2,8 +2,9 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
 import { Home } from './home';
+import { RecentConversionsService } from '../../services/recent-conversions.service';
 import { RecentToolsService } from '../../services/recent-tools.service';
-import { Wails } from '../../services/wails';
+import { JobResultV1, Wails } from '../../services/wails';
 
 describe('Home', () => {
   let component: Home;
@@ -12,12 +13,21 @@ describe('Home', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-recent-tools');
+    localStorage.removeItem('ff-recent-conversions');
+    localStorage.removeItem('ff-onboarding-dismissed');
 
-    wailsSpy = jasmine.createSpyObj<Wails>('Wails', ['listToolsV1', 'isRuntimeAvailable']);
+    wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
+      'listToolsV1',
+      'isRuntimeAvailable',
+      'openPath',
+      'revealInFolder',
+    ]);
     wailsSpy.listToolsV1.and.returnValue(
       Promise.resolve({ success: true, message: 'ok', tools: [] }),
     );
     wailsSpy.isRuntimeAvailable.and.returnValue(false);
+    wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
+    wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
 
     await TestBed.configureTestingModule({
       imports: [Home],
@@ -28,8 +38,44 @@ describe('Home', () => {
     component = fixture.componentInstance;
   });
 
+  afterEach(() => {
+    localStorage.removeItem('ff-recent-tools');
+    localStorage.removeItem('ff-recent-conversions');
+    localStorage.removeItem('ff-onboarding-dismissed');
+  });
+
   function searchInput(): HTMLInputElement {
     return fixture.nativeElement.querySelector('#home-tool-search') as HTMLInputElement;
+  }
+
+  function query<T extends Element>(selector: string): T | null {
+    return fixture.nativeElement.querySelector(selector) as T | null;
+  }
+
+  function conversionJob(overrides: Partial<JobResultV1> = {}): JobResultV1 {
+    return {
+      jobId: 'job-1',
+      success: true,
+      message: '',
+      toolId: 'tool.image.convert',
+      status: 'success',
+      progress: { current: 1, total: 1, stage: 'done', message: '' },
+      items: [
+        {
+          inputPath: '/tmp/in/a.png',
+          outputPath: '/tmp/out/a.webp',
+          success: true,
+          message: 'ok',
+        },
+      ],
+      startedAt: Date.now() - 5000,
+      endedAt: Date.now() - 1000,
+      ...overrides,
+    };
+  }
+
+  function recordConversion(job: JobResultV1 = conversionJob()): void {
+    TestBed.inject(RecentConversionsService).record(job);
   }
 
   function filterChip(label: string): HTMLButtonElement {
@@ -262,5 +308,156 @@ describe('Home', () => {
     const section = fixture.nativeElement.querySelector('.home-recent') as HTMLElement | null;
     expect(section).not.toBeNull();
     expect(section?.textContent).toContain('PDF Merge');
+  });
+
+  it('hides the recent conversions section when the history is empty', () => {
+    fixture.detectChanges();
+
+    expect(query('.home-conversions')).toBeNull();
+  });
+
+  it('renders recent conversions with tool, status, time and output summary', () => {
+    recordConversion();
+
+    fixture.detectChanges();
+
+    const section = query<HTMLElement>('.home-conversions');
+    expect(section).not.toBeNull();
+    expect(section?.textContent).toContain('Recent conversions');
+    expect(section?.textContent).toContain('Image Convert');
+    expect(section?.textContent).toContain('Success');
+    expect(section?.textContent).toContain('Just now');
+    expect(query<HTMLElement>('.home-conversion-file')?.textContent).toContain('a.webp');
+    expect(query<HTMLElement>('.home-conversion-dir')?.textContent).toContain('/tmp/out');
+    expect(query<HTMLElement>('.home-conversions-count')?.textContent).toContain('1 finished');
+  });
+
+  it('summarizes multiple outputs as a count and the first file name', () => {
+    recordConversion(
+      conversionJob({
+        toolId: 'tool.pdf.split',
+        items: [
+          {
+            inputPath: '/tmp/in/a.pdf',
+            outputPath: '/tmp/out/a_pages',
+            outputs: ['/tmp/out/a_pages/one.pdf', '/tmp/out/a_pages/two.pdf'],
+            success: true,
+            message: 'ok',
+          },
+        ],
+      }),
+    );
+
+    fixture.detectChanges();
+
+    expect(query<HTMLElement>('.home-conversion-file')?.textContent).toContain(
+      '2 files · one.pdf + more',
+    );
+  });
+
+  it('shows failed conversions without open or reveal actions', () => {
+    recordConversion(
+      conversionJob({
+        status: 'failed',
+        items: [
+          {
+            inputPath: '/tmp/in/a.png',
+            outputPath: '',
+            success: false,
+            message: 'failed',
+          },
+        ],
+      }),
+    );
+
+    fixture.detectChanges();
+
+    expect(query<HTMLElement>('.home-conversion')?.textContent).toContain('Failed');
+    expect(query<HTMLElement>('.home-conversion')?.textContent).toContain(
+      'No files created',
+    );
+    expect(query('.home-conversion-open')).toBeNull();
+    expect(query('.home-conversion-reveal')).toBeNull();
+  });
+
+  it('opens the first output and reveals its folder', async () => {
+    recordConversion();
+    fixture.detectChanges();
+
+    query<HTMLButtonElement>('.home-conversion-open')?.click();
+    query<HTMLButtonElement>('.home-conversion-reveal')?.click();
+    await fixture.whenStable();
+
+    expect(wailsSpy.openPath).toHaveBeenCalledWith('/tmp/out/a.webp');
+    expect(wailsSpy.revealInFolder).toHaveBeenCalledWith('/tmp/out');
+  });
+
+  it('shows a quiet message when opening fails', async () => {
+    recordConversion();
+    fixture.detectChanges();
+    wailsSpy.openPath.and.resolveTo({
+      success: false,
+      message: '<!DOCTYPE html><html><body>Cannot POST</body></html>',
+    });
+
+    query<HTMLButtonElement>('.home-conversion-open')?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const message = query<HTMLElement>('.home-conversion-message')?.textContent ?? '';
+    expect(message).toContain('The file could not be opened.');
+    expect(message).not.toContain('DOCTYPE');
+  });
+
+  it('clears recent conversions', () => {
+    recordConversion();
+    fixture.detectChanges();
+
+    query<HTMLButtonElement>('.home-conversions-clear')?.click();
+    fixture.detectChanges();
+
+    expect(query('.home-conversions')).toBeNull();
+    expect(localStorage.getItem('ff-recent-conversions')).toBe('[]');
+  });
+
+  it('formats relative timestamps', () => {
+    const now = Date.now();
+
+    expect(component.relativeTime(now)).toBe('Just now');
+    expect(component.relativeTime(now - 5 * 60_000 - 1000)).toBe('5 min ago');
+    expect(component.relativeTime(now - 2 * 3_600_000 - 1000)).toBe('2 h ago');
+    expect(component.relativeTime(0)).toBe('');
+  });
+
+  it('renders the onboarding strip and dismisses it persistently', () => {
+    fixture.detectChanges();
+
+    const strip = query<HTMLElement>('.home-onboarding');
+    expect(strip).not.toBeNull();
+    expect(strip?.textContent).toContain('Drop files');
+    expect(strip?.textContent).toContain('Pick a tool');
+    expect(strip?.textContent).toContain('Open the result');
+    expect(strip?.textContent).toContain(
+      'Everything runs on this machine. No uploads, no accounts.',
+    );
+    expect(
+      query<HTMLButtonElement>('.home-onboarding-dismiss')?.getAttribute('aria-label'),
+    ).toBe('Dismiss getting started');
+
+    query<HTMLButtonElement>('.home-onboarding-dismiss')?.click();
+    fixture.detectChanges();
+
+    expect(query('.home-onboarding')).toBeNull();
+    expect(localStorage.getItem('ff-onboarding-dismissed')).toBe('1');
+  });
+
+  it('keeps onboarding hidden when dismissal was saved earlier', () => {
+    localStorage.setItem('ff-onboarding-dismissed', '1');
+    const fresh = TestBed.createComponent(Home);
+
+    fresh.detectChanges();
+
+    expect(fresh.nativeElement.querySelector('.home-onboarding')).toBeNull();
+    fresh.destroy();
   });
 });

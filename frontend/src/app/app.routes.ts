@@ -12,11 +12,13 @@ import { DocDocxToPdf } from './components/doc-docx-to-pdf/doc-docx-to-pdf';
 import { VideoConvert } from './components/video-convert/video-convert';
 import { VideoTrim } from './components/video-trim/video-trim';
 import { VideoMerge } from './components/video-merge/video-merge';
+import { Settings } from './components/settings/settings';
 
 export const routes: Routes = [
   { path: '', component: Home },
   { path: 'image-converter', component: ImageConverter },
   { path: 'tool-catalog', component: ToolCatalog },
+  { path: 'settings', component: Settings },
   { path: 'image-crop', component: ImageCrop },
   { path: 'image-annotate', component: ImageAnnotate },
   { path: 'pdf-merge', component: PdfMerge },

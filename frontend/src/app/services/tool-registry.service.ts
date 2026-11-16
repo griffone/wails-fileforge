@@ -28,7 +28,7 @@ export class ToolRegistryService {
   /** The eleven conversion tools, without Home or System Status. */
   readonly tools: readonly ToolDefinition[] = TOOLS;
 
-  /** Home + eleven tools + System Status (13 entries). */
+  /** Home + eleven tools + System Status + Settings (14 entries). */
   readonly navigation: readonly ToolDefinition[] = NAVIGATION;
 
   /** Navigation grouped for the sidebar rail. */

@@ -1,4 +1,4 @@
-import { Component, OnDestroy, computed, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import {
@@ -17,6 +17,8 @@ import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import { DropIntakeService } from '../../services/drop-intake.service';
+import { PreferencesService } from '../../services/preferences.service';
 import {
   FileInfoV1,
   InspectFilesResponseV1,
@@ -70,8 +72,10 @@ interface Notice {
   templateUrl: './video-merge.html',
   styleUrl: './video-merge.css',
 })
-export class VideoMerge implements OnDestroy {
+export class VideoMerge implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
+  private readonly dropIntake = inject(DropIntakeService);
+  private readonly preferences = inject(PreferencesService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -84,7 +88,7 @@ export class VideoMerge implements OnDestroy {
   readonly fileItems = signal<FileQueueItem[]>([]);
   readonly selectedPresetId = signal(VIDEO_PRESETS[0].id);
   readonly removeAudio = signal(false);
-  readonly outputDir = signal('');
+  readonly outputDir = signal(this.preferences.defaultOutputDir());
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
   readonly planError = signal<JobErrorV1 | null>(null);
@@ -195,6 +199,13 @@ export class VideoMerge implements OnDestroy {
     this.stopPolling();
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  ngOnInit(): void {
+    const pending = this.dropIntake.take('/video-merge');
+    if (pending.length > 0) {
+      this.onPathsSelected(pending);
+    }
   }
 
   fileCountLabel(): string {

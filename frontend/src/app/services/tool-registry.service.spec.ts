@@ -15,10 +15,15 @@ describe('ToolRegistryService', () => {
     expect(service.tools.length).toBe(11);
   });
 
-  it('exposes thirteen navigation entries', () => {
-    expect(service.navigation.length).toBe(13);
+  it('exposes fourteen navigation entries', () => {
+    expect(service.navigation.length).toBe(14);
     expect(service.navigation[0].route).toBe('/');
-    expect(service.navigation[service.navigation.length - 1].route).toBe('/tool-catalog');
+    expect(service.navigation[service.navigation.length - 2].route).toBe(
+      '/tool-catalog',
+    );
+    expect(service.navigation[service.navigation.length - 1].route).toBe(
+      '/settings',
+    );
   });
 
   it('keeps routes and ids unique', () => {
@@ -33,6 +38,7 @@ describe('ToolRegistryService', () => {
     expect(service.findByRoute('/')?.name).toBe('Home');
     expect(service.findByRoute('/image-converter')?.name).toBe('Image Convert');
     expect(service.findByRoute('/tool-catalog')?.name).toBe('System Status');
+    expect(service.findByRoute('/settings')?.name).toBe('Settings');
     expect(service.findByRoute('/unknown-route')).toBeNull();
     expect(service.findByRoute(undefined)).toBeNull();
   });
@@ -46,10 +52,12 @@ describe('ToolRegistryService', () => {
   it('only treats conversion entries as tools', () => {
     const home = service.findByRoute('/');
     const system = service.findByRoute('/tool-catalog');
+    const settings = service.findByRoute('/settings');
     const tool = service.findByRoute('/video-trim');
 
     expect(home && service.isTool(home)).toBeFalse();
     expect(system && service.isTool(system)).toBeFalse();
+    expect(settings && service.isTool(settings)).toBeFalse();
     expect(tool && service.isTool(tool)).toBeTrue();
   });
 
@@ -83,6 +91,12 @@ describe('ToolRegistryService', () => {
     for (const tool of service.tools) {
       expect(declaredRoutes.has(tool.route))
         .withContext(`route ${tool.route} is declared in app.routes.ts`)
+        .toBeTrue();
+    }
+
+    for (const entry of service.navigation) {
+      expect(declaredRoutes.has(entry.route))
+        .withContext(`route ${entry.route} is declared in app.routes.ts`)
         .toBeTrue();
     }
   });
