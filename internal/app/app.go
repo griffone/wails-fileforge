@@ -11,6 +11,7 @@ import (
 	"time"
 
 	// Import for auto-registration
+	"fileforge-desktop/internal/automation"
 	_ "fileforge-desktop/internal/doc"
 	_ "fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/inspect"
@@ -27,10 +28,11 @@ import (
 )
 
 type App struct {
-	ctx            context.Context
-	toolingService *services.ToolingService
-	recipeService  *recipes.Service
-	previewService *preview.PreviewService
+	ctx               context.Context
+	toolingService    *services.ToolingService
+	recipeService     *recipes.Service
+	automationService *automation.Service
+	previewService    *preview.PreviewService
 }
 
 func New() *App {
@@ -45,6 +47,14 @@ func New() *App {
 			return
 		}
 		app.Event.Emit(recipes.ProgressEventNameV1, evt)
+	})
+	automationStore := automation.NewStore(automation.DefaultPath())
+	a.automationService = automation.NewService(automationStore, a.recipeService, func(evt models.AutomationRunEventV1) {
+		app := application.Get()
+		if app == nil {
+			return
+		}
+		app.Event.Emit(automation.RunEventNameV1, evt)
 	})
 	// initialize preview service with sensible defaults; AllowedRoots: $HOME + TMP
 	home, _ := os.UserHomeDir()
@@ -75,6 +85,11 @@ func (a *App) contextOrBackground() context.Context {
 // job persistence and interrupted-job recovery become active.
 func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	a.SetContext(ctx)
+	// Automation rules are optional: a broken rule or watch folder is reported
+	// as degraded and must never abort app startup.
+	if a.automationService != nil {
+		a.automationService.Start(ctx)
+	}
 	return nil
 }
 
@@ -88,6 +103,9 @@ func (a *App) ServiceShutdown() error {
 // Shutdown gracefully stops services owned by App.
 func (a *App) Shutdown(ctx context.Context) error {
 	var firstErr error
+	if a.automationService != nil {
+		a.automationService.Shutdown()
+	}
 	if a.recipeService != nil {
 		a.recipeService.Shutdown()
 	}
@@ -190,6 +208,32 @@ func (a *App) GetRecipeStatusV1(jobID string) models.RecipeStatusResponseV1 {
 // CancelRecipeV1 requests cancellation of a running recipe.
 func (a *App) CancelRecipeV1(jobID string) models.RecipeStatusResponseV1 {
 	return a.recipeService.Cancel(jobID)
+}
+
+// ListAutomationRulesV1 lists the saved watch-folder rules with their current
+// runtime state (watching, stopped or degraded).
+func (a *App) ListAutomationRulesV1() models.ListAutomationRulesResponseV1 {
+	return a.automationService.ListRules()
+}
+
+// SaveAutomationRuleV1 validates and persists a watch-folder rule.
+func (a *App) SaveAutomationRuleV1(rule models.AutomationRuleV1) models.AutomationRuleActionResponseV1 {
+	return a.automationService.SaveRule(rule)
+}
+
+// DeleteAutomationRuleV1 stops and removes a watch-folder rule.
+func (a *App) DeleteAutomationRuleV1(id string) models.AutomationRuleActionResponseV1 {
+	return a.automationService.DeleteRule(id)
+}
+
+// SetAutomationRuleEnabledV1 starts or stops a rule's watcher.
+func (a *App) SetAutomationRuleEnabledV1(id string, enabled bool) models.AutomationRuleActionResponseV1 {
+	return a.automationService.SetRuleEnabled(id, enabled)
+}
+
+// GetAutomationStatusV1 returns the compact automation summary used on Home.
+func (a *App) GetAutomationStatusV1() models.AutomationStatusResponseV1 {
+	return a.automationService.Status()
 }
 
 // InspectFilesV1 describes files for UI cards. Missing files are reported per
