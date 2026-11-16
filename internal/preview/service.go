@@ -184,13 +184,17 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 		return nil
 	}
 
-	// use processor; switch to PDF processor when file is a PDF
+	// use processor; switch to a tool-specific processor by file extension
 	var proc JobProcessor
-	if strings.ToLower(filepath.Ext(job.Req.Path)) == ".pdf" {
+	ext := strings.ToLower(filepath.Ext(job.Req.Path))
+	switch {
+	case ext == ".pdf":
 		// use the PDF processor backed by external tools
 		// inject a LocalExecRunner by default
 		proc = NewPDFProcessor(NewLocalExecRunner())
-	} else {
+	case isVideoPreviewExtension(ext):
+		proc = NewVideoProcessor(NewLocalExecRunner())
+	default:
 		proc = NewBimgProcessor()
 	}
 	data, ct, perr := proc.Process(ctx, job.Req)

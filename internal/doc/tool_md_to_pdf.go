@@ -3,6 +3,7 @@ package doc
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,6 +19,8 @@ const (
 	ToolIDDocMDToPDFV1 = "tool.doc.md_to_pdf"
 
 	docPlannedOutputKindFile = "file"
+
+	mdMaxPageMarginMM = 100.0
 )
 
 var placeholderPattern = regexp.MustCompile(`\{([^}]+)\}`)
@@ -170,6 +173,11 @@ func parseAndPrepare(req models.JobRequestV1) (preparedRequest, *models.JobError
 		return preparedRequest{}, err
 	}
 
+	pageSetup, setupErr := parsePageSetupOption(req.Options)
+	if setupErr != nil {
+		return preparedRequest{}, setupErr
+	}
+
 	outputPath, outputErr := resolveOutputPath(inputPath, req.OutputDir, optionString(req.Options, "outputPath"))
 	if outputErr != nil {
 		return preparedRequest{}, outputErr
@@ -183,12 +191,113 @@ func parseAndPrepare(req models.JobRequestV1) (preparedRequest, *models.JobError
 		inputPath:  inputPath,
 		outputPath: outputPath,
 		renderConfig: engine.RenderConfig{
-			InputPath:  inputPath,
-			OutputPath: outputPath,
-			Header:     header,
-			Footer:     footer,
+			InputPath:      inputPath,
+			OutputPath:     outputPath,
+			PageSize:       pageSetup.PageSize,
+			Orientation:    pageSetup.Orientation,
+			MarginTopMM:    pageSetup.MarginTopMM,
+			MarginRightMM:  pageSetup.MarginRightMM,
+			MarginBottomMM: pageSetup.MarginBottomMM,
+			MarginLeftMM:   pageSetup.MarginLeftMM,
+			Header:         header,
+			Footer:         footer,
 		},
 	}, nil
+}
+
+// mdPageSetup is the resolved page configuration for one Markdown render.
+type mdPageSetup struct {
+	PageSize       string
+	Orientation    string
+	MarginTopMM    float64
+	MarginRightMM  float64
+	MarginBottomMM float64
+	MarginLeftMM   float64
+}
+
+// parsePageSetupOption resolves pageSize, orientation and margins. Missing
+// values keep the documented defaults (A4 portrait, 20/15/18/15 mm).
+func parsePageSetupOption(options map[string]any) (mdPageSetup, *models.JobErrorV1) {
+	setup := mdPageSetup{
+		PageSize:       engine.DefaultPageSize,
+		Orientation:    engine.DefaultOrientation,
+		MarginTopMM:    engine.DefaultMarginTopMM,
+		MarginRightMM:  engine.DefaultMarginRightMM,
+		MarginBottomMM: engine.DefaultMarginBottomMM,
+		MarginLeftMM:   engine.DefaultMarginLeftMM,
+	}
+
+	if options == nil {
+		return setup, nil
+	}
+
+	if raw, ok := options["pageSize"]; ok && raw != nil {
+		value, isString := raw.(string)
+		if !isString {
+			return mdPageSetup{}, mdConfigError("options.pageSize must be a string")
+		}
+		if strings.TrimSpace(value) != "" {
+			normalized, valid := engine.NormalizePageSize(value)
+			if !valid {
+				return mdPageSetup{}, mdConfigError("options.pageSize must be A4, Letter or Legal")
+			}
+			setup.PageSize = normalized
+		}
+	}
+
+	if raw, ok := options["orientation"]; ok && raw != nil {
+		value, isString := raw.(string)
+		if !isString {
+			return mdPageSetup{}, mdConfigError("options.orientation must be a string")
+		}
+		if strings.TrimSpace(value) != "" {
+			normalized, valid := engine.NormalizeOrientation(value)
+			if !valid {
+				return mdPageSetup{}, mdConfigError("options.orientation must be P (portrait) or L (landscape)")
+			}
+			setup.Orientation = normalized
+		}
+	}
+
+	if raw, ok := options["margins"]; ok && raw != nil {
+		mapped, isObject := raw.(map[string]any)
+		if !isObject {
+			return mdPageSetup{}, mdConfigError("options.margins must be an object with numeric top, right, bottom and left values")
+		}
+
+		targets := []struct {
+			name string
+			dest *float64
+		}{
+			{name: "top", dest: &setup.MarginTopMM},
+			{name: "right", dest: &setup.MarginRightMM},
+			{name: "bottom", dest: &setup.MarginBottomMM},
+			{name: "left", dest: &setup.MarginLeftMM},
+		}
+
+		for _, target := range targets {
+			value, exists := mapped[target.name]
+			if !exists || value == nil {
+				continue
+			}
+			if !isNumeric(value) {
+				return mdPageSetup{}, mdConfigError(fmt.Sprintf("options.margins.%s must be numeric", target.name))
+			}
+
+			margin := mustFloat(mapped, target.name)
+			if math.IsNaN(margin) || math.IsInf(margin, 0) || margin < 0 || margin > mdMaxPageMarginMM {
+				return mdPageSetup{}, mdConfigError(fmt.Sprintf("options.margins.%s must be between 0 and %.0f mm", target.name, mdMaxPageMarginMM))
+			}
+
+			*target.dest = margin
+		}
+	}
+
+	return setup, nil
+}
+
+func mdConfigError(message string) *models.JobErrorV1 {
+	return models.NewCanonicalJobError("DOC_MD_TO_PDF_CONFIG_INVALID", message, nil)
 }
 
 func validateInputPath(inputPath string) *models.JobErrorV1 {
@@ -232,20 +341,27 @@ func naturalMDOutputPath(inputPath, outputDir, rawOutputPath string) string {
 	return filepath.Join(targetDir, base+"_md2pdf.pdf")
 }
 
-// mdEffectiveOptions summarizes the resolved header/footer configuration. It
-// stays empty when the request did not configure either of them.
+// mdEffectiveOptions summarizes the resolved page setup plus any header/footer
+// configuration. The page setup is always present because defaults apply.
 func mdEffectiveOptions(options map[string]any, cfg engine.RenderConfig) map[string]any {
-	effective := map[string]any{}
+	effective := map[string]any{
+		"pageSetup": map[string]any{
+			"pageSize":    cfg.PageSize,
+			"orientation": cfg.Orientation,
+			"margins": map[string]any{
+				"top":    cfg.MarginTopMM,
+				"right":  cfg.MarginRightMM,
+				"bottom": cfg.MarginBottomMM,
+				"left":   cfg.MarginLeftMM,
+			},
+		},
+	}
 
 	if raw, ok := options["header"]; ok && raw != nil {
 		effective["header"] = headerFooterSummary(cfg.Header)
 	}
 	if raw, ok := options["footer"]; ok && raw != nil {
 		effective["footer"] = headerFooterSummary(cfg.Footer)
-	}
-
-	if len(effective) == 0 {
-		return nil
 	}
 
 	return effective

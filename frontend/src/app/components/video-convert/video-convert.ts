@@ -41,8 +41,14 @@ import {
 const VIDEO_CONVERT_TOOL_ID = 'tool.video.convert';
 const POLLING_INTERVAL_MS = 1000;
 const ADVANCED_PLAN_DEBOUNCE_MS = 200;
+const THUMBNAIL_SIZE = 160;
 
 const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm']);
+
+const RESOLUTIONS = ['original', '1080p', '720p', '480p'] as const;
+type Resolution = (typeof RESOLUTIONS)[number];
+
+const BITRATE_OPTIONS_KBPS = [2000, 5000, 8000, 12000] as const;
 
 const FORMAT_LABELS: Record<VideoPreset['targetFormat'], string> = {
   mp4: 'MP4',
@@ -102,6 +108,9 @@ export class VideoConvert implements OnDestroy {
   readonly selectedPresetId = signal(VIDEO_PRESETS[0].id);
   readonly targetFormatOverride = signal<TargetFormat | null>(null);
   readonly qualityOverride = signal<QualityPreset | null>(null);
+  readonly resolution = signal<Resolution>('original');
+  readonly bitrateKbps = signal<number | null>(null);
+  readonly removeAudio = signal(false);
   readonly outputDir = signal('');
   readonly advancedOpen = signal(false);
 
@@ -130,7 +139,10 @@ export class VideoConvert implements OnDestroy {
   readonly hasAdvancedOverrides = computed(
     () =>
       this.targetFormatOverride() !== null ||
-      this.qualityOverride() !== null,
+      this.qualityOverride() !== null ||
+      this.resolution() !== 'original' ||
+      this.bitrateKbps() !== null ||
+      this.removeAudio(),
   );
 
   readonly targetFormat = computed<TargetFormat>(
@@ -356,9 +368,42 @@ export class VideoConvert implements OnDestroy {
     this.schedulePlanRefresh();
   }
 
+  onResolutionChange(event: Event): void {
+    const value = this.readSelect(event);
+    if (!RESOLUTIONS.includes(value as Resolution)) {
+      return;
+    }
+    this.resolution.set(value as Resolution);
+    this.schedulePlanRefresh();
+  }
+
+  onBitrateChange(event: Event): void {
+    const value = this.readSelect(event);
+    if (value === '') {
+      this.bitrateKbps.set(null);
+      this.schedulePlanRefresh();
+      return;
+    }
+
+    const kbps = Number(value);
+    if (!(BITRATE_OPTIONS_KBPS as readonly number[]).includes(kbps)) {
+      return;
+    }
+    this.bitrateKbps.set(kbps);
+    this.schedulePlanRefresh();
+  }
+
+  onRemoveAudioToggle(event: Event): void {
+    this.removeAudio.set(this.readChecked(event));
+    this.schedulePlanRefresh();
+  }
+
   resetAdvanced(): void {
     this.targetFormatOverride.set(null);
     this.qualityOverride.set(null);
+    this.resolution.set('original');
+    this.bitrateKbps.set(null);
+    this.removeAudio.set(false);
     this.schedulePlanRefresh();
   }
 
@@ -524,15 +569,25 @@ export class VideoConvert implements OnDestroy {
 
   private buildRequest(): JobRequestV1 {
     const paths = this.selectedPaths();
+    const options: Record<string, unknown> = {
+      targetFormat: this.targetFormat(),
+      qualityPreset: this.qualityPreset(),
+      resolution: this.resolution(),
+    };
+    const bitrateKbps = this.bitrateKbps();
+    if (bitrateKbps !== null) {
+      options['bitrateKbps'] = bitrateKbps;
+    }
+    if (this.removeAudio()) {
+      options['removeAudio'] = true;
+    }
+
     return {
       toolId: VIDEO_CONVERT_TOOL_ID,
       mode: paths.length > 1 ? 'batch' : 'single',
       inputPaths: [...paths],
       outputDir: this.outputDir(),
-      options: {
-        targetFormat: this.targetFormat(),
-        qualityPreset: this.qualityPreset(),
-      },
+      options,
     };
   }
 
@@ -746,6 +801,32 @@ export class VideoConvert implements OnDestroy {
     } catch {
       // Inspection is optional: the queue keeps the file name and path.
     }
+
+    if (generation !== this.fileItemsGeneration) {
+      return;
+    }
+
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
+  }
+
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the video icon.
+      });
   }
 
   private describeFileInfo(info: FileInfoV1): string {
@@ -786,6 +867,10 @@ export class VideoConvert implements OnDestroy {
 
   private readSelect(event: Event): string {
     return (event.target as HTMLSelectElement | null)?.value ?? '';
+  }
+
+  private readChecked(event: Event): boolean {
+    return !!(event.target as HTMLInputElement | null)?.checked;
   }
 
   private isTerminalStatus(status: string): boolean {

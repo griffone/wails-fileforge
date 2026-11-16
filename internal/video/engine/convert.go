@@ -19,6 +19,11 @@ const (
 	QualityPresetMedium = "medium"
 	QualityPresetLow    = "low"
 
+	ResolutionOriginal = "original"
+	Resolution1080p    = "1080p"
+	Resolution720p     = "720p"
+	Resolution480p     = "480p"
+
 	ErrorCodeVideoFormatMismatch        = "VIDEO_CONVERT_FORMAT_MISMATCH"
 	ErrorCodeVideoOutputExists          = "VIDEO_CONVERT_OUTPUT_EXISTS"
 	ErrorCodeVideoOutputCollides        = "VIDEO_CONVERT_OUTPUT_COLLIDES_INPUT"
@@ -77,6 +82,12 @@ type ConvertRequest struct {
 	OutputPath    string
 	TargetFormat  string
 	QualityPreset string
+	// Resolution scales the output frame height when it is not "original".
+	Resolution string
+	// BitrateKbps overrides the quality preset video bitrate when > 0.
+	BitrateKbps int
+	// RemoveAudio drops the audio stream from the output.
+	RemoveAudio bool
 }
 
 func ValidateConvertRequest(req ConvertRequest) *VideoError {
@@ -98,6 +109,14 @@ func ValidateConvertRequest(req ConvertRequest) *VideoError {
 	qualityPreset := strings.ToLower(strings.TrimSpace(req.QualityPreset))
 	if qualityPreset != QualityPresetHigh && qualityPreset != QualityPresetMedium && qualityPreset != QualityPresetLow {
 		return &VideoError{Code: ErrorCodeVideoValidation, Message: "qualityPreset must be high, medium, or low"}
+	}
+
+	if _, ok := convertResolutionHeight(req.Resolution); !ok {
+		return &VideoError{Code: ErrorCodeVideoValidation, Message: "resolution must be original, 1080p, 720p, or 480p"}
+	}
+
+	if req.BitrateKbps < 0 {
+		return &VideoError{Code: ErrorCodeVideoValidation, Message: "bitrateKbps must be >= 0"}
 	}
 
 	if outputExt := strings.TrimPrefix(strings.ToLower(filepath.Ext(outputPath)), "."); outputExt != targetFormat {
@@ -126,6 +145,33 @@ func ValidateConvertRequest(req ConvertRequest) *VideoError {
 	}
 
 	return nil
+}
+
+// normalizeConvertResolution treats an omitted resolution as "original" so
+// older callers keep the previous behaviour.
+func normalizeConvertResolution(rawResolution string) string {
+	resolution := strings.ToLower(strings.TrimSpace(rawResolution))
+	if resolution == "" {
+		return ResolutionOriginal
+	}
+	return resolution
+}
+
+// convertResolutionHeight maps a resolution option to its target height. The
+// second return value is false when the resolution is not supported.
+func convertResolutionHeight(rawResolution string) (int, bool) {
+	switch normalizeConvertResolution(rawResolution) {
+	case ResolutionOriginal:
+		return 0, true
+	case Resolution1080p:
+		return 1080, true
+	case Resolution720p:
+		return 720, true
+	case Resolution480p:
+		return 480, true
+	default:
+		return 0, false
+	}
 }
 
 func BuildConvertArgs(req ConvertRequest) ([]string, *VideoError) {
@@ -167,6 +213,11 @@ func BuildConvertArgs(req ConvertRequest) ([]string, *VideoError) {
 		}
 	}
 
+	explicitBitrate := req.BitrateKbps > 0
+	if explicitBitrate {
+		videoBitrate = fmt.Sprintf("%dk", req.BitrateKbps)
+	}
+
 	args := []string{
 		"-y",
 		"-i", inputPath,
@@ -174,9 +225,31 @@ func BuildConvertArgs(req ConvertRequest) ([]string, *VideoError) {
 	}
 
 	if targetFormat == TargetFormatWebM {
-		args = append(args, "libvpx-vp9", "-b:v", videoBitrate, "-crf", videoCRF, "-c:a", "libopus")
+		args = append(args, "libvpx-vp9", "-b:v", videoBitrate)
+		if !explicitBitrate {
+			args = append(args, "-crf", videoCRF)
+		}
+		if !req.RemoveAudio {
+			args = append(args, "-c:a", "libopus")
+		}
 	} else {
-		args = append(args, "libx264", "-b:v", videoBitrate, "-crf", videoCRF, "-preset", "medium", "-c:a", "aac", "-movflags", "+faststart")
+		args = append(args, "libx264", "-b:v", videoBitrate)
+		if !explicitBitrate {
+			args = append(args, "-crf", videoCRF)
+		}
+		args = append(args, "-preset", "medium")
+		if !req.RemoveAudio {
+			args = append(args, "-c:a", "aac")
+		}
+		args = append(args, "-movflags", "+faststart")
+	}
+
+	if scaleHeight, _ := convertResolutionHeight(req.Resolution); scaleHeight > 0 {
+		args = append(args, "-vf", fmt.Sprintf("scale=-2:%d", scaleHeight))
+	}
+
+	if req.RemoveAudio {
+		args = append(args, "-an")
 	}
 
 	args = append(args, outputPath)

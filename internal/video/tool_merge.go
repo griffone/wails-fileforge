@@ -110,11 +110,16 @@ func (t *MergeTool) Plan(ctx context.Context, req models.JobRequestV1) (models.P
 		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoMergeModeInvalid, Message: "mergeMode must be auto, copy, or reencode"})
 	}
 
+	removeAudio, audioErr := videoOptionBool(req.Options, "removeAudio", engine.ErrorCodeVideoMergeValidation)
+	if audioErr != nil {
+		return planFailure(plan, audioErr)
+	}
+
 	explicitOutput := optionString(req.Options, "outputPath")
 	var planned models.PlannedOutputV1
 	var planErr *models.JobErrorV1
 	if explicitOutput != "" {
-		planned, planErr = planExplicitMergeOutput(inputPaths, explicitOutput, targetFormat, qualityPreset, mergeMode)
+		planned, planErr = planExplicitMergeOutput(inputPaths, explicitOutput, targetFormat, qualityPreset, mergeMode, removeAudio)
 	} else {
 		planned = planAutoVideoOutput(inputPaths[0], req.OutputDir, videoMergeOutputSuffix, targetFormat, reserveInputPaths(inputPaths))
 		planErr = mapVideoError(engine.ValidateMergeRequest(engine.MergeRequest{
@@ -123,6 +128,7 @@ func (t *MergeTool) Plan(ctx context.Context, req models.JobRequestV1) (models.P
 			TargetFormat:  targetFormat,
 			QualityPreset: qualityPreset,
 			MergeMode:     mergeMode,
+			RemoveAudio:   removeAudio,
 		}))
 	}
 
@@ -141,6 +147,7 @@ func (t *MergeTool) Plan(ctx context.Context, req models.JobRequestV1) (models.P
 		"targetFormat":  targetFormat,
 		"qualityPreset": qualityPreset,
 		"mergeMode":     mergeMode,
+		"removeAudio":   removeAudio,
 	}
 
 	return plan, nil
@@ -163,7 +170,7 @@ func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) 
 	return models.JobResultItemV1{InputPath: firstInputPath(mergeReq.InputPaths), OutputPath: mergeReq.OutputPath, Outputs: []string{mergeReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video merge successful"}, nil
 }
 
-func planExplicitMergeOutput(inputPaths []string, outputPath, targetFormat, qualityPreset, mergeMode string) (models.PlannedOutputV1, *models.JobErrorV1) {
+func planExplicitMergeOutput(inputPaths []string, outputPath, targetFormat, qualityPreset, mergeMode string, removeAudio bool) (models.PlannedOutputV1, *models.JobErrorV1) {
 	planned := models.PlannedOutputV1{
 		InputPath:  strings.Join(inputPaths, ","),
 		OutputPath: filepath.Clean(strings.TrimSpace(outputPath)),
@@ -180,6 +187,7 @@ func planExplicitMergeOutput(inputPaths []string, outputPath, targetFormat, qual
 		TargetFormat:  targetFormat,
 		QualityPreset: qualityPreset,
 		MergeMode:     mergeMode,
+		RemoveAudio:   removeAudio,
 	})
 
 	return planned, mapVideoError(validationErr)
@@ -191,6 +199,7 @@ func mergeRequestFromPlan(plan models.PlanJobResponseV1, inputPaths []string) en
 	if mergeMode == "" {
 		mergeMode = engine.MergeModeAuto
 	}
+	removeAudio, _ := plan.EffectiveOptions["removeAudio"].(bool)
 
 	return engine.MergeRequest{
 		InputPaths:    trimInputPaths(inputPaths),
@@ -198,6 +207,7 @@ func mergeRequestFromPlan(plan models.PlanJobResponseV1, inputPaths []string) en
 		TargetFormat:  optionString(plan.EffectiveOptions, "targetFormat"),
 		QualityPreset: optionString(plan.EffectiveOptions, "qualityPreset"),
 		MergeMode:     mergeMode,
+		RemoveAudio:   removeAudio,
 	}
 }
 

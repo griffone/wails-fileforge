@@ -112,6 +112,7 @@ func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (mode
 		plan.Message = "Ready to convert 1 document."
 		plan.Outputs = []models.PlannedOutputV1{planned}
 		plan.Warnings = planned.Warnings
+		plan.EffectiveOptions = docxEffectiveOptions(parsed)
 
 		return plan, nil
 	}
@@ -147,6 +148,7 @@ func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (mode
 	plan.Message = fmt.Sprintf("Ready to convert %d documents.", len(outputs))
 	plan.Outputs = outputs
 	plan.Warnings = warnings
+	plan.EffectiveOptions = docxEffectiveOptions(parsed)
 
 	return plan, nil
 }
@@ -157,6 +159,11 @@ func (t *DOCXToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequest
 		return models.JobResultItemV1{InputPath: firstPath(req.InputPaths), Success: false, Message: planErr.Message, Error: planErr}, planErr
 	}
 
+	parsed, parseErr := parseDOCXRequest(req)
+	if parseErr != nil {
+		return models.JobResultItemV1{InputPath: firstPath(req.InputPaths), Success: false, Message: parseErr.Message, Error: parseErr}, parseErr
+	}
+
 	inputPath := plan.Outputs[0].InputPath
 	outputPath := plan.Outputs[0].OutputPath
 
@@ -164,6 +171,10 @@ func (t *DOCXToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequest
 	if err != nil {
 		jobErr := mapDOCXEngineError(err)
 		return models.JobResultItemV1{InputPath: inputPath, OutputPath: outputPath, Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
+	}
+
+	if applyErr := applyDOCXPageSelection(inputPath, outputPath, parsed.pageSelection); applyErr != nil {
+		return models.JobResultItemV1{InputPath: inputPath, OutputPath: outputPath, Success: false, Message: applyErr.Message, Error: applyErr}, applyErr
 	}
 
 	message := "docx to pdf successful"
@@ -187,6 +198,11 @@ func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequestV
 		return nil, planErr
 	}
 
+	parsed, parseErr := parseDOCXRequest(req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
 	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
 	var firstErr *models.JobErrorV1
 
@@ -205,6 +221,11 @@ func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequestV
 				firstErr = jobErr
 			}
 			items = append(items, models.JobResultItemV1{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Success: false, Message: jobErr.Message, Error: jobErr})
+		} else if applyErr := applyDOCXPageSelection(planned.InputPath, planned.OutputPath, parsed.pageSelection); applyErr != nil {
+			if firstErr == nil {
+				firstErr = applyErr
+			}
+			items = append(items, models.JobResultItemV1{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Success: false, Message: applyErr.Message, Error: applyErr})
 		} else {
 			message := "docx to pdf successful"
 			if result.FallbackUsed {
@@ -220,10 +241,11 @@ func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequestV
 }
 
 type docxRequest struct {
-	mode       string
-	inputPaths []string
-	outputDir  string
-	outputPath string
+	mode          string
+	inputPaths    []string
+	outputDir     string
+	outputPath    string
+	pageSelection string
 }
 
 func parseDOCXRequest(req models.JobRequestV1) (docxRequest, *models.JobErrorV1) {
@@ -249,10 +271,21 @@ func parseDOCXRequest(req models.JobRequestV1) (docxRequest, *models.JobErrorV1)
 	}
 
 	parsed := docxRequest{
-		mode:       mode,
-		inputPaths: inputs,
-		outputDir:  strings.TrimSpace(req.OutputDir),
-		outputPath: strings.TrimSpace(optionString(req.Options, "outputPath")),
+		mode:          mode,
+		inputPaths:    inputs,
+		outputDir:     strings.TrimSpace(req.OutputDir),
+		outputPath:    strings.TrimSpace(optionString(req.Options, "outputPath")),
+		pageSelection: engine.NormalizePageSelection(optionString(req.Options, "pageSelection")),
+	}
+
+	if parsed.pageSelection != "" {
+		if selectionErr := engine.ValidatePageSelection(parsed.pageSelection); selectionErr != nil {
+			return docxRequest{}, models.NewCanonicalJobError(
+				"DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID",
+				fmt.Sprintf("pageSelection %q is not valid. Use ranges like 1-3,5 or leave it empty for every page.", parsed.pageSelection),
+				map[string]any{"pageSelection": parsed.pageSelection},
+			)
+		}
 	}
 
 	if mode == "single" && parsed.outputDir == "" {
@@ -260,6 +293,34 @@ func parseDOCXRequest(req models.JobRequestV1) (docxRequest, *models.JobErrorV1)
 	}
 
 	return parsed, nil
+}
+
+// docxEffectiveOptions summarizes the options that change the conversion
+// result. It stays nil when the request kept every default.
+func docxEffectiveOptions(parsed docxRequest) map[string]any {
+	if parsed.pageSelection == "" {
+		return nil
+	}
+
+	return map[string]any{"pageSelection": parsed.pageSelection}
+}
+
+// applyDOCXPageSelection keeps only the requested pages of a converted PDF.
+// An empty selection leaves the conversion untouched.
+func applyDOCXPageSelection(inputPath, outputPath, selection string) *models.JobErrorV1 {
+	if strings.TrimSpace(selection) == "" {
+		return nil
+	}
+
+	if err := engine.ApplyPageSelection(inputPath, outputPath, selection); err != nil {
+		return models.NewCanonicalJobError(
+			"DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID",
+			fmt.Sprintf("page selection %q cannot be applied to %s. The document may have fewer pages than the selection.", selection, filepath.Base(inputPath)),
+			map[string]any{"inputPath": inputPath, "pageSelection": selection},
+		)
+	}
+
+	return nil
 }
 
 func validateDOCXInputPath(inputPath string) *models.JobErrorV1 {

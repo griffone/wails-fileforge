@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"fileforge-desktop/internal/models"
@@ -83,6 +84,65 @@ func reserveInputPaths(inputPaths []string) map[string]struct{} {
 		outputplan.MarkUsed(used, inputPath)
 	}
 	return used
+}
+
+// videoOptionInt reads an optional integer option and returns 0 when the option
+// is absent. Supplied values of the wrong type are rejected so a typo never
+// silently changes the output.
+func videoOptionInt(options map[string]any, key, validationCode string) (int, *models.JobErrorV1) {
+	if !videoOptionSupplied(options, key) {
+		return 0, nil
+	}
+
+	if floatValue, isFloat := options[key].(float64); isFloat && floatValue != float64(int(floatValue)) {
+		return 0, &models.JobErrorV1{Code: validationCode, Message: fmt.Sprintf("options.%s must be an integer", key)}
+	}
+
+	switch value := options[key].(type) {
+	case float64:
+		return int(value), nil
+	case float32:
+		return int(value), nil
+	case int:
+		return value, nil
+	case int32:
+		return int(value), nil
+	case int64:
+		return int(value), nil
+	default:
+		return 0, &models.JobErrorV1{Code: validationCode, Message: fmt.Sprintf("options.%s must be numeric", key)}
+	}
+}
+
+// videoOptionBool reads an optional boolean option and returns false when the
+// option is absent. Textual values are accepted because some callers serialize
+// checkboxes as strings.
+func videoOptionBool(options map[string]any, key, validationCode string) (bool, *models.JobErrorV1) {
+	if !videoOptionSupplied(options, key) {
+		return false, nil
+	}
+
+	switch value := options[key].(type) {
+	case bool:
+		return value, nil
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+		if err == nil {
+			return parsed, nil
+		}
+	}
+
+	return false, &models.JobErrorV1{Code: validationCode, Message: fmt.Sprintf("options.%s must be a boolean", key)}
+}
+
+// videoOptionSupplied reports whether a request option was provided with a value.
+func videoOptionSupplied(options map[string]any, key string) bool {
+	if options == nil {
+		return false
+	}
+
+	value, ok := options[key]
+	return ok && value != nil
 }
 
 func resolveRuntimeProbe(probe engine.RuntimeProbe) engine.RuntimeProbe {

@@ -39,6 +39,7 @@ import {
 
 const VIDEO_MERGE_TOOL_ID = 'tool.video.merge';
 const POLLING_INTERVAL_MS = 1000;
+const THUMBNAIL_SIZE = 160;
 
 const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm']);
 
@@ -82,6 +83,7 @@ export class VideoMerge implements OnDestroy {
   readonly selectedPaths = signal<string[]>([]);
   readonly fileItems = signal<FileQueueItem[]>([]);
   readonly selectedPresetId = signal(VIDEO_PRESETS[0].id);
+  readonly removeAudio = signal(false);
   readonly outputDir = signal('');
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
@@ -292,6 +294,11 @@ export class VideoMerge implements OnDestroy {
     void this.refreshPlan();
   }
 
+  onRemoveAudioToggle(event: Event): void {
+    this.removeAudio.set(!!(event.target as HTMLInputElement | null)?.checked);
+    void this.refreshPlan();
+  }
+
   async chooseOutputFolder(): Promise<void> {
     const directory = (await this.wailsService.openDirectoryDialog()).trim();
     if (!directory) {
@@ -444,15 +451,20 @@ export class VideoMerge implements OnDestroy {
 
   private buildRequest(): JobRequestV1 {
     const preset = this.selectedPreset();
+    const options: Record<string, unknown> = {
+      targetFormat: preset.targetFormat,
+      qualityPreset: preset.qualityPreset,
+    };
+    if (this.removeAudio()) {
+      options['removeAudio'] = true;
+    }
+
     return {
       toolId: VIDEO_MERGE_TOOL_ID,
       mode: 'single',
       inputPaths: [...this.selectedPaths()],
       outputDir: this.outputDir(),
-      options: {
-        targetFormat: preset.targetFormat,
-        qualityPreset: preset.qualityPreset,
-      },
+      options,
     };
   }
 
@@ -661,6 +673,32 @@ export class VideoMerge implements OnDestroy {
     } catch {
       // Inspection is optional: the queue keeps the file name and path.
     }
+
+    if (generation !== this.fileItemsGeneration) {
+      return;
+    }
+
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
+  }
+
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the video icon.
+      });
   }
 
   private describeFileInfo(info: FileInfoV1): string {

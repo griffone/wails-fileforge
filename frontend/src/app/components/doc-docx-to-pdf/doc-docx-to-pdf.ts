@@ -33,6 +33,7 @@ import { fileExtension, fileName, formatBytes } from '../../utils/format';
 
 const DOCX_TO_PDF_TOOL_ID = 'tool.doc.docx_to_pdf';
 const POLLING_INTERVAL_MS = 1000;
+const PLAN_DEBOUNCE_MS = 250;
 
 const TERMINAL_STATUSES = new Set<string>([
   'success',
@@ -74,6 +75,9 @@ export class DocDocxToPdf implements OnDestroy {
   readonly fileItems = signal<FileQueueItem[]>([]);
   readonly outputDir = signal('');
 
+  /** Page range applied to every input; empty keeps all pages. */
+  readonly pageSelection = signal('');
+
   readonly plan = signal<PlanJobResponseV1 | null>(null);
   readonly planError = signal<JobErrorV1 | null>(null);
   readonly planLoading = signal(false);
@@ -95,6 +99,9 @@ export class DocDocxToPdf implements OnDestroy {
       !this.isSubmitting() &&
       !this.isPolling(),
   );
+
+  /** A failed plan (for example an invalid page range) blocks the action. */
+  readonly planBlocked = computed(() => this.plan()?.success === false);
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
@@ -133,6 +140,8 @@ export class DocDocxToPdf implements OnDestroy {
   });
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private planDirty = false;
   private planToken = 0;
   private fileItemsGeneration = 0;
 
@@ -168,6 +177,7 @@ export class DocDocxToPdf implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopPolling();
+    this.clearPlanRefreshTimer();
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -235,6 +245,7 @@ export class DocDocxToPdf implements OnDestroy {
     this.selectedPaths.set([]);
     this.notice.set(null);
     this.actionMessage.set('');
+    this.clearPageSelection();
     this.syncFileItems();
     void this.refreshPlan();
   }
@@ -245,6 +256,9 @@ export class DocDocxToPdf implements OnDestroy {
       return;
     }
     this.selectedPaths.set(next);
+    if (next.length === 0) {
+      this.clearPageSelection();
+    }
     this.syncFileItems();
     void this.refreshPlan();
   }
@@ -267,14 +281,26 @@ export class DocDocxToPdf implements OnDestroy {
     void this.refreshPlan();
   }
 
+  onPageSelectionInput(event: Event): void {
+    const value = (event.target as HTMLInputElement | null)?.value ?? '';
+    if (value === this.pageSelection()) {
+      return;
+    }
+    this.pageSelection.set(value);
+    this.actionMessage.set('');
+    this.planDirty = true;
+    this.schedulePlanRefresh();
+  }
+
   async run(): Promise<void> {
-    if (!this.canRun()) {
+    if (!this.canRun() || this.planBlocked()) {
       return;
     }
 
+    this.clearPlanRefreshTimer();
     this.actionMessage.set('');
 
-    if (this.planLoading() || !this.plan()?.success) {
+    if (this.planLoading() || this.planDirty || !this.plan()?.success) {
       const planned = await this.refreshPlan();
       if (!planned) {
         return;
@@ -386,11 +412,14 @@ export class DocDocxToPdf implements OnDestroy {
 
   reset(): void {
     this.stopPolling();
+    this.clearPlanRefreshTimer();
     this.planToken += 1;
     this.fileItemsGeneration += 1;
 
     this.selectedPaths.set([]);
     this.fileItems.set([]);
+    this.pageSelection.set('');
+    this.planDirty = false;
     this.plan.set(null);
     this.planError.set(null);
     this.planLoading.set(false);
@@ -405,18 +434,46 @@ export class DocDocxToPdf implements OnDestroy {
 
   private buildRequest(): JobRequestV1 {
     const paths = this.selectedPaths();
+    const options: Record<string, unknown> = {};
+    const pageSelection = this.pageSelection().trim();
+    if (pageSelection) {
+      options['pageSelection'] = pageSelection;
+    }
+
     return {
       toolId: DOCX_TO_PDF_TOOL_ID,
       mode: paths.length > 1 ? 'batch' : 'single',
       inputPaths: [...paths],
       outputDir: this.outputDir(),
-      options: {},
+      options,
     };
+  }
+
+  private clearPageSelection(): void {
+    this.clearPlanRefreshTimer();
+    this.pageSelection.set('');
+    this.planDirty = false;
+  }
+
+  private schedulePlanRefresh(): void {
+    this.clearPlanRefreshTimer();
+    this.planRefreshTimer = setTimeout(() => {
+      this.planRefreshTimer = null;
+      void this.refreshPlan();
+    }, PLAN_DEBOUNCE_MS);
+  }
+
+  private clearPlanRefreshTimer(): void {
+    if (this.planRefreshTimer) {
+      clearTimeout(this.planRefreshTimer);
+      this.planRefreshTimer = null;
+    }
   }
 
   private async refreshPlan(): Promise<boolean> {
     if (this.selectedPaths().length === 0) {
       this.planToken += 1;
+      this.planDirty = false;
       this.plan.set(null);
       this.planError.set(null);
       this.planLoading.set(false);
@@ -445,6 +502,7 @@ export class DocDocxToPdf implements OnDestroy {
     }
 
     this.planLoading.set(false);
+    this.planDirty = false;
 
     if (response.success && !response.error) {
       this.plan.set(response);

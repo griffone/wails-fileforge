@@ -113,6 +113,10 @@ describe('VideoMerge', () => {
     return { success: true, message: 'done', found: true, result };
   }
 
+  function checkedEvent(checked: boolean): Event {
+    return { target: { checked } } as unknown as Event;
+  }
+
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJobV1',
@@ -127,6 +131,7 @@ describe('VideoMerge', () => {
       'isRuntimeAvailable',
       'listToolsV1',
       'validateJobV1',
+      'getThumbnail',
     ]);
 
     jobProgressSubject = new Subject<JobProgressEventV1>();
@@ -164,6 +169,7 @@ describe('VideoMerge', () => {
     });
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.getThumbnail.and.resolveTo(null);
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
     wailsSpy.listToolsV1.and.resolveTo({
       success: true,
@@ -271,6 +277,53 @@ describe('VideoMerge', () => {
     flushMicrotasks();
     expect(component.outputDir()).toBe('');
     expect(component.destinationLabel()).toBe('Next to the first video');
+  }));
+
+  it('sends removeAudio only when audio is removed', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+
+    let request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect('removeAudio' in request.options).toBeFalse();
+
+    component.onRemoveAudioToggle(checkedEvent(true));
+    flushMicrotasks();
+
+    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(request.options['removeAudio']).toBeTrue();
+    expect(component.removeAudio()).toBeTrue();
+
+    void component.run();
+    flushMicrotasks();
+
+    const runRequest = wailsSpy.runJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(runRequest.options['removeAudio']).toBeTrue();
+
+    component.onRemoveAudioToggle(checkedEvent(false));
+    flushMicrotasks();
+
+    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect('removeAudio' in request.options).toBeFalse();
+  }));
+
+  it('loads video thumbnails for the queue and keeps the icon on failure', fakeAsync(() => {
+    wailsSpy.getThumbnail.and.callFake((path: string) =>
+      Promise.resolve(
+        path === '/tmp/a.mp4' ? 'data:image/webp;base64,abc' : null,
+      ),
+    );
+
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+
+    expect(wailsSpy.getThumbnail).toHaveBeenCalledWith('/tmp/a.mp4', 160);
+    expect(wailsSpy.getThumbnail).toHaveBeenCalledWith('/tmp/b.mov', 160);
+    expect(component.fileItems()[0].thumbnailUrl).toBe(
+      'data:image/webp;base64,abc',
+    );
+    expect(component.fileItems()[1].thumbnailUrl).toBeUndefined();
   }));
 
   it('runs without a validate step and shows the terminal result', fakeAsync(() => {

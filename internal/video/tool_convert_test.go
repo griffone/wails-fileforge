@@ -327,3 +327,152 @@ func TestConvertPlanSingleInputCount(t *testing.T) {
 		t.Fatalf("expected %q, got %q", engine.ErrorCodeVideoValidation, planErr.Code)
 	}
 }
+
+func TestConvertPlanIncludesVideoOutputControls(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "clip.mp4")
+	writeVideoFixture(t, input)
+
+	options := map[string]any{
+		"resolution":  "720p",
+		"bitrateKbps": 3200,
+		"removeAudio": true,
+	}
+	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, options))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	if got := plan.EffectiveOptions["resolution"]; got != "720p" {
+		t.Fatalf("expected resolution 720p, got %v", got)
+	}
+	if got := plan.EffectiveOptions["bitrateKbps"]; got != 3200 {
+		t.Fatalf("expected bitrateKbps 3200, got %v", got)
+	}
+	if got := plan.EffectiveOptions["removeAudio"]; got != true {
+		t.Fatalf("expected removeAudio true, got %v", got)
+	}
+}
+
+func TestConvertPlanDefaultsVideoOutputControls(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "clip.mp4")
+	writeVideoFixture(t, input)
+
+	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	if got := plan.EffectiveOptions["resolution"]; got != "original" {
+		t.Fatalf("expected default resolution original, got %v", got)
+	}
+	if got := plan.EffectiveOptions["bitrateKbps"]; got != 0 {
+		t.Fatalf("expected default bitrateKbps 0, got %v", got)
+	}
+	if got := plan.EffectiveOptions["removeAudio"]; got != false {
+		t.Fatalf("expected default removeAudio false, got %v", got)
+	}
+}
+
+func TestConvertPlanRejectsInvalidVideoOutputControls(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "clip.mp4")
+	writeVideoFixture(t, input)
+
+	cases := []struct {
+		name    string
+		options map[string]any
+	}{
+		{name: "invalid resolution", options: map[string]any{"resolution": "4k"}},
+		{name: "negative bitrate", options: map[string]any{"bitrateKbps": -1}},
+		{name: "non numeric bitrate", options: map[string]any{"bitrateKbps": "fast"}},
+		{name: "non boolean removeAudio", options: map[string]any{"removeAudio": "loud"}},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, testCase.options))
+			if planErr == nil {
+				t.Fatal("expected a validation error")
+			}
+			if planErr.Code != engine.ErrorCodeVideoValidation {
+				t.Fatalf("expected %q, got %q", engine.ErrorCodeVideoValidation, planErr.Code)
+			}
+			if plan.Success {
+				t.Fatal("expected plan to report failure")
+			}
+		})
+	}
+}
+
+func TestConvertExecuteSingleAppliesVideoOutputControls(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "clip.mp4")
+	writeVideoFixture(t, input)
+
+	runner := &stubCommandRunner{}
+	tool := NewConvertToolWithDeps(stubRuntimeProbe{}, runner)
+	options := map[string]any{
+		"resolution":  "720p",
+		"bitrateKbps": 3200,
+		"removeAudio": true,
+	}
+
+	if _, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, options)); itemErr != nil {
+		t.Fatalf("expected conversion to succeed, got %v", itemErr)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected 1 ffmpeg call, got %d", len(runner.calls))
+	}
+	args := runner.calls[0]
+	for _, want := range [][]string{
+		{"-vf", "scale=-2:720"},
+		{"-b:v", "3200k"},
+		{"-an"},
+		{"-c:v", "libx264"},
+	} {
+		if !hasArgSequence(args, want...) {
+			t.Fatalf("expected %v in ffmpeg args, got %v", want, args)
+		}
+	}
+	if hasArgSequence(args, "-crf") {
+		t.Fatalf("explicit bitrate must omit -crf, got %v", args)
+	}
+	if hasArgSequence(args, "-c:a") {
+		t.Fatalf("removeAudio must not add an audio codec, got %v", args)
+	}
+}
+
+func TestConvertExecuteBatchAppliesVideoOutputControls(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	runner := &stubCommandRunner{}
+	tool := NewConvertToolWithDeps(stubRuntimeProbe{}, runner)
+	options := map[string]any{"resolution": "480p", "removeAudio": true}
+
+	items, batchErr := tool.ExecuteBatch(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "batch", []string{first, second}, options), nil)
+	if batchErr != nil {
+		t.Fatalf("expected batch conversion to succeed, got %v", batchErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 result items, got %d", len(items))
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("expected 2 ffmpeg calls, got %d", len(runner.calls))
+	}
+
+	for _, args := range runner.calls {
+		if !hasArgSequence(args, "-vf", "scale=-2:480") {
+			t.Fatalf("expected the 480p scale filter in %v", args)
+		}
+		if !hasArgSequence(args, "-an") {
+			t.Fatalf("expected -an in %v", args)
+		}
+	}
+}

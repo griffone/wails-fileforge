@@ -5,7 +5,7 @@
         <p class="eyebrow">DOCUMENTS</p>
         <h1 class="page-title">Markdown → <em>PDF</em></h1>
         <p class="page-sub">
-          Turn one Markdown file into a clean A4 PDF, with optional header and footer bands.
+          Turn one Markdown file into a clean PDF with optional page setup, header and footer bands.
           Everything runs on this machine.
         </p>
       </div>
@@ -101,6 +101,100 @@
               </button>
             </div>
           }
+
+          <details class="advanced">
+            <summary class="advanced-summary">
+              <span class="advanced-title">Page setup</span>
+              <span class="advanced-hint">{{ pageSetupSummary() }}</span>
+            </summary>
+
+            <div class="advanced-body" [formGroup]="pageSetupForm">
+              <div class="field-grid band-grid">
+                <div class="field">
+                  <label class="label" for="md-page-size">Page size</label>
+                  <select id="md-page-size" class="select" formControlName="pageSize">
+                    <option value="A4">A4</option>
+                    <option value="Letter">Letter</option>
+                    <option value="Legal">Legal</option>
+                  </select>
+                </div>
+
+                <div class="field">
+                  <label class="label" for="md-orientation">Orientation</label>
+                  <select id="md-orientation" class="select" formControlName="orientation">
+                    <option value="P">Portrait</option>
+                    <option value="L">Landscape</option>
+                  </select>
+                </div>
+              </div>
+
+              <fieldset class="band page-margins">
+                <legend class="band-title">Margins (mm)</legend>
+
+                <div class="field-grid band-grid margins-grid">
+                  <div class="field">
+                    <label class="label" for="md-margin-top">Top</label>
+                    <input
+                      id="md-margin-top"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      formControlName="marginTop"
+                    />
+                  </div>
+
+                  <div class="field">
+                    <label class="label" for="md-margin-right">Right</label>
+                    <input
+                      id="md-margin-right"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      formControlName="marginRight"
+                    />
+                  </div>
+
+                  <div class="field">
+                    <label class="label" for="md-margin-bottom">Bottom</label>
+                    <input
+                      id="md-margin-bottom"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      formControlName="marginBottom"
+                    />
+                  </div>
+
+                  <div class="field">
+                    <label class="label" for="md-margin-left">Left</label>
+                    <input
+                      id="md-margin-left"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      formControlName="marginLeft"
+                    />
+                  </div>
+                </div>
+
+                <p class="field-help">0–100 mm per side. Larger margins leave less room for the content.</p>
+              </fieldset>
+
+              <div class="page-setup-actions">
+                <button type="button" class="btn btn-ghost btn-sm" (click)="resetPageSetup()">
+                  Reset page setup
+                </button>
+              </div>
+            </div>
+          </details>
 
           <details class="advanced">
             <summary class="advanced-summary">
@@ -267,7 +361,7 @@
                 </fieldset>
               </div>
 
-              <div class="approx-sheet" aria-label="Approximate A4 header and footer preview">
+              <div class="approx-sheet" [attr.aria-label]="'Approximate ' + pageSetupLabel() + ' header and footer preview'">
                 <div
                   class="approx-band approx-header"
                   [class.is-off]="!previewEnabled('header')"
@@ -277,7 +371,7 @@
                 </div>
 
                 <div class="approx-body">
-                  <span class="approx-note">Approximate A4 preview</span>
+                  <span class="approx-note">Approximate {{ pageSetupLabel() }} preview</span>
                   <span class="approx-note approx-note-small">
                     Placeholders: {{ '{page}' }}, {{ '{totalPages}' }}, {{ '{date}' }},
                     {{ '{fileName}' }}
@@ -320,7 +414,7 @@
             <button
               type="button"
               class="btn btn-primary btn-lg action-primary"
-              [disabled]="!canRun()"
+              [disabled]="!canRun() || planBlocked()"
               (click)="run()"
             >
               {{ primaryLabel() }}

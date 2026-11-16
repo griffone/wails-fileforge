@@ -39,6 +39,8 @@ type MergeRequest struct {
 	MergeMode      string
 	OrderedInputs  []string
 	ConcatListPath string
+	// RemoveAudio drops the audio streams from the merged output.
+	RemoveAudio bool
 }
 
 func ValidateMergeRequest(req MergeRequest) *VideoError {
@@ -145,14 +147,14 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 
 	switch mergeMode {
 	case MergeModeCopy:
-		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(req.OutputPath))
+		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(req.OutputPath), req.RemoveAudio)
 		if err := runner.Run(ctx, "ffmpeg", copyArgs); err != nil {
 			mapped := mapMergeExecutionError(err)
 			return &VideoError{Code: ErrorCodeVideoMergeCopyFailed, Message: "ffmpeg merge copy execution failed", Cause: mapped}
 		}
 		return nil
 	case MergeModeReencode:
-		reencodeArgs, argsErr := buildMergeReencodeArgs(listFilePath, req)
+		reencodeArgs, argsErr := BuildMergeArgs(listFilePath, req)
 		if argsErr != nil {
 			return argsErr
 		}
@@ -161,7 +163,7 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 		}
 		return nil
 	case MergeModeAuto:
-		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(req.OutputPath))
+		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(req.OutputPath), req.RemoveAudio)
 		if err := runner.Run(ctx, "ffmpeg", copyArgs); err == nil {
 			return nil
 		} else {
@@ -170,7 +172,7 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 				return &VideoError{Code: ErrorCodeVideoMergeCopyFailed, Message: "ffmpeg merge copy execution failed", Cause: mappedCopyErr}
 			}
 
-			reencodeArgs, argsErr := buildMergeReencodeArgs(listFilePath, req)
+			reencodeArgs, argsErr := BuildMergeArgs(listFilePath, req)
 			if argsErr != nil {
 				return argsErr
 			}
@@ -186,18 +188,25 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 	}
 }
 
-func buildMergeCopyArgs(listFilePath string, outputPath string) []string {
-	return []string{
+func buildMergeCopyArgs(listFilePath string, outputPath string, removeAudio bool) []string {
+	args := []string{
 		"-y",
 		"-f", "concat",
 		"-safe", "0",
 		"-i", listFilePath,
 		"-c", "copy",
-		outputPath,
 	}
+
+	if removeAudio {
+		args = append(args, "-an")
+	}
+
+	return append(args, outputPath)
 }
 
-func buildMergeReencodeArgs(listFilePath string, req MergeRequest) ([]string, *VideoError) {
+// BuildMergeArgs builds the re-encode ffmpeg arguments for a merge request.
+// listFilePath is the concat demuxer list written by Merge.
+func BuildMergeArgs(listFilePath string, req MergeRequest) ([]string, *VideoError) {
 	targetFormat := strings.ToLower(strings.TrimSpace(req.TargetFormat))
 	qualityPreset := strings.ToLower(strings.TrimSpace(req.QualityPreset))
 	outputPath := strings.TrimSpace(req.OutputPath)
@@ -241,9 +250,20 @@ func buildMergeReencodeArgs(listFilePath string, req MergeRequest) ([]string, *V
 	}
 
 	if targetFormat == TargetFormatWebM {
-		args = append(args, "libvpx-vp9", "-b:v", videoBitrate, "-crf", videoCRF, "-c:a", "libopus")
+		args = append(args, "libvpx-vp9", "-b:v", videoBitrate, "-crf", videoCRF)
+		if !req.RemoveAudio {
+			args = append(args, "-c:a", "libopus")
+		}
 	} else {
-		args = append(args, "libx264", "-b:v", videoBitrate, "-crf", videoCRF, "-preset", "medium", "-c:a", "aac", "-movflags", "+faststart")
+		args = append(args, "libx264", "-b:v", videoBitrate, "-crf", videoCRF, "-preset", "medium")
+		if !req.RemoveAudio {
+			args = append(args, "-c:a", "aac")
+		}
+		args = append(args, "-movflags", "+faststart")
+	}
+
+	if req.RemoveAudio {
+		args = append(args, "-an")
 	}
 
 	args = append(args, outputPath)

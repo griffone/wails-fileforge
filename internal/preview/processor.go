@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 
 	"github.com/h2non/bimg"
 )
@@ -47,17 +48,30 @@ func (p *bimgProcessor) Process(ctx context.Context, req PreviewRequest) ([]byte
 		return nil, "", fmt.Errorf("preview: %w", err)
 	}
 
-	img = bimg.NewImage(oriented)
-	size, err := img.Size()
+	out, contentType, err := processImageBytes(oriented, req.Width, req.Height, req.Format)
 	if err != nil {
 		return nil, "", fmt.Errorf("preview: %w", err)
+	}
+
+	return out, contentType, nil
+}
+
+// processImageBytes fits input inside the requested box while preserving the
+// aspect ratio and encodes it with the requested format. WEBP is preferred for
+// "auto" and JPEG is the fallback.
+func processImageBytes(input []byte, width, height int, format string) ([]byte, string, error) {
+	img := bimg.NewImage(input)
+
+	size, err := img.Size()
+	if err != nil {
+		return nil, "", err
 	}
 
 	// compute resize keeping aspect ratio and fitting inside requested box
 	origW := float64(size.Width)
 	origH := float64(size.Height)
-	maxW := float64(req.Width)
-	maxH := float64(req.Height)
+	maxW := float64(width)
+	maxH := float64(height)
 	scale := math.Min(maxW/origW, maxH/origH)
 	if scale <= 0 || math.IsNaN(scale) || math.IsInf(scale, 0) {
 		scale = 1.0
@@ -84,30 +98,21 @@ func (p *bimgProcessor) Process(ctx context.Context, req PreviewRequest) ([]byte
 		return out, ct, nil
 	}
 
-	want := req.Format
-	switch want {
+	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "webp":
-		out, ct, err := tryEncode(bimg.WEBP)
-		if err != nil {
-			return nil, "", fmt.Errorf("preview: %w", err)
-		}
-		return out, ct, nil
+		return tryEncode(bimg.WEBP)
 	case "jpeg":
-		out, ct, err := tryEncode(bimg.JPEG)
-		if err != nil {
-			return nil, "", fmt.Errorf("preview: %w", err)
-		}
-		return out, ct, nil
+		return tryEncode(bimg.JPEG)
 	default: // auto
-		out, ct, err := tryEncode(bimg.WEBP)
-		if err == nil {
+		out, ct, webpErr := tryEncode(bimg.WEBP)
+		if webpErr == nil {
 			return out, ct, nil
 		}
 		// fallback to jpeg
-		out2, ct2, err2 := tryEncode(bimg.JPEG)
-		if err2 != nil {
-			// return original webp error wrapped behind preview
-			return nil, "", fmt.Errorf("preview: webp: %v; jpeg: %w", err, err2)
+		out2, ct2, jpegErr := tryEncode(bimg.JPEG)
+		if jpegErr != nil {
+			// return original webp error wrapped behind jpeg
+			return nil, "", fmt.Errorf("webp: %v; jpeg: %w", webpErr, jpegErr)
 		}
 		return out2, ct2, nil
 	}

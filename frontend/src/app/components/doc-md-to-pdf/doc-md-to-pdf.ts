@@ -34,6 +34,24 @@ import { fileExtension, fileName, formatBytes } from '../../utils/format';
 const MD_TO_PDF_TOOL_ID = 'tool.doc.md_to_pdf';
 const POLLING_INTERVAL_MS = 1000;
 const BAND_PLAN_DEBOUNCE_MS = 250;
+const PAGE_SETUP_DEBOUNCE_MS = 200;
+
+/** Mirrors the backend defaults: A4 portrait with 20/15/18/15 mm margins. */
+const PAGE_SETUP_DEFAULTS = {
+  pageSize: 'A4',
+  orientation: 'P',
+  marginTop: 20,
+  marginRight: 15,
+  marginBottom: 18,
+  marginLeft: 15,
+} as const;
+
+const PAGE_SETUP_MARGIN_CONTROLS = [
+  'marginTop',
+  'marginRight',
+  'marginBottom',
+  'marginLeft',
+] as const;
 
 const TERMINAL_STATUSES = new Set<string>([
   'success',
@@ -76,8 +94,8 @@ export class DocMdToPdf implements OnDestroy {
   private readonly fb = inject(FormBuilder);
 
   /**
-   * Header and footer are the only settings worth a form: they are a fixed
-   * object with seven keys and the backend rejects a partial object.
+   * Header and footer are a fixed object with seven keys and the backend
+   * rejects a partial object.
    */
   readonly form = this.fb.nonNullable.group({
     header: this.fb.nonNullable.group({
@@ -98,6 +116,19 @@ export class DocMdToPdf implements OnDestroy {
       marginBottom: 0,
       color: '#000000',
     }),
+  });
+
+  /**
+   * Page setup stays a separate form so selects can refresh the plan at once
+   * while margin edits debounce like every other numeric field.
+   */
+  readonly pageSetupForm = this.fb.nonNullable.group({
+    pageSize: 'A4',
+    orientation: 'P',
+    marginTop: 20,
+    marginRight: 15,
+    marginBottom: 18,
+    marginLeft: 15,
   });
 
   readonly selectedPaths = signal<string[]>([]);
@@ -125,6 +156,9 @@ export class DocMdToPdf implements OnDestroy {
       !this.isSubmitting() &&
       !this.isPolling(),
   );
+
+  /** A failed plan (for example invalid margins) blocks the action. */
+  readonly planBlocked = computed(() => this.plan()?.success === false);
 
   readonly primaryLabel = computed(() =>
     this.isSubmitting() || this.isPolling() ? 'Converting…' : 'Convert to PDF',
@@ -164,6 +198,20 @@ export class DocMdToPdf implements OnDestroy {
     this.form.valueChanges
       .pipe(takeUntil(this.destroy$))
       .subscribe(() => this.schedulePlanRefresh());
+
+    this.pageSetupForm.controls.pageSize.valueChanges
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => this.refreshPlanImmediately());
+    this.pageSetupForm.controls.orientation.valueChanges
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => this.refreshPlanImmediately());
+    for (const name of PAGE_SETUP_MARGIN_CONTROLS) {
+      this.pageSetupForm.controls[name].valueChanges
+        .pipe(takeUntil(this.destroy$))
+        .subscribe(() =>
+          this.schedulePlanRefresh(PAGE_SETUP_DEBOUNCE_MS),
+        );
+    }
 
     this.wailsService.jobProgress$
       .pipe(takeUntil(this.destroy$))
@@ -282,7 +330,7 @@ export class DocMdToPdf implements OnDestroy {
   }
 
   async run(): Promise<void> {
-    if (!this.canRun()) {
+    if (!this.canRun() || this.planBlocked()) {
       return;
     }
 
@@ -413,6 +461,32 @@ export class DocMdToPdf implements OnDestroy {
     this.actionMessage.set('');
   }
 
+  /** Quiet summary shown in the page setup disclosure header. */
+  pageSetupSummary(): string {
+    const setup = this.pageSetupForm.getRawValue();
+    const margins = [
+      setup.marginTop,
+      setup.marginRight,
+      setup.marginBottom,
+      setup.marginLeft,
+    ].map((value) => this.marginText(value));
+    const marginSummary = margins.every((margin) => margin === margins[0])
+      ? `${margins[0]} mm margins`
+      : `${margins.join('/')} mm margins`;
+    return `${setup.pageSize} · ${this.orientationLabel()} · ${marginSummary}`;
+  }
+
+  pageSetupLabel(): string {
+    return `${this.pageSetupForm.controls.pageSize.value} ${this.orientationLabel().toLowerCase()}`;
+  }
+
+  resetPageSetup(): void {
+    this.clearPlanRefreshTimer();
+    this.pageSetupForm.setValue({ ...PAGE_SETUP_DEFAULTS }, { emitEvent: false });
+    this.actionMessage.set('');
+    void this.refreshPlan();
+  }
+
   previewEnabled(role: BandRole): boolean {
     return this.bandGroup(role).enabled.value;
   }
@@ -464,9 +538,23 @@ export class DocMdToPdf implements OnDestroy {
     }
   }
 
+  private orientationLabel(): string {
+    return this.pageSetupForm.controls.orientation.value === 'L'
+      ? 'Landscape'
+      : 'Portrait';
+  }
+
+  private marginText(value: number): string {
+    const numeric = Number(value);
+    return Number.isFinite(numeric)
+      ? String(Math.round(numeric * 10) / 10)
+      : '0';
+  }
+
   private buildRequest(): JobRequestV1 {
     const header = this.bandGroup('header');
     const footer = this.bandGroup('footer');
+    const setup = this.pageSetupForm.getRawValue();
 
     return {
       toolId: MD_TO_PDF_TOOL_ID,
@@ -491,6 +579,16 @@ export class DocMdToPdf implements OnDestroy {
           marginTop: Number(footer.marginTop.value),
           marginBottom: Number(footer.marginBottom.value),
           color: footer.color.value,
+        },
+        // Always send the resolved setup: the backend validates it and applies
+        // the documented defaults when a value is missing.
+        pageSize: setup.pageSize,
+        orientation: setup.orientation,
+        margins: {
+          top: Number(setup.marginTop) || 0,
+          right: Number(setup.marginRight) || 0,
+          bottom: Number(setup.marginBottom) || 0,
+          left: Number(setup.marginLeft) || 0,
         },
       },
     };
@@ -545,12 +643,17 @@ export class DocMdToPdf implements OnDestroy {
     return false;
   }
 
-  private schedulePlanRefresh(): void {
+  private schedulePlanRefresh(delay = BAND_PLAN_DEBOUNCE_MS): void {
     this.clearPlanRefreshTimer();
     this.planRefreshTimer = setTimeout(() => {
       this.planRefreshTimer = null;
       void this.refreshPlan();
-    }, BAND_PLAN_DEBOUNCE_MS);
+    }, delay);
+  }
+
+  private refreshPlanImmediately(): void {
+    this.clearPlanRefreshTimer();
+    void this.refreshPlan();
   }
 
   private clearPlanRefreshTimer(): void {

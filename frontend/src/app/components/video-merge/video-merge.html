@@ -121,6 +121,35 @@
             </div>
           }
 
+          <details class="advanced">
+            <summary class="advanced-summary">
+              <span class="advanced-title">Advanced</span>
+              <span class="advanced-hint">Audio</span>
+            </summary>
+
+            <div class="advanced-body">
+              <div class="field">
+                <span class="label">Audio</span>
+                <label class="check-row" for="video-merge-remove-audio">
+                  <input
+                    id="video-merge-remove-audio"
+                    type="checkbox"
+                    [checked]="removeAudio()"
+                    (change)="onRemoveAudioToggle($event)"
+                  />
+                  Remove audio
+                </label>
+                <p class="field-help">
+                  @if (removeAudio()) {
+                    The merged video will have no audio track.
+                  } @else {
+                    Keeps the audio from every clip.
+                  }
+                </p>
+              </div>
+            </div>
+          </details>
+
           @if (jobErrorCopy(); as error) {
             <div class="banner banner-danger error-banner" role="alert">
               <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>

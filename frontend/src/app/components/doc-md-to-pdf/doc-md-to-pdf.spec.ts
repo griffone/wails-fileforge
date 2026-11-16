@@ -104,6 +104,10 @@ describe('DocMdToPdf', () => {
     return result(jobId, 'running', []);
   }
 
+  function lastPlanRequest(): JobRequestV1 {
+    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  }
+
   function successStatus(
     jobId: string,
     outputPath: string,
@@ -271,6 +275,159 @@ describe('DocMdToPdf', () => {
       color: '#000000',
     });
     expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+  }));
+
+  it('always sends the resolved page setup in the plan request', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/doc.md']);
+    flushMicrotasks();
+
+    const request = lastPlanRequest();
+    expect(request.options['pageSize']).toBe('A4');
+    expect(request.options['orientation']).toBe('P');
+    expect(request.options['margins']).toEqual({
+      top: 20,
+      right: 15,
+      bottom: 18,
+      left: 15,
+    });
+    expect(component.pageSetupSummary()).toBe(
+      'A4 · Portrait · 20/15/18/15 mm margins',
+    );
+  }));
+
+  it('refreshes the plan immediately when the page size or orientation change', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/doc.md']);
+    flushMicrotasks();
+    const plannedOnce = wailsSpy.planJobV1.calls.count();
+
+    const size = fixture.nativeElement.querySelector(
+      '#md-page-size',
+    ) as HTMLSelectElement;
+    size.value = 'Letter';
+    size.dispatchEvent(new Event('change'));
+    flushMicrotasks();
+
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 1);
+    expect(lastPlanRequest().options['pageSize']).toBe('Letter');
+
+    const orientation = fixture.nativeElement.querySelector(
+      '#md-orientation',
+    ) as HTMLSelectElement;
+    orientation.value = 'L';
+    orientation.dispatchEvent(new Event('change'));
+    flushMicrotasks();
+
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 2);
+    expect(lastPlanRequest().options['orientation']).toBe('L');
+    expect(component.pageSetupSummary()).toContain('Letter · Landscape');
+  }));
+
+  it('debounces margin edits before planning', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/doc.md']);
+    flushMicrotasks();
+    const plannedOnce = wailsSpy.planJobV1.calls.count();
+
+    const top = fixture.nativeElement.querySelector(
+      '#md-margin-top',
+    ) as HTMLInputElement;
+    top.value = '30';
+    top.dispatchEvent(new Event('input'));
+
+    tick(199);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce);
+
+    tick(1);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 1);
+    expect(lastPlanRequest().options['margins']).toEqual({
+      top: 30,
+      right: 15,
+      bottom: 18,
+      left: 15,
+    });
+  }));
+
+  it('resets the page setup to the backend defaults', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/doc.md']);
+    flushMicrotasks();
+
+    component.pageSetupForm.patchValue({
+      pageSize: 'Legal',
+      orientation: 'L',
+      marginTop: 40,
+    });
+    tick(250);
+    flushMicrotasks();
+    expect(lastPlanRequest().options['pageSize']).toBe('Legal');
+
+    const resetButton = fixture.nativeElement.querySelector(
+      '.page-setup-actions button',
+    ) as HTMLButtonElement;
+    resetButton.click();
+    flushMicrotasks();
+
+    expect(component.pageSetupForm.getRawValue()).toEqual({
+      pageSize: 'A4',
+      orientation: 'P',
+      marginTop: 20,
+      marginRight: 15,
+      marginBottom: 18,
+      marginLeft: 15,
+    });
+    const request = lastPlanRequest();
+    expect(request.options['pageSize']).toBe('A4');
+    expect(request.options['orientation']).toBe('P');
+    expect(request.options['margins']).toEqual({
+      top: 20,
+      right: 15,
+      bottom: 18,
+      left: 15,
+    });
+  }));
+
+  it('blocks the action when the plan rejects the page setup', fakeAsync(() => {
+    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) => {
+      const margins = request.options['margins'] as
+        | { left: number }
+        | undefined;
+      if (margins?.left === 99) {
+        return Promise.resolve({
+          success: false,
+          message: 'invalid page setup',
+          outputs: [],
+          error: {
+            code: 'DOC_MD_TO_PDF_CONFIG_INVALID',
+            detail_code: 'DOC_MD_TO_PDF_CONFIG_INVALID',
+            message: 'options.margins.left must be between 0 and 100 mm',
+          },
+        });
+      }
+      return Promise.resolve(planResponse(request));
+    });
+
+    component.onPathsSelected(['/tmp/doc.md']);
+    flushMicrotasks();
+
+    component.pageSetupForm.patchValue({ marginLeft: 99 });
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.plan()?.success).toBeFalse();
+    expect(component.planBlocked()).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain(
+      'options.margins.left must be between 0 and 100 mm',
+    );
+
+    const primary = fixture.nativeElement.querySelector(
+      '.action-primary',
+    ) as HTMLButtonElement;
+    expect(primary.disabled).toBeTrue();
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
   }));
 
   it('runs through runJobV1 without a validation step and starts polling', fakeAsync(() => {

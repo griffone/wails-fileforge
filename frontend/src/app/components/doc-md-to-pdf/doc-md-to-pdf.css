@@ -141,6 +141,15 @@
   gap: 10px;
 }
 
+.field-grid.margins-grid {
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+}
+
+.page-setup-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .check-row {
   display: inline-flex;
   align-items: center;
@@ -264,6 +273,10 @@
 
   .field-grid.band-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .field-grid.margins-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .action-row {

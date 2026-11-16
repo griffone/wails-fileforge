@@ -110,6 +110,10 @@ describe('VideoConvert', () => {
     return { target: { value } } as unknown as Event;
   }
 
+  function checkedEvent(checked: boolean): Event {
+    return { target: { checked } } as unknown as Event;
+  }
+
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJobV1',
@@ -124,6 +128,7 @@ describe('VideoConvert', () => {
       'isRuntimeAvailable',
       'listToolsV1',
       'validateJobV1',
+      'getThumbnail',
     ]);
 
     jobProgressSubject = new Subject<JobProgressEventV1>();
@@ -161,6 +166,7 @@ describe('VideoConvert', () => {
     });
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.getThumbnail.and.resolveTo(null);
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
     wailsSpy.listToolsV1.and.resolveTo({
       success: true,
@@ -261,6 +267,81 @@ describe('VideoConvert', () => {
     expect(presetRequest.options['targetFormat']).toBe('mp4');
     expect(presetRequest.options['qualityPreset']).toBe('low');
     expect(component.hasAdvancedOverrides()).toBeFalse();
+  }));
+
+  it('sends resolution, bitrate and audio options in the advanced plan', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+
+    component.onResolutionChange(changeEvent('720p'));
+    component.onBitrateChange(changeEvent('5000'));
+    component.onRemoveAudioToggle(checkedEvent(true));
+    tick(200);
+    flushMicrotasks();
+
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['resolution']).toBe('720p');
+    expect(request.options['bitrateKbps']).toBe(5000);
+    expect(request.options['removeAudio']).toBeTrue();
+    expect(component.hasAdvancedOverrides()).toBeTrue();
+  }));
+
+  it('omits Auto bitrate and a kept audio track from the plan', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['resolution']).toBe('original');
+    expect('bitrateKbps' in request.options).toBeFalse();
+    expect('removeAudio' in request.options).toBeFalse();
+  }));
+
+  it('resets resolution, bitrate and audio to preset defaults', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+
+    component.onResolutionChange(changeEvent('480p'));
+    component.onBitrateChange(changeEvent('12000'));
+    component.onRemoveAudioToggle(checkedEvent(true));
+    tick(200);
+    flushMicrotasks();
+
+    component.resetAdvanced();
+    tick(200);
+    flushMicrotasks();
+
+    expect(component.resolution()).toBe('original');
+    expect(component.bitrateKbps()).toBeNull();
+    expect(component.removeAudio()).toBeFalse();
+    expect(component.hasAdvancedOverrides()).toBeFalse();
+
+    const request = wailsSpy.planJobV1.calls.mostRecent()
+      .args[0] as JobRequestV1;
+    expect(request.options['targetFormat']).toBe('mp4');
+    expect(request.options['qualityPreset']).toBe('medium');
+    expect(request.options['resolution']).toBe('original');
+    expect('bitrateKbps' in request.options).toBeFalse();
+    expect('removeAudio' in request.options).toBeFalse();
+  }));
+
+  it('loads video thumbnails for the queue and keeps the icon on failure', fakeAsync(() => {
+    wailsSpy.getThumbnail.and.callFake((path: string) =>
+      Promise.resolve(
+        path === '/tmp/a.mp4' ? 'data:image/webp;base64,abc' : null,
+      ),
+    );
+
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+
+    expect(wailsSpy.getThumbnail).toHaveBeenCalledWith('/tmp/a.mp4', 160);
+    expect(wailsSpy.getThumbnail).toHaveBeenCalledWith('/tmp/b.mov', 160);
+    expect(component.fileItems()[0].thumbnailUrl).toBe(
+      'data:image/webp;base64,abc',
+    );
+    expect(component.fileItems()[1].thumbnailUrl).toBeUndefined();
   }));
 
   it('runs directly from the plan without a validate step', fakeAsync(() => {

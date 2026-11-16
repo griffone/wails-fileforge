@@ -218,3 +218,112 @@ func TestMergeValidateWithoutOutputPath(t *testing.T) {
 		t.Fatalf("expected merge validation without outputPath to pass, got %v", validationErr)
 	}
 }
+
+func TestMergePlanIncludesRemoveAudio(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	options := map[string]any{"removeAudio": true}
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	if got := plan.EffectiveOptions["removeAudio"]; got != true {
+		t.Fatalf("expected removeAudio true, got %v", got)
+	}
+}
+
+func TestMergePlanDefaultsRemoveAudio(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	if got := plan.EffectiveOptions["removeAudio"]; got != false {
+		t.Fatalf("expected default removeAudio false, got %v", got)
+	}
+}
+
+func TestMergePlanRejectsInvalidRemoveAudio(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	options := map[string]any{"removeAudio": "loud"}
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	if planErr == nil {
+		t.Fatal("expected a validation error")
+	}
+	if planErr.Code != engine.ErrorCodeVideoMergeValidation {
+		t.Fatalf("expected %q, got %q", engine.ErrorCodeVideoMergeValidation, planErr.Code)
+	}
+	if plan.Success {
+		t.Fatal("expected plan to report failure")
+	}
+}
+
+func TestMergeExecuteSingleAppliesRemoveAudio(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	runner := &stubCommandRunner{}
+	tool := NewMergeToolWithDeps(stubRuntimeProbe{}, runner)
+	options := map[string]any{"removeAudio": true, "mergeMode": engine.MergeModeReencode}
+
+	if _, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options)); itemErr != nil {
+		t.Fatalf("expected merge to succeed, got %v", itemErr)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected 1 ffmpeg call, got %d", len(runner.calls))
+	}
+	args := runner.calls[0]
+	if !hasArgSequence(args, "-an") {
+		t.Fatalf("expected -an in ffmpeg args, got %v", args)
+	}
+	if hasArgSequence(args, "-c:a") {
+		t.Fatalf("removeAudio must not add an audio codec, got %v", args)
+	}
+}
+
+func TestMergeExecuteCopyAppliesRemoveAudio(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	writeVideoFixture(t, first)
+	writeVideoFixture(t, second)
+
+	runner := &stubCommandRunner{}
+	tool := NewMergeToolWithDeps(stubRuntimeProbe{}, runner)
+	options := map[string]any{"removeAudio": true, "mergeMode": engine.MergeModeCopy}
+
+	if _, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options)); itemErr != nil {
+		t.Fatalf("expected merge to succeed, got %v", itemErr)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected 1 ffmpeg call, got %d", len(runner.calls))
+	}
+	args := runner.calls[0]
+	if !hasArgSequence(args, "-c", "copy") {
+		t.Fatalf("expected stream copy, got %v", args)
+	}
+	if !hasArgSequence(args, "-an") {
+		t.Fatalf("expected -an in ffmpeg args, got %v", args)
+	}
+}

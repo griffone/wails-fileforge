@@ -50,6 +50,28 @@ func videoToolRequest(toolID, mode string, inputPaths []string, options map[stri
 	}
 }
 
+// hasArgSequence reports whether args contains want as a contiguous sequence.
+func hasArgSequence(args []string, want ...string) bool {
+	if len(want) == 0 {
+		return true
+	}
+
+	for index := 0; index+len(want) <= len(args); index++ {
+		matched := true
+		for offset, value := range want {
+			if args[index+offset] != value {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+
+	return false
+}
+
 // stubVideoDuration simulates the source duration used by trim planning so
 // tests never depend on ffprobe or on real video files.
 func stubVideoDuration(t *testing.T, duration float64, ok bool) {

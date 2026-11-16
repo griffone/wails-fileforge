@@ -1,6 +1,6 @@
 # Tool Completeness — "No tool left poor"
 
-- Status: Image and PDF domains complete; documents/video/shell pending
+- Status: Image, PDF, documents and video domains complete; shell pending
 - Branch: `feat/tool-usability` (continues after the file-first overhaul)
 - Started: 2026-11-13
 - Related: `odd/tasks/tool-usability-overhaul.md`
@@ -110,3 +110,19 @@
   - **PDF Crop**: first-page dimensions from inspect, aspect-correct preview frame, live kept-region overlay with dimmed outside, preset/custom margins caption.
   - **PDF Merge**: per-file `Page ranges` in Advanced, one input per file in queue order, backend merge-ranges support (collect selected pages then merge), plan errors block the action.
   - **Verification**: Go tests pass (merge ranges/inspect dims), frontend 270/270 specs, build passes; visual checks via `npx agent-browser` for selected pages, crop overlay and merge ranges. Advanced split-by-size/bookmarks and PDF compression remain optional later.
+- 2026-11-13: Documents domain complete.
+  - **Markdown → PDF**: page size (A4/Letter/Legal), orientation (portrait/landscape), four 0–100 mm margins, reset, summary, live preview label; backend page setup + validation and real render tests.
+  - **DOCX → PDF**: Advanced page range (e.g. 1-3,5), backend post-conversion page collection with pdfcpu, clear out-of-range errors, `All pages` badge.
+  - **Verification**: Go tests pass, frontend 280/280 specs, build passes; Advanced sections visually checked with `npx agent-browser`.
+- 2026-11-13: Video domain complete.
+  - **Video Convert**: resolution (Original/1080p/720p/480p), bitrate presets, remove-audio toggle, video thumbnails, plan/execution support; ffmpeg scale/bitrate/-an args.
+  - **Video Merge**: remove-audio toggle, video thumbnails, plan/execution support; copy/re-encode args honor -an.
+  - **Preview**: ffmpeg first-frame video thumbnail processor for file cards; webp/jpeg fallback.
+  - **Verification**: Go tests pass (preview/video engine), frontend 286/286 specs, build passes; visual checks with `npx agent-browser`.
+  - **Next**: Shell — global drop overlay, recent conversions, preferences/onboarding.
+- 2026-11-16: Document backend page setup + page ranges (Go only; UI wiring pending).
+  - **Markdown → PDF**: `pageSize` (A4/Letter/Legal), `orientation` (P/L) and `margins` (`top`/`right`/`bottom`/`left`, 0–100 mm) options with defaults A4 portrait 20/15/18/15 mm; rendered pages use the configured size and margins, images follow the content width, and header/footer footprints expand the content margins instead of overlapping; `EffectiveOptions.pageSetup` summarizes the resolved values; invalid values fail with `DOC_MD_TO_PDF_CONFIG_INVALID`.
+  - **DOCX → PDF**: optional `pageSelection` (`1-3,5`) validated at plan time (`DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID`), applied after single/batch conversion via pdfcpu `CollectFile` into a temp file atomically renamed over the output; out-of-range selections remove the partial output and name the input; valid selection surfaces in `EffectiveOptions`.
+  - **Deferred**: PDF/A stays out of scope for this pass.
+  - **Verification**: `go build ./...`, `go vet ./internal/doc/...`, `go test ./... -count=1` pass (new page setup, page selection and rendering tests).
+

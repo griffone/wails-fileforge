@@ -3,6 +3,7 @@ import {
   fakeAsync,
   flushMicrotasks,
   TestBed,
+  tick,
 } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 
@@ -97,6 +98,14 @@ describe('DocDocxToPdf', () => {
 
   function runningStatus(jobId: string): JobStatusResponseV1 {
     return result(jobId, 'running', []);
+  }
+
+  function inputEvent(value: string): Event {
+    return { target: { value } } as unknown as Event;
+  }
+
+  function lastPlanRequest(): JobRequestV1 {
+    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
   }
 
   function partialStatus(jobId: string): JobStatusResponseV1 {
@@ -342,5 +351,113 @@ describe('DocDocxToPdf', () => {
     const resetRequest = wailsSpy.planJobV1.calls.mostRecent()
       .args[0] as JobRequestV1;
     expect(resetRequest.outputDir).toBe('');
+  }));
+
+  it('sends the trimmed page selection with the plan request', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+
+    expect(lastPlanRequest().options['pageSelection']).toBeUndefined();
+
+    component.onPageSelectionInput(inputEvent(' 1-3, 5 '));
+    tick(250);
+    flushMicrotasks();
+
+    expect(lastPlanRequest().options['pageSelection']).toBe('1-3, 5');
+    expect(component.plan()?.success).toBeTrue();
+  }));
+
+  it('omits the page selection when the range is empty', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+
+    component.onPageSelectionInput(inputEvent('2'));
+    tick(250);
+    flushMicrotasks();
+    expect(lastPlanRequest().options['pageSelection']).toBe('2');
+
+    component.onPageSelectionInput(inputEvent('   '));
+    tick(250);
+    flushMicrotasks();
+
+    expect(lastPlanRequest().options['pageSelection']).toBeUndefined();
+    expect('pageSelection' in lastPlanRequest().options).toBeFalse();
+  }));
+
+  it('debounces page range edits before refreshing the plan', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    const plannedOnce = wailsSpy.planJobV1.calls.count();
+
+    component.onPageSelectionInput(inputEvent('1-2'));
+    tick(249);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce);
+
+    tick(1);
+    flushMicrotasks();
+    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 1);
+    expect(lastPlanRequest().options['pageSelection']).toBe('1-2');
+  }));
+
+  it('shows the all pages badge while the range is empty', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelectorAll('.range-badge').length,
+    ).toBe(1);
+
+    component.onPageSelectionInput(inputEvent('1-3'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelectorAll('.range-badge').length,
+    ).toBe(0);
+  }));
+
+  it('blocks the action when the plan rejects the page range', fakeAsync(() => {
+    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) => {
+      const selection = request.options['pageSelection'];
+      if (selection === '9-12') {
+        return Promise.resolve({
+          success: false,
+          message: 'invalid page range',
+          outputs: [],
+          error: {
+            code: 'DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID',
+            detail_code: 'DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID',
+            message: 'pageSelection "9-12" is not valid. Use ranges like 1-3,5.',
+          },
+        });
+      }
+      return Promise.resolve(planResponse(request));
+    });
+
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+
+    component.onPageSelectionInput(inputEvent('9-12'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.plan()?.success).toBeFalse();
+    expect(component.planBlocked()).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain(
+      'pageSelection "9-12" is not valid',
+    );
+
+    const primary = fixture.nativeElement.querySelector(
+      '.action-primary',
+    ) as HTMLButtonElement;
+    expect(primary.disabled).toBeTrue();
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
   }));
 });

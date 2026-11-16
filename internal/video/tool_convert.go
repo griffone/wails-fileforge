@@ -98,6 +98,11 @@ func (t *ConvertTool) Plan(ctx context.Context, req models.JobRequestV1) (models
 		return planFailure(plan, optionsErr)
 	}
 
+	videoOptions, videoOptionsErr := resolveConvertVideoOptions(req.Options, engine.ErrorCodeVideoValidation)
+	if videoOptionsErr != nil {
+		return planFailure(plan, videoOptionsErr)
+	}
+
 	outputDir := strings.TrimSpace(req.OutputDir)
 	explicitOutput := ""
 	if mode == "single" {
@@ -117,7 +122,7 @@ func (t *ConvertTool) Plan(ctx context.Context, req models.JobRequestV1) (models
 		var planned models.PlannedOutputV1
 		var planErr *models.JobErrorV1
 		if explicitOutput != "" {
-			planned, planErr = planExplicitConvertOutput(inputPath, explicitOutput, targetFormat, qualityPreset)
+			planned, planErr = planExplicitConvertOutput(inputPath, explicitOutput, targetFormat, qualityPreset, videoOptions)
 		} else {
 			planned = planAutoVideoOutput(inputPath, outputDir, videoConvertOutputSuffix, targetFormat, used)
 			planErr = mapVideoError(engine.ValidateConvertRequest(engine.ConvertRequest{
@@ -125,6 +130,9 @@ func (t *ConvertTool) Plan(ctx context.Context, req models.JobRequestV1) (models
 				OutputPath:    planned.OutputPath,
 				TargetFormat:  targetFormat,
 				QualityPreset: qualityPreset,
+				Resolution:    videoOptions.resolution,
+				BitrateKbps:   videoOptions.bitrateKbps,
+				RemoveAudio:   videoOptions.removeAudio,
 			}))
 		}
 
@@ -143,6 +151,9 @@ func (t *ConvertTool) Plan(ctx context.Context, req models.JobRequestV1) (models
 	plan.EffectiveOptions = map[string]any{
 		"targetFormat":  targetFormat,
 		"qualityPreset": qualityPreset,
+		"resolution":    videoOptions.resolution,
+		"bitrateKbps":   videoOptions.bitrateKbps,
+		"removeAudio":   videoOptions.removeAudio,
 	}
 
 	return plan, nil
@@ -154,7 +165,7 @@ func (t *ConvertTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1
 		return videoPlanFailureItem(firstInputPath(req.InputPaths), firstPlannedOutputPath(plan), planErr), planErr
 	}
 
-	convertReq := convertRequestFromPlannedOutput(plan)
+	convertReq := convertRequestFromPlannedOutput(plan.Outputs[0], plan.EffectiveOptions)
 	if err := engine.Convert(ctx, t.probe, t.runner, convertReq); err != nil {
 		jobErr := mapVideoError(err)
 		return videoPlanFailureItem(convertReq.InputPath, convertReq.OutputPath, jobErr), jobErr
@@ -171,12 +182,7 @@ func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1,
 
 	convertReqs := make([]engine.ConvertRequest, 0, len(plan.Outputs))
 	for _, planned := range plan.Outputs {
-		convertReqs = append(convertReqs, engine.ConvertRequest{
-			InputPath:     planned.InputPath,
-			OutputPath:    planned.OutputPath,
-			TargetFormat:  optionString(plan.EffectiveOptions, "targetFormat"),
-			QualityPreset: optionString(plan.EffectiveOptions, "qualityPreset"),
-		})
+		convertReqs = append(convertReqs, convertRequestFromPlannedOutput(planned, plan.EffectiveOptions))
 	}
 
 	items := make([]models.JobResultItemV1, 0, len(convertReqs))
@@ -212,7 +218,43 @@ func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1,
 	return items, nil
 }
 
-func planExplicitConvertOutput(inputPath, outputPath, targetFormat, qualityPreset string) (models.PlannedOutputV1, *models.JobErrorV1) {
+// convertVideoOptions carries the optional output controls shared by single
+// and batch conversion plans.
+type convertVideoOptions struct {
+	resolution  string
+	bitrateKbps int
+	removeAudio bool
+}
+
+// resolveConvertVideoOptions parses the optional resolution/bitrate/audio
+// controls, applying defaults for omitted values.
+func resolveConvertVideoOptions(options map[string]any, validationCode string) (convertVideoOptions, *models.JobErrorV1) {
+	resolution := strings.ToLower(optionString(options, "resolution"))
+	switch resolution {
+	case "":
+		resolution = engine.ResolutionOriginal
+	case engine.ResolutionOriginal, engine.Resolution1080p, engine.Resolution720p, engine.Resolution480p:
+	default:
+		return convertVideoOptions{}, &models.JobErrorV1{Code: validationCode, Message: "resolution must be original, 1080p, 720p, or 480p"}
+	}
+
+	bitrateKbps, bitrateErr := videoOptionInt(options, "bitrateKbps", validationCode)
+	if bitrateErr != nil {
+		return convertVideoOptions{}, bitrateErr
+	}
+	if bitrateKbps < 0 {
+		return convertVideoOptions{}, &models.JobErrorV1{Code: validationCode, Message: "bitrateKbps must be >= 0"}
+	}
+
+	removeAudio, audioErr := videoOptionBool(options, "removeAudio", validationCode)
+	if audioErr != nil {
+		return convertVideoOptions{}, audioErr
+	}
+
+	return convertVideoOptions{resolution: resolution, bitrateKbps: bitrateKbps, removeAudio: removeAudio}, nil
+}
+
+func planExplicitConvertOutput(inputPath, outputPath, targetFormat, qualityPreset string, videoOptions convertVideoOptions) (models.PlannedOutputV1, *models.JobErrorV1) {
 	planned := models.PlannedOutputV1{
 		InputPath:  strings.TrimSpace(inputPath),
 		OutputPath: filepath.Clean(strings.TrimSpace(outputPath)),
@@ -228,18 +270,30 @@ func planExplicitConvertOutput(inputPath, outputPath, targetFormat, qualityPrese
 		OutputPath:    planned.OutputPath,
 		TargetFormat:  targetFormat,
 		QualityPreset: qualityPreset,
+		Resolution:    videoOptions.resolution,
+		BitrateKbps:   videoOptions.bitrateKbps,
+		RemoveAudio:   videoOptions.removeAudio,
 	})
 
 	return planned, mapVideoError(validationErr)
 }
 
-func convertRequestFromPlannedOutput(plan models.PlanJobResponseV1) engine.ConvertRequest {
-	planned := plan.Outputs[0]
+func convertRequestFromPlannedOutput(planned models.PlannedOutputV1, effectiveOptions map[string]any) engine.ConvertRequest {
+	bitrateKbps, _ := effectiveOptions["bitrateKbps"].(int)
+	removeAudio, _ := effectiveOptions["removeAudio"].(bool)
+	resolution := optionString(effectiveOptions, "resolution")
+	if resolution == "" {
+		resolution = engine.ResolutionOriginal
+	}
+
 	return engine.ConvertRequest{
 		InputPath:     planned.InputPath,
 		OutputPath:    planned.OutputPath,
-		TargetFormat:  optionString(plan.EffectiveOptions, "targetFormat"),
-		QualityPreset: optionString(plan.EffectiveOptions, "qualityPreset"),
+		TargetFormat:  optionString(effectiveOptions, "targetFormat"),
+		QualityPreset: optionString(effectiveOptions, "qualityPreset"),
+		Resolution:    resolution,
+		BitrateKbps:   bitrateKbps,
+		RemoveAudio:   removeAudio,
 	}
 }
 

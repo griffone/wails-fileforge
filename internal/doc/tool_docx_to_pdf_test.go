@@ -3,10 +3,15 @@ package doc
 import (
 	"archive/zip"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jung-kurt/gofpdf"
+	"github.com/pdfcpu/pdfcpu/pkg/api"
 
 	"fileforge-desktop/internal/doc/engine"
 	"fileforge-desktop/internal/models"
@@ -18,6 +23,66 @@ type stubDOCXRuntimeProbe struct {
 
 func (p stubDOCXRuntimeProbe) Check(context.Context) error {
 	return p.err
+}
+
+type stubDOCXRunner struct {
+	run func(ctx context.Context, name string, args ...string) (engine.CommandResult, error)
+}
+
+func (r stubDOCXRunner) Run(ctx context.Context, name string, args ...string) (engine.CommandResult, error) {
+	return r.run(ctx, name, args...)
+}
+
+// newPDFProducingDOCXRunner fails libreoffice and makes the pandoc fallback
+// write a PDF with the given page count to the requested output path.
+func newPDFProducingDOCXRunner(t *testing.T, pages int) stubDOCXRunner {
+	t.Helper()
+
+	return stubDOCXRunner{run: func(_ context.Context, name string, args ...string) (engine.CommandResult, error) {
+		switch name {
+		case "libreoffice":
+			return engine.CommandResult{}, errors.New("libreoffice unavailable in tests")
+		case "pandoc":
+			if len(args) < 3 {
+				t.Fatalf("unexpected pandoc args: %v", args)
+			}
+			writeDOCXPDFFixture(t, args[2], pages)
+			return engine.CommandResult{}, nil
+		default:
+			t.Fatalf("unexpected command: %s", name)
+			return engine.CommandResult{}, nil
+		}
+	}}
+}
+
+func writeDOCXPDFFixture(t *testing.T, path string, pages int) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create pdf fixture dir: %v", err)
+	}
+
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.SetFont("Helvetica", "", 12)
+	for i := 1; i <= pages; i++ {
+		pdf.AddPage()
+		pdf.Cell(0, 10, fmt.Sprintf("Page %d", i))
+	}
+
+	if err := pdf.OutputFileAndClose(path); err != nil {
+		t.Fatalf("write pdf fixture: %v", err)
+	}
+}
+
+func docxPDFPageCount(t *testing.T, path string) int {
+	t.Helper()
+
+	dims, err := api.PageDimsFile(path)
+	if err != nil {
+		t.Fatalf("read page dimensions from %s: %v", path, err)
+	}
+
+	return len(dims)
 }
 
 func newTestDOCXTool() *DOCXToPDFTool {
@@ -337,5 +402,128 @@ func TestDOCXValidateBatchWithoutOutputDir(t *testing.T) {
 	tool := newTestDOCXTool()
 	if validateErr := tool.Validate(context.Background(), docxPlanRequest("batch", []string{first, second}, "", nil)); validateErr != nil {
 		t.Fatalf("expected batch validation without outputDir to pass, got %v", validateErr)
+	}
+}
+
+func TestDOCXPlanRejectsInvalidPageSelection(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	for _, selection := range []string{"abc", "1,,3", "1-2-3"} {
+		t.Run(selection, func(t *testing.T) {
+			tool := newTestDOCXTool()
+			plan, planErr := tool.Plan(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pageSelection": selection}))
+			if planErr == nil {
+				t.Fatal("expected an invalid page selection error")
+			}
+			if planErr.DetailCode != "DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID" {
+				t.Fatalf("expected DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID, got %q", planErr.DetailCode)
+			}
+			if plan.Success {
+				t.Fatal("expected plan to report failure")
+			}
+		})
+	}
+}
+
+func TestDOCXPlanIncludesPageSelectionInEffectiveOptions(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	tool := newTestDOCXTool()
+	plan, planErr := tool.Plan(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pageSelection": " 1-3, 5 "}))
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	if got := plan.EffectiveOptions["pageSelection"]; got != "1-3,5" {
+		t.Fatalf("expected trimmed pageSelection in effective options, got %#v", got)
+	}
+
+	defaultPlan, defaultErr := tool.Plan(context.Background(), docxPlanRequest("single", []string{input}, "", nil))
+	if defaultErr != nil {
+		t.Fatalf("expected default plan to succeed, got %v", defaultErr)
+	}
+	if defaultPlan.EffectiveOptions != nil {
+		t.Fatalf("expected no effective options without a page selection, got %#v", defaultPlan.EffectiveOptions)
+	}
+}
+
+func TestDOCXExecuteSingleAppliesPageSelection(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, newPDFProducingDOCXRunner(t, 5))
+	req := docxPlanRequest("single", []string{input}, "", map[string]any{"pageSelection": "2-4"})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	item, itemErr := tool.ExecuteSingle(context.Background(), req)
+	if itemErr != nil {
+		t.Fatalf("expected execution to succeed, got %v", itemErr)
+	}
+	if item.OutputPath != plan.Outputs[0].OutputPath {
+		t.Fatalf("execution wrote %q but the plan promised %q", item.OutputPath, plan.Outputs[0].OutputPath)
+	}
+
+	if got := docxPDFPageCount(t, item.OutputPath); got != 3 {
+		t.Fatalf("expected 3 pages after applying the selection, got %d", got)
+	}
+}
+
+func TestDOCXExecuteSingleFailsWhenPageSelectionExceedsDocument(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, newPDFProducingDOCXRunner(t, 2))
+
+	item, itemErr := tool.ExecuteSingle(context.Background(), docxPlanRequest("single", []string{input}, "", map[string]any{"pageSelection": "9-12"}))
+	if itemErr == nil {
+		t.Fatal("expected an out-of-range page selection error")
+	}
+	if itemErr.DetailCode != "DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID" {
+		t.Fatalf("expected DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID, got %q", itemErr.DetailCode)
+	}
+	if !strings.Contains(itemErr.Message, "report.docx") {
+		t.Fatalf("expected message to name the input, got %q", itemErr.Message)
+	}
+	if item.Success {
+		t.Fatal("expected the item to report failure")
+	}
+	if _, statErr := os.Stat(item.OutputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected no partial output, got %v", statErr)
+	}
+}
+
+func TestDOCXExecuteBatchAppliesPageSelectionToEveryDocument(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.docx")
+	second := filepath.Join(dir, "second.docx")
+	writePlainDOCXFixture(t, first)
+	writePlainDOCXFixture(t, second)
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, newPDFProducingDOCXRunner(t, 4))
+	items, batchErr := tool.ExecuteBatch(context.Background(), docxPlanRequest("batch", []string{first, second}, "", map[string]any{"pageSelection": "1-2"}), nil)
+	if batchErr != nil {
+		t.Fatalf("expected batch execution to succeed, got %v", batchErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 batch items, got %d", len(items))
+	}
+
+	for _, item := range items {
+		if !item.Success {
+			t.Fatalf("expected successful item, got %q", item.Message)
+		}
+		if got := docxPDFPageCount(t, item.OutputPath); got != 2 {
+			t.Fatalf("expected 2 pages for %s, got %d", filepath.Base(item.OutputPath), got)
+		}
 	}
 }
