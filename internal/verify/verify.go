@@ -247,7 +247,7 @@ func readable(path string) (bool, string) {
 
 func supportsDimensionInspection(extension string) bool {
 	switch extension {
-	case "jpg", "jpeg", "png", "gif":
+	case "jpg", "jpeg", "png", "gif", "webp":
 		return true
 	default:
 		return false

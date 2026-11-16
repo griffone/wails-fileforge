@@ -3,10 +3,18 @@
     <div class="page-head-row">
       <div class="page-head-copy">
         <p class="eyebrow">RECIPE</p>
-        <h1 class="page-title">Email <em>PDF</em></h1>
-        <p class="page-sub">
-          Merge and compress your PDFs into one file that fits your email limit.
-        </p>
+        <h1 class="page-title">
+          {{ titleLead() }} @if (titleTail()) { <em>{{ titleTail() }}</em> }
+        </h1>
+        <p class="page-sub">{{ recipe()?.description }}</p>
+
+        @if (recipeHighlights().length > 0) {
+          <ul class="recipe-highlights" aria-label="Recipe capabilities">
+            @for (highlight of recipeHighlights(); track highlight) {
+              <li class="recipe-highlight">{{ highlight }}</li>
+            }
+          </ul>
+        }
       </div>
 
       <span class="badge badge-neutral page-local">
@@ -27,28 +35,28 @@
     <section class="panel" aria-labelledby="recipe-input-title">
       <div class="panel-head">
         <div>
-          <h2 id="recipe-input-title" class="panel-title">PDFs</h2>
-          <p class="panel-sub">Add one or more PDFs. They merge in the order shown.</p>
+          <h2 id="recipe-input-title" class="panel-title">{{ inputTitle() }}</h2>
+          <p class="panel-sub">{{ inputHint() }}</p>
         </div>
         <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
       </div>
 
       <div class="panel-body">
         <app-file-drop
-          accept=".pdf,application/pdf"
-          title="Drop PDFs here"
-          hint="PDF files only · merged in order"
-          ariaLabel="Drop or choose PDFs for the Email PDF recipe"
-          [multiple]="true"
+          [accept]="acceptAttribute()"
+          [title]="dropTitle()"
+          [hint]="inputHint()"
+          [ariaLabel]="'Drop or choose files for the ' + (recipe()?.name ?? 'recipe') + ' recipe'"
+          [multiple]="multipleInputs()"
           [nativePicker]="true"
           (pathsSelected)="onPathsSelected($event)"
           (browseRequested)="chooseFiles()"
         ></app-file-drop>
 
-        <div class="toolbar" role="group" aria-label="PDF selection actions">
+        <div class="toolbar" role="group" aria-label="File selection actions">
           <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
             <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Choose PDFs
+            {{ chooseLabel() }}
           </button>
           <button
             type="button"
@@ -62,11 +70,13 @@
         </div>
 
         @if (fileItems().length > 0) {
-          <p class="order-hint">The order below is the merge order.</p>
+          @if (multipleInputs()) {
+            <p class="order-hint">{{ orderHint() }}</p>
+          }
 
           <app-file-queue
             [items]="fileItems()"
-            [reorderable]="true"
+            [reorderable]="multipleInputs()"
             (remove)="removeFile($event)"
             (moveUp)="moveUp($event)"
             (moveDown)="moveDown($event)"
@@ -79,40 +89,42 @@
       <div class="panel-head">
         <div>
           <h2 id="recipe-settings-title" class="panel-title">Settings</h2>
-          <p class="panel-sub">Set the email limit and where the result is saved.</p>
+          <p class="panel-sub">{{ settingsSub() }}</p>
         </div>
       </div>
 
       <div class="panel-body">
-        <div class="settings-grid">
-          <div class="field">
-            <label class="label" for="recipe-target-mb">Target size</label>
-            <div class="input-suffix">
-              <input
-                id="recipe-target-mb"
-                class="input"
-                type="number"
-                min="0.1"
-                step="0.5"
-                inputmode="decimal"
-                autocomplete="off"
-                aria-describedby="recipe-target-help"
-                [attr.aria-invalid]="targetInvalid() ? 'true' : null"
-                [value]="targetText()"
-                (input)="onTargetInput($event)"
-              />
-              <span class="input-suffix-label mono" aria-hidden="true">MB</span>
+        <div class="settings-grid" [class.settings-grid-single]="!showTargetSize()">
+          @if (showTargetSize()) {
+            <div class="field">
+              <label class="label" for="recipe-target-mb">Target size</label>
+              <div class="input-suffix">
+                <input
+                  id="recipe-target-mb"
+                  class="input"
+                  type="number"
+                  min="0.1"
+                  step="0.5"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  aria-describedby="recipe-target-help"
+                  [attr.aria-invalid]="targetInvalid() ? 'true' : null"
+                  [value]="targetText()"
+                  (input)="onTargetInput($event)"
+                />
+                <span class="input-suffix-label mono" aria-hidden="true">MB</span>
+              </div>
+              @if (targetInvalid()) {
+                <p id="recipe-target-help" class="field-help field-error" role="alert">
+                  Enter a target size larger than 0 MB.
+                </p>
+              } @else {
+                <p id="recipe-target-help" class="field-help">
+                  Best effort: the recipe gets as close as the source allows.
+                </p>
+              }
             </div>
-            @if (targetInvalid()) {
-              <p id="recipe-target-help" class="field-help field-error" role="alert">
-                Enter a target size larger than 0 MB.
-              </p>
-            } @else {
-              <p id="recipe-target-help" class="field-help">
-                Best effort: the recipe compresses as far as the PDF allows.
-              </p>
-            }
-          </div>
+          }
 
           <div class="field">
             <span class="label">Output folder</span>
@@ -124,11 +136,14 @@
               </button>
             </div>
             @if (isDefaultDestination()) {
-              <p class="field-help">The result is saved next to the first PDF.</p>
+              <p class="field-help">{{ defaultDestinationHelp() }}</p>
             } @else {
-              <button type="button" class="btn btn-ghost btn-sm settings-reset" (click)="useFirstPdfFolder()">
-                Use first PDF's folder
+              <button type="button" class="btn btn-ghost btn-sm settings-reset" (click)="useDefaultFolder()">
+                Use the default folder
               </button>
+            }
+            @if (!showTargetSize()) {
+              <p class="field-help">Variants and formats are fixed by the recipe.</p>
             }
           </div>
         </div>
@@ -159,6 +174,8 @@
                 <span class="recipe-step-name">{{ step.name }}</span>
                 @if (step.message) {
                   <span class="recipe-step-message">{{ step.message }}</span>
+                } @else if (step.detail) {
+                  <span class="recipe-step-message">{{ step.detail }}</span>
                 }
               </span>
               <span class="recipe-step-status mono">{{ stepStateLabel(step.state) }}</span>
@@ -173,10 +190,11 @@
       [loading]="planLoading()"
       [destinationLabel]="destinationLabel()"
       [isDefaultDestination]="isDefaultDestination()"
+      [visibleLimit]="6"
       (changeDestination)="chooseOutputFolder()"
     ></app-output-plan-card>
 
-    <section class="panel action-panel" aria-label="Create the email PDF">
+    <section class="panel action-panel" [attr.aria-label]="primaryLabel()">
       <div class="panel-body">
         @if (isRunning()) {
           <div class="recipe-progress" role="status" aria-live="polite">
@@ -244,7 +262,8 @@
         [job]="job"
         [verification]="verification()"
         [recordRecent]="false"
-        toolLabel="PDF"
+        [toolLabel]="resultToolLabel()"
+        [partialDetail]="partialDetail()"
         verbPast="prepared"
         (open)="openPath($event)"
         (reveal)="revealInFolder($event)"

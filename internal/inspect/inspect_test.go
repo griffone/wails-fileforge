@@ -1,6 +1,7 @@
 package inspect
 
 import (
+	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/h2non/bimg"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
 
@@ -35,6 +37,29 @@ func writeTestPNG(t *testing.T, path string, width, height int) {
 
 	if err := png.Encode(file, img); err != nil {
 		t.Fatalf("encode png: %v", err)
+	}
+}
+
+func writeTestWebP(t *testing.T, path string, width, height int) {
+	t.Helper()
+
+	pngPath := filepath.Join(t.TempDir(), "source.png")
+	writeTestPNG(t, pngPath, width, height)
+
+	content, err := os.ReadFile(pngPath)
+	if err != nil {
+		t.Fatalf("read webp source png: %v", err)
+	}
+
+	converted, err := bimg.NewImage(content).Convert(bimg.WEBP)
+	if err != nil {
+		if !bimg.IsTypeSupportedSave(bimg.WEBP) {
+			t.Skipf("this libvips build cannot save WebP: %v", err)
+		}
+		t.Fatalf("convert webp fixture: %v", err)
+	}
+	if err := os.WriteFile(path, converted, 0o644); err != nil {
+		t.Fatalf("write webp fixture: %v", err)
 	}
 }
 
@@ -302,5 +327,79 @@ func TestInspectFilesKeepsBatchAlive(t *testing.T) {
 	}
 	if files[3].Error == "" {
 		t.Fatal("expected empty path to report an error")
+	}
+}
+
+func TestInspectFileWebPDimensions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "photo.webp")
+	writeTestWebP(t, path, 12, 7)
+
+	info := InspectFile(path)
+	if !info.Exists {
+		t.Fatal("expected the WebP to exist")
+	}
+	if info.Error != "" {
+		t.Fatalf("expected no error, got %q", info.Error)
+	}
+	if info.Kind != "image" {
+		t.Fatalf("expected image kind, got %q", info.Kind)
+	}
+	if info.MimeType != "image/webp" {
+		t.Fatalf("expected image/webp, got %q", info.MimeType)
+	}
+	if info.Width != 12 || info.Height != 7 {
+		t.Fatalf("expected 12x7 dimensions, got %dx%d", info.Width, info.Height)
+	}
+}
+
+func TestInspectFileClassifiesZipAndHTML(t *testing.T) {
+	dir := t.TempDir()
+
+	zipPath := filepath.Join(dir, "bundle.zip")
+	zipFile, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("create zip fixture: %v", err)
+	}
+	zipWriter := zip.NewWriter(zipFile)
+	entry, err := zipWriter.Create("readme.txt")
+	if err != nil {
+		_ = zipFile.Close()
+		t.Fatalf("create zip entry: %v", err)
+	}
+	if _, err := entry.Write([]byte("bundle")); err != nil {
+		_ = zipFile.Close()
+		t.Fatalf("write zip entry: %v", err)
+	}
+	if err := zipWriter.Close(); err != nil {
+		_ = zipFile.Close()
+		t.Fatalf("close zip writer: %v", err)
+	}
+	if err := zipFile.Close(); err != nil {
+		t.Fatalf("close zip fixture: %v", err)
+	}
+
+	htmlPath := filepath.Join(dir, "srcset.html")
+	if err := os.WriteFile(htmlPath, []byte("<!doctype html><p>snippet</p>"), 0o644); err != nil {
+		t.Fatalf("write html fixture: %v", err)
+	}
+
+	zipInfo := InspectFile(zipPath)
+	if zipInfo.Kind != "archive" {
+		t.Fatalf("expected archive kind, got %q", zipInfo.Kind)
+	}
+	if zipInfo.MimeType != "application/zip" {
+		t.Fatalf("expected application/zip, got %q", zipInfo.MimeType)
+	}
+	if !zipInfo.Exists || zipInfo.SizeBytes <= 0 {
+		t.Fatalf("expected a readable zip, got %+v", zipInfo)
+	}
+
+	htmlInfo := InspectFile(htmlPath)
+	if htmlInfo.Kind != "document" {
+		t.Fatalf("expected document kind, got %q", htmlInfo.Kind)
+	}
+	if htmlInfo.MimeType != "text/html" {
+		t.Fatalf("expected text/html, got %q", htmlInfo.MimeType)
 	}
 }

@@ -145,6 +145,11 @@ export class ResultCard implements DoCheck {
   @Input() toolLabel = 'file';
   /** Past-tense verb for the success summary, e.g. `converted`, `split`. */
   @Input() verbPast = 'converted';
+  /**
+   * Backend explanation for a `partial_success` result, e.g. a target size
+   * miss. Recipes use it because nothing was retryable in those cases.
+   */
+  @Input() partialDetail = '';
 
   @Output() open = new EventEmitter<string>();
   @Output() reveal = new EventEmitter<string>();
@@ -457,7 +462,10 @@ export class ResultCard implements DoCheck {
 
     switch (job.status) {
       case 'partial_success':
-        return "Some files couldn't be converted. Retry them below.";
+        return (
+          this.partialDetail.trim() ||
+          "Some files couldn't be converted. Retry them below."
+        );
       case 'failed':
         return describeToolError(job.error).description;
       case 'cancelled':

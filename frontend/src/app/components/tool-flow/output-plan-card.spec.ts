@@ -123,6 +123,25 @@ describe('OutputPlanCard', () => {
     expect(fixture.nativeElement.textContent).toContain('+ 2 more');
   });
 
+  it('shows every output when the visible limit covers them', () => {
+    component.visibleLimit = 6;
+    component.plan = planWith(
+      Array.from({ length: 6 }, (_, index) => ({
+        inputPath: `/tmp/in/${index}.png`,
+        outputPath: `/tmp/in/${index}.webp`,
+        outputKind: 'file',
+        exists: false,
+        adjusted: false,
+      })),
+    );
+    fixture.detectChanges();
+
+    const names = fixture.nativeElement.querySelectorAll('.output-plan-name');
+    expect(names.length).toBe(6);
+    expect(fixture.nativeElement.querySelector('.output-plan-more')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('more');
+  });
+
   it('shows the working state while loading', () => {
     component.loading = true;
     fixture.detectChanges();

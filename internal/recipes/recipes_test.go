@@ -13,6 +13,7 @@ import (
 	"github.com/jung-kurt/gofpdf"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 
+	"fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/jobhistory"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/pdf"
@@ -621,18 +622,58 @@ func TestRunEmailPDFFailureCleansTempWorkspace(t *testing.T) {
 	waitForEmptyDir(t, tempRoot)
 }
 
-func TestListRecipesReturnsEmailPDF(t *testing.T) {
+func TestListRecipesReturnsEmailPDFThenWebImageSet(t *testing.T) {
 	service, _, _ := newTestService(t)
 
 	recipes := service.List()
-	if len(recipes) != 1 {
-		t.Fatalf("expected one built-in recipe, got %+v", recipes)
+	if len(recipes) != 2 {
+		t.Fatalf("expected two built-in recipes, got %+v", recipes)
 	}
-	if recipes[0].ID != RecipeIDEmailPDF || recipes[0].Name != "Email PDF" {
-		t.Fatalf("expected Email PDF first, got %+v", recipes[0])
+
+	email := recipes[0]
+	if email.ID != RecipeIDEmailPDF || email.Name != "Email PDF" {
+		t.Fatalf("expected Email PDF first, got %+v", email)
 	}
-	if recipes[0].InputKind != "pdf" || len(recipes[0].AcceptExtensions) != 1 || recipes[0].AcceptExtensions[0] != "pdf" {
-		t.Fatalf("unexpected input metadata: %+v", recipes[0])
+	if email.InputKind != "pdf" || len(email.AcceptExtensions) != 1 || email.AcceptExtensions[0] != "pdf" {
+		t.Fatalf("unexpected input metadata: %+v", email)
+	}
+	if email.MaxInputs != 0 {
+		t.Fatalf("expected Email PDF to accept unlimited inputs, got %d", email.MaxInputs)
+	}
+	if len(email.Highlights) != 3 || email.Highlights[0] != "Merge when needed" {
+		t.Fatalf("unexpected Email PDF highlights: %+v", email.Highlights)
+	}
+	if len(email.Steps) != 2 || email.Steps[0].Detail != "Only when there are two or more PDFs" {
+		t.Fatalf("unexpected Email PDF step details: %+v", email.Steps)
+	}
+
+	web := recipes[1]
+	if web.ID != RecipeIDWebImageSet || web.Name != "Web image set" {
+		t.Fatalf("expected Web image set second, got %+v", web)
+	}
+	if web.Category != "image" || web.InputKind != "image" {
+		t.Fatalf("unexpected Web image set input metadata: %+v", web)
+	}
+	if web.MaxInputs != 1 {
+		t.Fatalf("expected Web image set to accept one input, got %d", web.MaxInputs)
+	}
+	if len(web.Highlights) != 3 || web.Highlights[0] != "No upscaling" {
+		t.Fatalf("unexpected Web image set highlights: %+v", web.Highlights)
+	}
+	if len(web.AcceptExtensions) != 4 {
+		t.Fatalf("expected four accepted extensions, got %+v", web.AcceptExtensions)
+	}
+	if len(web.Steps) != 3 {
+		t.Fatalf("expected three Web image set steps, got %+v", web.Steps)
+	}
+	if web.Steps[0].ID != stepIDBuildVariants || web.Steps[0].ToolID != image.ToolIDImageConvertV1 {
+		t.Fatalf("unexpected build step: %+v", web.Steps[0])
+	}
+	if web.Steps[0].Detail == "" || web.Steps[1].Detail == "" || web.Steps[2].Detail == "" {
+		t.Fatalf("expected step details for every Web image set step, got %+v", web.Steps)
+	}
+	if web.Steps[1].ToolID != "" || web.Steps[2].ToolID != "" {
+		t.Fatalf("expected packaging steps without a tool, got %+v", web.Steps)
 	}
 }
 

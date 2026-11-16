@@ -26,6 +26,8 @@ export class OutputPlanCard {
   @Input() loading = false;
   @Input() destinationLabel = 'Next to the original';
   @Input() isDefaultDestination = true;
+  /** How many planned outputs stay listed before the `+ N more` row. */
+  @Input() visibleLimit = VISIBLE_OUTPUT_LIMIT;
 
   @Output() changeDestination = new EventEmitter<void>();
 
@@ -34,12 +36,12 @@ export class OutputPlanCard {
   readonly alertIcon = TriangleAlert;
 
   visibleOutputs(): PlannedOutputV1[] {
-    return (this.plan?.outputs ?? []).slice(0, VISIBLE_OUTPUT_LIMIT);
+    return (this.plan?.outputs ?? []).slice(0, this.visibleLimit);
   }
 
   remainingCount(): number {
     const total = this.plan?.outputs?.length ?? 0;
-    return Math.max(0, total - VISIBLE_OUTPUT_LIMIT);
+    return Math.max(0, total - this.visibleLimit);
   }
 
   hasAdjusted(): boolean {

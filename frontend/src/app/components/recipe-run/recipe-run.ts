@@ -6,6 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import {
   FolderOpen,
   LucideAngularModule,
@@ -13,12 +14,14 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-angular';
+import { Subject, takeUntil } from 'rxjs';
 
 import { FileDrop } from '../file-drop/file-drop';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { findRecipeFallback } from '../../config/recipes';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
   FileInfoV1,
@@ -27,6 +30,7 @@ import {
   JobResultItemV1,
   JobResultV1,
   RecipePlanResponseV1,
+  RecipeProgressEventV1,
   RecipeRequestV1,
   RecipeResultV1,
   RecipeStatusResponseV1,
@@ -37,10 +41,9 @@ import {
 } from '../../services/wails';
 import { fileExtension, fileName, formatBytes, formatCount } from '../../utils/format';
 
-const RECIPE_ID = 'recipe.email_pdf';
+const DEFAULT_RECIPE_ID = 'recipe.email_pdf';
 const POLLING_INTERVAL_MS = 1000;
 const PLAN_DEBOUNCE_MS = 250;
-const DEFAULT_TARGET_MB = 10;
 const BYTES_PER_MB = 1024 * 1024;
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
@@ -56,27 +59,16 @@ export interface RecipeStepView {
   id: string;
   name: string;
   state: RecipeStepState;
+  /** Backend message for the step; empty before and between runs. */
   message: string;
+  /** Static helper copy from the recipe definition. */
+  detail: string;
 }
 
-/**
- * Local definition shown before (or instead of) the backend catalog. The steps
- * mirror the curated Email PDF recipe so the page never blocks on IPC.
- */
-const EMAIL_PDF_FALLBACK: RecipeV1 = {
-  id: RECIPE_ID,
-  name: 'Email PDF',
-  description:
-    'Merge one or more PDFs and compress the result into one file that fits an email limit.',
-  category: 'documents',
-  inputKind: 'pdf',
-  acceptExtensions: ['pdf'],
-  steps: [
-    { id: 'merge', name: 'Merge PDFs', toolId: 'tool.pdf.merge' },
-    { id: 'optimize', name: 'Optimize to target', toolId: 'tool.pdf.optimize' },
-  ],
-  defaultTargetSizeBytes: DEFAULT_TARGET_MB * BYTES_PER_MB,
-};
+interface TitleParts {
+  lead: string;
+  tail: string;
+}
 
 function normalizeStepState(value: string | undefined): RecipeStepState {
   switch (value) {
@@ -90,9 +82,14 @@ function normalizeStepState(value: string | undefined): RecipeStepState {
   }
 }
 
+/** `Email PDF` → `email PDF`, so the action button reads like a sentence. */
+function lowerFirst(value: string): string {
+  return value ? value.charAt(0).toLowerCase() + value.slice(1) : value;
+}
+
 function defaultTargetMb(recipe: RecipeV1 | null): number {
   const bytes = recipe?.defaultTargetSizeBytes ?? 0;
-  return bytes > 0 ? bytes / BYTES_PER_MB : DEFAULT_TARGET_MB;
+  return bytes > 0 ? bytes / BYTES_PER_MB : 0;
 }
 
 function targetInputText(mb: number): string {
@@ -102,8 +99,18 @@ function targetInputText(mb: number): string {
   return String(Number(mb.toFixed(2)));
 }
 
+/** Splits a recipe name on its last space so the tail can render in serif. */
+function splitTitle(name: string): TitleParts {
+  const trimmed = name.trim();
+  const index = trimmed.lastIndexOf(' ');
+  if (index <= 0) {
+    return { lead: trimmed, tail: '' };
+  }
+  return { lead: trimmed.slice(0, index), tail: trimmed.slice(index + 1) };
+}
+
 @Component({
-  selector: 'app-recipe-email-pdf',
+  selector: 'app-recipe-run',
   standalone: true,
   imports: [
     LucideAngularModule,
@@ -112,11 +119,13 @@ function targetInputText(mb: number): string {
     OutputPlanCard,
     ResultCard,
   ],
-  templateUrl: './recipe-email-pdf.html',
-  styleUrl: './recipe-email-pdf.css',
+  templateUrl: './recipe-run.html',
+  styleUrl: './recipe-run.css',
 })
-export class RecipeEmailPdf implements OnDestroy, OnInit {
+export class RecipeRun implements OnDestroy, OnInit {
   private readonly wailsService = inject(Wails);
+  private readonly route = inject(ActivatedRoute);
+  private readonly recipeId = this.resolveRecipeId();
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -125,17 +134,21 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
 
   readonly selectedPaths = signal<string[]>([]);
   readonly fileItems = signal<FileQueueItem[]>([]);
-  /** Empty means "next to the first PDF"; the backend resolves it. */
+  /** Empty means "next to the source"; the backend resolves it. */
   readonly outputDir = signal('');
-  readonly targetMb = signal(DEFAULT_TARGET_MB);
-  readonly targetText = signal(String(DEFAULT_TARGET_MB));
-  readonly recipe = signal<RecipeV1 | null>(EMAIL_PDF_FALLBACK);
+  readonly targetMb = signal(defaultTargetMb(this.resolveFallback()));
+  readonly targetText = signal(
+    targetInputText(defaultTargetMb(this.resolveFallback())),
+  );
+  readonly recipe = signal<RecipeV1 | null>(this.resolveFallback());
 
   readonly plan = signal<RecipePlanResponseV1 | null>(null);
   readonly planLoading = signal(false);
 
   readonly result = signal<RecipeResultV1 | null>(null);
   readonly runJobId = signal('');
+  /** Last live event from `recipes/progress/v1` for the current job. */
+  readonly liveProgress = signal<RecipeProgressEventV1 | null>(null);
   readonly isSubmitting = signal(false);
   readonly isRunning = signal(false);
   readonly cancelRequested = signal(false);
@@ -144,13 +157,82 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
 
   readonly fileName = fileName;
 
+  /**
+   * Live progress is advisory: the polled status stays the source of truth for
+   * step results and outputs, but the event stream updates the stepper and the
+   * bar as soon as the backend reaches a stage instead of one poll later.
+   */
+  constructor() {
+    this.wailsService.recipeProgress$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        if (!event || event.jobId !== this.runJobId()) {
+          return;
+        }
+
+        this.liveProgress.set(event);
+      });
+  }
+
+  /** Recipes with a fixed outcome (no target size) hide the field entirely. */
+  readonly showTargetSize = computed(
+    () => (this.recipe()?.defaultTargetSizeBytes ?? 0) > 0,
+  );
+
+  /** Only `maxInputs === 1` restricts the queue; 0 means unlimited. */
+  readonly multipleInputs = computed(
+    () => (this.recipe()?.maxInputs ?? 0) !== 1,
+  );
+
+  readonly recipeHighlights = computed(() => this.recipe()?.highlights ?? []);
+
+  readonly acceptAttribute = computed(() => {
+    const extensions = this.recipe()?.acceptExtensions ?? [];
+    return extensions.map((extension) => `.${extension}`).join(',');
+  });
+
+  readonly inputKindLabel = computed(() =>
+    this.kindLabel(this.recipe()?.inputKind ?? ''),
+  );
+
+  readonly extensionsLabel = computed(() =>
+    (this.recipe()?.acceptExtensions ?? [])
+      .map((extension) => extension.toUpperCase())
+      .join(' · '),
+  );
+
+  readonly inputHint = computed(() =>
+    this.multipleInputs()
+      ? `${this.extensionsLabel()} files · order matters`
+      : `One ${this.inputKindLabel()} · ${this.extensionsLabel()}`,
+  );
+
+  readonly dropTitle = computed(() => {
+    if (this.multipleInputs()) {
+      return this.recipe()?.inputKind === 'pdf' ? 'Drop PDFs here' : 'Drop files here';
+    }
+    return this.recipe()?.inputKind === 'image'
+      ? 'Drop an image here'
+      : 'Drop a file here';
+  });
+
+  private readonly titleParts = computed(() =>
+    splitTitle(this.recipe()?.name ?? ''),
+  );
+
+  readonly titleLead = computed(() => this.titleParts().lead);
+  readonly titleTail = computed(() => this.titleParts().tail);
+
   readonly targetInvalid = computed(() => {
+    if (!this.showTargetSize()) {
+      return false;
+    }
     const value = this.targetMb();
     return !Number.isFinite(value) || value <= 0;
   });
 
   readonly targetBytes = computed(() =>
-    Math.round(this.targetMb() * BYTES_PER_MB),
+    this.showTargetSize() ? Math.round(this.targetMb() * BYTES_PER_MB) : 0,
   );
 
   readonly planBlocked = computed(() => this.plan()?.success === false);
@@ -171,16 +253,31 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
     if (this.isRunning()) {
       return 'Creating…';
     }
-    return 'Create email PDF';
+    return `Create ${lowerFirst(this.recipe()?.name ?? 'recipe')}`;
   });
 
+  readonly resultToolLabel = computed(() =>
+    this.recipe()?.inputKind === 'pdf' ? 'PDF' : 'file',
+  );
+
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to the first PDF',
+    () => this.outputDir().trim() || this.defaultDestinationLabel(),
   );
 
   readonly isDefaultDestination = computed(
     () => this.outputDir().trim().length === 0,
   );
+
+  readonly defaultDestinationHelp = computed(() => {
+    switch (this.recipe()?.inputKind) {
+      case 'pdf':
+        return 'The result is saved next to the first PDF.';
+      case 'image':
+        return 'The result is saved next to the source image.';
+      default:
+        return 'The result is saved next to the original file.';
+    }
+  });
 
   readonly terminalResult = computed<RecipeResultV1 | null>(() => {
     const result = this.result();
@@ -188,9 +285,19 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
   });
 
   /**
-   * Adapts the recipe snapshot to the shared ResultCard contract. A recipe has
-   * one logical output item even when the internal chain produced a merge
-   * intermediate; only the final paths are listed.
+   * Recipes report `partial_success` when the output exists but a target or
+   * verification check needs attention, so the backend message replaces the
+   * "retry them below" copy meant for failed inputs.
+   */
+  readonly partialDetail = computed(() => {
+    const result = this.terminalResult();
+    return result?.status === 'partial_success' ? (result.message ?? '') : '';
+  });
+
+  /**
+   * Adapts the recipe snapshot to the shared ResultCard contract. Every final
+   * output is its own row, so a six-file web set lists six files while Email
+   * PDF still lists the one file it produced.
    */
   readonly resultJob = computed<JobResultV1 | null>(() => {
     const result = this.terminalResult();
@@ -200,25 +307,20 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
 
     const status = result.status as JobExecutionStatusV1;
     const outputs = result.outputs ?? [];
-    const items: JobResultItemV1[] =
-      outputs.length > 0
-        ? [
-            {
-              inputPath: this.selectedPaths()[0] ?? '',
-              outputPath: outputs[0],
-              outputs,
-              outputCount: outputs.length,
-              success: status !== 'failed' && status !== 'cancelled',
-              message: result.message,
-            },
-          ]
-        : [];
+    const items: JobResultItemV1[] = outputs.map((path) => ({
+      inputPath: this.selectedPaths()[0] ?? '',
+      outputPath: path,
+      outputs: [path],
+      outputCount: 1,
+      success: status !== 'failed' && status !== 'cancelled',
+      message: result.message,
+    }));
 
     return {
       jobId: result.jobId,
       success: status === 'success' || status === 'partial_success',
       message: result.message,
-      toolId: RECIPE_ID,
+      toolId: this.recipe()?.id ?? this.recipeId,
       status,
       progress: {
         current: result.currentStep,
@@ -239,38 +341,40 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
   );
 
   /**
-   * Recipe steps with the per-step state merged in. Before the run the Merge
-   * step is labelled as skipped when a single PDF is queued; once the run
-   * exists the backend step snapshot takes over.
+   * The live event for the job currently on screen, or null. Using it only
+   * while running keeps stale events from other runs out of the page.
+   */
+  private readonly activeLiveProgress = computed<RecipeProgressEventV1 | null>(
+    () => {
+      if (!this.isRunning()) {
+        return null;
+      }
+
+      const event = this.liveProgress();
+      if (!event || event.jobId !== this.runJobId()) {
+        return null;
+      }
+
+      return event;
+    },
+  );
+
+  /**
+   * Recipe steps with the per-step state merged in. Before a run every step is
+   * pending; after the run starts the backend step snapshot takes over, and the
+   * live event marks the active step between polls.
    */
   readonly steps = computed<RecipeStepView[]>(() => {
     const recipeSteps = this.recipe()?.steps ?? [];
     const result = this.result();
-    const hasRun = result !== null;
     const active = this.isRunning();
-    const singleInput = this.selectedPaths().length === 1;
+    const liveStep = this.activeLiveProgress()?.currentStep ?? 0;
+    const currentStep = liveStep > 0 ? liveStep : (result?.currentStep ?? 0);
 
     return recipeSteps.map((step, index) => {
       const resultStep = result?.steps?.[index];
-
-      if (singleInput && index === 0) {
-        return {
-          id: step.id,
-          name: step.name,
-          state: 'skipped',
-          message: hasRun
-            ? (resultStep?.message ?? '')
-            : 'Not needed with a single PDF',
-        };
-      }
-
       let state = normalizeStepState(resultStep?.status);
-      if (
-        active &&
-        result &&
-        result.currentStep === index + 1 &&
-        state === 'pending'
-      ) {
+      if (active && currentStep === index + 1 && state === 'pending') {
         state = 'running';
       }
 
@@ -279,17 +383,24 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
         name: step.name,
         state,
         message: resultStep?.message ?? '',
+        detail: step.detail ?? '',
       };
     });
   });
 
   readonly progressPercent = computed(() => {
     const result = this.result();
+    if (result && this.isTerminalStatus(result.status)) {
+      return 100;
+    }
+
+    const live = this.activeLiveProgress();
+    if (live && live.percent >= 0) {
+      return Math.min(100, Math.max(0, Math.round(live.percent)));
+    }
+
     if (!result) {
       return 0;
-    }
-    if (this.isTerminalStatus(result.status)) {
-      return 100;
     }
     if (result.totalSteps <= 0) {
       return 0;
@@ -299,28 +410,44 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
   });
 
   readonly progressLabel = computed(() => {
+    const live = this.activeLiveProgress();
     const result = this.result();
-    const total = result?.totalSteps || this.steps().length;
-    if (!result) {
+    if (!live && !result) {
       return 'Starting…';
     }
-    return `Step ${Math.max(1, Math.min(result.currentStep, total))} of ${total}`;
+
+    const total = live?.totalSteps || result?.totalSteps || this.steps().length;
+    const currentStep = live?.currentStep || result?.currentStep || 1;
+    return `Step ${Math.max(1, Math.min(currentStep, total))} of ${total}`;
   });
 
   readonly activeStepMessage = computed(() => {
+    const live = this.activeLiveProgress();
+    if (live?.message) {
+      return live.message;
+    }
+
     const active = this.steps().find((step) => step.state === 'running');
     return active?.message || this.result()?.message || '';
   });
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      return 'Add at least one PDF to create an email PDF.';
+      const name = lowerFirst(this.recipe()?.name ?? 'the result');
+      const article = /^[aeiou]/.test(name) ? 'an' : 'a';
+      return `Add ${this.kindArticle()} to create ${article} ${name}.`;
     }
     if (this.targetInvalid()) {
       return 'Enter a target size larger than 0 MB.';
     }
     return '';
   });
+
+  readonly settingsSub = computed(() =>
+    this.showTargetSize()
+      ? 'Set the target size and where the results are saved.'
+      : 'Choose where the results are saved.',
+  );
 
   readonly runErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.actionError() ?? this.terminalResult()?.error;
@@ -339,6 +466,7 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
     return null;
   });
 
+  private readonly destroy$ = new Subject<void>();
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private planToken = 0;
@@ -348,7 +476,9 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
   private targetTouched = false;
 
   async ngOnInit(): Promise<void> {
-    this.recipe.set(EMAIL_PDF_FALLBACK);
+    const fallback = this.resolveFallback();
+    this.recipe.set(fallback);
+    this.applyDefaultTarget(fallback);
 
     const response = await this.wailsService.listRecipesV1().catch(() => ({
       success: false,
@@ -359,27 +489,59 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
       return;
     }
 
-    const found = response.recipes.find((candidate) => candidate.id === RECIPE_ID);
+    const found = response.recipes.find(
+      (candidate) => candidate.id === this.recipeId,
+    );
     if (!found) {
       return;
     }
 
     this.recipe.set(found);
-    if (!this.targetTouched) {
-      const defaultMb = defaultTargetMb(found);
-      this.targetMb.set(defaultMb);
-      this.targetText.set(targetInputText(defaultMb));
-    }
+    this.applyDefaultTarget(found);
   }
 
   ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
     this.stopPolling();
     this.clearPlanRefreshTimer();
   }
 
   fileCountLabel(): string {
     const count = this.selectedPaths().length;
-    return count === 1 ? '1 PDF' : `${count} PDFs`;
+    return `${count} ${this.kindNoun(count)}`;
+  }
+
+  /** Panel titles stay concrete per input kind instead of saying "files". */
+  inputTitle(): string {
+    switch (this.recipe()?.inputKind) {
+      case 'pdf':
+        return 'PDFs';
+      case 'image':
+        return 'Image';
+      default:
+        return 'Files';
+    }
+  }
+
+  chooseLabel(): string {
+    if (this.multipleInputs()) {
+      return this.recipe()?.inputKind === 'pdf' ? 'Choose PDFs' : 'Choose files';
+    }
+    switch (this.recipe()?.inputKind) {
+      case 'pdf':
+        return 'Choose PDF';
+      case 'image':
+        return 'Choose image';
+      default:
+        return 'Choose file';
+    }
+  }
+
+  orderHint(): string {
+    return this.recipe()?.inputKind === 'pdf'
+      ? 'The order below is the merge order.'
+      : 'Files run in the order shown.';
   }
 
   onPathsSelected(paths: string[]): void {
@@ -390,19 +552,55 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
       return;
     }
 
+    const acceptedExtensions = new Set(
+      (this.recipe()?.acceptExtensions ?? []).map((extension) =>
+        extension.toLowerCase(),
+      ),
+    );
+
+    const accepted: string[] = [];
     const rejected: string[] = [];
+    for (const path of incoming) {
+      if (!acceptedExtensions.has(fileExtension(path).toLowerCase())) {
+        rejected.push(path);
+        continue;
+      }
+      accepted.push(path);
+    }
+
+    if (!this.multipleInputs()) {
+      if (accepted.length === 0) {
+        this.notice.set(this.intakeNotice(rejected, [], 0));
+        return;
+      }
+
+      const unique: string[] = [];
+      const seen = new Set<string>();
+      for (const path of accepted) {
+        const key = this.pathKey(path);
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        unique.push(path);
+      }
+
+      const extras = unique.length - 1;
+      this.notice.set(this.intakeNotice(rejected, [], extras));
+      this.actionError.set(null);
+      this.selectedPaths.set([unique[0]]);
+      this.syncFileItems();
+      this.schedulePlanRefresh();
+      return;
+    }
+
     const duplicates: string[] = [];
     const added: string[] = [];
     const known = new Set(
       this.selectedPaths().map((path) => this.pathKey(path)),
     );
 
-    for (const path of incoming) {
-      if (fileExtension(path).toLowerCase() !== 'pdf') {
-        rejected.push(path);
-        continue;
-      }
-
+    for (const path of accepted) {
       const key = this.pathKey(path);
       if (known.has(key)) {
         duplicates.push(path);
@@ -413,7 +611,7 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
       added.push(path);
     }
 
-    this.notice.set(this.intakeNotice(rejected, duplicates));
+    this.notice.set(this.intakeNotice(rejected, duplicates, 0));
     if (added.length === 0) {
       return;
     }
@@ -425,9 +623,17 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
   }
 
   async chooseFiles(): Promise<void> {
-    const paths = await this.wailsService.openMultipleFilesDialog();
-    if (paths.length > 0) {
-      this.onPathsSelected(paths);
+    if (this.multipleInputs()) {
+      const paths = await this.wailsService.openMultipleFilesDialog();
+      if (paths.length > 0) {
+        this.onPathsSelected(paths);
+      }
+      return;
+    }
+
+    const path = (await this.wailsService.openFileDialog()).trim();
+    if (path) {
+      this.onPathsSelected([path]);
     }
   }
 
@@ -443,6 +649,7 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
     this.planLoading.set(false);
     this.result.set(null);
     this.runJobId.set('');
+    this.liveProgress.set(null);
     this.isSubmitting.set(false);
     this.cancelRequested.set(false);
     this.actionError.set(null);
@@ -484,7 +691,7 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
     this.schedulePlanRefresh();
   }
 
-  useFirstPdfFolder(): void {
+  useDefaultFolder(): void {
     if (this.outputDir() === '') {
       return;
     }
@@ -511,6 +718,7 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
     this.notice.set('');
     this.result.set(null);
     this.runJobId.set('');
+    this.liveProgress.set(null);
     this.cancelRequested.set(false);
     this.stopPolling();
 
@@ -602,6 +810,7 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
     this.stopPolling();
     this.result.set(null);
     this.runJobId.set('');
+    this.liveProgress.set(null);
     this.isSubmitting.set(false);
     this.cancelRequested.set(false);
     this.actionError.set(null);
@@ -636,13 +845,40 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
     }
   }
 
+  private resolveRecipeId(): string {
+    const data = this.route.snapshot?.data ?? {};
+    const candidate =
+      typeof data['recipeId'] === 'string' ? data['recipeId'].trim() : '';
+    return candidate || DEFAULT_RECIPE_ID;
+  }
+
+  private resolveFallback(): RecipeV1 | null {
+    return (
+      findRecipeFallback(this.recipeId) ?? findRecipeFallback(DEFAULT_RECIPE_ID)
+    );
+  }
+
   private buildRequest(): RecipeRequestV1 {
+    const options: Record<string, unknown> = {};
+    if (this.showTargetSize()) {
+      options['targetSizeBytes'] = this.targetBytes();
+    }
+
     return {
-      recipeId: this.recipe()?.id ?? RECIPE_ID,
+      recipeId: this.recipe()?.id ?? this.recipeId,
       inputPaths: [...this.selectedPaths()],
       outputDir: this.outputDir(),
-      options: { targetSizeBytes: this.targetBytes() },
+      options,
     };
+  }
+
+  private applyDefaultTarget(recipe: RecipeV1 | null): void {
+    if (this.targetTouched) {
+      return;
+    }
+    const defaultMb = defaultTargetMb(recipe);
+    this.targetMb.set(defaultMb);
+    this.targetText.set(targetInputText(defaultMb));
   }
 
   private async refreshPlan(): Promise<boolean> {
@@ -762,6 +998,7 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
 
       this.result.set(response.result);
       if (this.isTerminalStatus(response.result.status)) {
+        this.liveProgress.set(null);
         this.stopPolling();
         if (response.result.status === 'cancelled') {
           this.notice.set('Cancelled — no output was written.');
@@ -829,26 +1066,48 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
     if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
       parts.push(formatBytes(info.sizeBytes));
     }
+    if (
+      typeof info.width === 'number' &&
+      info.width > 0 &&
+      typeof info.height === 'number' &&
+      info.height > 0
+    ) {
+      parts.push(`${info.width} × ${info.height} px`);
+    }
     if (typeof info.pageCount === 'number' && info.pageCount > 0) {
       parts.push(formatCount(info.pageCount, 'page'));
     }
     return parts.join(' · ');
   }
 
-  private intakeNotice(rejected: string[], duplicates: string[]): string {
+  private intakeNotice(
+    rejected: string[],
+    duplicates: string[],
+    extraAccepted: number,
+  ): string {
     const parts: string[] = [];
 
     if (rejected.length === 1) {
-      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a PDF.`);
+      parts.push(
+        `${fileName(rejected[0])} wasn't added because it isn't ${this.kindArticle()}.`,
+      );
     } else if (rejected.length > 1) {
       const names = rejected.map((path) => fileName(path)).join(', ');
-      parts.push(`${names} weren't added because they aren't PDFs.`);
+      parts.push(
+        `${names} weren't added because they aren't ${this.kindNoun(2)}.`,
+      );
     }
 
     if (duplicates.length === 1) {
       parts.push(`${fileName(duplicates[0])} is already in the queue.`);
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} PDFs are already in the queue.`);
+      parts.push(
+        `${duplicates.length} ${this.kindNoun(duplicates.length)} are already in the queue.`,
+      );
+    }
+
+    if (extraAccepted > 0) {
+      parts.push(`Only the first ${this.inputKindLabel()} is used.`);
     }
 
     return parts.join(' ');
@@ -867,5 +1126,49 @@ export class RecipeEmailPdf implements OnDestroy, OnInit {
 
   private isTerminalStatus(status: string): boolean {
     return TERMINAL_STATUSES.has(status);
+  }
+
+  private kindLabel(kind: string): string {
+    switch (kind) {
+      case 'pdf':
+        return 'PDF';
+      case 'image':
+        return 'image';
+      default:
+        return 'file';
+    }
+  }
+
+  private kindArticle(): string {
+    switch (this.recipe()?.inputKind) {
+      case 'pdf':
+        return 'a PDF';
+      case 'image':
+        return 'an image';
+      default:
+        return 'a file';
+    }
+  }
+
+  private kindNoun(count: number): string {
+    switch (this.recipe()?.inputKind) {
+      case 'pdf':
+        return count === 1 ? 'PDF' : 'PDFs';
+      case 'image':
+        return count === 1 ? 'image' : 'images';
+      default:
+        return count === 1 ? 'file' : 'files';
+    }
+  }
+
+  private defaultDestinationLabel(): string {
+    switch (this.recipe()?.inputKind) {
+      case 'pdf':
+        return 'Next to the first PDF';
+      case 'image':
+        return 'Next to the image';
+      default:
+        return 'Next to the original';
+    }
   }
 }

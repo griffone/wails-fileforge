@@ -2,10 +2,12 @@ package image
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/h2non/bimg"
@@ -69,6 +71,16 @@ func (c *ImageConverter) Convert(input []byte, opts map[string]any) ([]byte, err
 	bimgOptions.Flip = boolOptionValue(opts, "flipH")
 	bimgOptions.Flop = boolOptionValue(opts, "flipV")
 	bimgOptions.StripMetadata = boolOptionValue(opts, "stripMetadata")
+
+	// Background is only used when the alpha channel is flattened, which
+	// happens for formats without alpha such as JPEG; it is harmless for WebP.
+	background, hasBackground, backgroundErr := backgroundOption(opts)
+	if backgroundErr != nil {
+		return nil, backgroundErr
+	}
+	if hasBackground {
+		bimgOptions.Background = background
+	}
 
 	// longestEdge wins over width/height: it constrains only the larger side
 	// and keeps the aspect ratio of portrait and landscape images alike.
@@ -246,6 +258,54 @@ func normalizeFormatName(format string) string {
 	default:
 		return normalized
 	}
+}
+
+var errBackgroundInvalid = errors.New("background must be a hex color like #ffffff")
+
+// backgroundOption reads the optional background color used to flatten
+// transparency. Values are #RRGGBB or RRGGBB, case-insensitive.
+func backgroundOption(options map[string]any) (bimg.Color, bool, error) {
+	if options == nil {
+		return bimg.Color{}, false, nil
+	}
+
+	raw, exists := options["background"]
+	if !exists || raw == nil {
+		return bimg.Color{}, false, nil
+	}
+
+	value, ok := raw.(string)
+	if !ok {
+		return bimg.Color{}, false, errBackgroundInvalid
+	}
+	if strings.TrimSpace(value) == "" {
+		return bimg.Color{}, false, nil
+	}
+
+	color, err := parseBackgroundColor(value)
+	if err != nil {
+		return bimg.Color{}, false, err
+	}
+
+	return color, true, nil
+}
+
+func parseBackgroundColor(value string) (bimg.Color, error) {
+	hex := strings.TrimPrefix(strings.TrimSpace(value), "#")
+	if len(hex) != 6 {
+		return bimg.Color{}, errBackgroundInvalid
+	}
+
+	parsed, err := strconv.ParseUint(hex, 16, 32)
+	if err != nil {
+		return bimg.Color{}, errBackgroundInvalid
+	}
+
+	return bimg.Color{
+		R: uint8(parsed >> 16),
+		G: uint8(parsed >> 8),
+		B: uint8(parsed),
+	}, nil
 }
 
 // rotateAngle validates a quarter-turn rotation in degrees and maps it to the

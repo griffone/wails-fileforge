@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"archive/zip"
 	"fmt"
 	"image"
 	"image/color"
@@ -12,6 +13,7 @@ import (
 
 	"fileforge-desktop/internal/models"
 
+	"github.com/h2non/bimg"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
 
@@ -34,6 +36,55 @@ func writeVerifyPNG(t *testing.T, path string, width, height int) {
 	}
 	if err := png.Encode(file, img); err != nil {
 		t.Fatalf("encode png: %v", err)
+	}
+}
+
+func writeVerifyWebP(t *testing.T, path string, width, height int) {
+	t.Helper()
+
+	pngPath := filepath.Join(t.TempDir(), "source.png")
+	writeVerifyPNG(t, pngPath, width, height)
+
+	content, err := os.ReadFile(pngPath)
+	if err != nil {
+		t.Fatalf("read webp source png: %v", err)
+	}
+
+	converted, err := bimg.NewImage(content).Convert(bimg.WEBP)
+	if err != nil {
+		if !bimg.IsTypeSupportedSave(bimg.WEBP) {
+			t.Skipf("this libvips build cannot save WebP: %v", err)
+		}
+		t.Fatalf("convert webp fixture: %v", err)
+	}
+	if err := os.WriteFile(path, converted, 0o644); err != nil {
+		t.Fatalf("write webp fixture: %v", err)
+	}
+}
+
+func writeVerifyZip(t *testing.T, path string) {
+	t.Helper()
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create zip: %v", err)
+	}
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create("readme.txt")
+	if err != nil {
+		_ = file.Close()
+		t.Fatalf("create zip entry: %v", err)
+	}
+	if _, err := entry.Write([]byte("bundle")); err != nil {
+		_ = file.Close()
+		t.Fatalf("write zip entry: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		_ = file.Close()
+		t.Fatalf("close zip writer: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
 	}
 }
 
@@ -87,6 +138,58 @@ func TestVerifyPathsValidImage(t *testing.T) {
 		if !passed {
 			t.Fatalf("expected check %q to pass, got %v", key, checks)
 		}
+	}
+}
+
+func TestVerifyPathsWebPArchiveAndHTML(t *testing.T) {
+	dir := t.TempDir()
+	webpPath := filepath.Join(dir, "photo.webp")
+	writeVerifyWebP(t, webpPath, 10, 6)
+	zipPath := filepath.Join(dir, "bundle.zip")
+	writeVerifyZip(t, zipPath)
+	htmlPath := filepath.Join(dir, "srcset.html")
+	if err := os.WriteFile(htmlPath, []byte("<!doctype html><p>snippet</p>"), 0o644); err != nil {
+		t.Fatalf("write html fixture: %v", err)
+	}
+
+	report := VerifyPaths([]string{webpPath, zipPath, htmlPath})
+	if !report.Success {
+		t.Fatalf("expected the bundle to verify, got %s (%v)", report.Message, report.Warnings)
+	}
+	if len(report.Outputs) != 3 {
+		t.Fatalf("expected 3 outputs, got %d", len(report.Outputs))
+	}
+
+	webpOutput := report.Outputs[0]
+	if webpOutput.Kind != "image" {
+		t.Fatalf("expected image kind for the WebP, got %q", webpOutput.Kind)
+	}
+	webpChecks := checksByKey(webpOutput)
+	if passed, ok := webpChecks[checkImageDims]; !ok || !passed {
+		t.Fatalf("expected the WebP dimensions check to pass, got %v", webpChecks)
+	}
+	for _, check := range webpOutput.Checks {
+		if check.Key == checkImageDims && check.Value != "10 × 6 px" {
+			t.Fatalf("expected 10 × 6 px, got %q", check.Value)
+		}
+	}
+
+	zipOutput := report.Outputs[1]
+	if zipOutput.Kind != "archive" {
+		t.Fatalf("expected archive kind for the ZIP, got %q", zipOutput.Kind)
+	}
+	zipChecks := checksByKey(zipOutput)
+	if passed, ok := zipChecks[checkKind]; !ok || !passed {
+		t.Fatalf("expected the ZIP kind check to pass, got %v", zipChecks)
+	}
+
+	htmlOutput := report.Outputs[2]
+	if htmlOutput.Kind != "document" {
+		t.Fatalf("expected document kind for the HTML, got %q", htmlOutput.Kind)
+	}
+	htmlChecks := checksByKey(htmlOutput)
+	if passed, ok := htmlChecks[checkKind]; !ok || !passed {
+		t.Fatalf("expected the HTML kind check to pass, got %v", htmlChecks)
 	}
 }
 

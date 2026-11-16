@@ -326,14 +326,23 @@ describe('Home', () => {
     expect(section?.textContent).toContain('PDF Merge');
   });
 
-  it('renders the Email PDF recipe card outside the tool grid', () => {
+  it('renders the recipe cards outside the tool grid', () => {
     fixture.detectChanges();
 
-    const card = query<HTMLAnchorElement>('.home-recipe-card');
-    expect(card).not.toBeNull();
-    expect(card?.textContent).toContain('Email PDF');
-    expect(card?.textContent).toContain('Use recipe');
-    expect(card?.getAttribute('href')).toBe('/recipe/email-pdf');
+    const cards = fixture.nativeElement.querySelectorAll(
+      '.home-recipe-card',
+    ) as NodeListOf<HTMLAnchorElement>;
+    expect(cards.length).toBe(2);
+
+    expect(cards[0].textContent).toContain('Email PDF');
+    expect(cards[0].textContent).toContain('Target size');
+    expect(cards[0].textContent).toContain('Use recipe');
+    expect(cards[0].getAttribute('href')).toBe('/recipe/email-pdf');
+
+    expect(cards[1].textContent).toContain('Web image set');
+    expect(cards[1].textContent).toContain('ZIP + srcset');
+    expect(cards[1].getAttribute('href')).toBe('/recipe/web-image-set');
+
     expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
       'Outcomes, not one tool at a time.',
     );
