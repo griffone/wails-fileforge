@@ -210,6 +210,92 @@ func TestRunEmailPDFSingleInput(t *testing.T) {
 	}
 }
 
+func TestRecipeOutputCanBeUndoneAndRestored(t *testing.T) {
+	service, history, _ := newTestService(t)
+
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.pdf")
+	writePDFFixture(t, input, 1)
+
+	run := service.Run(context.Background(), models.RecipeRequestV1{
+		RecipeID:   RecipeIDEmailPDF,
+		InputPaths: []string{input},
+		Options:    map[string]any{"targetSizeBytes": testLargeTargetBytes},
+	})
+	if !run.Success {
+		t.Fatalf("expected the recipe to be submitted, got %+v", run)
+	}
+
+	result := waitForRecipeTerminal(t, service, run.JobID)
+	if result.Status != models.JobStatusSuccess || len(result.Outputs) != 1 {
+		t.Fatalf("expected one successful output, got %+v", result)
+	}
+	output := result.Outputs[0]
+
+	undo := history.Undo(run.JobID)
+	if !undo.Success || len(undo.Moved) != 1 {
+		t.Fatalf("expected the recipe output to be undone, got %+v", undo)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("expected the output to leave its original path, stat err = %v", err)
+	}
+
+	restore := history.Restore(run.JobID)
+	if !restore.Success || len(restore.Moved) != 1 {
+		t.Fatalf("expected the recipe output to be restored, got %+v", restore)
+	}
+	info, err := os.Stat(output)
+	if err != nil || info.Size() == 0 {
+		t.Fatalf("expected the restored output to exist and be non-empty, info=%v err=%v", info, err)
+	}
+}
+
+func TestRecipeUndoSkipsModifiedOutput(t *testing.T) {
+	service, history, _ := newTestService(t)
+
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.pdf")
+	writePDFFixture(t, input, 1)
+
+	run := service.Run(context.Background(), models.RecipeRequestV1{
+		RecipeID:   RecipeIDEmailPDF,
+		InputPaths: []string{input},
+		Options:    map[string]any{"targetSizeBytes": testLargeTargetBytes},
+	})
+	if !run.Success {
+		t.Fatalf("expected the recipe to be submitted, got %+v", run)
+	}
+
+	result := waitForRecipeTerminal(t, service, run.JobID)
+	if result.Status != models.JobStatusSuccess || len(result.Outputs) != 1 {
+		t.Fatalf("expected one successful output, got %+v", result)
+	}
+	output := result.Outputs[0]
+
+	file, err := os.OpenFile(output, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("open output for modification: %v", err)
+	}
+	if _, err := file.WriteString("modified after the recipe"); err != nil {
+		file.Close()
+		t.Fatalf("modify output: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close modified output: %v", err)
+	}
+
+	undo := history.Undo(run.JobID)
+	if undo.Success {
+		t.Fatalf("expected the modified output to be refused, got %+v", undo)
+	}
+	if len(undo.Skipped) != 1 || !strings.Contains(undo.Skipped[0].Reason, "modified") {
+		t.Fatalf("expected a modified-file skip, got %+v", undo.Skipped)
+	}
+	if _, err := os.Stat(output); err != nil {
+		t.Fatalf("expected the modified output to stay in place, stat err = %v", err)
+	}
+}
+
 func TestRunEmailPDFMergesMultipleInputs(t *testing.T) {
 	service, _, recorder := newTestService(t)
 
