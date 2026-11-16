@@ -39,7 +39,13 @@ import {
   VerificationReportV1,
   Wails,
 } from '../../services/wails';
-import { fileExtension, fileName, formatBytes, formatCount } from '../../utils/format';
+import {
+  fileExtension,
+  fileName,
+  formatBytes,
+  formatCount,
+  formatDuration,
+} from '../../utils/format';
 
 const DEFAULT_RECIPE_ID = 'recipe.email_pdf';
 const POLLING_INTERVAL_MS = 1000;
@@ -211,9 +217,14 @@ export class RecipeRun implements OnDestroy, OnInit {
     if (this.multipleInputs()) {
       return this.recipe()?.inputKind === 'pdf' ? 'Drop PDFs here' : 'Drop files here';
     }
-    return this.recipe()?.inputKind === 'image'
-      ? 'Drop an image here'
-      : 'Drop a file here';
+    switch (this.recipe()?.inputKind) {
+      case 'image':
+        return 'Drop an image here';
+      case 'video':
+        return 'Drop a video here';
+      default:
+        return 'Drop a file here';
+    }
   });
 
   private readonly titleParts = computed(() =>
@@ -274,6 +285,8 @@ export class RecipeRun implements OnDestroy, OnInit {
         return 'The result is saved next to the first PDF.';
       case 'image':
         return 'The result is saved next to the source image.';
+      case 'video':
+        return 'The results are saved next to the source video.';
       default:
         return 'The result is saved next to the original file.';
     }
@@ -519,6 +532,8 @@ export class RecipeRun implements OnDestroy, OnInit {
         return 'PDFs';
       case 'image':
         return 'Image';
+      case 'video':
+        return 'Video';
       default:
         return 'Files';
     }
@@ -533,6 +548,8 @@ export class RecipeRun implements OnDestroy, OnInit {
         return 'Choose PDF';
       case 'image':
         return 'Choose image';
+      case 'video':
+        return 'Choose video';
       default:
         return 'Choose file';
     }
@@ -1067,6 +1084,13 @@ export class RecipeRun implements OnDestroy, OnInit {
       parts.push(formatBytes(info.sizeBytes));
     }
     if (
+      info.kind === 'video' &&
+      typeof info.durationSeconds === 'number' &&
+      info.durationSeconds > 0
+    ) {
+      parts.push(formatDuration(info.durationSeconds));
+    }
+    if (
       typeof info.width === 'number' &&
       info.width > 0 &&
       typeof info.height === 'number' &&
@@ -1134,6 +1158,8 @@ export class RecipeRun implements OnDestroy, OnInit {
         return 'PDF';
       case 'image':
         return 'image';
+      case 'video':
+        return 'video';
       default:
         return 'file';
     }
@@ -1145,6 +1171,8 @@ export class RecipeRun implements OnDestroy, OnInit {
         return 'a PDF';
       case 'image':
         return 'an image';
+      case 'video':
+        return 'a video';
       default:
         return 'a file';
     }
@@ -1156,6 +1184,8 @@ export class RecipeRun implements OnDestroy, OnInit {
         return count === 1 ? 'PDF' : 'PDFs';
       case 'image':
         return count === 1 ? 'image' : 'images';
+      case 'video':
+        return count === 1 ? 'video' : 'videos';
       default:
         return count === 1 ? 'file' : 'files';
     }
@@ -1167,6 +1197,8 @@ export class RecipeRun implements OnDestroy, OnInit {
         return 'Next to the first PDF';
       case 'image':
         return 'Next to the image';
+      case 'video':
+        return 'Next to the video';
       default:
         return 'Next to the original';
     }

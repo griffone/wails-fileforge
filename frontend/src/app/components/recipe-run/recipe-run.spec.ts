@@ -22,6 +22,7 @@ import {
 
 const EMAIL_RECIPE_ID = 'recipe.email_pdf';
 const WEB_RECIPE_ID = 'recipe.web_image_set';
+const SOCIAL_RECIPE_ID = 'recipe.social_clip';
 const TARGET_BYTES = 10 * 1024 * 1024;
 
 const emailPdfRecipe: RecipeV1 = {
@@ -91,6 +92,45 @@ const WEB_OUTPUTS = [
   '/tmp/out/hero-800.jpg',
   '/tmp/out/hero-web-set.zip',
   '/tmp/out/hero-srcset.html',
+];
+
+const socialClipRecipe: RecipeV1 = {
+  id: SOCIAL_RECIPE_ID,
+  name: 'Social clip',
+  description:
+    'Encode one video as MP4 and WebM and export a poster frame, ready for social uploads.',
+  category: 'video',
+  inputKind: 'video',
+  acceptExtensions: ['mp4', 'mov', 'mkv', 'webm', 'avi'],
+  maxInputs: 1,
+  highlights: ['MP4 + WebM', 'Source resolution', 'Poster frame'],
+  steps: [
+    {
+      id: 'mp4',
+      name: 'Encode MP4',
+      toolId: 'tool.video.convert',
+      detail: 'H.264 + AAC at the source resolution',
+    },
+    {
+      id: 'webm',
+      name: 'Encode WebM',
+      toolId: 'tool.video.convert',
+      detail: 'VP9 + Opus at the source resolution',
+    },
+    {
+      id: 'poster',
+      name: 'Extract poster',
+      toolId: '',
+      detail: 'JPEG frame from the first second',
+    },
+  ],
+  defaultTargetSizeBytes: 0,
+};
+
+const SOCIAL_OUTPUTS = [
+  '/tmp/in/clip-social.mp4',
+  '/tmp/in/clip-social.webm',
+  '/tmp/in/clip-poster.jpg',
 ];
 
 function statusResponse(result: RecipeResultV1): RecipeStatusResponseV1 {
@@ -888,5 +928,249 @@ describe('RecipeRun (Web image set)', () => {
     expect(text).toContain('6 files prepared');
     expect(text).toContain('Verified');
     expect(text).toContain('6/6 checks passed');
+  }));
+});
+
+describe('RecipeRun (Social clip)', () => {
+  let fixture: ComponentFixture<RecipeRun>;
+  let component: RecipeRun;
+  let wailsSpy: jasmine.SpyObj<Wails>;
+
+  function query<T extends Element>(selector: string): T | null {
+    return fixture.nativeElement.querySelector(selector) as T | null;
+  }
+
+  function videoFileInfo(path: string): FileInfoV1 {
+    return {
+      path,
+      name: path.split(/[\\/]/).pop() ?? path,
+      directory: '/tmp/in',
+      extension: 'mp4',
+      sizeBytes: 1024 * 1024,
+      kind: 'video',
+      durationSeconds: 1,
+      width: 160,
+      height: 120,
+      videoCodec: 'h264',
+      audioCodec: 'aac',
+      exists: true,
+    };
+  }
+
+  function planResponse(request: RecipeRequestV1): RecipePlanResponseV1 {
+    return {
+      success: true,
+      message: 'Ready to publish 3 files.',
+      recipe: socialClipRecipe,
+      inputPaths: request.inputPaths,
+      outputDir: request.outputDir || '/tmp/in',
+      outputs: SOCIAL_OUTPUTS.map((path) => ({
+        inputPath: request.inputPaths[0] ?? '',
+        outputPath: path,
+        outputKind: 'file',
+        exists: false,
+        adjusted: false,
+      })),
+      warnings: [],
+    };
+  }
+
+  function socialRecipeResult(): RecipeResultV1 {
+    return {
+      jobId: 'social-job-1',
+      recipeId: SOCIAL_RECIPE_ID,
+      status: 'success',
+      message: 'Social clip ready: 3 files.',
+      currentStep: 3,
+      totalSteps: 3,
+      steps: [
+        {
+          id: 'mp4',
+          name: 'Encode MP4',
+          toolId: 'tool.video.convert',
+          status: 'success',
+          message: 'Encoded H.264 + AAC.',
+        },
+        {
+          id: 'webm',
+          name: 'Encode WebM',
+          toolId: 'tool.video.convert',
+          status: 'success',
+          message: 'Encoded VP9 + Opus.',
+        },
+        {
+          id: 'poster',
+          name: 'Extract poster',
+          toolId: '',
+          status: 'success',
+          message: 'Extracted the poster frame.',
+        },
+      ],
+      outputs: [...SOCIAL_OUTPUTS],
+      verification: {
+        success: true,
+        message: 'All checks passed.',
+        outputs: SOCIAL_OUTPUTS.map((path) => ({
+          path,
+          exists: true,
+          sizeBytes: 900 * 1024,
+          kind: path.endsWith('.jpg') ? 'image' : 'video',
+          checks: [
+            {
+              key: 'exists',
+              label: 'Exists',
+              passed: true,
+              value: 'yes',
+            },
+          ],
+        })),
+        warnings: [],
+      },
+      startedAt: 1,
+      endedAt: 2,
+    };
+  }
+
+  beforeEach(async () => {
+    wailsSpy = createWailsSpy();
+
+    wailsSpy.listRecipesV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [emailPdfRecipe, webImageSetRecipe, socialClipRecipe],
+    });
+    wailsSpy.planRecipeV1.and.callFake((request: RecipeRequestV1) =>
+      Promise.resolve(planResponse(request)),
+    );
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map(videoFileInfo),
+      }),
+    );
+    wailsSpy.runRecipeV1.and.resolveTo({
+      success: true,
+      message: 'recipe submitted',
+      jobId: 'social-job-1',
+      status: 'queued',
+    });
+    wailsSpy.getRecipeStatusV1.and.resolveTo(
+      statusResponse(socialRecipeResult()),
+    );
+    wailsSpy.cancelRecipeV1.and.resolveTo({
+      success: true,
+      found: true,
+      message: 'cancel requested',
+      result: socialRecipeResult(),
+    });
+    wailsSpy.openFileDialog.and.resolveTo('');
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
+    wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+
+    await TestBed.configureTestingModule({
+      imports: [RecipeRun],
+      providers: [
+        { provide: Wails, useValue: wailsSpy },
+        { provide: ActivatedRoute, useValue: createRoute(SOCIAL_RECIPE_ID) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(RecipeRun);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('loads the Social clip recipe and shows the video details', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.recipe()?.id).toBe(SOCIAL_RECIPE_ID);
+    expect(component.showTargetSize()).toBeFalse();
+    expect(component.multipleInputs()).toBeFalse();
+    expect(query('#recipe-target-mb')).toBeNull();
+
+    expect(component.inputTitle()).toBe('Video');
+    expect(component.dropTitle()).toBe('Drop a video here');
+    expect(component.chooseLabel()).toBe('Choose video');
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Social clip');
+    expect(text).toContain('MP4 + WebM');
+    expect(text).toContain('Source resolution');
+    expect(text).toContain('Poster frame');
+    expect(text).toContain('H.264 + AAC at the source resolution');
+    expect(text).toContain('VP9 + Opus at the source resolution');
+    expect(text).toContain('JPEG frame from the first second');
+
+    component.onPathsSelected(['/tmp/in/clip.mp4']);
+    flushMicrotasks();
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const meta = component.fileItems()[0]?.meta ?? '';
+    expect(meta).toContain('160 × 120 px');
+    expect(meta).toContain('0:01');
+  }));
+
+  it('rejects a non-video drop with a warning', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/in/notes.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.selectedPaths()).toEqual([]);
+    expect(component.notice()).toContain('notes.pdf');
+    expect(component.notice()).toContain("isn't a video");
+    expect(fixture.nativeElement.textContent).toContain("isn't a video");
+  }));
+
+  it('plans with one input and no options', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/in/clip.mp4']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planRecipeV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planRecipeV1.calls.mostRecent()
+      .args[0] as RecipeRequestV1;
+    expect(request.recipeId).toBe(SOCIAL_RECIPE_ID);
+    expect(request.inputPaths).toEqual(['/tmp/in/clip.mp4']);
+    expect(request.options).toEqual({});
+    expect(component.targetBytes()).toBe(0);
+  }));
+
+  it('runs, polls to terminal and lists the three verified outputs', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/in/clip.mp4']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runRecipeV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runRecipeV1.calls.mostRecent()
+      .args[0] as RecipeRequestV1;
+    expect(request.recipeId).toBe(SOCIAL_RECIPE_ID);
+    expect(request.options).toEqual({});
+    expect(component.terminalResult()?.status).toBe('success');
+    expect(component.resultJob()?.items.length).toBe(3);
+    expect(component.resultJob()?.toolId).toBe(SOCIAL_RECIPE_ID);
+
+    const text = fixture.nativeElement.textContent as string;
+    for (const output of SOCIAL_OUTPUTS) {
+      expect(text).toContain(output.split('/').pop() as string);
+    }
+    expect(text).toContain('3 files prepared');
+    expect(text).toContain('Verified');
+    expect(text).toContain('3/3 checks passed');
   }));
 });

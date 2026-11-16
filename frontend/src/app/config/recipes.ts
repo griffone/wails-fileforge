@@ -1,4 +1,4 @@
-import { Images, Mail, type LucideIconData } from 'lucide-angular';
+import { Clapperboard, Images, Mail, type LucideIconData } from 'lucide-angular';
 
 import { RecipeV1 } from '../services/wails';
 
@@ -92,6 +92,45 @@ export const RECIPES: readonly RecipeDefinition[] = [
           name: 'Write srcset snippet',
           toolId: '',
           detail: 'Ready-to-paste picture markup',
+        },
+      ],
+      defaultTargetSizeBytes: 0,
+    },
+  },
+  {
+    id: 'recipe.social_clip',
+    route: '/recipe/social-clip',
+    inputLabel: '1 video',
+    formats: ['MP4', 'WEBM'],
+    icon: Clapperboard,
+    fallback: {
+      id: 'recipe.social_clip',
+      name: 'Social clip',
+      description:
+        'Encode one video as MP4 and WebM and export a poster frame, ready for social uploads.',
+      category: 'video',
+      inputKind: 'video',
+      acceptExtensions: ['mp4', 'mov', 'mkv', 'webm', 'avi'],
+      maxInputs: 1,
+      highlights: ['MP4 + WebM', 'Source resolution', 'Poster frame'],
+      steps: [
+        {
+          id: 'mp4',
+          name: 'Encode MP4',
+          toolId: 'tool.video.convert',
+          detail: 'H.264 + AAC at the source resolution',
+        },
+        {
+          id: 'webm',
+          name: 'Encode WebM',
+          toolId: 'tool.video.convert',
+          detail: 'VP9 + Opus at the source resolution',
+        },
+        {
+          id: 'poster',
+          name: 'Extract poster',
+          toolId: '',
+          detail: 'JPEG frame from the first second',
         },
       ],
       defaultTargetSizeBytes: 0,

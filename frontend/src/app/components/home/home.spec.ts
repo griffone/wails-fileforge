@@ -332,7 +332,7 @@ describe('Home', () => {
     const cards = fixture.nativeElement.querySelectorAll(
       '.home-recipe-card',
     ) as NodeListOf<HTMLAnchorElement>;
-    expect(cards.length).toBe(2);
+    expect(cards.length).toBe(3);
 
     expect(cards[0].textContent).toContain('Email PDF');
     expect(cards[0].textContent).toContain('Target size');
@@ -342,6 +342,11 @@ describe('Home', () => {
     expect(cards[1].textContent).toContain('Web image set');
     expect(cards[1].textContent).toContain('ZIP + srcset');
     expect(cards[1].getAttribute('href')).toBe('/recipe/web-image-set');
+
+    expect(cards[2].textContent).toContain('Social clip');
+    expect(cards[2].textContent).toContain('MP4 + WebM');
+    expect(cards[2].textContent).toContain('Use recipe');
+    expect(cards[2].getAttribute('href')).toBe('/recipe/social-clip');
 
     expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
       'Outcomes, not one tool at a time.',

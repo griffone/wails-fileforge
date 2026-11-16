@@ -129,6 +129,12 @@ export class Home implements OnInit {
 
   /** Recipe cards borrow the category tone of the inputs they consume. */
   recipeTone(recipe: RecipeDefinition): string {
+    if (
+      recipe.fallback.category === 'video' ||
+      recipe.fallback.inputKind === 'video'
+    ) {
+      return 'video';
+    }
     if (recipe.fallback.category === 'image') {
       return 'image';
     }

@@ -38,5 +38,10 @@ export const routes: Routes = [
     component: RecipeRun,
     data: { recipeId: 'recipe.web_image_set' },
   },
+  {
+    path: 'recipe/social-clip',
+    component: RecipeRun,
+    data: { recipeId: 'recipe.social_clip' },
+  },
   { path: '**', redirectTo: '' },
 ];
