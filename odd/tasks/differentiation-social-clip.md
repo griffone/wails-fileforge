@@ -1,6 +1,6 @@
 # Differentiation Third Slice — Social Clip
 
-- Status: in progress
+- Status: implemented on branch; pending desktop end-to-end pass and merge
 - Branch: `feat/differentiation-social-clip`
 - Started: 2026-11-16
 - Plan: `docs/differentiation-roadmap.md`
@@ -50,6 +50,7 @@ The roadmap’s Archive document recipe depends on LibreOffice/pandoc for DOCX �
 - **No audio source**: outputs are video-only; the audio codec check is skipped.
 - **Codec checks are explicit**: generic verification records codec presence; the recipe checks the expected encoder.
 - **No ZIP**: the roadmap calls for two videos + poster, not a bundle.
+- **Shared stem helper**: the Web image set sanitizer was renamed to `recipeSourceStem` and is reused for social output names.
 
 ## Acceptance criteria
 
@@ -73,12 +74,41 @@ The roadmap’s Archive document recipe depends on LibreOffice/pandoc for DOCX �
 
 ## Progress
 
-- 2026-11-16: Slice scoped after confirming ffmpeg/ffprobe and the libx264/libvpx-vp9/aac/libopus encoders are installed, while LibreOffice/pandoc are not. Backend first, then Home/card and the generic page’s video input kind.
+- 2026-11-16: Slice scoped after confirming ffmpeg/ffprobe and the libx264/libvpx-vp9/aac/libopus encoders are installed, while LibreOffice/pandoc are not.
+- 2026-11-16: Backend implemented: `FileInfoV1` codecs, `ProbeVideoMetadata`, video verification checks, shared stem helper, Social clip plan/execute/poster/verification/cleanup, service wiring and regenerated bindings. Commit `cd5a8ad`.
+- 2026-11-16: Frontend implemented: Social clip fallback/card, video input kind copy, route, duration/resolution metadata and tests. Commit `0b9231a`.
 
-## Implementation notes
+## Verification evidence
 
-- Reuse the shared sanitized source-stem helper from the Web image set (rename it to a neutral `recipeSourceStem`).
-- Reuse `resolveRecipeOutputDir`, `outputplan.UniqueFilePath`, `singleExecutor`, `emitProgress`, `failJob`/`cancelJob`, `jobhistory.RecordOutputs`.
-- Use a package-level `socialClipPosterCommand` so tests can simulate poster failures; the default runs ffmpeg.
-- Poster writes go through a temp `.jpg` in the output directory and are renamed into place.
-- Verification lives in `internal/recipes/social_clip.go`; it appends checks to the generic report and recomputes `Success`/warnings.
+- `go build ./...` — pass.
+- `go test ./... -count=1` — pass, including `internal/recipes` real-video tests (MP4/WebM/poster, codecs, duration, silent source, short clip, failure/cancel cleanup), `internal/inspect` metadata parsing and `internal/verify` codec/dimension checks.
+- `cd frontend && npm run build:dev` — success. Pre-existing budget warnings remain (initial bundle; `home.css`, `result-card.css`, other component styles), all under the 8 kB error cap.
+- `CHROME_BIN=/usr/bin/brave npx ng test --watch=false --browsers=ChromeHeadless` — 410/410 success.
+- `npx tsc --noEmit -p tsconfig.app.json` — exit 0.
+- `npx agent-browser` visual check at 1440×900:
+  - Home shows Email PDF, Web image set and Social clip cards;
+  - Social clip page shows the video intake, hidden target, source-resolution highlights and three steps with details;
+  - dark and light themes render correctly.
+  - Preview mode only (`ng serve`), so IPC was not exercised.
+- Backend tests run real ffmpeg conversions on generated 160×120 clips and assert the encoded files, codecs and poster.
+- Pending: desktop end-to-end in the Wails window with a real user video and undo. The IPC path is covered by Go integration tests, regenerated bindings and mocked frontend specs.
+
+## Status by acceptance criterion
+
+| # | Status | Evidence |
+| --- | --- | --- |
+| 1 | Automated | `TestRunSocialClipProducesVerifiedBundle` |
+| 2 | Automated | codec/duration assertions in the run test and `addSocialClipChecks` |
+| 3 | Automated | `TestRunSocialClipSilentShortClipSkipsAudioChecks` |
+| 4 | Automated | plan warnings in `TestPlanSocialClipPlansBothEncodesAndPoster`, poster existence in the silent short test |
+| 5 | Automated | `TestPlanSocialClipRejectsInvalidRequests` |
+| 6 | Automated + visual | recipe-run Social clip specs, backend cancel/failure tests, visual page check |
+| 7 | Automated | `TestRunSocialClipFailureOnSecondEncodeRemovesCreatedFiles`, `TestRunSocialClipPosterFailureRemovesCreatedFiles` |
+| 8 | Verified | Go tests, 410 Karma specs, build, tsc; bindings regenerated only |
+| 9 | Verified | Full Go and frontend suites include Email PDF, Web image set and all 12 tools |
+
+## Next steps
+
+1. Run the desktop end-to-end pass with a real video and record the result.
+2. Merge the branch when the user requests it.
+3. Next roadmap slices: Archive document on a machine with LibreOffice, Clean scan (OCR with tesseract/pdftoppm), or Local Automation (watch folders).
