@@ -122,6 +122,123 @@
       </div>
     </section>
 
+    <section
+      class="panel settings-panel"
+      aria-labelledby="settings-capabilities-title"
+    >
+      <div class="panel-head">
+        <h2 id="settings-capabilities-title" class="panel-title">
+          Local capabilities
+        </h2>
+        <button
+          type="button"
+          class="icon-btn settings-refresh-capabilities"
+          aria-label="Refresh local capabilities"
+          [disabled]="capabilitiesLoading()"
+          [attr.aria-busy]="capabilitiesLoading()"
+          (click)="refreshCapabilities()"
+        >
+          <lucide-icon
+            [img]="refreshIcon"
+            [size]="15"
+            [strokeWidth]="1.75"
+            [class.is-spinning]="capabilitiesLoading()"
+            aria-hidden="true"
+          ></lucide-icon>
+        </button>
+      </div>
+
+      <div class="settings-body">
+        @if (capabilitiesLoading() && !capabilities()) {
+          <p
+            class="settings-capability-loading"
+            role="status"
+            aria-live="polite"
+          >
+            Checking local tools…
+          </p>
+        } @else if (capabilitiesError(); as message) {
+          <div
+            class="banner banner-warning settings-capability-error"
+            role="alert"
+          >
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <span class="settings-capability-error-text">{{ message }}</span>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm settings-retry-capabilities"
+              [disabled]="capabilitiesLoading()"
+              (click)="loadCapabilities()"
+            >
+              Retry
+            </button>
+          </div>
+        } @else if (capabilities(); as local) {
+          <ul
+            class="settings-capability-list"
+            aria-label="Local capability checks"
+          >
+            @for (check of local.checks; track check.id) {
+              <li class="settings-capability-row">
+                <div class="settings-capability-head">
+                  <span
+                    class="status-dot"
+                    [attr.data-state]="capabilityDotState(check)"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="settings-capability-label mono">{{
+                    check.label
+                  }}</span>
+                  <span class="badge badge-neutral settings-capability-scope">
+                    {{ check.required ? 'Required' : 'Optional' }}
+                  </span>
+                  <span [class]="capabilityBadgeClass(check)">{{
+                    capabilityStateLabel(check)
+                  }}</span>
+                </div>
+
+                <p class="settings-capability-detail">{{ check.detail }}</p>
+
+                @if (!check.available && check.suggestion) {
+                  <p class="settings-capability-suggestion">
+                    {{ check.suggestion }}
+                  </p>
+                }
+              </li>
+            }
+          </ul>
+
+          <div class="settings-capability-ocr">
+            <p class="settings-capability-ocr-line mono">
+              {{ ocrLanguageLabel() }}
+            </p>
+            @if (local.ocrLanguages.length > 0) {
+              <ul
+                class="settings-capability-langs"
+                aria-label="Installed OCR languages"
+              >
+                @for (language of local.ocrLanguages; track language) {
+                  <li class="settings-capability-lang mono">
+                    {{ language.toUpperCase() }}
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+
+          <p class="settings-help">
+            Optional tools are not downloaded automatically. Install them with
+            your system package manager.
+          </p>
+        }
+      </div>
+    </section>
+
     <section class="panel settings-panel" aria-labelledby="settings-history-title">
       <div class="panel-head">
         <h2 id="settings-history-title" class="panel-title">History</h2>

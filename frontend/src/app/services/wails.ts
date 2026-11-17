@@ -520,6 +520,51 @@ export interface OCRCapabilitiesResponseV1 {
   recommendedLanguage: string;
 }
 
+/** One external binary the local tools can rely on. */
+export interface LocalCapabilityV1 {
+  id: string;
+  label: string;
+  available: boolean;
+  required: boolean;
+  detail: string;
+  suggestion?: string;
+}
+
+/**
+ * Snapshot of the local runtime surface. Optional missing tools are guidance,
+ * never an app failure. Field names mirror the Go DTO JSON tags.
+ */
+export interface LocalCapabilitiesResponseV1 {
+  success: boolean;
+  message: string;
+  checks: LocalCapabilityV1[];
+  ocrLanguages: string[];
+  recommendedOcrLanguage?: string;
+}
+
+/** One terminal automation run kept in the local run history. */
+export interface AutomationRunRecordV1 {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  filePath: string;
+  status: string;
+  message: string;
+  outputs?: string[];
+  at: number;
+}
+
+export interface ListAutomationRunsResponseV1 {
+  success: boolean;
+  message: string;
+  runs: AutomationRunRecordV1[];
+}
+
+export interface AutomationRunsActionResponseV1 {
+  success: boolean;
+  message: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -949,6 +994,19 @@ export class Wails {
     }
   }
 
+  async getLocalCapabilitiesV1(): Promise<LocalCapabilitiesResponseV1> {
+    try {
+      return await this.callByID(3724439350);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get local capabilities failed', error),
+        checks: [],
+        ocrLanguages: [],
+      };
+    }
+  }
+
   async listRecipesV1(): Promise<ListRecipesResponseV1> {
     try {
       return await this.callByID(388441352);
@@ -1100,6 +1158,31 @@ export class Wails {
         message: this.formatMessage('Get automation status failed', error),
         totalRules: 0,
         activeRules: 0,
+      };
+    }
+  }
+
+  async listAutomationRunsV1(
+    limit: number,
+  ): Promise<ListAutomationRunsResponseV1> {
+    try {
+      return await this.callByID(546598670, limit);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('List automation runs failed', error),
+        runs: [],
+      };
+    }
+  }
+
+  async clearAutomationRunsV1(): Promise<AutomationRunsActionResponseV1> {
+    try {
+      return await this.callByID(1108054243);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Clear automation runs failed', error),
       };
     }
   }

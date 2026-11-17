@@ -312,6 +312,100 @@
   padding-top: 4px;
 }
 
+/* ---- Recent runs --------------------------------------------------------- */
+
+.automation-runs-head {
+  gap: 14px;
+}
+
+.automation-runs-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.automation-runs-confirm {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.automation-runs-body {
+  gap: 10px;
+}
+
+.automation-runs-loading,
+.automation-runs-empty {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.automation-runs-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.automation-run {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+}
+
+.automation-run + .automation-run {
+  border-top: 1px solid var(--border);
+}
+
+.automation-run-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.automation-run-rule {
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--text);
+}
+
+.automation-run-time {
+  margin-left: auto;
+  font-size: 0.625rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.automation-run-file {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.6875rem;
+  color: var(--text-soft);
+}
+
+.automation-run-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.automation-run-outputs {
+  font-size: 0.625rem;
+  color: var(--muted);
+}
+
 @media (max-width: 720px) {
   .page-head-row {
     flex-direction: column;

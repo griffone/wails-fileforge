@@ -8,9 +8,51 @@ import {
 import { Settings } from './settings';
 import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
-import { JobResultV1, Wails } from '../../services/wails';
+import {
+  JobResultV1,
+  LocalCapabilitiesResponseV1,
+  Wails,
+} from '../../services/wails';
 
 const ONBOARDING_KEY = 'ff-onboarding-dismissed';
+
+const CAPABILITIES: LocalCapabilitiesResponseV1 = {
+  success: true,
+  message: 'Local capabilities checked.',
+  checks: [
+    {
+      id: 'pdftoppm',
+      label: 'pdftoppm',
+      available: true,
+      required: true,
+      detail: 'OCR page rasterizer',
+    },
+    {
+      id: 'tesseract',
+      label: 'tesseract',
+      available: true,
+      required: true,
+      detail: 'Languages: AFR',
+    },
+    {
+      id: 'gs',
+      label: 'gs',
+      available: true,
+      required: false,
+      detail: 'PDF compression for target sizes',
+    },
+    {
+      id: 'libreoffice',
+      label: 'libreoffice',
+      available: false,
+      required: false,
+      detail: 'DOCX to PDF/A archival export',
+      suggestion: 'Install LibreOffice for PDF/A DOCX exports.',
+    },
+  ],
+  ocrLanguages: ['afr'],
+  recommendedOcrLanguage: 'afr',
+};
 
 describe('Settings', () => {
   let fixture: ComponentFixture<Settings>;
@@ -75,8 +117,12 @@ describe('Settings', () => {
   beforeEach(async () => {
     resetStorage();
 
-    wailsSpy = jasmine.createSpyObj<Wails>('Wails', ['openDirectoryDialog']);
+    wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
+      'openDirectoryDialog',
+      'getLocalCapabilitiesV1',
+    ]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.getLocalCapabilitiesV1.and.resolveTo(CAPABILITIES);
 
     await TestBed.configureTestingModule({
       imports: [Settings],
@@ -194,4 +240,100 @@ describe('Settings', () => {
       'Onboarding will show again on Home.',
     );
   });
+
+  it('renders local capability checks, states and OCR languages', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('Local capabilities');
+    expect(element().querySelectorAll('.settings-capability-row').length).toBe(4);
+    expect(text).toContain('pdftoppm');
+    expect(text).toContain('OCR page rasterizer');
+    expect(text).toContain('Required');
+    expect(text).toContain('Optional');
+    expect(text).toContain('Ready');
+    expect(text).toContain('Install LibreOffice for PDF/A DOCX exports.');
+    expect(text).toContain('OCR languages: AFR · recommended AFR');
+    expect(
+      element().querySelector('.settings-capability-lang')?.textContent,
+    ).toContain('AFR');
+
+    const rows = element().querySelectorAll('.settings-capability-row');
+    expect(
+      rows[0].querySelector('.status-dot')?.getAttribute('data-state'),
+    ).toBe('success');
+    expect(rows[0].querySelector('.badge-success')).not.toBeNull();
+  }));
+
+  it('marks a missing required tool as missing and dangerous', fakeAsync(() => {
+    wailsSpy.getLocalCapabilitiesV1.and.resolveTo({
+      ...CAPABILITIES,
+      checks: [
+        {
+          id: 'ffmpeg',
+          label: 'ffmpeg',
+          available: false,
+          required: true,
+          detail: 'Video conversion, trimming and merging',
+          suggestion: 'Install ffmpeg for the video tools.',
+        },
+      ],
+    });
+
+    component.refreshCapabilities();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const row = element().querySelector('.settings-capability-row');
+    expect(row?.textContent).toContain('Missing');
+    expect(row?.querySelector('.badge-danger')).not.toBeNull();
+    expect(row?.querySelector('.status-dot')?.getAttribute('data-state')).toBe(
+      'danger',
+    );
+    expect(row?.textContent).toContain('Install ffmpeg for the video tools.');
+  }));
+
+  it('refreshes local capabilities from the panel', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(1);
+
+    button('.settings-refresh-capabilities').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(2);
+  }));
+
+  it('shows a friendly IPC error and recovers with Retry', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    wailsSpy.getLocalCapabilitiesV1.and.resolveTo({
+      success: false,
+      message: '<!DOCTYPE html><html><body>Cannot POST /api</body></html>',
+      checks: [],
+      ocrLanguages: [],
+    });
+
+    button('.settings-refresh-capabilities').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const errorText = element().textContent ?? '';
+    expect(errorText).toContain('The local capability check did not run.');
+    expect(errorText).not.toContain('DOCTYPE');
+    expect(errorText).not.toContain('Cannot POST');
+
+    wailsSpy.getLocalCapabilitiesV1.and.resolveTo(CAPABILITIES);
+
+    button('.settings-retry-capabilities').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(3);
+    expect(element().textContent).toContain('OCR page rasterizer');
+  }));
 });

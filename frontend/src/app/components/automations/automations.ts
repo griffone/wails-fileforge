@@ -22,7 +22,9 @@ import { Subject, takeUntil } from 'rxjs';
 import {
   AutomationRuleV1,
   AutomationRunEventV1,
+  AutomationRunRecordV1,
   AutomationStatusResponseV1,
+  ListAutomationRunsResponseV1,
   ListAutomationRulesResponseV1,
   RecipeV1,
   Wails,
@@ -43,6 +45,16 @@ interface LastRunSummary {
 }
 
 const OUTPUT_PREVIEW_LIMIT = 3;
+const RUN_HISTORY_LIMIT = 20;
+
+/** Only terminal runs are kept: a `running` event is progress, not history. */
+const TERMINAL_RUN_STATUSES = new Set([
+  'success',
+  'partial_success',
+  'failed',
+  'cancelled',
+  'interrupted',
+]);
 
 @Component({
   selector: 'app-automations',
@@ -66,11 +78,15 @@ export class Automations implements OnInit, OnDestroy {
   readonly rules = signal<AutomationRuleV1[]>([]);
   readonly recipes = signal<RecipeV1[]>([]);
   readonly status = signal<AutomationStatusResponseV1 | null>(null);
+  readonly runs = signal<AutomationRunRecordV1[]>([]);
 
   readonly loading = signal(true);
   readonly saving = signal(false);
   readonly errorMessage = signal('');
   readonly actionMessage = signal<ActionMessage | null>(null);
+
+  readonly runsLoading = signal(false);
+  readonly confirmClearRuns = signal(false);
 
   readonly formOpen = signal(false);
   readonly editingRule = signal<AutomationRuleV1 | null>(null);
@@ -163,8 +179,9 @@ export class Automations implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     this.loading.set(true);
+    this.runsLoading.set(true);
     try {
-      const [recipesResponse, rulesResponse, statusResponse] =
+      const [recipesResponse, rulesResponse, statusResponse, runsResponse] =
         await Promise.all([
           this.wailsService.listRecipesV1().catch(() => ({
             success: false,
@@ -182,6 +199,13 @@ export class Automations implements OnInit, OnDestroy {
             totalRules: 0,
             activeRules: 0,
           })),
+          this.wailsService.listAutomationRunsV1(RUN_HISTORY_LIMIT).catch(
+            () => ({
+              success: false,
+              message: 'The automation run history could not be loaded.',
+              runs: [] as AutomationRunRecordV1[],
+            }),
+          ),
         ]);
 
       if (recipesResponse.success) {
@@ -193,8 +217,10 @@ export class Automations implements OnInit, OnDestroy {
 
       this.applyRulesResponse(rulesResponse);
       this.applyStatusResponse(statusResponse);
+      this.applyRunsResponse(runsResponse);
     } finally {
       this.loading.set(false);
+      this.runsLoading.set(false);
     }
   }
 
@@ -296,6 +322,18 @@ export class Automations implements OnInit, OnDestroy {
     return (rule.lastOutputs ?? [])
       .slice(0, OUTPUT_PREVIEW_LIMIT)
       .map((path) => fileName(path));
+  }
+
+  runOutputsLabel(run: AutomationRunRecordV1): string {
+    const count = run.outputs?.length ?? 0;
+    if (count === 0) {
+      return 'No outputs';
+    }
+    return count === 1 ? '1 file' : `${count} files`;
+  }
+
+  runFileName(run: AutomationRunRecordV1): string {
+    return fileName(run.filePath) || 'Unknown file';
   }
 
   relativeTime(timestamp: number | undefined): string {
@@ -496,6 +534,45 @@ export class Automations implements OnInit, OnDestroy {
     this.confirmDeleteId.set('');
   }
 
+  requestClearRuns(): void {
+    if (this.runsLoading() || this.runs().length === 0) {
+      return;
+    }
+    this.confirmClearRuns.set(true);
+  }
+
+  cancelClearRuns(): void {
+    this.confirmClearRuns.set(false);
+  }
+
+  async clearRuns(): Promise<void> {
+    if (this.runsLoading()) {
+      return;
+    }
+
+    this.runsLoading.set(true);
+    const response = await this.wailsService.clearAutomationRunsV1();
+    this.runsLoading.set(false);
+    this.confirmClearRuns.set(false);
+
+    if (!response.success) {
+      this.setAction(
+        'danger',
+        this.friendlyMessage(
+          response.message,
+          'The run history could not be cleared.',
+        ),
+      );
+      return;
+    }
+
+    this.runs.set([]);
+    this.setAction(
+      'success',
+      this.friendlyMessage(response.message, 'Automation run history cleared.'),
+    );
+  }
+
   async deleteRule(rule: AutomationRuleV1): Promise<void> {
     if (this.saving()) {
       return;
@@ -585,6 +662,21 @@ export class Automations implements OnInit, OnDestroy {
     }
   }
 
+  private applyRunsResponse(response: ListAutomationRunsResponseV1): void {
+    if (response.success) {
+      this.runs.set(response.runs ?? []);
+      return;
+    }
+
+    this.runs.set([]);
+    this.errorMessage.set(
+      this.friendlyMessage(
+        response.message,
+        'The automation run history could not be loaded. Open the desktop app to inspect past runs.',
+      ),
+    );
+  }
+
   private setError(message: string): void {
     this.errorMessage.set(
       this.friendlyMessage(
@@ -672,6 +764,28 @@ export class Automations implements OnInit, OnDestroy {
         lastMessage: event.message ?? '',
         lastFile: event.filePath ?? '',
       };
+    });
+
+    if (!TERMINAL_RUN_STATUSES.has(event.status)) {
+      return;
+    }
+
+    const record: AutomationRunRecordV1 = {
+      id: `live-${at}-${event.ruleId}`,
+      ruleId: event.ruleId,
+      ruleName: event.ruleName || target.name,
+      filePath: event.filePath ?? '',
+      status: event.status,
+      message: event.message ?? '',
+      outputs,
+      at,
+    };
+
+    this.runs.update((runs) => {
+      if (runs.some((run) => run.id === record.id)) {
+        return runs;
+      }
+      return [record, ...runs].slice(0, RUN_HISTORY_LIMIT);
     });
   }
 }
