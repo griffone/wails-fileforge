@@ -627,6 +627,34 @@ func (s *Service) installTessdata(ctx context.Context, staging string, languages
 		s.progress(PhaseTessdata, endPercent, fmt.Sprintf("Tesseract language data (%s) is installed.", language), false)
 	}
 
+	return s.installTessdataPDFAssets(force)
+}
+
+// installTessdataPDFAssets copies the Tesseract PDF config and font from the
+// conda prefix into the managed tessdata folder. Without them tesseract exits
+// successfully but writes no searchable PDF, and the OCR pipeline later fails
+// while merging the missing page files.
+func (s *Service) installTessdataPDFAssets(force bool) error {
+	targetDir := tessdataDir(s.root)
+	sourceDir := tessdataAssetsSourceDir(s.root, s.platform.OS)
+
+	for _, relative := range tessdataPDFAssets {
+		target := filepath.Join(targetDir, relative)
+		if !force && fileWithContent(target) {
+			continue
+		}
+
+		source := filepath.Join(sourceDir, relative)
+		if !fileWithContent(source) {
+			return fmt.Errorf("the Tesseract package is missing %s; reinstall the toolchain", relative)
+		}
+		if err := copyFileContent(source, target); err != nil {
+			return fmt.Errorf("install Tesseract PDF support (%s): %w", relative, err)
+		}
+	}
+
+	s.progress(PhaseTessdata, readyPercent, "Tesseract PDF support is installed.", false)
+
 	return nil
 }
 
@@ -949,6 +977,19 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 			Detail:   fmt.Sprintf("Tesseract %s language data", language),
 		})
 	}
+
+	pdfAssetsReady, pdfAssetsDetail := tessdataPDFAssetsState(tessdataDir(s.root))
+	pdfAssetsComponent := models.ToolchainComponentV1{
+		ID:       "tesseract-pdf",
+		Label:    "Tesseract PDF output",
+		Ready:    pdfAssetsReady,
+		Required: len(languages) > 0,
+		Detail:   pdfAssetsDetail,
+	}
+	if pdfAssetsReady {
+		pdfAssetsComponent.Path = filepath.Join(tessdataDir(s.root), "pdf.ttf")
+	}
+	components = append(components, pdfAssetsComponent)
 
 	return components
 }

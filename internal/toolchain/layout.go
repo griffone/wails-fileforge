@@ -55,6 +55,38 @@ func ManagedTessdataDir(dataDir string) string {
 	return filepath.Join(ToolchainDir(dataDir), "tessdata")
 }
 
+// tessdataPDFAssets lists the Tesseract data files required by the searchable
+// PDF output. The languages are downloaded separately; without these files
+// tesseract exits successfully but writes no PDF, which later surfaces as a
+// misleading "failed to merge the recognized pages" error.
+var tessdataPDFAssets = []string{
+	"pdf.ttf",
+	filepath.Join("configs", "pdf"),
+	filepath.Join("configs", "txt"),
+}
+
+// tessdataAssetsSourceDir returns the conda prefix folder that ships the
+// Tesseract PDF assets. Windows environments keep share under Library.
+func tessdataAssetsSourceDir(root, goos string) string {
+	if goos == "windows" {
+		return filepath.Join(envDir(root), "Library", "share", "tessdata")
+	}
+
+	return filepath.Join(envDir(root), "share", "tessdata")
+}
+
+// tessdataPDFAssetsState reports whether every PDF asset is present and gives
+// the user-facing detail shown by the toolchain status.
+func tessdataPDFAssetsState(dir string) (bool, string) {
+	for _, relative := range tessdataPDFAssets {
+		if !fileWithContent(filepath.Join(dir, relative)) {
+			return false, "Tesseract PDF output data is incomplete (missing config or font). Run Install / repair."
+		}
+	}
+
+	return true, "Tesseract PDF output data"
+}
+
 // whisperRuntimeState verifies that the managed whisper-cli exists and, on
 // Linux, that the soname symlinks required by the prebuilt binary are present.
 // Dropping those symlinks during extraction leaves whisper-cli unable to load

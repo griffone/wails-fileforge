@@ -163,6 +163,16 @@ func writeFakeCondaEnvironment(prefix string) error {
 		}
 	}
 
+	for _, relative := range []string{"pdf.ttf", filepath.Join("configs", "pdf"), filepath.Join("configs", "txt")} {
+		path := filepath.Join(prefix, "share", "tessdata", relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte("tesseract pdf asset"), 0o644); err != nil {
+			return err
+		}
+	}
+
 	return os.MkdirAll(filepath.Join(prefix, "conda-meta"), 0o755)
 }
 
@@ -307,6 +317,7 @@ func TestStatusBeforeInstall(t *testing.T) {
 	expected := []string{
 		"micromamba", "ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext",
 		"ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa",
+		"tesseract-pdf",
 	}
 	if len(status.Components) != len(expected) {
 		t.Fatalf("expected %d components, got %d: %+v", len(expected), len(status.Components), status.Components)
@@ -320,8 +331,8 @@ func TestStatusBeforeInstall(t *testing.T) {
 			t.Fatalf("component %q must not be ready before the install", id)
 		}
 	}
-	if !byID["ffmpeg"].Required || !byID["whisper-model"].Required || !byID["tesseract-eng"].Required {
-		t.Fatal("expected ffmpeg, whisper-model and tesseract-eng to be required")
+	if !byID["ffmpeg"].Required || !byID["whisper-model"].Required || !byID["tesseract-eng"].Required || !byID["tesseract-pdf"].Required {
+		t.Fatal("expected ffmpeg, whisper-model, tesseract-eng and tesseract-pdf to be required")
 	}
 	if byID["micromamba"].Required || byID["ghostscript"].Required || byID["pdftotext"].Required {
 		t.Fatal("expected micromamba, ghostscript and pdftotext to be optional")
@@ -851,6 +862,45 @@ func TestMissingWhisperSharedLibraryIsNotReadyAndRepairs(t *testing.T) {
 	}
 	if _, err := os.Lstat(library); err != nil {
 		t.Fatalf("expected the soname symlink/library to be restored: %v", err)
+	}
+}
+
+func TestMissingTessdataPDFAssetsIsNotReadyAndRepairs(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	dataDir := t.TempDir()
+	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, &fakeRunner{})
+
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	waitForTerminalEvent(t, events)
+	if !service.Status().Ready {
+		t.Fatal("expected the initial install to be ready")
+	}
+
+	pdfConfig := filepath.Join(dataDir, ToolchainDirName, "tessdata", "configs", "pdf")
+	if err := os.Remove(pdfConfig); err != nil {
+		t.Fatalf("remove tessdata pdf config: %v", err)
+	}
+
+	status := service.Status()
+	if status.Ready {
+		t.Fatal("a tessdata folder without the PDF config must not be ready")
+	}
+	component := componentsByID(t, status)["tesseract-pdf"]
+	if component.Ready || !strings.Contains(component.Detail, "incomplete") {
+		t.Fatalf("expected an incomplete Tesseract PDF detail, got %+v", component)
+	}
+
+	service.StartIfNeeded(context.Background())
+	if !service.Status().Installing {
+		t.Fatal("expected StartIfNeeded to repair the missing PDF assets")
+	}
+	waitForTerminalEvent(t, events)
+	if !service.Status().Ready {
+		t.Fatal("expected the repaired toolchain to be ready")
+	}
+	if _, err := os.Lstat(pdfConfig); err != nil {
+		t.Fatalf("expected the PDF config to be restored: %v", err)
 	}
 }
 

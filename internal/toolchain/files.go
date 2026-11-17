@@ -27,6 +27,40 @@ func fileWithContent(path string) bool {
 	return err == nil && !info.IsDir() && info.Size() > 0
 }
 
+// copyFileContent copies sourcePath into destPath through a temp file, so an
+// interrupted copy never leaves a truncated asset behind.
+func copyFileContent(sourcePath, destPath string) error {
+	payload, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", sourcePath, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", filepath.Dir(destPath), err)
+	}
+
+	tempFile, err := os.CreateTemp(filepath.Dir(destPath), ".tessdata-*")
+	if err != nil {
+		return fmt.Errorf("create a temporary file in %s: %w", filepath.Dir(destPath), err)
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		_ = os.Remove(tempPath)
+	}()
+
+	if _, err := tempFile.Write(payload); err != nil {
+		_ = tempFile.Close()
+		return fmt.Errorf("write %s: %w", tempPath, err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", tempPath, err)
+	}
+	if err := os.Chmod(tempPath, 0o644); err != nil {
+		return fmt.Errorf("prepare %s: %w", tempPath, err)
+	}
+
+	return replaceFile(tempPath, destPath)
+}
+
 // directoryExists reports whether path is an existing directory.
 func directoryExists(path string) bool {
 	info, err := os.Stat(path)

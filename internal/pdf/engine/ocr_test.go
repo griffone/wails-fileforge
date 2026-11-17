@@ -65,6 +65,7 @@ type stubCommandRunner struct {
 	outputs  map[string][]byte
 	failures map[string]error
 	blockOn  string
+	onCall   func(name string, args []string) error
 	calls    []string
 }
 
@@ -75,6 +76,7 @@ func (r *stubCommandRunner) Output(ctx context.Context, name string, args []stri
 	blockOn := r.blockOn
 	output, hasOutput := r.outputs[call]
 	failure, hasFailure := r.failures[call]
+	onCall := r.onCall
 	r.mu.Unlock()
 
 	if blockOn != "" && name == blockOn {
@@ -86,6 +88,13 @@ func (r *stubCommandRunner) Output(ctx context.Context, name string, args []stri
 	}
 	if hasOutput {
 		return output, nil
+	}
+	if onCall != nil {
+		if callErr := onCall(name, args); callErr != nil {
+			return nil, callErr
+		}
+
+		return nil, nil
 	}
 
 	return nil, fmt.Errorf("unexpected command: %s", call)
@@ -413,5 +422,73 @@ func TestConvertCancellationLeavesNoOutputsAndCleansTemp(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("expected the OCR workspace to be removed, found %d entries", len(entries))
+	}
+}
+
+func TestValidateTesseractPageOutputs(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "ocr-1")
+
+	if outputErr := validateTesseractPageOutputs(base, 1); outputErr == nil || outputErr.Code != OCRCodeRecognizeFailed {
+		t.Fatalf("expected a missing PDF error, got %v", outputErr)
+	}
+
+	if err := os.WriteFile(base+".txt", []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write text fixture: %v", err)
+	}
+	if outputErr := validateTesseractPageOutputs(base, 1); outputErr == nil || !strings.Contains(outputErr.Message, "searchable PDF") {
+		t.Fatalf("expected the missing searchable PDF message, got %v", outputErr)
+	}
+
+	if err := os.WriteFile(base+".pdf", []byte("pdf"), 0o644); err != nil {
+		t.Fatalf("write PDF fixture: %v", err)
+	}
+	if outputErr := validateTesseractPageOutputs(base, 1); outputErr != nil {
+		t.Fatalf("expected valid outputs, got %v", outputErr)
+	}
+}
+
+func TestConvertRejectsMissingTesseractPDF(t *testing.T) {
+	if !ocrBinaryAvailable("tesseract") || !ocrBinaryAvailable("pdftoppm") {
+		t.Skip("tesseract or pdftoppm is not installed")
+	}
+
+	dir := t.TempDir()
+	input := filepath.Join(dir, "scan.pdf")
+	writeOCRTextPDF(t, input, 1)
+
+	runner := &stubCommandRunner{
+		outputs: map[string][]byte{
+			"tesseract --list-langs": []byte("List of available languages (1):\neng\n"),
+		},
+		onCall: func(name string, args []string) error {
+			switch name {
+			case "pdftoppm":
+				if len(args) == 0 {
+					return fmt.Errorf("pdftoppm called without arguments")
+				}
+
+				return os.WriteFile(args[len(args)-1]+"-1.png", []byte("png"), 0o644)
+			case "tesseract":
+				if len(args) >= 2 {
+					return os.WriteFile(args[1]+".txt", []byte("hello"), 0o644)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	_, ocrErr := Convert(context.Background(), runner, OCRRequest{
+		InputPath:     input,
+		OutputPDFPath: filepath.Join(dir, "scan_ocr.pdf"),
+		Language:      "eng",
+		DPI:           300,
+	}, nil)
+	if ocrErr == nil || ocrErr.Code != OCRCodeRecognizeFailed {
+		t.Fatalf("expected OCR_RECOGNIZE_FAILED, got %v", ocrErr)
+	}
+	if !strings.Contains(ocrErr.Message, "searchable PDF") {
+		t.Fatalf("expected the missing PDF message, got %q", ocrErr.Message)
 	}
 }

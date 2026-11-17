@@ -509,6 +509,10 @@ func convertWithCapabilities(ctx context.Context, runner CommandRunner, capabili
 			}
 		}
 
+		if outputErr := validateTesseractPageOutputs(pageBase, index+1); outputErr != nil {
+			return OCRResult{}, outputErr
+		}
+
 		pageText, readErr := os.ReadFile(pageBase + ".txt")
 		if readErr != nil {
 			return OCRResult{}, &OCRError{
@@ -610,6 +614,33 @@ func convertWithCapabilities(ctx context.Context, runner CommandRunner, capabili
 		Optimized:      optimized,
 		Warnings:       warnings,
 	}, nil
+}
+
+// validateTesseractPageOutputs catches a silent Tesseract failure. When the PDF
+// config or pdf.ttf is missing, tesseract exits successfully but writes no PDF,
+// and the pipeline would later fail while merging files that do not exist.
+func validateTesseractPageOutputs(pageBase string, pageNumber int) *OCRError {
+	pdfPath := pageBase + ".pdf"
+	if info, err := os.Stat(pdfPath); err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		return &OCRError{
+			Code:    OCRCodeRecognizeFailed,
+			Message: fmt.Sprintf("Tesseract did not produce the searchable PDF for page %d. Install or repair the OCR data.", pageNumber),
+			Cause:   err,
+		}
+	}
+
+	// A blank page legitimately produces an empty text file, so only its
+	// presence is required.
+	textPath := pageBase + ".txt"
+	if info, err := os.Stat(textPath); err != nil || !info.Mode().IsRegular() {
+		return &OCRError{
+			Code:    OCRCodeRecognizeFailed,
+			Message: fmt.Sprintf("Tesseract did not produce the text for page %d.", pageNumber),
+			Cause:   err,
+		}
+	}
+
+	return nil
 }
 
 // rasterizeOCRPages renders every page to PNG and returns the page images in
