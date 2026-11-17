@@ -6,6 +6,292 @@
   </header>
 
   <div class="settings-stack">
+    <section
+      class="panel settings-panel settings-toolchain"
+      aria-labelledby="settings-toolchain-title"
+    >
+      <div class="panel-head">
+        <h2 id="settings-toolchain-title" class="panel-title">
+          Tools &amp; Models
+        </h2>
+        <div class="settings-toolchain-head">
+          @if (toolchainStatus()) {
+            <span [class]="toolchainBadgeClass()">{{
+              toolchainStateLabel()
+            }}</span>
+          }
+          <button
+            type="button"
+            class="icon-btn settings-refresh-toolchain"
+            aria-label="Refresh tools and models"
+            [disabled]="toolchainLoading()"
+            [attr.aria-busy]="toolchainLoading()"
+            (click)="refreshToolchain()"
+          >
+            <lucide-icon
+              [img]="refreshIcon"
+              [size]="15"
+              [strokeWidth]="1.75"
+              [class.is-spinning]="toolchainLoading()"
+              aria-hidden="true"
+            ></lucide-icon>
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-body">
+        @if (!toolchainStatus()) {
+          @if (toolchainLoading()) {
+            <p
+              class="settings-capability-loading"
+              role="status"
+              aria-live="polite"
+            >
+              Checking local tools…
+            </p>
+          } @else {
+            <div class="banner banner-info settings-toolchain-unavailable">
+              <span class="settings-capability-error-text">
+                The managed toolchain status is not available in this preview.
+                Open FileForge in the desktop app to install local tools.
+              </span>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm settings-retry-toolchain"
+                (click)="refreshToolchain()"
+              >
+                Retry
+              </button>
+            </div>
+          }
+        } @else {
+          @if (toolchainError(); as error) {
+            <div
+              class="banner banner-danger settings-capability-error settings-toolchain-error"
+              role="alert"
+            >
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span class="settings-capability-error-text">{{ error }}</span>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm settings-retry-toolchain"
+                [disabled]="toolchainBusy()"
+                (click)="installToolchain()"
+              >
+                Retry
+              </button>
+            </div>
+          }
+
+          @if (toolchainUnsupported()) {
+            <div
+              class="banner banner-warning settings-toolchain-unsupported"
+              role="status"
+            >
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span class="settings-capability-error-text">{{
+                toolchainStatus()?.message
+              }}</span>
+            </div>
+          }
+
+          @if (toolchainBusy()) {
+            <div class="settings-toolchain-progress">
+              <div
+                class="progress"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                [attr.aria-valuenow]="
+                  toolchainIndeterminate() ? null : toolchainPercent()
+                "
+                [attr.aria-valuetext]="
+                  toolchainPhaseLabel() + ' · ' + toolchainPercent() + '%'
+                "
+              >
+                <div
+                  class="progress-fill"
+                  [class.is-indeterminate]="toolchainIndeterminate()"
+                  [style.width.%]="
+                    toolchainIndeterminate() ? null : toolchainPercent()
+                  "
+                ></div>
+              </div>
+              <div class="settings-toolchain-progress-meta">
+                <span class="settings-toolchain-phase">{{
+                  toolchainPhaseLabel()
+                }}</span>
+                <span class="settings-toolchain-percent mono"
+                  >{{ toolchainPercent() }}%</span
+                >
+              </div>
+              @if (toolchainMessage()) {
+                <p class="settings-help settings-toolchain-message">
+                  {{ toolchainMessage() }}
+                </p>
+              }
+            </div>
+          }
+
+          <div class="settings-toolchain-controls">
+            <div class="field">
+              <label class="label" for="settings-toolchain-model">
+                Model quality
+              </label>
+              <select
+                id="settings-toolchain-model"
+                class="select settings-model-select"
+                [value]="toolchainModel()"
+                [disabled]="toolchainBusy()"
+                (change)="onToolchainModelChange($event)"
+              >
+                @for (model of toolchainModels; track model.id) {
+                  <option [value]="model.id">{{ model.label }}</option>
+                }
+              </select>
+              <p class="settings-help">
+                Model downloads are large: Small is about 466 MB, Medium about
+                1.5 GB and Large v3 about 3.1 GB.
+              </p>
+            </div>
+
+            <div class="field">
+              <span class="label" id="settings-toolchain-languages-label">
+                OCR languages
+              </span>
+              <div
+                class="settings-toolchain-langs"
+                role="group"
+                aria-labelledby="settings-toolchain-languages-label"
+              >
+                @for (language of toolchainOcrOptions; track language.id) {
+                  <label class="settings-check">
+                    <input
+                      type="checkbox"
+                      class="settings-ocr-{{ language.id }}"
+                      [checked]="isToolchainLanguageSelected(language.id)"
+                      [disabled]="toolchainBusy()"
+                      (change)="
+                        onToolchainLanguageChange(language.id, $event)
+                      "
+                    />
+                    <span>{{ language.label }}</span>
+                  </label>
+                }
+              </div>
+              <p class="settings-help">
+                Tesseract language data. Keep at least one language selected.
+              </p>
+            </div>
+          </div>
+
+          <div class="settings-toolchain-component-block">
+            <span class="label">Components</span>
+            <ul
+              class="settings-capability-list settings-toolchain-components"
+              aria-label="Managed tool components"
+            >
+              @for (component of toolchainComponents(); track component.id) {
+                <li class="settings-capability-row settings-toolchain-row">
+                  <div class="settings-capability-head">
+                    <span
+                      class="status-dot"
+                      [attr.data-state]="toolchainComponentDotState(component)"
+                      aria-hidden="true"
+                    ></span>
+                    <span class="settings-capability-label mono">{{
+                      component.label
+                    }}</span>
+                    <span
+                      class="badge badge-neutral settings-capability-scope"
+                    >
+                      {{ component.required ? 'Required' : 'Optional' }}
+                    </span>
+                    <span [class]="toolchainComponentBadgeClass(component)">{{
+                      toolchainComponentStateLabel(component)
+                    }}</span>
+                  </div>
+
+                  @if (toolchainComponentMeta(component); as meta) {
+                    <p
+                      class="settings-capability-detail settings-toolchain-meta mono"
+                      [title]="meta"
+                    >
+                      {{ meta }}
+                    </p>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+
+          <div class="settings-current">
+            <span class="settings-current-label">Storage</span>
+            <p class="settings-path mono settings-toolchain-storage">
+              {{ toolchainStorageDir() || 'Not reported' }}
+            </p>
+          </div>
+
+          <p class="settings-help">
+            Installed under your user data folder. No admin rights or system
+            PATH changes.
+          </p>
+
+          <div class="actions">
+            @if (
+              !toolchainReady() &&
+              !toolchainBusy() &&
+              !toolchainUnsupported() &&
+              !toolchainError()
+            ) {
+              <button
+                type="button"
+                class="btn btn-primary btn-sm settings-install-toolchain"
+                (click)="installToolchain()"
+              >
+                Install local tools
+              </button>
+            }
+            @if (toolchainBusy()) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm settings-cancel-toolchain"
+                [disabled]="toolchainStatus()?.cancelling === true"
+                (click)="cancelToolchain()"
+              >
+                Cancel
+              </button>
+            }
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm settings-open-storage"
+              [disabled]="!toolchainStorageDir()"
+              (click)="openToolchainStorage()"
+            >
+              Open folder
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm settings-refresh-toolchain-secondary"
+              (click)="refreshToolchain()"
+            >
+              Refresh
+            </button>
+          </div>
+        }
+      </div>
+    </section>
+
     <section class="panel settings-panel" aria-labelledby="settings-output-title">
       <div class="panel-head">
         <h2 id="settings-output-title" class="panel-title">Output</h2>

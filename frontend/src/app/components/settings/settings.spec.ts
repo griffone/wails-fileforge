@@ -4,18 +4,151 @@ import {
   flushMicrotasks,
   TestBed,
 } from '@angular/core/testing';
+import { computed, signal } from '@angular/core';
 
 import { Settings } from './settings';
 import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
+import { ToolchainStateService } from '../../services/toolchain-state.service';
 import {
   JobResultV1,
   LocalCapabilitiesResponseV1,
+  ToolchainComponentV1,
+  ToolchainInstallEventV1,
+  ToolchainStatusV1,
   TranscriptionCapabilitiesResponseV1,
   Wails,
 } from '../../services/wails';
 
 const ONBOARDING_KEY = 'ff-onboarding-dismissed';
+const TOOLCHAIN_STORAGE = '/home/user/.local/share/fileforge/toolchain';
+
+class ToolchainStateStub {
+  readonly status = signal<ToolchainStatusV1 | null>(null);
+  readonly event = signal<ToolchainInstallEventV1 | null>(null);
+  readonly loading = signal(false);
+  readonly isBusy = computed(() => this.status()?.installing === true);
+
+  refresh = jasmine.createSpy('refresh').and.resolveTo(undefined);
+  ensureStarted = jasmine.createSpy('ensureStarted').and.resolveTo(undefined);
+  install = jasmine.createSpy('install').and.resolveTo(null);
+  cancel = jasmine.createSpy('cancel').and.resolveTo(null);
+}
+
+const TOOLCHAIN_COMPONENTS: ToolchainComponentV1[] = [
+  {
+    id: 'micromamba',
+    label: 'micromamba',
+    ready: true,
+    required: false,
+    path: `${TOOLCHAIN_STORAGE}/micromamba`,
+    version: '2.0.0',
+    detail: 'Portable package manager',
+  },
+  {
+    id: 'ffmpeg',
+    label: 'ffmpeg',
+    ready: true,
+    required: true,
+    path: `${TOOLCHAIN_STORAGE}/env/bin/ffmpeg`,
+    version: '7.1',
+  },
+  {
+    id: 'ffprobe',
+    label: 'ffprobe',
+    ready: true,
+    required: true,
+    path: `${TOOLCHAIN_STORAGE}/env/bin/ffprobe`,
+    version: '7.1',
+  },
+  {
+    id: 'tesseract',
+    label: 'tesseract',
+    ready: true,
+    required: true,
+    path: `${TOOLCHAIN_STORAGE}/env/bin/tesseract`,
+    version: '5.5.0',
+  },
+  {
+    id: 'pdftoppm',
+    label: 'pdftoppm',
+    ready: true,
+    required: true,
+    path: `${TOOLCHAIN_STORAGE}/env/bin/pdftoppm`,
+  },
+  {
+    id: 'pdftotext',
+    label: 'pdftotext',
+    ready: true,
+    required: false,
+    path: `${TOOLCHAIN_STORAGE}/env/bin/pdftotext`,
+  },
+  {
+    id: 'gs',
+    label: 'Ghostscript',
+    ready: true,
+    required: false,
+    path: `${TOOLCHAIN_STORAGE}/env/bin/gs`,
+    version: '10.04.0',
+  },
+  {
+    id: 'whisper-cli',
+    label: 'Whisper runtime',
+    ready: true,
+    required: true,
+    path: `${TOOLCHAIN_STORAGE}/whisper/whisper-cli`,
+  },
+  {
+    id: 'whisper-model',
+    label: 'Whisper model',
+    ready: true,
+    required: true,
+    path: `${TOOLCHAIN_STORAGE}/models/ggml-small.bin`,
+    detail: 'Whisper small model',
+  },
+  {
+    id: 'tesseract-eng',
+    label: 'Tesseract eng',
+    ready: true,
+    required: true,
+    path: `${TOOLCHAIN_STORAGE}/tessdata/eng.traineddata`,
+  },
+  {
+    id: 'tesseract-spa',
+    label: 'Tesseract spa',
+    ready: true,
+    required: true,
+    path: `${TOOLCHAIN_STORAGE}/tessdata/spa.traineddata`,
+  },
+];
+
+function toolchainStatus(
+  overrides: Partial<ToolchainStatusV1> = {},
+): ToolchainStatusV1 {
+  return {
+    success: true,
+    message: 'Local tools are not installed.',
+    ready: false,
+    installing: false,
+    percent: 0,
+    phase: 'idle',
+    storageDir: TOOLCHAIN_STORAGE,
+    components: TOOLCHAIN_COMPONENTS,
+    model: 'small',
+    ocrLanguages: ['eng', 'spa'],
+    ...overrides,
+  };
+}
+
+function readyToolchain(): ToolchainStatusV1 {
+  return toolchainStatus({
+    ready: true,
+    percent: 100,
+    phase: 'ready',
+    message: 'Local tools are ready.',
+    detail: 'Local tools are ready.',
+  });
+}
 
 const CAPABILITIES: LocalCapabilitiesResponseV1 = {
   success: true,
@@ -73,6 +206,7 @@ describe('Settings', () => {
   let fixture: ComponentFixture<Settings>;
   let component: Settings;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let toolchain: ToolchainStateStub;
 
   function element(): HTMLElement {
     return fixture.nativeElement as HTMLElement;
@@ -135,17 +269,24 @@ describe('Settings', () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'openDirectoryDialog',
       'openFileDialog',
+      'openPath',
       'getLocalCapabilitiesV1',
       'getTranscriptionCapabilitiesV1',
     ]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.openFileDialog.and.resolveTo('');
+    wailsSpy.openPath.and.resolveTo({ success: true, message: 'opened' });
     wailsSpy.getLocalCapabilitiesV1.and.resolveTo(CAPABILITIES);
     wailsSpy.getTranscriptionCapabilitiesV1.and.resolveTo(TRANSCRIPTION);
 
+    toolchain = new ToolchainStateStub();
+
     await TestBed.configureTestingModule({
       imports: [Settings],
-      providers: [{ provide: Wails, useValue: wailsSpy }],
+      providers: [
+        { provide: Wails, useValue: wailsSpy },
+        { provide: ToolchainStateService, useValue: toolchain },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(Settings);
@@ -495,5 +636,183 @@ describe('Settings', () => {
         .querySelector('.settings-transcription-status .status-dot')
         ?.getAttribute('data-state'),
     ).toBe('warning');
+  }));
+
+  it('renders all managed components, storage and the ready badge', fakeAsync(() => {
+    toolchain.status.set(readyToolchain());
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('Tools & Models');
+    expect(text).toContain('Ready');
+    expect(element().querySelectorAll('.settings-toolchain-row').length).toBe(
+      TOOLCHAIN_COMPONENTS.length,
+    );
+    expect(text).toContain('Whisper runtime');
+    expect(text).toContain('Tesseract spa');
+    expect(
+      element()
+        .querySelector('.settings-toolchain-row .status-dot')
+        ?.getAttribute('data-state'),
+    ).toBe('success');
+    expect(
+      element().querySelector('.settings-toolchain-row .badge-success'),
+    ).not.toBeNull();
+    expect(
+      element().querySelector('.settings-toolchain-storage')?.textContent,
+    ).toContain(TOOLCHAIN_STORAGE);
+    expect(
+      element()
+        .querySelector('.settings-toolchain-head .badge')
+        ?.textContent,
+    ).toContain('Ready');
+    expect(toolchain.refresh).toHaveBeenCalled();
+  }));
+
+  it('sends the selected Whisper model to install', fakeAsync(() => {
+    toolchain.status.set(toolchainStatus());
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    const select = element().querySelector<HTMLSelectElement>(
+      '.settings-model-select',
+    );
+    expect(select).not.toBeNull();
+    expect(select?.value).toBe('small');
+
+    select!.value = 'medium';
+    select!.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    expect(toolchain.install).toHaveBeenCalledWith({
+      model: 'medium',
+      ocrLanguages: ['eng', 'spa'],
+      force: false,
+    });
+  }));
+
+  it('sends the updated OCR language set to install', fakeAsync(() => {
+    toolchain.status.set(toolchainStatus());
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    const spanish = element().querySelector<HTMLInputElement>(
+      '.settings-ocr-spa',
+    );
+    expect(spanish?.checked).toBeTrue();
+
+    spanish!.checked = false;
+    spanish!.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    expect(toolchain.install).toHaveBeenCalledWith({
+      model: 'small',
+      ocrLanguages: ['eng'],
+      force: false,
+    });
+  }));
+
+  it('shows install progress and cancels an active install', fakeAsync(() => {
+    toolchain.status.set(
+      toolchainStatus({
+        installing: true,
+        percent: 42,
+        phase: 'model',
+        detail: 'Downloading the Whisper model…',
+        message: 'Local tools are being installed.',
+      }),
+    );
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('Installing');
+    expect(text).toContain('Downloading the model');
+    expect(text).toContain('42%');
+    expect(text).toContain('Downloading the Whisper model…');
+    expect(
+      element()
+        .querySelector('.settings-toolchain-progress .progress-fill')
+        ?.getAttribute('style'),
+    ).toContain('42%');
+
+    button('.settings-cancel-toolchain').click();
+    expect(toolchain.cancel).toHaveBeenCalled();
+  }));
+
+  it('opens the toolchain storage folder', fakeAsync(() => {
+    toolchain.status.set(readyToolchain());
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    button('.settings-open-storage').click();
+    flushMicrotasks();
+
+    expect(wailsSpy.openPath).toHaveBeenCalledWith(TOOLCHAIN_STORAGE);
+  }));
+
+  it('shows the install error and retries with the current options', fakeAsync(() => {
+    toolchain.status.set(
+      toolchainStatus({
+        success: false,
+        error: 'The Whisper model download failed.',
+        message: 'The Whisper model download failed.',
+        phase: 'model',
+        percent: 55,
+      }),
+    );
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(element().textContent).toContain(
+      'The Whisper model download failed.',
+    );
+    expect(
+      element().querySelector('.settings-toolchain-head .badge-danger'),
+    ).not.toBeNull();
+
+    button('.settings-retry-toolchain').click();
+
+    expect(toolchain.install).toHaveBeenCalledWith({
+      model: 'small',
+      ocrLanguages: ['eng', 'spa'],
+      force: false,
+    });
+  }));
+
+  it('shows an unsupported-platform message without an install button', fakeAsync(() => {
+    toolchain.status.set(
+      toolchainStatus({
+        message:
+          'The managed toolchain is not available for linux/arm64: no verified prebuilt binaries exist for this platform.',
+        detail:
+          'The managed toolchain is not available for linux/arm64: no verified prebuilt binaries exist for this platform.',
+      }),
+    );
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(element().textContent).toContain('not available for linux/arm64');
+    expect(element().querySelector('.settings-install-toolchain')).toBeNull();
+  }));
+
+  it('reloads dependent panels once the toolchain becomes ready', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledTimes(1);
+
+    toolchain.status.set(readyToolchain());
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledTimes(2);
   }));
 });

@@ -1,8 +1,39 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { EMPTY } from 'rxjs';
 
 import { App } from './app';
 import { GlobalDropService } from './services/global-drop.service';
+import { ToolchainStatusV1, Wails } from './services/wails';
+
+const TOOLCHAIN_FALLBACK: ToolchainStatusV1 = {
+  success: false,
+  message: 'Toolchain IPC unavailable in the test shell.',
+  ready: false,
+  installing: false,
+  percent: 0,
+  storageDir: '',
+  components: [],
+  model: 'small',
+  ocrLanguages: [],
+};
+
+function createWailsStub(): jasmine.SpyObj<Wails> {
+  const stub = jasmine.createSpyObj<Wails>('Wails', [
+    'isRuntimeAvailable',
+    'getToolchainStatusV1',
+    'getToolchainInstallStateV1',
+    'startToolchainInstallV1',
+    'cancelToolchainInstallV1',
+  ]);
+  stub.isRuntimeAvailable.and.returnValue(false);
+  stub.getToolchainStatusV1.and.resolveTo(TOOLCHAIN_FALLBACK);
+  stub.getToolchainInstallStateV1.and.resolveTo(TOOLCHAIN_FALLBACK);
+  stub.startToolchainInstallV1.and.resolveTo(TOOLCHAIN_FALLBACK);
+  stub.cancelToolchainInstallV1.and.resolveTo(TOOLCHAIN_FALLBACK);
+  (stub as unknown as { toolchainInstall$: unknown }).toolchainInstall$ = EMPTY;
+  return stub;
+}
 
 describe('App', () => {
   let globalDrop: GlobalDropService;
@@ -12,7 +43,10 @@ describe('App', () => {
 
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter([])],
+      providers: [
+        provideRouter([]),
+        { provide: Wails, useValue: createWailsStub() },
+      ],
     }).compileComponents();
 
     globalDrop = TestBed.inject(GlobalDropService);
