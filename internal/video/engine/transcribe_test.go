@@ -20,16 +20,20 @@ const (
 )
 
 // stubTranscribePaths isolates the binary/model search from the real machine.
-// A nil lookPath simulates whisper-cli not being on PATH.
+// A nil lookPath simulates whisper-cli not being on PATH. The installer-managed
+// paths are stubbed out so a developer machine with an installed toolchain does
+// not change the expectations.
 func stubTranscribePaths(t *testing.T, homeDir, configDir string, lookPath func(string) (string, error)) {
 	t.Helper()
 
 	originalHome := transcribeUserHomeDir
 	originalConfig := transcribeUserConfigDir
 	originalLookPath := transcribeLookPath
+	originalManaged := managedTranscribePaths
 
 	transcribeUserHomeDir = func() (string, error) { return homeDir, nil }
 	transcribeUserConfigDir = func() (string, error) { return configDir, nil }
+	managedTranscribePaths = func() (string, []string) { return "", nil }
 	if lookPath == nil {
 		transcribeLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	} else {
@@ -40,6 +44,7 @@ func stubTranscribePaths(t *testing.T, homeDir, configDir string, lookPath func(
 		transcribeUserHomeDir = originalHome
 		transcribeUserConfigDir = originalConfig
 		transcribeLookPath = originalLookPath
+		managedTranscribePaths = originalManaged
 	})
 }
 
@@ -781,4 +786,79 @@ func hasString(values []string, target string) bool {
 	}
 
 	return false
+}
+
+// stubManagedTranscribePaths overrides the installer-managed runtime resolution
+// for tests. Call it after stubTranscribePaths so the isolated empty stub is
+// replaced by the fixture.
+func stubManagedTranscribePaths(t *testing.T, whisperPath string, modelPaths []string) {
+	t.Helper()
+
+	originalManaged := managedTranscribePaths
+	managedTranscribePaths = func() (string, []string) {
+		return whisperPath, append([]string{}, modelPaths...)
+	}
+	t.Cleanup(func() { managedTranscribePaths = originalManaged })
+}
+
+func TestTranscriptionCandidatesIncludeManagedToolchain(t *testing.T) {
+	stubTranscribePaths(t, t.TempDir(), t.TempDir(), nil)
+
+	dataDir := t.TempDir()
+	fixturesDir := filepath.Join(dataDir, "toolchain")
+	managedWhisper := filepath.Join(fixturesDir, "whisper", "whisper-cli")
+	managedModels := []string{
+		filepath.Join(fixturesDir, "models", "ggml-small.bin"),
+		filepath.Join(fixturesDir, "models", "ggml-medium.bin"),
+		filepath.Join(fixturesDir, "models", "ggml-large-v3.bin"),
+	}
+	stubManagedTranscribePaths(t, managedWhisper, managedModels)
+
+	whisperCandidates := WhisperPathCandidates("")
+	if len(whisperCandidates) == 0 || whisperCandidates[0] != managedWhisper {
+		t.Fatalf("expected the managed whisper-cli first, got %v", whisperCandidates)
+	}
+
+	modelCandidates := ModelPathCandidates("")
+	if len(modelCandidates) < len(managedModels) {
+		t.Fatalf("expected the managed models, got %v", modelCandidates)
+	}
+	for index, want := range managedModels {
+		if modelCandidates[index] != want {
+			t.Fatalf("model candidate %d = %q, want %q", index, modelCandidates[index], want)
+		}
+	}
+}
+
+func TestTranscriptionProvidedOverrideWinsOverManagedToolchain(t *testing.T) {
+	stubTranscribePaths(t, t.TempDir(), t.TempDir(), nil)
+	stubManagedTranscribePaths(t, filepath.Join(t.TempDir(), "whisper-cli"), []string{
+		filepath.Join(t.TempDir(), "ggml-small.bin"),
+	})
+
+	providedWhisper := filepath.Join(t.TempDir(), "custom-whisper")
+	if got := WhisperPathCandidates(providedWhisper)[0]; got != providedWhisper {
+		t.Fatalf("whisper candidate 0 = %q, want the provided override", got)
+	}
+
+	providedModel := filepath.Join(t.TempDir(), "custom-model.bin")
+	if got := ModelPathCandidates(providedModel)[0]; got != providedModel {
+		t.Fatalf("model candidate 0 = %q, want the provided override", got)
+	}
+}
+
+func TestResolveWhisperPathUsesManagedRuntime(t *testing.T) {
+	stubTranscribePaths(t, t.TempDir(), t.TempDir(), nil)
+
+	managedWhisper := filepath.Join(t.TempDir(), "toolchain", "whisper", "whisper-cli")
+	writeTranscribeTestFile(t, managedWhisper, "binary", 0o755)
+	stubManagedTranscribePaths(t, managedWhisper, nil)
+
+	got, present := ResolveWhisperPath("")
+	if !present {
+		t.Fatal("expected the managed whisper-cli to be present")
+	}
+	if got != managedWhisper {
+		t.Fatalf("expected %q, got %q", managedWhisper, got)
+	}
 }

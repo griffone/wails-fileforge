@@ -3365,6 +3365,265 @@ export class ToolRuntimeStateV1 {
 }
 
 /**
+ * ToolchainComponentV1 is one portable component of the managed local
+ * toolchain. Ready means the file was verified on disk; Required components
+ * gate ToolchainStatusV1.Ready.
+ */
+export class ToolchainComponentV1 {
+    /**
+     * Creates a new ToolchainComponentV1 instance.
+     * @param {Partial<ToolchainComponentV1>} [$$source = {}] - The source object to create the ToolchainComponentV1.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("ready" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ready"] = false;
+        }
+        if (!("required" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["required"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["path"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["version"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["detail"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ToolchainComponentV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ToolchainComponentV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ToolchainComponentV1(/** @type {Partial<ToolchainComponentV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * ToolchainInstallOptionsV1 selects what the installer must provide. An empty
+ * model installs "small"; an empty language list installs English and Spanish.
+ */
+export class ToolchainInstallOptionsV1 {
+    /**
+     * Creates a new ToolchainInstallOptionsV1 instance.
+     * @param {Partial<ToolchainInstallOptionsV1>} [$$source = {}] - The source object to create the ToolchainInstallOptionsV1.
+     */
+    constructor($$source = {}) {
+        if (!("model" in $$source)) {
+            /**
+             * small|medium|large-v3; empty = small
+             * @member
+             * @type {string}
+             */
+            this["model"] = "";
+        }
+        if (!("ocrLanguages" in $$source)) {
+            /**
+             * eng|spa; empty = both
+             * @member
+             * @type {string[]}
+             */
+            this["ocrLanguages"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["force"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ToolchainInstallOptionsV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ToolchainInstallOptionsV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("ocrLanguages" in $$parsedSource) {
+            $$parsedSource["ocrLanguages"] = $$createField1_0($$parsedSource["ocrLanguages"]);
+        }
+        return new ToolchainInstallOptionsV1(/** @type {Partial<ToolchainInstallOptionsV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * ToolchainStatusV1 is the managed toolchain snapshot: component readiness,
+ * the selected Whisper model, the installed OCR languages and the current
+ * install state. It is safe to poll while an install runs.
+ */
+export class ToolchainStatusV1 {
+    /**
+     * Creates a new ToolchainStatusV1 instance.
+     * @param {Partial<ToolchainStatusV1>} [$$source = {}] - The source object to create the ToolchainStatusV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("ready" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ready"] = false;
+        }
+        if (!("installing" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["installing"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["cancelling"] = undefined;
+        }
+        if (!("percent" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["percent"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["phase"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["detail"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["error"] = undefined;
+        }
+        if (!("storageDir" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["storageDir"] = "";
+        }
+        if (!("components" in $$source)) {
+            /**
+             * @member
+             * @type {ToolchainComponentV1[]}
+             */
+            this["components"] = [];
+        }
+        if (!("model" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["model"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["modelPath"] = undefined;
+        }
+        if (!("ocrLanguages" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["ocrLanguages"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ToolchainStatusV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ToolchainStatusV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField10_0 = $$createType40;
+        const $$createField13_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("components" in $$parsedSource) {
+            $$parsedSource["components"] = $$createField10_0($$parsedSource["components"]);
+        }
+        if ("ocrLanguages" in $$parsedSource) {
+            $$parsedSource["ocrLanguages"] = $$createField13_0($$parsedSource["ocrLanguages"]);
+        }
+        return new ToolchainStatusV1(/** @type {Partial<ToolchainStatusV1>} */($$parsedSource));
+    }
+}
+
+/**
  * TranscriptionCapabilitiesResponseV1 reports whether local Whisper
  * transcription can run. Available requires both the whisper-cli binary and a
  * non-empty model file. Paths are the resolved ones: a user override wins when
@@ -3520,7 +3779,7 @@ export class UndoResultV1 {
      */
     static createFrom($$source = {}) {
         const $$createField2_0 = $$createType4;
-        const $$createField3_0 = $$createType40;
+        const $$createField3_0 = $$createType42;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("moved" in $$parsedSource) {
             $$parsedSource["moved"] = $$createField2_0($$parsedSource["moved"]);
@@ -3723,7 +3982,7 @@ export class VerificationReportV1 {
      * @returns {VerificationReportV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType42;
+        const $$createField2_0 = $$createType44;
         const $$createField3_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
@@ -3794,7 +4053,7 @@ export class VerifiedOutputV1 {
      * @returns {VerifiedOutputV1}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType44;
+        const $$createField4_0 = $$createType46;
         const $$createField5_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("checks" in $$parsedSource) {
@@ -3847,9 +4106,11 @@ const $$createType35 = RecipeStepV1.createFrom;
 const $$createType36 = $Create.Array($$createType35);
 const $$createType37 = ToolManifestV1.createFrom;
 const $$createType38 = ToolRuntimeStateV1.createFrom;
-const $$createType39 = UndoSkippedV1.createFrom;
+const $$createType39 = ToolchainComponentV1.createFrom;
 const $$createType40 = $Create.Array($$createType39);
-const $$createType41 = VerifiedOutputV1.createFrom;
+const $$createType41 = UndoSkippedV1.createFrom;
 const $$createType42 = $Create.Array($$createType41);
-const $$createType43 = VerificationCheckV1.createFrom;
+const $$createType43 = VerifiedOutputV1.createFrom;
 const $$createType44 = $Create.Array($$createType43);
+const $$createType45 = VerificationCheckV1.createFrom;
+const $$createType46 = $Create.Array($$createType45);

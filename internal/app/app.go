@@ -23,6 +23,7 @@ import (
 	"fileforge-desktop/internal/recipes"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/services"
+	"fileforge-desktop/internal/toolchain"
 	"fileforge-desktop/internal/video"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -34,6 +35,7 @@ type App struct {
 	recipeService     *recipes.Service
 	automationService *automation.Service
 	previewService    *preview.PreviewService
+	toolchainService  *toolchain.Service
 }
 
 func New() *App {
@@ -66,7 +68,36 @@ func New() *App {
 	}
 	allowed = append(allowed, os.TempDir())
 	a.previewService = preview.NewPreviewService(preview.Config{AllowedRoots: allowed, MaxQueue: 1024})
+	a.toolchainService = newToolchainService()
 	return a
+}
+
+// newToolchainService builds the managed toolchain installer for the running
+// machine. The installer is best-effort infrastructure: an unresolvable data
+// directory falls back to the user cache directory so app startup never fails.
+func newToolchainService() *toolchain.Service {
+	dataDir, err := toolchain.DataDir()
+	if err != nil || strings.TrimSpace(dataDir) == "" {
+		if cacheDir, cacheErr := os.UserCacheDir(); cacheErr == nil && strings.TrimSpace(cacheDir) != "" {
+			dataDir = filepath.Join(cacheDir, "fileforge")
+		} else {
+			dataDir = filepath.Join(os.TempDir(), "fileforge")
+		}
+	}
+
+	return toolchain.NewService(
+		dataDir,
+		toolchain.CurrentPlatform(),
+		&toolchain.HTTPDownloader{},
+		&toolchain.ExecCommandRunner{},
+		func(evt models.ToolchainInstallEventV1) {
+			app := application.Get()
+			if app == nil {
+				return
+			}
+			app.Event.Emit(toolchain.InstallEventNameV1, evt)
+		},
+	)
 }
 
 func (a *App) SetContext(ctx context.Context) {
@@ -87,6 +118,12 @@ func (a *App) contextOrBackground() context.Context {
 // job persistence and interrupted-job recovery become active.
 func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	a.SetContext(ctx)
+	// The managed toolchain is optional infrastructure: applying the managed
+	// PATH and starting the first-run install must never abort app startup.
+	if a.toolchainService != nil {
+		_ = a.toolchainService.ApplyEnvironment()
+		a.toolchainService.StartIfNeeded(ctx)
+	}
 	// Automation rules are optional: a broken rule or watch folder is reported
 	// as degraded and must never abort app startup.
 	if a.automationService != nil {
@@ -105,6 +142,9 @@ func (a *App) ServiceShutdown() error {
 // Shutdown gracefully stops services owned by App.
 func (a *App) Shutdown(ctx context.Context) error {
 	var firstErr error
+	if a.toolchainService != nil {
+		a.toolchainService.Cancel()
+	}
 	if a.automationService != nil {
 		a.automationService.Shutdown()
 	}
@@ -212,6 +252,45 @@ func (a *App) GetTranscriptionCapabilitiesV1(whisperPath, modelPath string) mode
 // OCR languages. It never fails: a missing tool is reported, not an error.
 func (a *App) GetLocalCapabilitiesV1() models.LocalCapabilitiesResponseV1 {
 	return capabilities.Detect(a.contextOrBackground())
+}
+
+// GetToolchainStatusV1 returns the managed toolchain snapshot: component
+// readiness, the selected Whisper model, the OCR languages and the current
+// install state. It is safe to poll while an install runs.
+func (a *App) GetToolchainStatusV1() models.ToolchainStatusV1 {
+	if a.toolchainService == nil {
+		return models.ToolchainStatusV1{Success: false, Message: "The local toolchain installer is not available."}
+	}
+
+	return a.toolchainService.Status()
+}
+
+// GetToolchainInstallStateV1 returns the same snapshot as GetToolchainStatusV1.
+// It exists so a UI that loads after the install events fired can render the
+// current phase, percent and error immediately.
+func (a *App) GetToolchainInstallStateV1() models.ToolchainStatusV1 {
+	return a.GetToolchainStatusV1()
+}
+
+// StartToolchainInstallV1 starts or repairs the managed toolchain. Invalid
+// options and unsupported platforms return a status with Error instead of
+// starting a background install.
+func (a *App) StartToolchainInstallV1(options models.ToolchainInstallOptionsV1) models.ToolchainStatusV1 {
+	if a.toolchainService == nil {
+		return models.ToolchainStatusV1{Success: false, Message: "The local toolchain installer is not available."}
+	}
+
+	return a.toolchainService.Start(a.contextOrBackground(), options)
+}
+
+// CancelToolchainInstallV1 stops the active install and cleans its staging
+// files. A cancelled install is never reported as ready.
+func (a *App) CancelToolchainInstallV1() models.ToolchainStatusV1 {
+	if a.toolchainService == nil {
+		return models.ToolchainStatusV1{Success: false, Message: "The local toolchain installer is not available."}
+	}
+
+	return a.toolchainService.Cancel()
 }
 
 // PlanRecipeV1 validates a recipe request and resolves its final output

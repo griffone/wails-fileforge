@@ -35,16 +35,35 @@ const (
 	ghostscriptPresetScreen = "screen"
 )
 
+// GhostscriptBinaryNames is the Ghostscript binary search order: gs on Unix and
+// the Windows console builds, which is what the managed conda environment
+// installs on Windows.
+var GhostscriptBinaryNames = []string{"gs", "gswin64c", "gswin32c"}
+
 // GhostscriptRunner runs Ghostscript PDF compression with one PDFSETTINGS
 // preset. It is a package-level variable so tests can replace the external
 // binary with a deterministic stub.
 var GhostscriptRunner = runGhostscript
 
-// GhostscriptLookPath reports whether the gs binary is available. It is a
-// package-level variable so tests can simulate a machine without Ghostscript.
+// ResolveGhostscriptPath returns the first Ghostscript binary found in PATH.
+// The bool is false when no supported name exists.
+func ResolveGhostscriptPath() (string, bool) {
+	for _, name := range GhostscriptBinaryNames {
+		path, err := exec.LookPath(name)
+		if err == nil && strings.TrimSpace(path) != "" {
+			return path, true
+		}
+	}
+
+	return "", false
+}
+
+// GhostscriptLookPath reports whether a supported Ghostscript binary is
+// available. It is a package-level variable so tests can simulate a machine
+// without Ghostscript.
 var GhostscriptLookPath = func() bool {
-	_, err := exec.LookPath("gs")
-	return err == nil
+	_, found := ResolveGhostscriptPath()
+	return found
 }
 
 // OptimizeOptions describe one optimize run. TargetSizeBytes enables the
@@ -68,9 +87,14 @@ type OptimizeOutcome struct {
 }
 
 func runGhostscript(ctx context.Context, inputPath, outputPath, preset string) error {
+	binaryPath, found := ResolveGhostscriptPath()
+	if !found {
+		return fmt.Errorf("ghostscript binary not found (tried %s)", strings.Join(GhostscriptBinaryNames, ", "))
+	}
+
 	command := exec.CommandContext(
 		ctx,
-		"gs",
+		binaryPath,
 		"-sDEVICE=pdfwrite",
 		"-dCompatibilityLevel=1.7",
 		"-dPDFSETTINGS=/"+preset,

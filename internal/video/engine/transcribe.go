@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"fileforge-desktop/internal/toolchain"
 )
 
 // Local Whisper transcription. The pipeline extracts a mono 16 kHz WAV with
@@ -64,6 +66,18 @@ var (
 	transcribeUserHomeDir   = os.UserHomeDir
 	transcribeUserConfigDir = os.UserConfigDir
 	transcribeLookPath      = exec.LookPath
+
+	// managedTranscribePaths resolves the installer-managed whisper.cpp runtime
+	// and models. It is a package variable so tests can isolate the resolver
+	// from the machine and so this package does not depend on installer state.
+	managedTranscribePaths = func() (string, []string) {
+		dataDir, err := toolchain.DataDir()
+		if err != nil || strings.TrimSpace(dataDir) == "" {
+			return "", nil
+		}
+
+		return toolchain.ManagedWhisperCLIPath(dataDir), toolchain.ManagedModelPaths(dataDir)
+	}
 )
 
 // transcribeTimestampLinePattern matches SRT and VTT cue timing lines. Only the
@@ -198,12 +212,16 @@ func (c TranscriptionCapabilities) Available() bool {
 }
 
 // WhisperPathCandidates returns the binary search order: the provided path (a
-// Settings override), the installed local-share path, the per-user config path
-// and whisper-cli from PATH.
+// Settings override), the installer-managed whisper.cpp runtime, the installed
+// local-share path, the per-user config path and whisper-cli from PATH.
 func WhisperPathCandidates(providedPath string) []string {
-	candidates := make([]string, 0, 4)
+	candidates := make([]string, 0, 6)
 	if trimmed := strings.TrimSpace(providedPath); trimmed != "" {
 		candidates = append(candidates, filepath.Clean(trimmed))
+	}
+
+	if managedWhisperPath, _ := managedTranscribePaths(); strings.TrimSpace(managedWhisperPath) != "" {
+		candidates = append(candidates, filepath.Clean(managedWhisperPath))
 	}
 
 	if home, err := transcribeUserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
@@ -222,12 +240,20 @@ func WhisperPathCandidates(providedPath string) []string {
 }
 
 // ModelPathCandidates returns the model search order: the provided path (a
-// Settings override), the installed local-share model and the per-user config
-// model.
+// Settings override), the installer-managed models (default first), the
+// installed local-share model and the per-user config model.
 func ModelPathCandidates(providedPath string) []string {
-	candidates := make([]string, 0, 3)
+	candidates := make([]string, 0, 6)
 	if trimmed := strings.TrimSpace(providedPath); trimmed != "" {
 		candidates = append(candidates, filepath.Clean(trimmed))
+	}
+
+	if _, managedModels := managedTranscribePaths(); len(managedModels) > 0 {
+		for _, modelPath := range managedModels {
+			if strings.TrimSpace(modelPath) != "" {
+				candidates = append(candidates, filepath.Clean(modelPath))
+			}
+		}
 	}
 
 	if home, err := transcribeUserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
