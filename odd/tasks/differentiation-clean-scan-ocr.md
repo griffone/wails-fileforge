@@ -1,6 +1,6 @@
 # Differentiation Fifth Slice — Clean Scan (Local OCR)
 
-- Status: in progress
+- Status: implemented on branch; pending desktop end-to-end pass and merge
 - Branch: `feat/clean-scan-ocr`
 - Started: 2026-11-17
 - Plan: `docs/differentiation-roadmap.md`
@@ -10,76 +10,61 @@
 ## Environment facts
 
 - `pdftoppm`, `tesseract` 5.5.4 and `pdftotext` are installed.
-- Installed Tesseract languages: `afr` and `osd` only. `eng`/`spa` data is **not** installed.
-- The tool must detect installed languages, default to the best available (`eng` → `spa` → first non-`osd`), and show a clear capability warning. Tests use the first installed language and skip when none exists.
-- `ocrmypdf` is not installed and is not used; the pipeline is explicit: pdftoppm → tesseract → pdfcpu merge/optimize.
+- Installed Tesseract languages: `afr` and `osd` only. `eng`/`spa` data is **not** installed. The UI detects this, defaults to the first installed language and warns that `eng`/`spa` data would improve accuracy.
+- `ocrmypdf` is not installed and is not used. The pipeline is explicit: pdftoppm → tesseract → pdfcpu merge/optimize.
 
 ## Scope
 
 1. **OCR engine** (`internal/pdf/engine/ocr.go`)
-   - Capability detection: `pdftoppm`, `tesseract`, optional `pdftotext`, installed languages (exclude `osd`), recommended language.
-   - Pipeline for one PDF:
-     1. count pages with pdfcpu;
-     2. rasterize at 300 DPI with `pdftoppm -png`;
-     3. run `tesseract <page.png> <base> -l <lang> --dpi 300 pdf txt` per page;
-     4. merge per-page PDFs in order with pdfcpu;
-     5. optimize the merged PDF with pdfcpu; if optimization fails, keep the merged file and warn;
-     6. verify the final PDF is searchable with `pdftotext` (fallback to the sidecar text with a warning when `pdftotext` is unavailable);
-     7. write the searchable PDF and optional text sidecar atomically;
-     8. verify the final page count equals the source.
-   - Per-page progress callback, context cancellation between pages, temp workspace cleanup.
-   - Clear typed errors for missing runtime, missing language, rasterize/recognize/merge/verify failures.
+   - Capability detection: pdftoppm, tesseract, optional pdftotext, installed languages (osd excluded), recommended language.
+   - Pipeline for one PDF: page count → rasterize at 300 DPI → per-page tesseract PDF+TXT → merge page PDFs → optimize → verify text → atomic publish of PDF + sidecar → page-count verification.
+   - If pdfcpu optimization drops the text layer, the merged OCR file is used instead.
+   - Per-page progress, cancellation between pages, temp cleanup, typed errors.
 2. **PDF OCR tool** (`tool.pdf.ocr`)
-   - Single and batch modes; input PDFs; outputs `<stem>_ocr.pdf` and (default) `<stem>_ocr.txt`.
-   - Options: `language` (default recommended), `textSidecar` (default true), `dpi` fixed at 300.
-   - Explicit `outputPath` supported for single mode; the sidecar derives from the PDF name.
-   - `RuntimeState` degrades with an actionable reason when pdftoppm/tesseract/languages are missing.
-   - `Plan` validates inputs, language, dependencies and collision-safe outputs; returns PDF + TXT planned outputs.
-   - `ExecuteSingle` / `ExecuteBatch` use `SingleExecutorWithProgress` for page-level job progress.
-   - Register in `internal/pdf/init.go`.
-3. **Capability endpoint**
-   - `GetOCRCapabilitiesV1` returns available, pdftoppm/tesseract/pdftotext flags, installed languages, recommended language and a message.
+   - Single and batch modes; outputs `<stem>_ocr.pdf` and default `<stem>_ocr.txt`.
+   - Options: language (default recommended), textSidecar (default true), DPI fixed 300 (150–600 validated).
+   - Explicit outputPath for single mode; sidecar derived from the PDF name; collision-safe outputs.
+   - RuntimeState degrades with actionable guidance; Plan validates dependencies/language; page-level progress via `SingleExecutorWithProgress`.
+   - Registered in `internal/pdf/init.go`.
+3. **Capability endpoint** `GetOCRCapabilitiesV1` with binary flags, languages and recommended language.
 4. **Clean scan recipe** (`recipe.clean_scan`)
    - One PDF; outputs `<stem>_clean.pdf` + `<stem>_clean.txt`.
-   - Steps: `OCR every page` (tool.pdf.ocr) → `Verify text layer` (recipe-owned).
-   - Uses the requested language or the recommended installed one; warns when the recommended language is not `eng`/`spa`.
-   - Verification: page count matches source, text layer is non-empty (pdftotext; sidecar fallback), generic PDF/TXT checks.
-   - No text recognized → `partial_success`, outputs kept and clearly reported.
-   - History/undo for both outputs; cleanup on failure/cancel.
+   - Steps: OCR every page → verify text layer.
+   - Uses the requested or recommended language; warns when it is not eng/spa and that pages are rasterized.
+   - Verification: source page count, text layer via pdftotext (sidecar fallback), sidecar text, generic PDF/TXT checks.
+   - No text/page mismatch → `partial_success`, outputs kept; failure/cancel cleanup; both outputs recorded for undo.
 5. **PDF OCR page** (`/pdf-ocr`)
-   - New PDF tool in the registry; the tool count becomes 13, PDF category 5.
-   - File-first intake, language select from capabilities, text-sidecar toggle, destination folder, output plan, run/cancel/progress, verified result and undo.
-   - Capability banner with install guidance when deps or languages are missing.
-   - Warning that pages are rasterized at 300 DPI and vector text is replaced by an image + invisible text layer.
-   - Show recognized page/character count from the job result.
-6. **Clean scan recipe UI**
-   - Home recipe card and `/recipe/clean-scan` using the generic recipe page.
+   - PDF tool in the registry; tool count is now 13, PDF category 5, navigation 17.
+   - File-first intake, language select from capabilities, text sidecar toggle, destination folder, six-output plan view, run/cancel/progress, verified result, undo, recognized page/character summary.
+   - Capability danger banner and weak-language warning; 300 DPI rasterization warning.
+6. **Clean scan UI**
+   - Home recipe card and `/recipe/clean-scan` via the generic recipe page.
    - One PDF, no target, two outputs, verification and undo.
-   - Home Recipes section shows four cards; tool grid shows 13 tools.
+   - Home now shows 13 tools and four recipe cards.
 
 ## Explicit decisions
 
-- **Recipe first + tool page.** The OCR tool is directly usable with language selection; the Clean scan recipe is the one-click outcome.
-- **Text sidecar default on**: it is useful and makes verification independent of PDF text extraction. The tool page can turn it off.
-- **No ocrmypdf**: the explicit pipeline is debuggable and uses installed binaries.
-- **Optimize inside the OCR engine**: pdfcpu optimization happens after merging, before publishing; if it fails, the searchable merged PDF is still delivered with a warning.
-- **Language capability over assumptions**: never assume `eng` is installed. The UI and plan show the installed languages; tests use the first available.
-- **No cloud/model downloads.** Optional language packs are the user's responsibility; the app shows guidance only.
-- **Sidecar naming**: the text file is the PDF path with `.txt` instead of `.pdf` (e.g., `report_clean.pdf` → `report_clean.txt`).
-- **Vector PDFs**: rasterization is explicit in the UI copy; OCR is intended for scans, not for preserving vector text.
+- **Recipe + tool page.** The OCR tool is directly usable with language selection; Clean scan is the one-click outcome.
+- **Text sidecar default on** for verification and reuse; the tool page can disable it.
+- **No ocrmypdf.** The explicit pipeline is debuggable and uses installed binaries.
+- **Optimization inside the OCR engine**, with a text-layer safety fallback; the recipe has no separate optimize step.
+- **Language capability over assumptions.** Never assume eng is installed; the page and recipe show installed languages and warnings.
+- **No cloud/model downloads.** Language packs are the user's responsibility; the app only shows guidance.
+- **Sidecar naming**: PDF path with `.txt` (e.g. `report_clean.pdf` → `report_clean.txt`).
+- **Vector PDFs**: the UI states pages are rasterized and vector text is replaced by an image + invisible text layer.
 
 ## Acceptance criteria
 
-1. The OCR tool detects dependencies and languages; missing deps/languages produce a clear degraded state and plan error.
-2. Running OCR on a text PDF produces a searchable PDF with the same page count and a non-empty text sidecar; `pdftotext` can extract text from the output.
+1. OCR detects dependencies/languages; missing deps/languages produce a clear degraded state and plan error.
+2. OCR on a text PDF produces a searchable PDF with the same page count and a non-empty sidecar; pdftotext extracts text.
 3. Batch OCR produces one PDF + TXT per input with collision-safe names.
 4. Cancellation stops between pages, cleans temp files and leaves no partial final outputs.
-5. The Clean scan recipe runs from Home, outputs a searchable PDF + text sidecar, verifies page count and text, records both for undo, and reports `partial_success` when no text is recognized.
-6. The `/pdf-ocr` page loads capabilities, lets the user choose an installed language and sidecar, plans/runs with progress, and shows verified results and undo.
-7. Home shows 13 tools and four recipe cards; navigation and registry tests are updated.
-8. TXT outputs are classified as documents and verified (kind/size).
-9. Go tests, frontend specs and build pass; bindings regenerated, never hand-edited.
-10. No regressions in the previous recipes, automation, tools, undo or navigation.
+5. Clean scan runs from Home, outputs PDF + TXT, verifies page count/text, records both for undo, and reports partial when no text is recognized.
+6. `/pdf-ocr` loads capabilities, language/sidecar controls, plans/runs with progress, shows verified results and undo.
+7. Home shows 13 tools and four recipe cards; navigation/registry tests updated.
+8. TXT outputs are classified as documents and verified.
+9. Go tests, frontend specs and build pass; bindings regenerated only.
+10. No regressions in previous recipes, automation, tools, undo or navigation.
 
 ## Checks
 
@@ -91,14 +76,43 @@
 
 ## Progress
 
-- 2026-11-17: Slice scoped after verifying pdftoppm/tesseract/pdftotext and the installed `afr` language. The explicit pipeline was smoke-tested: pdftoppm → tesseract pdf+txt → merged OCR PDF → pdftotext extracted the visible text.
+- 2026-11-17: Slice scoped after smoke-testing pdftoppm → tesseract pdf+txt → merged OCR PDF → pdftotext extraction with the installed `afr` language.
+- 2026-11-17: Backend implemented: OCR engine/capabilities, PDF OCR tool, TXT inspection, capability endpoint, Clean scan recipe, tests and bindings. Commit `d70fa0e`.
+- 2026-11-17: Frontend implemented: `/pdf-ocr` page, Wails capabilities API, PDF OCR registry/nav entry (13 tools, 17 entries), Clean scan recipe card/page, Home/tool-count updates and specs. Commit `765aa89`.
+- 2026-11-17: `AGENTS.md` updated to 13 tools, real Go test coverage and the OCR runtime-language gotcha.
 
-## Implementation notes
+## Verification evidence
 
-- Backend packages: `internal/pdf/engine/ocr.go`, `internal/pdf/tool_ocr.go`, `internal/models/ocr_v1.go`, `internal/recipes/clean_scan.go`.
-- Add `.txt` to `inspect.kindFromExtension` as `document` and `text/plain` MIME so verification passes for sidecars.
-- Use a single pdfcpu merge call; keep page order from the numeric page suffix.
-- The OCR tool's page progress is a `JobProgressV1` through `SingleExecutorWithProgress`; the recipe maps it to its own progress.
-- The recipe's verify step uses the same `pdftotext` helper as the engine (export a small verification function or duplicate a minimal command).
-- The tool page reuses the standard `planJobV1`/`runJobV1`/status polling/ResultCard pattern; no new job API.
-- Bindings: new `GetOCRCapabilitiesV1`; report the binding ID.
+- `go build ./...` — pass.
+- `go test ./... -count=1` — pass. Real OCR integration with tesseract `afr`: 2-page PDF → 2-page searchable PDF, non-empty sidecar with form feed, pdftotext extraction non-empty; blank PDF → partial_success; cancel leaves no outputs. Engine 11 tests, tool 13, recipe 9, inspect TXT.
+- `go vet ./internal/pdf/... ./internal/recipes/... ./internal/app/... ./internal/inspect/... ./internal/verify/...` — clean.
+- `cd frontend && npm run build:dev` — success. Pre-existing budget warnings; `pdf-ocr.css` is 2.3 kB, under budget.
+- `CHROME_BIN=/usr/bin/brave npx ng test --watch=false --browsers=ChromeHeadless` — 432/432 success.
+- `npx tsc --noEmit -p tsconfig.app.json` — exit 0.
+- `npx agent-browser` visual checks at 1440 px:
+  - Home shows 13 tools, PDF count 5, four recipe cards including Clean scan;
+  - `/pdf-ocr` renders intake, language/sidecar settings, destination, plan area and the 300 DPI warning in dark and light themes;
+  - `/recipe/clean-scan` shows the single-PDF intake, two steps and highlights.
+  - Preview mode has no IPC, so capability/language selection and actual OCR runs are not exercised in the browser.
+- Pending: desktop Wails end-to-end with a real scanned PDF (language select, OCR run, searchable output, sidecar, undo) and dark/light in the native window. The backend uses real tesseract/pdftoppm/pdftotext in tests; the IPC path is the remaining unverified link.
+
+## Status by acceptance criterion
+
+| # | Status | Evidence |
+| --- | --- | --- |
+| 1 | Automated | capability/plan tests; degraded runtime tests |
+| 2 | Automated | engine/tool integration with real ocr on a generated text PDF |
+| 3 | Automated | batch OCR tool test |
+| 4 | Automated | cancellation/cleanup tests |
+| 5 | Automated | `clean_scan` tests (plan/run/partial/history/undo) |
+| 6 | Automated + visual | PDF OCR page specs and browser layout check |
+| 7 | Verified | Home/registry specs (13 tools, 17 nav entries, four recipes) |
+| 8 | Automated | inspect TXT kind/MIME + verification |
+| 9 | Verified | Go tests, 432 Karma, build, tsc; bindings regenerated only |
+| 10 | Verified | Full Go/frontend suites including previous slices and automation |
+
+## Next steps
+
+1. Run the desktop OCR end-to-end pass with a real scan and record the result.
+2. Merge the branch when the user requests it.
+3. Remaining roadmap areas: Archive document (needs LibreOffice), transcription (needs whisper + model), optional OCR language packs and a Settings capability panel, automation polish (recursive watch, run history).
