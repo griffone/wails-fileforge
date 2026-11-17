@@ -1782,6 +1782,92 @@ export class MediaSourceResponseV1 {
     }
 }
 
+/**
+ * OCRCapabilitiesResponseV1 reports whether the local OCR pipeline can run.
+ * Available requires pdftoppm, tesseract and at least one installed language
+ * (osd alone does not count). Languages excludes osd and is sorted.
+ */
+export class OCRCapabilitiesResponseV1 {
+    /**
+     * Creates a new OCRCapabilitiesResponseV1 instance.
+     * @param {Partial<OCRCapabilitiesResponseV1>} [$$source = {}] - The source object to create the OCRCapabilitiesResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("available" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["available"] = false;
+        }
+        if (!("pdfToPpm" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["pdfToPpm"] = false;
+        }
+        if (!("tesseract" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["tesseract"] = false;
+        }
+        if (!("pdfToText" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["pdfToText"] = false;
+        }
+        if (!("languages" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["languages"] = [];
+        }
+        if (!("recommendedLanguage" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["recommendedLanguage"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new OCRCapabilitiesResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {OCRCapabilitiesResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField6_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("languages" in $$parsedSource) {
+            $$parsedSource["languages"] = $$createField6_0($$parsedSource["languages"]);
+        }
+        return new OCRCapabilitiesResponseV1(/** @type {Partial<OCRCapabilitiesResponseV1>} */($$parsedSource));
+    }
+}
+
 export class PDFPreviewSourceResponseV1 {
     /**
      * Creates a new PDFPreviewSourceResponseV1 instance.

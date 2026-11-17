@@ -627,8 +627,8 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	service, _, _ := newTestService(t)
 
 	recipes := service.List()
-	if len(recipes) != 3 {
-		t.Fatalf("expected three built-in recipes, got %+v", recipes)
+	if len(recipes) != 4 {
+		t.Fatalf("expected four built-in recipes, got %+v", recipes)
 	}
 
 	email := recipes[0]
@@ -707,6 +707,35 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	}
 	if social.Steps[0].Detail == "" || social.Steps[1].Detail == "" || social.Steps[2].Detail == "" {
 		t.Fatalf("expected step details for every Social clip step, got %+v", social.Steps)
+	}
+
+	cleanScan := recipes[3]
+	if cleanScan.ID != RecipeIDCleanScan || cleanScan.Name != "Clean scan" {
+		t.Fatalf("expected Clean scan fourth, got %+v", cleanScan)
+	}
+	if cleanScan.Category != "documents" || cleanScan.InputKind != "pdf" {
+		t.Fatalf("unexpected Clean scan input metadata: %+v", cleanScan)
+	}
+	if cleanScan.MaxInputs != 1 {
+		t.Fatalf("expected Clean scan to accept one input, got %d", cleanScan.MaxInputs)
+	}
+	if len(cleanScan.AcceptExtensions) != 1 || cleanScan.AcceptExtensions[0] != "pdf" {
+		t.Fatalf("unexpected Clean scan accepted extensions: %+v", cleanScan.AcceptExtensions)
+	}
+	if len(cleanScan.Highlights) != 3 || cleanScan.Highlights[0] != "Local OCR" {
+		t.Fatalf("unexpected Clean scan highlights: %+v", cleanScan.Highlights)
+	}
+	if len(cleanScan.Steps) != 2 {
+		t.Fatalf("expected two Clean scan steps, got %+v", cleanScan.Steps)
+	}
+	if cleanScan.Steps[0].ID != stepIDCleanScanOCR || cleanScan.Steps[0].ToolID != pdf.ToolIDPDFOCRV1 {
+		t.Fatalf("unexpected Clean scan OCR step: %+v", cleanScan.Steps[0])
+	}
+	if cleanScan.Steps[1].ID != stepIDCleanScanVerify || cleanScan.Steps[1].ToolID != "" {
+		t.Fatalf("unexpected Clean scan verify step: %+v", cleanScan.Steps[1])
+	}
+	if cleanScan.Steps[0].Detail == "" || cleanScan.Steps[1].Detail == "" {
+		t.Fatalf("expected step details for every Clean scan step, got %+v", cleanScan.Steps)
 	}
 }
 

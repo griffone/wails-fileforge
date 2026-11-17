@@ -17,7 +17,7 @@ import (
 	"fileforge-desktop/internal/inspect"
 	"fileforge-desktop/internal/media"
 	"fileforge-desktop/internal/models"
-	_ "fileforge-desktop/internal/pdf"
+	"fileforge-desktop/internal/pdf"
 	"fileforge-desktop/internal/preview"
 	"fileforge-desktop/internal/recipes"
 	"fileforge-desktop/internal/registry"
@@ -187,6 +187,13 @@ func (a *App) ListRecipesV1() models.ListRecipesResponseV1 {
 		Message: "recipes listed successfully",
 		Recipes: a.recipeService.List(),
 	}
+}
+
+// GetOCRCapabilitiesV1 reports whether local OCR can run: the pdftoppm,
+// tesseract and pdftotext binaries, the installed languages and the
+// recommended one. It is safe to call before any OCR job.
+func (a *App) GetOCRCapabilitiesV1() models.OCRCapabilitiesResponseV1 {
+	return pdf.OCRCapabilitiesV1(a.contextOrBackground())
 }
 
 // PlanRecipeV1 validates a recipe request and resolves its final output

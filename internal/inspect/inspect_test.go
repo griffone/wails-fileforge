@@ -431,8 +431,8 @@ func TestInspectFilesKeepsBatchAlive(t *testing.T) {
 	if files[0].Kind != "image" || !files[0].Exists {
 		t.Fatalf("expected first result to be an existing image, got %+v", files[0])
 	}
-	if files[1].Kind != "other" || !files[1].Exists {
-		t.Fatalf("expected second result to be an existing other file, got %+v", files[1])
+	if files[1].Kind != "document" || !files[1].Exists {
+		t.Fatalf("expected second result to be an existing document file, got %+v", files[1])
 	}
 	if files[2].Exists || files[2].Error == "" {
 		t.Fatalf("expected third result to report a missing file, got %+v", files[2])
@@ -513,5 +513,25 @@ func TestInspectFileClassifiesZipAndHTML(t *testing.T) {
 	}
 	if htmlInfo.MimeType != "text/html" {
 		t.Fatalf("expected text/html, got %q", htmlInfo.MimeType)
+	}
+}
+
+func TestInspectFileTXTIsDocument(t *testing.T) {
+	dir := t.TempDir()
+
+	textPath := filepath.Join(dir, "report_clean.txt")
+	if err := os.WriteFile(textPath, []byte("Recognized text"), 0o644); err != nil {
+		t.Fatalf("write txt fixture: %v", err)
+	}
+
+	info := InspectFile(textPath)
+	if info.Kind != "document" {
+		t.Fatalf("expected document kind, got %q", info.Kind)
+	}
+	if info.MimeType != "text/plain" {
+		t.Fatalf("expected text/plain, got %q", info.MimeType)
+	}
+	if !info.Exists || info.SizeBytes <= 0 {
+		t.Fatalf("expected a readable txt file, got %+v", info)
 	}
 }
