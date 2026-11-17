@@ -118,12 +118,24 @@ export function GetJobStatusV1(jobID) {
 }
 
 /**
+ * GetOCRCapabilitiesV1 reports whether local OCR can run: the pdftoppm,
+ * tesseract and pdftotext binaries, the installed languages and the
+ * recommended one. It is safe to call before any OCR job.
+ * @returns {$CancellablePromise<models$0.OCRCapabilitiesResponseV1>}
+ */
+export function GetOCRCapabilitiesV1() {
+    return $Call.ByID(1480104889).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType10($result);
+    }));
+}
+
+/**
  * @param {string} inputPath
  * @returns {$CancellablePromise<models$0.PDFPreviewSourceResponseV1>}
  */
 export function GetPDFPreviewSourceV1(inputPath) {
     return $Call.ByID(632882064, inputPath).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType11($result);
     }));
 }
 
@@ -134,7 +146,7 @@ export function GetPDFPreviewSourceV1(inputPath) {
  */
 export function GetPreview(jobID) {
     return $Call.ByID(1152353978, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType11($result);
+        return $$createType12($result);
     }));
 }
 
@@ -145,7 +157,7 @@ export function GetPreview(jobID) {
  */
 export function GetPreviewStatus(jobID) {
     return $Call.ByID(1885578308, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType12($result);
+        return $$createType13($result);
     }));
 }
 
@@ -168,7 +180,7 @@ export function GetRecipeStatusV1(jobID) {
  */
 export function InspectFilesV1(paths) {
     return $Call.ByID(3131092044, paths).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType13($result);
+        return $$createType14($result);
     }));
 }
 
@@ -179,7 +191,7 @@ export function InspectFilesV1(paths) {
  */
 export function ListAutomationRulesV1() {
     return $Call.ByID(3321976981).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType14($result);
+        return $$createType15($result);
     }));
 }
 
@@ -190,7 +202,7 @@ export function ListAutomationRulesV1() {
  */
 export function ListJobHistoryV1() {
     return $Call.ByID(2396679858).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType16($result);
+        return $$createType17($result);
     }));
 }
 
@@ -200,7 +212,7 @@ export function ListJobHistoryV1() {
  */
 export function ListRecipesV1() {
     return $Call.ByID(388441352).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType17($result);
+        return $$createType18($result);
     }));
 }
 
@@ -209,7 +221,7 @@ export function ListRecipesV1() {
  */
 export function ListToolsV1() {
     return $Call.ByID(517184612).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType18($result);
+        return $$createType19($result);
     }));
 }
 
@@ -234,7 +246,7 @@ export function OpenFileDialog() {
  */
 export function OpenMultipleFilesDialog() {
     return $Call.ByID(3029276213).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType19($result);
+        return $$createType20($result);
     }));
 }
 
@@ -255,7 +267,7 @@ export function OpenPath(path) {
  */
 export function PlanJobV1(req) {
     return $Call.ByID(254724065, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType20($result);
+        return $$createType21($result);
     }));
 }
 
@@ -267,7 +279,7 @@ export function PlanJobV1(req) {
  */
 export function PlanRecipeV1(req) {
     return $Call.ByID(2840622370, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType21($result);
+        return $$createType22($result);
     }));
 }
 
@@ -281,7 +293,7 @@ export function PlanRecipeV1(req) {
  */
 export function RegisterMediaPath(path) {
     return $Call.ByID(1853528726, path).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType22($result);
+        return $$createType23($result);
     }));
 }
 
@@ -293,7 +305,7 @@ export function RegisterMediaPath(path) {
  */
 export function RestoreJobV1(jobID) {
     return $Call.ByID(666662266, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType23($result);
+        return $$createType24($result);
     }));
 }
 
@@ -314,7 +326,7 @@ export function RevealInFolder(path) {
  */
 export function RunJobV1(req) {
     return $Call.ByID(162380599, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType24($result);
+        return $$createType25($result);
     }));
 }
 
@@ -325,7 +337,7 @@ export function RunJobV1(req) {
  */
 export function RunRecipeV1(req) {
     return $Call.ByID(1732206072, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType25($result);
+        return $$createType26($result);
     }));
 }
 
@@ -386,7 +398,7 @@ export function StartPreview(req) {
  */
 export function UndoJobV1(jobID) {
     return $Call.ByID(2249209138, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType23($result);
+        return $$createType24($result);
     }));
 }
 
@@ -396,7 +408,7 @@ export function UndoJobV1(jobID) {
  */
 export function ValidateJobV1(req) {
     return $Call.ByID(1505194326, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType26($result);
+        return $$createType27($result);
     }));
 }
 
@@ -409,7 +421,7 @@ export function ValidateJobV1(req) {
  */
 export function VerifyJobV1(jobID) {
     return $Call.ByID(1020044031, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType27($result);
+        return $$createType28($result);
     }));
 }
 
@@ -424,21 +436,22 @@ const $$createType6 = models$0.ImageAnnotatePreviewResponseV1.createFrom;
 const $$createType7 = models$0.ImageCropPreviewResponseV1.createFrom;
 const $$createType8 = models$0.ImagePreviewSourceResponseV1.createFrom;
 const $$createType9 = models$0.JobStatusResponseV1.createFrom;
-const $$createType10 = models$0.PDFPreviewSourceResponseV1.createFrom;
-const $$createType11 = preview$0.PreviewResult.createFrom;
-const $$createType12 = preview$0.JobStatus.createFrom;
-const $$createType13 = models$0.InspectFilesResponseV1.createFrom;
-const $$createType14 = models$0.ListAutomationRulesResponseV1.createFrom;
-const $$createType15 = models$0.JobHistoryEntryV1.createFrom;
-const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = models$0.ListRecipesResponseV1.createFrom;
-const $$createType18 = models$0.ListToolsResponseV1.createFrom;
-const $$createType19 = $Create.Array($Create.Any);
-const $$createType20 = models$0.PlanJobResponseV1.createFrom;
-const $$createType21 = models$0.RecipePlanResponseV1.createFrom;
-const $$createType22 = models$0.MediaSourceResponseV1.createFrom;
-const $$createType23 = models$0.UndoResultV1.createFrom;
-const $$createType24 = models$0.RunJobResponseV1.createFrom;
-const $$createType25 = models$0.RunRecipeResponseV1.createFrom;
-const $$createType26 = models$0.ValidateJobResponseV1.createFrom;
-const $$createType27 = models$0.VerificationReportV1.createFrom;
+const $$createType10 = models$0.OCRCapabilitiesResponseV1.createFrom;
+const $$createType11 = models$0.PDFPreviewSourceResponseV1.createFrom;
+const $$createType12 = preview$0.PreviewResult.createFrom;
+const $$createType13 = preview$0.JobStatus.createFrom;
+const $$createType14 = models$0.InspectFilesResponseV1.createFrom;
+const $$createType15 = models$0.ListAutomationRulesResponseV1.createFrom;
+const $$createType16 = models$0.JobHistoryEntryV1.createFrom;
+const $$createType17 = $Create.Array($$createType16);
+const $$createType18 = models$0.ListRecipesResponseV1.createFrom;
+const $$createType19 = models$0.ListToolsResponseV1.createFrom;
+const $$createType20 = $Create.Array($Create.Any);
+const $$createType21 = models$0.PlanJobResponseV1.createFrom;
+const $$createType22 = models$0.RecipePlanResponseV1.createFrom;
+const $$createType23 = models$0.MediaSourceResponseV1.createFrom;
+const $$createType24 = models$0.UndoResultV1.createFrom;
+const $$createType25 = models$0.RunJobResponseV1.createFrom;
+const $$createType26 = models$0.RunRecipeResponseV1.createFrom;
+const $$createType27 = models$0.ValidateJobResponseV1.createFrom;
+const $$createType28 = models$0.VerificationReportV1.createFrom;

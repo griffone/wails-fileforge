@@ -11,11 +11,11 @@ Wails-specific IPC patterns, and important gotchas. Read it before making change
 - Go version: 1.25, module name: `fileforge-desktop`
 - Wails: v3.0.0-alpha.74 (ALPHA — APIs may change)
 - Frontend: Angular v21, standalone components, TypeScript strict
-- Product: one local-first workbench with 12 tools (image, PDF, documents, video)
+- Product: one local-first workbench with 13 tools (image, PDF, documents, video) plus outcome recipes and watch-folder automation
 - Key Go deps: `github.com/h2non/bimg`, `github.com/wailsapp/wails/v3`
 - Key frontend deps: `@wailsio/runtime`, `@angular/*` v21, `lucide-angular`, `rxjs`, `@fontsource/*`
 - UI: token-based design system in `frontend/src/styles.css`; dark/light themes; command palette
-- Tests: Frontend uses Karma + Jasmine. No Go tests exist yet.
+- Tests: Frontend uses Karma + Jasmine; Go tests cover tools, recipes, OCR and watch-folder automation.
 
 ## Quick start — useful commands
 
@@ -210,6 +210,7 @@ you change Go-exposed APIs using the wails3 generate command above.
 - Production Go build flags used in CI and packaging include `-tags production -trimpath -buildvcs=false -ldflags="-w -s"`.
 - Frontend dev server runs on port 4200 (Angular default); Wails dev proxies to it during `task dev`.
 - In the plain Angular dev server there is no Wails IPC. Pages fall back to the static registry and show `Preview only`; this is expected.
+- PDF OCR requires `pdftoppm` and `tesseract`; language data (for example `eng` or `spa`) must be installed separately. The tool and page degrade with a clear message when a binary or language is missing.
 - UI build warnings: the initial bundle is above the 500 kB warning budget (PDF.js + fonts), and `home.css`, `image-annotate.css`, `pdf-merge.css` are just over the 4 kB component warning. They are under the 8 kB error cap. Put shared page rules in `styles.css`.
 - PDF renderer specs use fixtures in `frontend/public/test-fixtures/`; keep them when touching preview tests.
 

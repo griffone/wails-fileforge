@@ -8,6 +8,7 @@ import { PdfMerge } from './components/pdf-merge/pdf-merge';
 import { PdfSplit } from './components/pdf-split/pdf-split';
 import { PdfCrop } from './components/pdf-crop/pdf-crop';
 import { PdfOptimize } from './components/pdf-optimize/pdf-optimize';
+import { PdfOcr } from './components/pdf-ocr/pdf-ocr';
 import { DocMdToPdf } from './components/doc-md-to-pdf/doc-md-to-pdf';
 import { DocDocxToPdf } from './components/doc-docx-to-pdf/doc-docx-to-pdf';
 import { VideoConvert } from './components/video-convert/video-convert';
@@ -29,6 +30,7 @@ export const routes: Routes = [
   { path: 'pdf-split', component: PdfSplit },
   { path: 'pdf-crop', component: PdfCrop },
   { path: 'pdf-optimize', component: PdfOptimize },
+  { path: 'pdf-ocr', component: PdfOcr },
   { path: 'doc-md-to-pdf', component: DocMdToPdf },
   { path: 'doc-docx-to-pdf', component: DocDocxToPdf },
   { path: 'video-convert', component: VideoConvert },
@@ -44,6 +46,11 @@ export const routes: Routes = [
     path: 'recipe/social-clip',
     component: RecipeRun,
     data: { recipeId: 'recipe.social_clip' },
+  },
+  {
+    path: 'recipe/clean-scan',
+    component: RecipeRun,
+    data: { recipeId: 'recipe.clean_scan' },
   },
   { path: '**', redirectTo: '' },
 ];

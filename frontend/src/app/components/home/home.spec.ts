@@ -256,7 +256,7 @@ describe('Home', () => {
   it('renders every workbench tool by default', () => {
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(12);
+    expect(cardNames().length).toBe(13);
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -278,10 +278,10 @@ describe('Home', () => {
     expect(filterChip('Image').getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('shows the four PDF tools under the PDF category', () => {
+  it('shows the five PDF tools under the PDF category', () => {
     fixture.detectChanges();
 
-    expect(component.categoryCounts()['pdf']).toBe(4);
+    expect(component.categoryCounts()['pdf']).toBe(5);
 
     filterChip('PDF').click();
     fixture.detectChanges();
@@ -291,6 +291,7 @@ describe('Home', () => {
       'PDF Split',
       'PDF Crop',
       'PDF Optimize',
+      'PDF OCR',
     ]);
   });
 
@@ -317,7 +318,7 @@ describe('Home', () => {
     (fixture.nativeElement.querySelector('.empty-state-action') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(12);
+    expect(cardNames().length).toBe(13);
     expect(searchInput().value).toBe('');
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
@@ -339,7 +340,7 @@ describe('Home', () => {
     const cards = fixture.nativeElement.querySelectorAll(
       '.home-recipe-card',
     ) as NodeListOf<HTMLAnchorElement>;
-    expect(cards.length).toBe(3);
+    expect(cards.length).toBe(4);
 
     expect(cards[0].textContent).toContain('Email PDF');
     expect(cards[0].textContent).toContain('Target size');
@@ -355,10 +356,19 @@ describe('Home', () => {
     expect(cards[2].textContent).toContain('Use recipe');
     expect(cards[2].getAttribute('href')).toBe('/recipe/social-clip');
 
+    expect(cards[3].textContent).toContain('Clean scan');
+    expect(cards[3].textContent).toContain('Local OCR');
+    expect(cards[3].textContent).toContain('Searchable PDF');
+    expect(cards[3].textContent).toContain('Text sidecar');
+    expect(cards[3].textContent).toContain('PDF');
+    expect(cards[3].textContent).toContain('TXT');
+    expect(cards[3].textContent).toContain('Use recipe');
+    expect(cards[3].getAttribute('href')).toBe('/recipe/clean-scan');
+
     expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
       'Outcomes, not one tool at a time.',
     );
-    expect(cardNames().length).toBe(12);
+    expect(cardNames().length).toBe(13);
   });
 
   it('hides recipes while a search query is active', () => {
@@ -392,7 +402,7 @@ describe('Home', () => {
     expect(section?.querySelector('a')?.getAttribute('href')).toBe(
       '/automations',
     );
-    expect(cardNames().length).toBe(12);
+    expect(cardNames().length).toBe(13);
   });
 
   it('hides the folder-rule card when there are no rules', async () => {

@@ -207,17 +207,26 @@ export class RecipeRun implements OnDestroy, OnInit {
       .join(' · '),
   );
 
-  readonly inputHint = computed(() =>
-    this.multipleInputs()
-      ? `${this.extensionsLabel()} files · order matters`
-      : `One ${this.inputKindLabel()} · ${this.extensionsLabel()}`,
-  );
+  readonly inputHint = computed(() => {
+    if (!this.multipleInputs()) {
+      const kind = this.inputKindLabel();
+      const extensions = this.extensionsLabel();
+      if (extensions.toLowerCase() === kind.toLowerCase()) {
+        return `One ${kind}`;
+      }
+      return `One ${kind} · ${extensions}`;
+    }
+
+    return `${this.extensionsLabel()} files · order matters`;
+  });
 
   readonly dropTitle = computed(() => {
     if (this.multipleInputs()) {
       return this.recipe()?.inputKind === 'pdf' ? 'Drop PDFs here' : 'Drop files here';
     }
     switch (this.recipe()?.inputKind) {
+      case 'pdf':
+        return 'Drop a PDF here';
       case 'image':
         return 'Drop an image here';
       case 'video':
@@ -267,9 +276,20 @@ export class RecipeRun implements OnDestroy, OnInit {
     return `Create ${lowerFirst(this.recipe()?.name ?? 'recipe')}`;
   });
 
-  readonly resultToolLabel = computed(() =>
-    this.recipe()?.inputKind === 'pdf' ? 'PDF' : 'file',
-  );
+  /**
+   * Count noun for the result summary. Mixed output sets (for example the
+   * Clean scan PDF plus TXT sidecar) are described as files, not PDFs.
+   */
+  readonly resultToolLabel = computed(() => {
+    const outputs = this.terminalResult()?.outputs ?? [];
+    if (outputs.length > 0) {
+      const allPdf = outputs.every(
+        (path) => fileExtension(path).toLowerCase() === 'pdf',
+      );
+      return allPdf ? 'PDF' : 'file';
+    }
+    return this.recipe()?.inputKind === 'pdf' ? 'PDF' : 'file';
+  });
 
   readonly destinationLabel = computed(
     () => this.outputDir().trim() || this.defaultDestinationLabel(),

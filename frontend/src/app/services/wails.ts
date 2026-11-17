@@ -504,6 +504,22 @@ export interface AutomationRunEventV1 {
   at: number;
 }
 
+/**
+ * Detected state of the local OCR pipeline. `available` requires pdftoppm,
+ * tesseract and at least one installed language; `languages` excludes osd.
+ * Field names mirror the Go DTO JSON tags.
+ */
+export interface OCRCapabilitiesResponseV1 {
+  success: boolean;
+  message: string;
+  available: boolean;
+  pdfToPpm: boolean;
+  tesseract: boolean;
+  pdfToText: boolean;
+  languages: string[];
+  recommendedLanguage: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -912,6 +928,23 @@ export class Wails {
         success: false,
         message: this.formatMessage('Inspect files failed', error),
         files: [],
+      };
+    }
+  }
+
+  async getOCRCapabilitiesV1(): Promise<OCRCapabilitiesResponseV1> {
+    try {
+      return await this.callByID(1480104889);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get OCR capabilities failed', error),
+        available: false,
+        pdfToPpm: false,
+        tesseract: false,
+        pdfToText: false,
+        languages: [],
+        recommendedLanguage: '',
       };
     }
   }

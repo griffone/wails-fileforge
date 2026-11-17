@@ -11,12 +11,12 @@ describe('ToolRegistryService', () => {
     service = TestBed.inject(ToolRegistryService);
   });
 
-  it('exposes the twelve conversion tools', () => {
-    expect(service.tools.length).toBe(12);
+  it('exposes the thirteen conversion tools', () => {
+    expect(service.tools.length).toBe(13);
   });
 
-  it('exposes sixteen navigation entries', () => {
-    expect(service.navigation.length).toBe(16);
+  it('exposes seventeen navigation entries', () => {
+    expect(service.navigation.length).toBe(17);
     expect(service.navigation[0].route).toBe('/');
     expect(service.navigation[service.navigation.length - 2].route).toBe(
       '/automations',
@@ -37,6 +37,9 @@ describe('ToolRegistryService', () => {
   it('resolves entries by route, including Home and System Status', () => {
     expect(service.findByRoute('/')?.name).toBe('Home');
     expect(service.findByRoute('/image-converter')?.name).toBe('Image Convert');
+    expect(service.findByRoute('/pdf-ocr')?.name).toBe('PDF OCR');
+    expect(service.findByRoute('/pdf-ocr')?.navName).toBe('OCR');
+    expect(service.findByRoute('/pdf-ocr')?.category).toBe('pdf');
     expect(service.findByRoute('/tool-catalog')?.name).toBe('System Status');
     expect(service.findByRoute('/automations')?.name).toBe('Automations');
     expect(service.findByRoute('/settings')?.name).toBe('Settings');
@@ -56,12 +59,14 @@ describe('ToolRegistryService', () => {
     const automations = service.findByRoute('/automations');
     const settings = service.findByRoute('/settings');
     const tool = service.findByRoute('/video-trim');
+    const ocr = service.findByRoute('/pdf-ocr');
 
     expect(home && service.isTool(home)).toBeFalse();
     expect(system && service.isTool(system)).toBeFalse();
     expect(automations && service.isTool(automations)).toBeFalse();
     expect(settings && service.isTool(settings)).toBeFalse();
     expect(tool && service.isTool(tool)).toBeTrue();
+    expect(ocr && service.isTool(ocr)).toBeTrue();
   });
 
   it('groups every navigation entry exactly once', () => {
@@ -77,6 +82,9 @@ describe('ToolRegistryService', () => {
       'Video',
       'System',
     ]);
+    expect(
+      service.navGroups.find((group) => group.id === 'pdf')?.items.length,
+    ).toBe(5);
   });
 
   it('labels categories', () => {

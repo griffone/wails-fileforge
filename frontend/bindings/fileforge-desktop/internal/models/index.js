@@ -27,6 +27,7 @@ export {
     ListRecipesResponseV1,
     ListToolsResponseV1,
     MediaSourceResponseV1,
+    OCRCapabilitiesResponseV1,
     PDFPreviewSourceResponseV1,
     PathActionResponseV1,
     PlanJobResponseV1,
