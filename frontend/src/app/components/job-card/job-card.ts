@@ -35,6 +35,8 @@ export class JobCard {
         return 'Queued';
       case 'running':
         return 'Running';
+      case 'ocr':
+        return 'OCR';
       case 'success':
         return 'Done';
       case 'partial_success':

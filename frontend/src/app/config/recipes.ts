@@ -1,4 +1,10 @@
-import { Clapperboard, Images, Mail, type LucideIconData } from 'lucide-angular';
+import {
+  Clapperboard,
+  Images,
+  Mail,
+  ScanText,
+  type LucideIconData,
+} from 'lucide-angular';
 
 import { RecipeV1 } from '../services/wails';
 
@@ -131,6 +137,39 @@ export const RECIPES: readonly RecipeDefinition[] = [
           name: 'Extract poster',
           toolId: '',
           detail: 'JPEG frame from the first second',
+        },
+      ],
+      defaultTargetSizeBytes: 0,
+    },
+  },
+  {
+    id: 'recipe.clean_scan',
+    route: '/recipe/clean-scan',
+    inputLabel: '1 PDF',
+    formats: ['PDF', 'TXT'],
+    icon: ScanText,
+    fallback: {
+      id: 'recipe.clean_scan',
+      name: 'Clean scan',
+      description:
+        'Turn a scanned PDF into a searchable PDF with a local text sidecar.',
+      category: 'documents',
+      inputKind: 'pdf',
+      acceptExtensions: ['pdf'],
+      maxInputs: 1,
+      highlights: ['Local OCR', 'Searchable PDF', 'Text sidecar'],
+      steps: [
+        {
+          id: 'ocr',
+          name: 'OCR every page',
+          toolId: 'tool.pdf.ocr',
+          detail: 'Rasterize at 300 DPI and recognize text locally',
+        },
+        {
+          id: 'verify',
+          name: 'Verify text layer',
+          toolId: '',
+          detail: 'Page count and extracted text',
         },
       ],
       defaultTargetSizeBytes: 0,

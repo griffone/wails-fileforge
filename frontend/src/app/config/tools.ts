@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   Layers,
   PenTool,
+  ScanText,
   Scissors,
   Settings2,
   Timer,
@@ -109,7 +110,7 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
-/** The twelve conversion tools. Ids mirror the backend toolId contract. */
+/** The thirteen conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -207,6 +208,17 @@ export const TOOLS: readonly ToolDefinition[] = [
     ],
   },
   {
+    id: 'tool.pdf.ocr',
+    name: 'PDF OCR',
+    navName: 'OCR',
+    description: 'Make scanned PDFs searchable with local OCR and a text sidecar.',
+    route: '/pdf-ocr',
+    category: 'pdf',
+    icon: ScanText,
+    formats: ['PDF', 'TXT'],
+    keywords: ['pdf', 'ocr', 'scan', 'searchable', 'text', 'tesseract', 'recognize'],
+  },
+  {
     id: 'tool.doc.md_to_pdf',
     name: 'Markdown → PDF',
     navName: 'Markdown',
@@ -263,7 +275,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 16-entry navigation model. */
+/** Home, every tool, then System Status, Automations and Settings: the full 17-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,

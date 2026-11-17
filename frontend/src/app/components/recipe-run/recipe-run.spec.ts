@@ -23,6 +23,7 @@ import {
 const EMAIL_RECIPE_ID = 'recipe.email_pdf';
 const WEB_RECIPE_ID = 'recipe.web_image_set';
 const SOCIAL_RECIPE_ID = 'recipe.social_clip';
+const CLEAN_SCAN_RECIPE_ID = 'recipe.clean_scan';
 const TARGET_BYTES = 10 * 1024 * 1024;
 
 const emailPdfRecipe: RecipeV1 = {
@@ -131,6 +132,38 @@ const SOCIAL_OUTPUTS = [
   '/tmp/in/clip-social.mp4',
   '/tmp/in/clip-social.webm',
   '/tmp/in/clip-poster.jpg',
+];
+
+const cleanScanRecipe: RecipeV1 = {
+  id: CLEAN_SCAN_RECIPE_ID,
+  name: 'Clean scan',
+  description:
+    'Turn a scanned PDF into a searchable PDF with a local text sidecar.',
+  category: 'documents',
+  inputKind: 'pdf',
+  acceptExtensions: ['pdf'],
+  maxInputs: 1,
+  highlights: ['Local OCR', 'Searchable PDF', 'Text sidecar'],
+  steps: [
+    {
+      id: 'ocr',
+      name: 'OCR every page',
+      toolId: 'tool.pdf.ocr',
+      detail: 'Rasterize at 300 DPI and recognize text locally',
+    },
+    {
+      id: 'verify',
+      name: 'Verify text layer',
+      toolId: '',
+      detail: 'Page count and extracted text',
+    },
+  ],
+  defaultTargetSizeBytes: 0,
+};
+
+const CLEAN_SCAN_OUTPUTS = [
+  '/tmp/in/report_clean.pdf',
+  '/tmp/in/report_clean.txt',
 ];
 
 function statusResponse(result: RecipeResultV1): RecipeStatusResponseV1 {
@@ -788,7 +821,7 @@ describe('RecipeRun (Web image set)', () => {
     expect(text).toContain('WebP + JPEG');
     expect(text).toContain('ZIP + srcset');
     expect(text).toContain('WebP and JPEG at the widths your source can support');
-    expect(text).toContain('Variants and formats are fixed by the recipe.');
+    expect(text).toContain('The recipe chooses the output formats.');
   });
 
   it('rejects a GIF or other non-image drop with a warning', fakeAsync(() => {
@@ -1172,5 +1205,226 @@ describe('RecipeRun (Social clip)', () => {
     expect(text).toContain('3 files prepared');
     expect(text).toContain('Verified');
     expect(text).toContain('3/3 checks passed');
+  }));
+});
+
+describe('RecipeRun (Clean scan)', () => {
+  let fixture: ComponentFixture<RecipeRun>;
+  let component: RecipeRun;
+  let wailsSpy: jasmine.SpyObj<Wails>;
+
+  function query<T extends Element>(selector: string): T | null {
+    return fixture.nativeElement.querySelector(selector) as T | null;
+  }
+
+  function cleanScanFileInfo(path: string): FileInfoV1 {
+    return {
+      path,
+      name: path.split(/[\\/]/).pop() ?? path,
+      directory: '/tmp/in',
+      extension: 'pdf',
+      sizeBytes: 3 * 1024 * 1024,
+      kind: 'pdf',
+      pageCount: 4,
+      exists: true,
+    };
+  }
+
+  function planResponse(request: RecipeRequestV1): RecipePlanResponseV1 {
+    return {
+      success: true,
+      message: 'Ready to make 1 PDF searchable.',
+      recipe: cleanScanRecipe,
+      inputPaths: request.inputPaths,
+      outputDir: request.outputDir || '/tmp/in',
+      outputs: CLEAN_SCAN_OUTPUTS.map((path) => ({
+        inputPath: request.inputPaths[0] ?? '',
+        outputPath: path,
+        outputKind: 'file',
+        outputCount: 1,
+        exists: false,
+        adjusted: false,
+      })),
+      warnings: [],
+    };
+  }
+
+  function cleanScanResult(): RecipeResultV1 {
+    return {
+      jobId: 'clean-job-1',
+      recipeId: CLEAN_SCAN_RECIPE_ID,
+      status: 'success',
+      message: 'Clean scan ready: report_clean.pdf and report_clean.txt.',
+      currentStep: 2,
+      totalSteps: 2,
+      steps: [
+        {
+          id: 'ocr',
+          name: 'OCR every page',
+          toolId: 'tool.pdf.ocr',
+          status: 'success',
+          message: 'OCR finished: 4 pages, 980 characters recognized.',
+        },
+        {
+          id: 'verify',
+          name: 'Verify text layer',
+          toolId: '',
+          status: 'success',
+          message: 'Page count and text layer verified.',
+        },
+      ],
+      outputs: [...CLEAN_SCAN_OUTPUTS],
+      verification: {
+        success: true,
+        message: 'All checks passed.',
+        outputs: CLEAN_SCAN_OUTPUTS.map((path) => ({
+          path,
+          exists: true,
+          sizeBytes: 2 * 1024 * 1024,
+          kind: path.endsWith('.txt') ? 'document' : 'pdf',
+          checks: [
+            { key: 'exists', label: 'Exists', passed: true, value: 'yes' },
+            {
+              key: path.endsWith('.txt') ? 'text_sidecar' : 'text_layer',
+              label: 'Text',
+              passed: true,
+              value: 'non-empty',
+            },
+          ],
+        })),
+        warnings: [],
+      },
+      startedAt: 1,
+      endedAt: 2,
+    };
+  }
+
+  beforeEach(async () => {
+    wailsSpy = createWailsSpy();
+
+    wailsSpy.listRecipesV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [
+        emailPdfRecipe,
+        webImageSetRecipe,
+        socialClipRecipe,
+        cleanScanRecipe,
+      ],
+    });
+    wailsSpy.planRecipeV1.and.callFake((request: RecipeRequestV1) =>
+      Promise.resolve(planResponse(request)),
+    );
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map(cleanScanFileInfo),
+      }),
+    );
+    wailsSpy.runRecipeV1.and.resolveTo({
+      success: true,
+      message: 'recipe submitted',
+      jobId: 'clean-job-1',
+      status: 'queued',
+    });
+    wailsSpy.getRecipeStatusV1.and.resolveTo(
+      statusResponse(cleanScanResult()),
+    );
+    wailsSpy.cancelRecipeV1.and.resolveTo({
+      success: true,
+      found: true,
+      message: 'cancel requested',
+      result: cleanScanResult(),
+    });
+    wailsSpy.openFileDialog.and.resolveTo('');
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
+    wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+
+    await TestBed.configureTestingModule({
+      imports: [RecipeRun],
+      providers: [
+        { provide: Wails, useValue: wailsSpy },
+        { provide: ActivatedRoute, useValue: createRoute(CLEAN_SCAN_RECIPE_ID) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(RecipeRun);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('loads the Clean scan recipe, hides the target and shows both step details', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.recipe()?.id).toBe(CLEAN_SCAN_RECIPE_ID);
+    expect(component.showTargetSize()).toBeFalse();
+    expect(component.multipleInputs()).toBeFalse();
+    expect(query('#recipe-target-mb')).toBeNull();
+    expect(component.inputTitle()).toBe('PDFs');
+    expect(component.chooseLabel()).toBe('Choose PDF');
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Clean scan');
+    expect(text).toContain('Local OCR');
+    expect(text).toContain('Searchable PDF');
+    expect(text).toContain('Text sidecar');
+    expect(text).toContain('Rasterize at 300 DPI and recognize text locally');
+    expect(text).toContain('Page count and extracted text');
+    expect(text).toContain('The recipe chooses the output formats.');
+  }));
+
+  it('plans one PDF with no options', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/in/report.pdf']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planRecipeV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planRecipeV1.calls.mostRecent()
+      .args[0] as RecipeRequestV1;
+    expect(request.recipeId).toBe(CLEAN_SCAN_RECIPE_ID);
+    expect(request.inputPaths).toEqual(['/tmp/in/report.pdf']);
+    expect(request.outputDir).toBe('');
+    expect(request.options).toEqual({});
+    expect(component.targetBytes()).toBe(0);
+    expect(component.plan()?.outputs.map((output) => output.outputPath)).toEqual(
+      CLEAN_SCAN_OUTPUTS,
+    );
+  }));
+
+  it('runs, polls to terminal and lists both verified outputs', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/in/report.pdf']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runRecipeV1).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runRecipeV1.calls.mostRecent()
+      .args[0] as RecipeRequestV1;
+    expect(request.recipeId).toBe(CLEAN_SCAN_RECIPE_ID);
+    expect(request.options).toEqual({});
+    expect(component.terminalResult()?.status).toBe('success');
+    expect(component.resultJob()?.items.length).toBe(2);
+    expect(component.resultJob()?.toolId).toBe(CLEAN_SCAN_RECIPE_ID);
+    expect(component.verification()?.success).toBeTrue();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('report_clean.pdf');
+    expect(text).toContain('report_clean.txt');
+    expect(text).toContain('2 files prepared');
+    expect(text).toContain('Verified');
+    expect(text).toContain('4/4 checks passed');
   }));
 });

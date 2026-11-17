@@ -1,0 +1,256 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">PDF</p>
+        <h1 class="page-title">PDF <em>OCR</em></h1>
+        <p class="page-sub">
+          Make scanned PDFs searchable with local OCR. Everything runs on this machine.
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    @if (capabilityBanner(); as banner) {
+      <div class="banner banner-danger error-banner" role="alert">
+        <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+        <div class="banner-copy">
+          <strong>{{ banner.title }}</strong>
+          <span>{{ banner.detail }}</span>
+        </div>
+      </div>
+    }
+
+    @if (weakLanguageWarning(); as warning) {
+      <div class="banner banner-warning error-banner" role="status">
+        <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+        <span>{{ warning }}</span>
+      </div>
+    }
+
+    <section class="panel" aria-labelledby="pdf-ocr-input-title">
+      <div class="panel-head">
+        <div>
+          <h2 id="pdf-ocr-input-title" class="panel-title">PDFs</h2>
+          <p class="panel-sub">Drop scanned PDFs or choose them from your computer.</p>
+        </div>
+        <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+      </div>
+
+      <div class="panel-body">
+        <app-file-drop
+          accept=".pdf,application/pdf"
+          title="Drop scanned PDFs here"
+          hint="PDF files only · OCR runs locally"
+          ariaLabel="Drop or choose scanned PDFs"
+          [nativePicker]="true"
+          (pathsSelected)="onPathsSelected($event)"
+          (browseRequested)="chooseFiles()"
+        ></app-file-drop>
+
+        <div class="toolbar" role="group" aria-label="PDF selection actions">
+          <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+            <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            Choose PDFs
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm toolbar-end"
+            [disabled]="selectedPaths().length === 0"
+            (click)="clear()"
+          >
+            <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            Clear
+          </button>
+        </div>
+
+        @if (notice(); as note) {
+          <div
+            class="banner error-banner"
+            [class.banner-warning]="note.tone === 'warning'"
+            [class.banner-danger]="note.tone === 'danger'"
+            role="alert"
+          >
+            <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            <span>{{ note.text }}</span>
+          </div>
+        }
+
+        @if (fileItems().length > 0) {
+          <app-file-queue
+            [items]="fileItems()"
+            (remove)="removeFile($event)"
+          ></app-file-queue>
+        }
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="pdf-ocr-settings-title">
+      <div class="panel-head">
+        <div>
+          <h2 id="pdf-ocr-settings-title" class="panel-title">Settings</h2>
+          <p class="panel-sub">Pick the recognition language and where the output goes.</p>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <div class="settings-grid">
+          <div class="field">
+            <label class="label" for="pdf-ocr-language">Language</label>
+            <select
+              id="pdf-ocr-language"
+              class="select"
+              aria-describedby="pdf-ocr-language-help"
+              [disabled]="languageOptions().length === 0"
+              (change)="onLanguageChange($event)"
+            >
+              @if (languageOptions().length === 0) {
+                <option value="">No language data installed</option>
+              } @else {
+                @for (option of languageOptions(); track option.value) {
+                  <option [value]="option.value" [selected]="option.value === language()">
+                    {{ option.label }}
+                  </option>
+                }
+              }
+            </select>
+            <p id="pdf-ocr-language-help" class="field-help">{{ languageHelp() }}</p>
+          </div>
+
+          <div class="field">
+            <span class="label">Output folder</span>
+            <div class="destination">
+              <span class="destination-path mono" [title]="destinationLabel()">{{ destinationLabel() }}</span>
+              <button type="button" class="btn btn-secondary btn-sm" (click)="chooseOutputFolder()">
+                <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                Choose folder
+              </button>
+            </div>
+            @if (isDefaultDestination()) {
+              <p class="field-help">The searchable PDF is saved next to each source PDF.</p>
+            } @else {
+              <button type="button" class="btn btn-ghost btn-sm settings-reset" (click)="useOriginalFolders()">
+                Use the default folder
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="label">Text sidecar</span>
+          <label class="check-row" for="pdf-ocr-sidecar">
+            <input
+              id="pdf-ocr-sidecar"
+              type="checkbox"
+              aria-describedby="pdf-ocr-sidecar-help"
+              [checked]="sidecar()"
+              (change)="onSidecarToggle($event)"
+            />
+            Write a text file next to the PDF
+          </label>
+          <p id="pdf-ocr-sidecar-help" class="field-help">
+            Writes &lt;name&gt;_ocr.txt next to the searchable PDF.
+          </p>
+        </div>
+
+        <div class="banner banner-warning" role="note">
+          <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+          <span>
+            Pages are rasterized at 300 DPI. Vector text is replaced by an image with an
+            invisible text layer.
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <app-output-plan-card
+      [plan]="plan()"
+      [loading]="planLoading()"
+      [destinationLabel]="destinationLabel()"
+      [isDefaultDestination]="isDefaultDestination()"
+      [visibleLimit]="6"
+      (changeDestination)="chooseOutputFolder()"
+    ></app-output-plan-card>
+
+    <section class="panel action-panel" [attr.aria-label]="primaryLabel()">
+      <div class="panel-body">
+        @if (jobErrorCopy(); as error) {
+          <div class="banner banner-danger error-banner" role="alert">
+            <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            <div class="banner-copy">
+              <strong>{{ error.title }}</strong>
+              <span>{{ error.description }}</span>
+            </div>
+          </div>
+        }
+
+        @if (actionMessage(); as message) {
+          <div class="banner banner-warning error-banner" role="alert">
+            <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            <span>{{ message }}</span>
+          </div>
+        }
+
+        @if (actionHelper(); as helper) {
+          <p class="action-helper">{{ helper }}</p>
+        }
+
+        <div class="action-row">
+          <button
+            type="button"
+            class="btn btn-primary btn-lg action-primary"
+            [disabled]="!canRun() || planBlocked()"
+            (click)="run()"
+          >
+            {{ primaryLabel() }}
+          </button>
+
+          @if (isPolling()) {
+            <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+          }
+        </div>
+      </div>
+    </section>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="OCR progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+          @if (pageProgressLabel(); as label) {
+            <p class="progress-note" role="status">{{ label }}</p>
+          }
+        </div>
+      </section>
+    }
+
+    @if (recognizedSummary(); as summary) {
+      <div
+        class="banner recognized-summary"
+        [class.banner-success]="summary.tone === 'success'"
+        [class.banner-warning]="summary.tone === 'warning'"
+        role="status"
+      >
+        <lucide-icon [img]="shieldIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+        <span>{{ summary.text }}</span>
+      </div>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="PDF"
+        verbPast="made searchable"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (reset)="reset()"
+      ></app-result-card>
+    }
+  </div>
+</div>
