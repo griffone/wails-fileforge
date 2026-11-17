@@ -2,9 +2,10 @@
 // existing tools into one verified result. Phase 1 ships built-in recipes for
 // Email PDF (linear: merge when needed, optimize to a target size), Web image
 // set (fan-out: responsive WebP/JPEG variants plus a ZIP and srcset snippet),
-// Social clip (fan-out: MP4 + WebM encodes plus a poster frame) and Clean scan
-// (local OCR into a searchable PDF plus a text sidecar). All of them verify
-// their outputs and record them for undo.
+// Social clip (fan-out: MP4 + WebM encodes plus a poster frame), Clean scan
+// (local OCR into a searchable PDF plus a text sidecar) and Burned-in subtitles
+// (local Whisper transcription burned into a new MP4 plus an SRT sidecar). All
+// of them verify their outputs and record them for undo.
 package recipes
 
 import (
@@ -36,14 +37,15 @@ const (
 	// ProgressEventNameV1 is the Wails event emitted for every recipe stage.
 	ProgressEventNameV1 = "recipes/progress/v1"
 
-	// emailPDFHistoryToolID, webImageSetHistoryToolID, socialClipHistoryToolID
-	// and cleanScanHistoryToolID are the job-history tool ids used for recipe
-	// runs so the undo log can tell recipe outputs apart from direct tool
-	// outputs.
-	emailPDFHistoryToolID    = "recipe.email_pdf"
-	webImageSetHistoryToolID = "recipe.web_image_set"
-	socialClipHistoryToolID  = "recipe.social_clip"
-	cleanScanHistoryToolID   = "recipe.clean_scan"
+	// emailPDFHistoryToolID, webImageSetHistoryToolID, socialClipHistoryToolID,
+	// cleanScanHistoryToolID and burnedSubtitlesHistoryToolID are the
+	// job-history tool ids used for recipe runs so the undo log can tell recipe
+	// outputs apart from direct tool outputs.
+	emailPDFHistoryToolID        = "recipe.email_pdf"
+	webImageSetHistoryToolID     = "recipe.web_image_set"
+	socialClipHistoryToolID      = "recipe.social_clip"
+	cleanScanHistoryToolID       = "recipe.clean_scan"
+	burnedSubtitlesHistoryToolID = "recipe.burned_subtitles"
 
 	maxConcurrentJobs = 2
 )
@@ -88,9 +90,9 @@ func NewService(reg *registry.Registry, history *jobhistory.Store, emit func(mod
 }
 
 // List returns the built-in recipes. Email PDF is always first, followed by
-// Web image set, Social clip and Clean scan.
+// Web image set, Social clip, Clean scan and Burned-in subtitles.
 func (s *Service) List() []models.RecipeV1 {
-	return []models.RecipeV1{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe()}
+	return []models.RecipeV1{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe()}
 }
 
 // Plan validates a recipe request without executing any tool and resolves the
@@ -276,6 +278,8 @@ func (s *Service) resolve(req models.RecipeRequestV1) (*resolvedRecipe, *models.
 		return resolveSocialClip(recipe, req)
 	case RecipeIDCleanScan:
 		return s.resolveCleanScan(recipe, req)
+	case RecipeIDBurnedSubtitles:
+		return resolveBurnedSubtitles(recipe, req)
 	default:
 		return nil, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", recipe.ID), nil)
 	}
@@ -353,6 +357,8 @@ func (s *Service) execute(ctx context.Context, tracked *recipeJob, resolved *res
 		s.executeSocialClip(ctx, tracked, resolved)
 	case RecipeIDCleanScan:
 		s.executeCleanScan(ctx, tracked, resolved)
+	case RecipeIDBurnedSubtitles:
+		s.executeBurnedSubtitles(ctx, tracked, resolved)
 	default:
 		s.failJob(tracked, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", resolved.Recipe.ID), nil))
 	}

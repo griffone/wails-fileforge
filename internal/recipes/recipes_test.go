@@ -627,8 +627,8 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	service, _, _ := newTestService(t)
 
 	recipes := service.List()
-	if len(recipes) != 4 {
-		t.Fatalf("expected four built-in recipes, got %+v", recipes)
+	if len(recipes) != 5 {
+		t.Fatalf("expected five built-in recipes, got %+v", recipes)
 	}
 
 	email := recipes[0]
@@ -736,6 +736,46 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	}
 	if cleanScan.Steps[0].Detail == "" || cleanScan.Steps[1].Detail == "" {
 		t.Fatalf("expected step details for every Clean scan step, got %+v", cleanScan.Steps)
+	}
+
+	burned := recipes[4]
+	if burned.ID != RecipeIDBurnedSubtitles || burned.Name != "Burned-in subtitles" {
+		t.Fatalf("expected Burned-in subtitles fifth, got %+v", burned)
+	}
+	if burned.Category != "video" || burned.InputKind != "video" {
+		t.Fatalf("unexpected Burned-in subtitles input metadata: %+v", burned)
+	}
+	if burned.MaxInputs != 1 {
+		t.Fatalf("expected Burned-in subtitles to accept one input, got %d", burned.MaxInputs)
+	}
+	if len(burned.AcceptExtensions) != 5 {
+		t.Fatalf("expected five accepted extensions, got %+v", burned.AcceptExtensions)
+	}
+	for index, extension := range []string{"mp4", "mov", "mkv", "webm", "avi"} {
+		if burned.AcceptExtensions[index] != extension {
+			t.Fatalf("expected accepted extension %d to be %q, got %+v", index, extension, burned.AcceptExtensions)
+		}
+	}
+	if len(burned.Highlights) != 3 || burned.Highlights[0] != "Local Whisper" {
+		t.Fatalf("unexpected Burned-in subtitles highlights: %+v", burned.Highlights)
+	}
+	if burned.DefaultTargetSizeBytes != 0 {
+		t.Fatalf("expected no default target size, got %d", burned.DefaultTargetSizeBytes)
+	}
+	if len(burned.Steps) != 3 {
+		t.Fatalf("expected three Burned-in subtitles steps, got %+v", burned.Steps)
+	}
+	if burned.Steps[0].ID != burnedSubtitlesStepTranscribe || burned.Steps[0].ToolID != video.ToolIDVideoTranscribeV1 {
+		t.Fatalf("unexpected transcribe step: %+v", burned.Steps[0])
+	}
+	if burned.Steps[1].ID != burnedSubtitlesStepBurn || burned.Steps[1].ToolID != "" {
+		t.Fatalf("unexpected burn step: %+v", burned.Steps[1])
+	}
+	if burned.Steps[2].ID != burnedSubtitlesStepVerify || burned.Steps[2].ToolID != "" {
+		t.Fatalf("unexpected verify step: %+v", burned.Steps[2])
+	}
+	if burned.Steps[0].Detail == "" || burned.Steps[1].Detail == "" || burned.Steps[2].Detail == "" {
+		t.Fatalf("expected step details for every Burned-in subtitles step, got %+v", burned.Steps)
 	}
 }
 
