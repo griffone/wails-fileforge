@@ -103,6 +103,7 @@ export function recommendDropTools(
     routes.add('/image-converter');
     routes.add('/image-crop');
     routes.add('/image-annotate');
+    routes.add('/pdf-from-images');
   }
 
   if (pdfCount > 0) {

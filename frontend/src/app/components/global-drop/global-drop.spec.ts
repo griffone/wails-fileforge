@@ -49,7 +49,12 @@ describe('GlobalDrop', () => {
   it('recommends the image tools for images', () => {
     show(['/tmp/photo.png', '/tmp/scan.jpg']);
 
-    expect(cardNames()).toEqual(['Image Convert', 'Image Crop', 'Image Annotate']);
+    expect(cardNames()).toEqual([
+      'Image Convert',
+      'Image Crop',
+      'Image Annotate',
+      'Images to PDF',
+    ]);
     expect(text('.drop-files-count')).toBe('2 files');
     expect(text('.drop-files-types')).toBe('PNG · JPG');
   });
@@ -96,6 +101,7 @@ describe('GlobalDrop', () => {
       'Markdown → PDF',
       'Video Convert',
       'Video Trim',
+      'Images to PDF',
     ]);
   });
 

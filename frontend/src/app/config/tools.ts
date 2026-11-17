@@ -11,6 +11,7 @@ import {
   House,
   Image as ImageIcon,
   Layers,
+  LayoutGrid,
   PenTool,
   ScanText,
   Scissors,
@@ -111,7 +112,7 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
-/** The fourteen conversion tools. Ids mirror the backend toolId contract. */
+/** The fifteen conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -285,9 +286,20 @@ export const TOOLS: readonly ToolDefinition[] = [
     formats: ['SRT', 'VTT', 'TXT'],
     keywords: ['video', 'audio', 'transcribe', 'whisper', 'subtitles', 'srt', 'vtt'],
   },
+  {
+    id: 'tool.pdf.images',
+    name: 'Images to PDF',
+    navName: 'Images to PDF',
+    description: 'Place several images on a page grid and export one PDF.',
+    route: '/pdf-from-images',
+    category: 'pdf',
+    icon: LayoutGrid,
+    formats: ['PDF'],
+    keywords: ['images', 'photos', 'pdf', 'grid', 'layout', 'album'],
+  },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 18-entry navigation model. */
+/** Home, every tool, then System Status, Automations and Settings: the full 19-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,

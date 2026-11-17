@@ -1,0 +1,429 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">PDF</p>
+        <h1 class="page-title">Images <em>to PDF</em></h1>
+        <p class="page-sub">
+          Place several images in a page grid and export one PDF. Everything runs on this machine.
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    <div class="flow-grid">
+      <section class="panel intake-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Images</h2>
+            <p class="panel-sub">Drop images or choose them from your computer.</p>
+          </div>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+        </div>
+
+        <div class="panel-body">
+          <app-file-drop
+            accept="image/*"
+            title="Drop images here"
+            hint="PNG · JPG · WebP · GIF · BMP · TIFF"
+            ariaLabel="Drop or choose images to place in the PDF"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
+          <div class="toolbar" role="group" aria-label="Image selection actions">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+              <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Choose files
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
+            >
+              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              Clear
+            </button>
+          </div>
+
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ note.text }}</span>
+            </div>
+          }
+
+          <div
+            class="tray"
+            [class.is-drop-target]="dragOverTray()"
+            (dragover)="onTrayDragOver($event)"
+            (dragleave)="onTrayDragLeave($event)"
+            (drop)="onTrayDrop($event)"
+          >
+            <div class="tray-head">
+              <span class="tray-title">Waiting to be placed</span>
+              <span class="badge badge-neutral">{{ unplacedPaths().length }}</span>
+            </div>
+
+            @if (selectedPaths().length === 0) {
+              <div class="empty-state tray-empty">
+                <lucide-icon [img]="imageIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
+                <strong>No images yet</strong>
+                <span>Drop images above or choose them from your computer.</span>
+              </div>
+            } @else if (unplacedPaths().length === 0) {
+              <p class="tray-note">
+                All images are placed. Drag one out of a page to send it back here.
+              </p>
+            } @else {
+              <ul class="tray-list" aria-label="Images waiting to be placed">
+                @for (path of unplacedPaths(); track path) {
+                  <li class="tray-item">
+                    <span class="tray-drag" draggable="true" (dragstart)="onDragStart($event, path)" (dragend)="onDragEnd()">
+                      <span class="tray-thumb" aria-hidden="true">
+                        @if (thumbnails()[path]; as thumbnail) {
+                          <img [src]="thumbnail" alt="" loading="lazy" />
+                        } @else {
+                          <lucide-icon [img]="imageIcon" [size]="18" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
+                        }
+                      </span>
+                      <span class="tray-name" [title]="path">{{ fileName(path) }}</span>
+                    </span>
+
+                    <span class="tray-actions">
+                      <button type="button" class="btn btn-secondary btn-sm" (click)="placeFromTray(path)">
+                        Place
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn tray-remove"
+                        [attr.aria-label]="'Remove ' + fileName(path)"
+                        title="Remove"
+                        (click)="removeImage(path)"
+                      >
+                        <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                      </button>
+                    </span>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        </div>
+      </section>
+
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Layout</h2>
+            <p class="panel-sub">Choose the page, the grid and how images fit.</p>
+          </div>
+          <span class="badge badge-neutral">{{ layoutSummary() }}</span>
+        </div>
+
+        <div class="panel-body">
+          <div class="settings-grid">
+            <div class="field">
+              <label class="label" for="pdf-images-page-size">Page size</label>
+              <select
+                id="pdf-images-page-size"
+                class="select"
+                (change)="onPageSizeChange($event)"
+              >
+                @for (option of pageSizeOptions; track option.value) {
+                  <option [value]="option.value" [selected]="option.value === pageSize()">{{ option.label }}</option>
+                }
+              </select>
+            </div>
+
+            <div class="field">
+              <span class="label" id="pdf-images-orientation-label">Orientation</span>
+              <div class="seg" role="group" aria-labelledby="pdf-images-orientation-label">
+                @for (option of orientationOptions; track option.value) {
+                  <button
+                    type="button"
+                    class="seg-btn"
+                    [class.is-active]="orientation() === option.value"
+                    [attr.aria-pressed]="orientation() === option.value"
+                    (click)="selectOrientation(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                }
+              </div>
+            </div>
+
+            <div class="field field-wide">
+              <span class="label" id="pdf-images-per-page-label">Images per page</span>
+              <div class="seg seg-numbers" role="group" aria-labelledby="pdf-images-per-page-label">
+                @for (count of perPageOptions; track count) {
+                  <button
+                    type="button"
+                    class="seg-btn"
+                    [class.is-active]="perPage() === count"
+                    [attr.aria-pressed]="perPage() === count"
+                    (click)="selectPerPage(count)"
+                  >
+                    {{ count }}
+                  </button>
+                }
+              </div>
+            </div>
+
+            <div class="field field-wide">
+              <span class="label" id="pdf-images-fit-label">Fit</span>
+              <div class="seg" role="group" aria-labelledby="pdf-images-fit-label">
+                @for (option of fitOptions; track option.value) {
+                  <button
+                    type="button"
+                    class="seg-btn"
+                    [class.is-active]="fit() === option.value"
+                    [attr.aria-pressed]="fit() === option.value"
+                    (click)="selectFit(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                }
+              </div>
+              <p class="field-help">Fit inside keeps the whole image. Fill cell crops it to cover the cell.</p>
+            </div>
+
+            <div class="field">
+              <label class="label" for="pdf-images-margin">Margin</label>
+              <select
+                id="pdf-images-margin"
+                class="select"
+                (change)="onMarginChange($event)"
+              >
+                @for (option of marginOptions; track option.value) {
+                  <option [value]="option.value" [selected]="option.value === marginMm()">{{ option.label }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useFirstImageFolder()">
+                Use first image's folder
+              </button>
+            </div>
+          }
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (actionHelper(); as helper) {
+            <p class="action-helper">{{ helper }}</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel preview-panel" aria-label="Page previews">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">Pages</h2>
+          <p class="panel-sub">Drag images into a cell, or use the arrow and remove buttons.</p>
+        </div>
+        <span class="badge badge-neutral">{{ pagesLabel() }}</span>
+      </div>
+
+      <div class="panel-body preview-body">
+        @if (selectedPaths().length === 0) {
+          <div class="empty-state preview-empty">
+            <lucide-icon [img]="gridIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
+            <strong>No pages yet</strong>
+            <span>Add images to see the page grid and arrange them.</span>
+          </div>
+        } @else {
+          <div class="preview-workspace">
+            @for (slots of pageSlots(); track $index; let pageIndex = $index) {
+              <figure class="page-card">
+                <figcaption class="page-caption">
+                  <span class="page-caption-label mono">Page {{ pageIndex + 1 }}</span>
+                  <span class="page-caption-count mono">{{ filledCount(pageIndex) }} / {{ grid().cells }}</span>
+                </figcaption>
+
+                <div
+                  class="paper"
+                  [style.aspect-ratio]="pageAspect()"
+                  [style.padding.%]="pagePaddingPercent()"
+                >
+                  <div
+                    class="paper-grid"
+                    [style.grid-template-columns]="'repeat(' + grid().columns + ', minmax(0, 1fr))'"
+                    [style.grid-template-rows]="'repeat(' + grid().rows + ', minmax(0, 1fr))'"
+                    [style.column-gap.%]="pageGapPercent()"
+                    [style.row-gap.%]="pageRowGapPercent()"
+                  >
+                    @for (path of slots; track $index; let cell = $index) {
+                      <div
+                        class="slot"
+                        role="group"
+                        [class.is-filled]="!!path"
+                        [class.is-drop-target]="dragOverSlot() === slotKey(pageIndex, cell)"
+                        [attr.aria-label]="slotAriaLabel(path, pageIndex, cell)"
+                        (dragover)="onSlotDragOver($event, pageIndex, cell)"
+                        (dragleave)="onSlotDragLeave($event, pageIndex, cell)"
+                        (drop)="onSlotDrop($event, pageIndex, cell)"
+                      >
+                        <div
+                          class="slot-clip"
+                          [attr.draggable]="path ? 'true' : null"
+                          (dragstart)="onDragStart($event, path)"
+                          (dragend)="onDragEnd()"
+                        >
+                          @if (path; as imagePath) {
+                            @if (thumbnails()[imagePath]; as thumbnail) {
+                              <img
+                                class="slot-image"
+                                [src]="thumbnail"
+                                alt=""
+                                loading="lazy"
+                                [style.object-fit]="fit()"
+                              />
+                            } @else {
+                              <span class="slot-fallback">{{ fileName(imagePath) }}</span>
+                            }
+                          } @else {
+                            <span class="slot-index mono">{{ cell + 1 }}</span>
+                          }
+                        </div>
+
+                        @if (path; as imagePath) {
+                          <span class="slot-actions">
+                            <button
+                              type="button"
+                              class="slot-action"
+                              [disabled]="!canMoveSlot(imagePath, 'left')"
+                              [attr.aria-label]="'Move ' + fileName(imagePath) + ' left'"
+                              title="Move left"
+                              (click)="moveSlot(imagePath, 'left')"
+                            >
+                              <lucide-icon [img]="leftIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+                            </button>
+                            <button
+                              type="button"
+                              class="slot-action"
+                              [disabled]="!canMoveSlot(imagePath, 'up')"
+                              [attr.aria-label]="'Move ' + fileName(imagePath) + ' up'"
+                              title="Move up"
+                              (click)="moveSlot(imagePath, 'up')"
+                            >
+                              <lucide-icon [img]="upIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+                            </button>
+                            <button
+                              type="button"
+                              class="slot-action"
+                              [disabled]="!canMoveSlot(imagePath, 'down')"
+                              [attr.aria-label]="'Move ' + fileName(imagePath) + ' down'"
+                              title="Move down"
+                              (click)="moveSlot(imagePath, 'down')"
+                            >
+                              <lucide-icon [img]="downIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+                            </button>
+                            <button
+                              type="button"
+                              class="slot-action"
+                              [disabled]="!canMoveSlot(imagePath, 'right')"
+                              [attr.aria-label]="'Move ' + fileName(imagePath) + ' right'"
+                              title="Move right"
+                              (click)="moveSlot(imagePath, 'right')"
+                            >
+                              <lucide-icon [img]="rightIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+                            </button>
+                            <button
+                              type="button"
+                              class="slot-action slot-remove"
+                              [attr.aria-label]="'Send ' + fileName(imagePath) + ' back to the tray'"
+                              title="Back to tray"
+                              (click)="unplace(imagePath)"
+                            >
+                              <lucide-icon [img]="closeIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+                            </button>
+                          </span>
+                        }
+                      </div>
+                    }
+                  </div>
+                </div>
+              </figure>
+            }
+          </div>
+        }
+      </div>
+    </section>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="PDF progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="PDF"
+        verbPast="created"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retry()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
+  </div>
+</div>

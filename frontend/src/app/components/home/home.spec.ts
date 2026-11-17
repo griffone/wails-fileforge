@@ -256,7 +256,7 @@ describe('Home', () => {
   it('renders every workbench tool by default', () => {
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(14);
+    expect(cardNames().length).toBe(15);
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -278,10 +278,10 @@ describe('Home', () => {
     expect(filterChip('Image').getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('shows the five PDF tools under the PDF category', () => {
+  it('shows the six PDF tools under the PDF category', () => {
     fixture.detectChanges();
 
-    expect(component.categoryCounts()['pdf']).toBe(5);
+    expect(component.categoryCounts()['pdf']).toBe(6);
 
     filterChip('PDF').click();
     fixture.detectChanges();
@@ -292,6 +292,7 @@ describe('Home', () => {
       'PDF Crop',
       'PDF Optimize',
       'PDF OCR',
+      'Images to PDF',
     ]);
   });
 
@@ -334,7 +335,7 @@ describe('Home', () => {
     (fixture.nativeElement.querySelector('.empty-state-action') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(14);
+    expect(cardNames().length).toBe(15);
     expect(searchInput().value).toBe('');
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
@@ -393,7 +394,7 @@ describe('Home', () => {
     expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
       'Outcomes, not one tool at a time.',
     );
-    expect(cardNames().length).toBe(14);
+    expect(cardNames().length).toBe(15);
   });
 
   it('hides recipes while a search query is active', () => {
@@ -427,7 +428,7 @@ describe('Home', () => {
     expect(section?.querySelector('a')?.getAttribute('href')).toBe(
       '/automations',
     );
-    expect(cardNames().length).toBe(14);
+    expect(cardNames().length).toBe(15);
   });
 
   it('hides the folder-rule card when there are no rules', async () => {
