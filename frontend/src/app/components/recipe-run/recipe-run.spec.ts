@@ -1428,3 +1428,232 @@ describe('RecipeRun (Clean scan)', () => {
     expect(text).toContain('4/4 checks passed');
   }));
 });
+
+describe('RecipeRun (Burned-in subtitles)', () => {
+  const BURNED_RECIPE_ID = 'recipe.burned_subtitles';
+  const BURNED_OUTPUTS = ['/tmp/in/lecture_subtitled.mp4', '/tmp/in/lecture_subtitled.srt'];
+
+  let fixture: ComponentFixture<RecipeRun>;
+  let component: RecipeRun;
+  let wailsSpy: jasmine.SpyObj<Wails>;
+
+  function query<T extends Element>(selector: string): T | null {
+    return fixture.nativeElement.querySelector(selector) as T | null;
+  }
+
+  function videoFileInfo(path: string): FileInfoV1 {
+    return {
+      path,
+      name: path.split(/[\\/]/).pop() ?? path,
+      directory: '/tmp/in',
+      extension: 'mp4',
+      sizeBytes: 2 * 1024 * 1024,
+      kind: 'video',
+      durationSeconds: 12,
+      width: 320,
+      height: 180,
+      videoCodec: 'h264',
+      audioCodec: 'aac',
+      exists: true,
+    };
+  }
+
+  function planResponse(request: RecipeRequestV1): RecipePlanResponseV1 {
+    return {
+      success: true,
+      message: 'Ready to burn 2 files.',
+      recipe: component.recipe() ?? undefined,
+      inputPaths: request.inputPaths,
+      outputDir: request.outputDir || '/tmp/in',
+      outputs: BURNED_OUTPUTS.map((path) => ({
+        inputPath: request.inputPaths[0] ?? '',
+        outputPath: path,
+        outputKind: 'file',
+        exists: false,
+        adjusted: false,
+      })),
+      warnings: [],
+    };
+  }
+
+  function burnedResult(): RecipeResultV1 {
+    return {
+      jobId: 'burned-job-1',
+      recipeId: BURNED_RECIPE_ID,
+      status: 'success',
+      message: 'Burned-in subtitles ready: lecture_subtitled.mp4 and lecture_subtitled.srt.',
+      currentStep: 3,
+      totalSteps: 3,
+      steps: [
+        {
+          id: 'transcribe',
+          name: 'Transcribe audio',
+          toolId: 'tool.video.transcribe',
+          status: 'success',
+          message: 'Transcribed 12 seconds of audio.',
+        },
+        {
+          id: 'burn',
+          name: 'Burn subtitles',
+          toolId: '',
+          status: 'success',
+          message: 'Rendered the cues and copied the audio.',
+        },
+        {
+          id: 'verify',
+          name: 'Verify sync',
+          toolId: '',
+          status: 'success',
+          message: 'Duration, cues and frames verified.',
+        },
+      ],
+      outputs: [...BURNED_OUTPUTS],
+      verification: {
+        success: true,
+        message: 'All checks passed.',
+        outputs: BURNED_OUTPUTS.map((path) => ({
+          path,
+          exists: true,
+          sizeBytes: 1024 * 1024,
+          kind: path.endsWith('.srt') ? 'document' : 'video',
+          checks: [
+            { key: 'exists', label: 'Exists', passed: true, value: 'yes' },
+            {
+              key: 'cues',
+              label: 'Cues',
+              passed: true,
+              value: 'in sync',
+            },
+          ],
+        })),
+        warnings: [],
+      },
+      startedAt: 1,
+      endedAt: 2,
+    };
+  }
+
+  beforeEach(async () => {
+    wailsSpy = createWailsSpy();
+
+    // The catalog predates the new recipe: the local fallback must cover it.
+    wailsSpy.listRecipesV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [
+        emailPdfRecipe,
+        webImageSetRecipe,
+        socialClipRecipe,
+        cleanScanRecipe,
+      ],
+    });
+    wailsSpy.planRecipeV1.and.callFake((request: RecipeRequestV1) =>
+      Promise.resolve(planResponse(request)),
+    );
+    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map(videoFileInfo),
+      }),
+    );
+    wailsSpy.runRecipeV1.and.resolveTo({
+      success: true,
+      message: 'recipe submitted',
+      jobId: 'burned-job-1',
+      status: 'queued',
+    });
+    wailsSpy.getRecipeStatusV1.and.resolveTo(statusResponse(burnedResult()));
+    wailsSpy.cancelRecipeV1.and.resolveTo({
+      success: true,
+      found: true,
+      message: 'cancel requested',
+      result: burnedResult(),
+    });
+    wailsSpy.openFileDialog.and.resolveTo('');
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
+    wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+
+    await TestBed.configureTestingModule({
+      imports: [RecipeRun],
+      providers: [
+        { provide: Wails, useValue: wailsSpy },
+        { provide: ActivatedRoute, useValue: createRoute(BURNED_RECIPE_ID) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(RecipeRun);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('loads the local fallback as a one-video recipe with three steps', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.recipe()?.id).toBe(BURNED_RECIPE_ID);
+    expect(component.recipe()?.name).toBe('Burned-in subtitles');
+    expect(component.showTargetSize()).toBeFalse();
+    expect(component.multipleInputs()).toBeFalse();
+    expect(query('#recipe-target-mb')).toBeNull();
+
+    expect(component.inputTitle()).toBe('Video');
+    expect(component.dropTitle()).toBe('Drop a video here');
+    expect(component.chooseLabel()).toBe('Choose video');
+    expect(component.acceptAttribute()).toBe('.mp4,.mov,.mkv,.webm,.avi');
+
+    const accept = query<HTMLInputElement>('.file-drop-input')?.getAttribute(
+      'accept',
+    );
+    expect(accept).toBe('.mp4,.mov,.mkv,.webm,.avi');
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Burned-in subtitles');
+    expect(text).toContain('Local Whisper');
+    expect(text).toContain('Synchronized burn-in');
+    expect(text).toContain('SRT sidecar');
+    expect(text).toContain('Transcribe audio');
+    expect(text).toContain('Whisper writes timed subtitles locally');
+    expect(text).toContain('Burn subtitles');
+    expect(text).toContain('ffmpeg renders the cues into the picture; audio is copied');
+    expect(text).toContain('Verify sync');
+    expect(text).toContain('Duration, cues and rendered frames are checked');
+  }));
+
+  it('plans and runs the burned-in subtitles recipe with no options', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/in/lecture.mp4']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planRecipeV1).toHaveBeenCalledTimes(1);
+    const planRequest = wailsSpy.planRecipeV1.calls.mostRecent()
+      .args[0] as RecipeRequestV1;
+    expect(planRequest.recipeId).toBe(BURNED_RECIPE_ID);
+    expect(planRequest.inputPaths).toEqual(['/tmp/in/lecture.mp4']);
+    expect(planRequest.options).toEqual({});
+    expect(component.targetBytes()).toBe(0);
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runRecipeV1).toHaveBeenCalledTimes(1);
+    const runRequest = wailsSpy.runRecipeV1.calls.mostRecent()
+      .args[0] as RecipeRequestV1;
+    expect(runRequest.recipeId).toBe(BURNED_RECIPE_ID);
+    expect(runRequest.options).toEqual({});
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('lecture_subtitled.mp4');
+    expect(text).toContain('lecture_subtitled.srt');
+    expect(text).toContain('Verified');
+  }));
+});
+

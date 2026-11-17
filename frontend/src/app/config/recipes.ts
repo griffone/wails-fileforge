@@ -1,4 +1,5 @@
 import {
+  Captions,
   Clapperboard,
   Images,
   Mail,
@@ -170,6 +171,45 @@ export const RECIPES: readonly RecipeDefinition[] = [
           name: 'Verify text layer',
           toolId: '',
           detail: 'Page count and extracted text',
+        },
+      ],
+      defaultTargetSizeBytes: 0,
+    },
+  },
+  {
+    id: 'recipe.burned_subtitles',
+    route: '/recipe/burned-subtitles',
+    inputLabel: '1 video',
+    formats: ['MP4', 'SRT'],
+    icon: Captions,
+    fallback: {
+      id: 'recipe.burned_subtitles',
+      name: 'Burned-in subtitles',
+      description:
+        'Transcribe a video locally and burn synchronized subtitles into a new MP4.',
+      category: 'video',
+      inputKind: 'video',
+      acceptExtensions: ['mp4', 'mov', 'mkv', 'webm', 'avi'],
+      maxInputs: 1,
+      highlights: ['Local Whisper', 'Synchronized burn-in', 'SRT sidecar'],
+      steps: [
+        {
+          id: 'transcribe',
+          name: 'Transcribe audio',
+          toolId: 'tool.video.transcribe',
+          detail: 'Whisper writes timed subtitles locally',
+        },
+        {
+          id: 'burn',
+          name: 'Burn subtitles',
+          toolId: '',
+          detail: 'ffmpeg renders the cues into the picture; audio is copied',
+        },
+        {
+          id: 'verify',
+          name: 'Verify sync',
+          toolId: '',
+          detail: 'Duration, cues and rendered frames are checked',
         },
       ],
       defaultTargetSizeBytes: 0,
