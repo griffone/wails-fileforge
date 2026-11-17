@@ -13,10 +13,12 @@ export const PREFERENCES_STORAGE_KEY = 'ff-preferences';
 
 interface PreferencesState {
   defaultOutputDir: string;
+  whisperPath: string;
+  whisperModelPath: string;
 }
 
 function emptyState(): PreferencesState {
-  return { defaultOutputDir: '' };
+  return { defaultOutputDir: '', whisperPath: '', whisperModelPath: '' };
 }
 
 function normalizePath(value: unknown): string {
@@ -45,17 +47,40 @@ export class PreferencesService {
   /** Default folder seeded into new tool sessions; empty means next to the original. */
   readonly defaultOutputDir: Signal<string>;
 
+  /** Whisper binary override; empty lets the backend resolve the installed default. */
+  readonly whisperPath: Signal<string>;
+
+  /** Whisper model override; empty lets the backend resolve the installed default. */
+  readonly whisperModelPath: Signal<string>;
+
   constructor() {
     this.state = signal(this.load());
     this.defaultOutputDir = computed(() => this.state().defaultOutputDir);
+    this.whisperPath = computed(() => this.state().whisperPath);
+    this.whisperModelPath = computed(() => this.state().whisperModelPath);
   }
 
   setDefaultOutputDir(path: string): void {
-    this.update({ defaultOutputDir: normalizePath(path) });
+    this.update({
+      ...this.state(),
+      defaultOutputDir: normalizePath(path),
+    });
   }
 
   clearDefaultOutputDir(): void {
-    this.update(emptyState());
+    this.update({ ...this.state(), defaultOutputDir: '' });
+  }
+
+  setWhisperPath(path: string): void {
+    this.update({ ...this.state(), whisperPath: normalizePath(path) });
+  }
+
+  setWhisperModelPath(path: string): void {
+    this.update({ ...this.state(), whisperModelPath: normalizePath(path) });
+  }
+
+  clearWhisperPaths(): void {
+    this.update({ ...this.state(), whisperPath: '', whisperModelPath: '' });
   }
 
   private update(next: PreferencesState): void {
@@ -75,7 +100,11 @@ export class PreferencesService {
         return emptyState();
       }
 
-      return { defaultOutputDir: normalizePath(parsed['defaultOutputDir']) };
+      return {
+        defaultOutputDir: normalizePath(parsed['defaultOutputDir']),
+        whisperPath: normalizePath(parsed['whisperPath']),
+        whisperModelPath: normalizePath(parsed['whisperModelPath']),
+      };
     } catch {
       // Corrupted JSON is treated as an empty preference set.
       return emptyState();
@@ -86,7 +115,11 @@ export class PreferencesService {
     try {
       this.document?.defaultView?.localStorage?.setItem(
         PREFERENCES_STORAGE_KEY,
-        JSON.stringify({ defaultOutputDir: state.defaultOutputDir }),
+        JSON.stringify({
+          defaultOutputDir: state.defaultOutputDir,
+          whisperPath: state.whisperPath,
+          whisperModelPath: state.whisperModelPath,
+        }),
       );
     } catch {
       // Storage can be unavailable; the in-memory preference still applies.

@@ -520,6 +520,126 @@ export interface OCRCapabilitiesResponseV1 {
   recommendedLanguage: string;
 }
 
+/**
+ * Detected state of the local Whisper transcription pipeline. `available`
+ * requires both the whisper-cli binary and a model file. Paths are resolved:
+ * a user override wins when it exists, otherwise the installed defaults.
+ * Field names mirror the Go DTO JSON tags.
+ */
+export interface TranscriptionCapabilitiesResponseV1 {
+  success: boolean;
+  message: string;
+  available: boolean;
+  whisperPath: string;
+  whisperPresent: boolean;
+  modelPath: string;
+  modelPresent: boolean;
+  modelName?: string;
+  modelSizeBytes?: number;
+  languages: string[];
+  defaultLanguage?: string;
+}
+
+/** One external binary the local tools can rely on. */
+export interface LocalCapabilityV1 {
+  id: string;
+  label: string;
+  available: boolean;
+  required: boolean;
+  detail: string;
+  suggestion?: string;
+}
+
+/**
+ * Snapshot of the local runtime surface. Optional missing tools are guidance,
+ * never an app failure. Field names mirror the Go DTO JSON tags.
+ */
+export interface LocalCapabilitiesResponseV1 {
+  success: boolean;
+  message: string;
+  checks: LocalCapabilityV1[];
+  ocrLanguages: string[];
+  recommendedOcrLanguage?: string;
+}
+
+/** One terminal automation run kept in the local run history. */
+export interface AutomationRunRecordV1 {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  filePath: string;
+  status: string;
+  message: string;
+  outputs?: string[];
+  at: number;
+}
+
+export interface ListAutomationRunsResponseV1 {
+  success: boolean;
+  message: string;
+  runs: AutomationRunRecordV1[];
+}
+
+export interface AutomationRunsActionResponseV1 {
+  success: boolean;
+  message: string;
+}
+
+/**
+ * One portable component of the managed local toolchain. `ready` means the
+ * file was verified on disk; required components gate the overall readiness.
+ * Field names mirror the Go DTO JSON tags.
+ */
+export interface ToolchainComponentV1 {
+  id: string;
+  label: string;
+  ready: boolean;
+  required: boolean;
+  path?: string;
+  version?: string;
+  detail?: string;
+}
+
+/**
+ * Managed toolchain snapshot. It is safe to poll while an install runs; a
+ * failed install reports `success: false` with `error` set, while an
+ * unsupported platform reports `success: true` with a message and no ready
+ * components.
+ */
+export interface ToolchainStatusV1 {
+  success: boolean;
+  message: string;
+  ready: boolean;
+  installing: boolean;
+  cancelling?: boolean;
+  percent: number;
+  phase?: string;
+  detail?: string;
+  error?: string;
+  storageDir: string;
+  components: ToolchainComponentV1[];
+  model: string;
+  modelPath?: string;
+  ocrLanguages: string[];
+}
+
+/** Install selection; an empty model means `small`, empty languages mean both. */
+export interface ToolchainInstallOptionsV1 {
+  model: string;
+  ocrLanguages: string[];
+  force?: boolean;
+}
+
+/** One installer progress update emitted on `toolchain/install/v1`. */
+export interface ToolchainInstallEventV1 {
+  phase: string;
+  percent: number;
+  indeterminate?: boolean;
+  message: string;
+  done?: boolean;
+  error?: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -551,6 +671,13 @@ export class Wails {
     null;
   private automationRunUnsubscribe: (() => void) | null = null;
   private automationRunRefCount = 0;
+
+  // Toolchain installer progress follows the same lazy lifecycle. A late UI
+  // gets the last event replayed, then polls the install state for the rest.
+  private toolchainInstallSubject: ReplaySubject<ToolchainInstallEventV1> | null =
+    null;
+  private toolchainInstallUnsubscribe: (() => void) | null = null;
+  private toolchainInstallRefCount = 0;
 
   // Bounded thumbnail cache: key is `${path}:${size}`, value is a data URL or
   // null when the preview could not be produced (browser dev mode, bad file).
@@ -615,6 +742,29 @@ export class Wails {
       const unregister = this.ensureAutomationRunRegistered();
 
       const sub = this.automationRunSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    });
+
+  // Same contract as recipeProgress$ for the toolchain/install/v1 stream. The
+  // installer may fire events before the UI loads, so late subscribers get the
+  // last event replayed and the status endpoint fills in the rest.
+  public readonly toolchainInstall$: Observable<ToolchainInstallEventV1> =
+    new Observable((subscriber) => {
+      const unregister = this.ensureToolchainInstallRegistered();
+
+      const sub = this.toolchainInstallSubject!.subscribe({
         next: (v) => subscriber.next(v),
         error: (e) => subscriber.error(e),
         complete: () => subscriber.complete(),
@@ -949,6 +1099,76 @@ export class Wails {
     }
   }
 
+  async getTranscriptionCapabilitiesV1(
+    whisperPath: string,
+    modelPath: string,
+  ): Promise<TranscriptionCapabilitiesResponseV1> {
+    try {
+      return await this.callByID(4175229221, whisperPath, modelPath);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage(
+          'Get transcription capabilities failed',
+          error,
+        ),
+        available: false,
+        whisperPath: '',
+        whisperPresent: false,
+        modelPath: '',
+        modelPresent: false,
+        languages: [],
+      };
+    }
+  }
+
+  async getLocalCapabilitiesV1(): Promise<LocalCapabilitiesResponseV1> {
+    try {
+      return await this.callByID(3724439350);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get local capabilities failed', error),
+        checks: [],
+        ocrLanguages: [],
+      };
+    }
+  }
+
+  async getToolchainStatusV1(): Promise<ToolchainStatusV1> {
+    try {
+      return await this.callByID(4112443058);
+    } catch (error) {
+      return this.toolchainFallback('Get toolchain status failed', error);
+    }
+  }
+
+  async getToolchainInstallStateV1(): Promise<ToolchainStatusV1> {
+    try {
+      return await this.callByID(1567166124);
+    } catch (error) {
+      return this.toolchainFallback('Get toolchain install state failed', error);
+    }
+  }
+
+  async startToolchainInstallV1(
+    options: ToolchainInstallOptionsV1,
+  ): Promise<ToolchainStatusV1> {
+    try {
+      return await this.callByID(3242097449, options);
+    } catch (error) {
+      return this.toolchainFallback('Start toolchain install failed', error);
+    }
+  }
+
+  async cancelToolchainInstallV1(): Promise<ToolchainStatusV1> {
+    try {
+      return await this.callByID(299826451);
+    } catch (error) {
+      return this.toolchainFallback('Cancel toolchain install failed', error);
+    }
+  }
+
   async listRecipesV1(): Promise<ListRecipesResponseV1> {
     try {
       return await this.callByID(388441352);
@@ -1100,6 +1320,31 @@ export class Wails {
         message: this.formatMessage('Get automation status failed', error),
         totalRules: 0,
         activeRules: 0,
+      };
+    }
+  }
+
+  async listAutomationRunsV1(
+    limit: number,
+  ): Promise<ListAutomationRunsResponseV1> {
+    try {
+      return await this.callByID(546598670, limit);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('List automation runs failed', error),
+        runs: [],
+      };
+    }
+  }
+
+  async clearAutomationRunsV1(): Promise<AutomationRunsActionResponseV1> {
+    try {
+      return await this.callByID(1108054243);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Clear automation runs failed', error),
       };
     }
   }
@@ -1290,6 +1535,24 @@ export class Wails {
 
     const subscription: Subscription =
       this.automationRunSubject!.subscribe(callback);
+
+    return () => {
+      try {
+        subscription.unsubscribe();
+      } catch {
+        // ignore
+      }
+      unregister();
+    };
+  }
+
+  subscribeToolchainInstallV1(
+    callback: (event: ToolchainInstallEventV1) => void,
+  ): () => void {
+    const unregister = this.ensureToolchainInstallRegistered();
+
+    const subscription: Subscription =
+      this.toolchainInstallSubject!.subscribe(callback);
 
     return () => {
       try {
@@ -1496,6 +1759,84 @@ export class Wails {
         this.automationRunSubject = null;
         this.automationRunRefCount = 0;
       }
+    };
+  }
+
+  // Ensure the toolchain replay subject exists and the native install event
+  // handler is registered. Mirrors the other streams; only a phase string, a
+  // finite percent and a message are required to drive the progress UI.
+  private ensureToolchainInstallRegistered(): () => void {
+    if (!this.toolchainInstallSubject) {
+      this.toolchainInstallSubject =
+        new ReplaySubject<ToolchainInstallEventV1>(1);
+      this.toolchainInstallUnsubscribe = Events.On(
+        'toolchain/install/v1',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<ToolchainInstallEventV1>;
+          if (
+            typeof candidate.phase !== 'string' ||
+            typeof candidate.percent !== 'number' ||
+            !Number.isFinite(candidate.percent) ||
+            typeof candidate.message !== 'string'
+          ) {
+            return;
+          }
+
+          this.toolchainInstallSubject?.next({
+            phase: candidate.phase,
+            percent: candidate.percent,
+            indeterminate: candidate.indeterminate === true,
+            message: candidate.message,
+            done: candidate.done === true,
+            error:
+              typeof candidate.error === 'string' ? candidate.error : undefined,
+          });
+        },
+      );
+    }
+
+    this.toolchainInstallRefCount += 1;
+
+    return () => {
+      this.toolchainInstallRefCount -= 1;
+      if (this.toolchainInstallRefCount <= 0) {
+        try {
+          this.toolchainInstallUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.toolchainInstallUnsubscribe = null;
+        try {
+          this.toolchainInstallSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.toolchainInstallSubject = null;
+        this.toolchainInstallRefCount = 0;
+      }
+    };
+  }
+
+  /** Safe fallback for toolchain calls when IPC is unavailable (preview). */
+  private toolchainFallback(
+    prefix: string,
+    error: unknown,
+  ): ToolchainStatusV1 {
+    return {
+      success: false,
+      message: this.formatMessage(prefix, error),
+      ready: false,
+      installing: false,
+      percent: 0,
+      storageDir: '',
+      components: [],
+      model: 'medium',
+      ocrLanguages: [],
     };
   }
 

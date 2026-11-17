@@ -20,6 +20,7 @@ import { LucideAngularModule, Menu, Moon, Search, Sun, X } from 'lucide-angular'
 import { BRAND_ICON, ToolDefinition } from './config/tools';
 import { CommandPalette } from './components/command-palette/command-palette';
 import { GlobalDrop } from './components/global-drop/global-drop';
+import { ToolchainSetup } from './components/toolchain-setup/toolchain-setup';
 import { GlobalDropService } from './services/global-drop.service';
 import { RecentToolsService } from './services/recent-tools.service';
 import { ThemeService } from './services/theme.service';
@@ -43,6 +44,7 @@ const LOCAL_DROP_TARGET_PREFIX = 'ff-drop-';
     LucideAngularModule,
     CommandPalette,
     GlobalDrop,
+    ToolchainSetup,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',

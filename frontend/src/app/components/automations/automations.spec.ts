@@ -10,12 +10,14 @@ import { Automations } from './automations';
 import {
   AutomationRuleV1,
   AutomationRunEventV1,
+  AutomationRunRecordV1,
   AutomationStatusResponseV1,
   RecipeV1,
   Wails,
 } from '../../services/wails';
 
 const LAST_RUN_AT = Date.now() - 2 * 60_000;
+const HISTORY_RUN_AT = Date.now() - 5 * 60_000;
 
 const EMAIL_RECIPE: RecipeV1 = {
   id: 'recipe.email_pdf',
@@ -68,6 +70,22 @@ function sampleStatus(
   };
 }
 
+function sampleRun(
+  overrides: Partial<AutomationRunRecordV1> = {},
+): AutomationRunRecordV1 {
+  return {
+    id: 'run_1',
+    ruleId: 'rule_1',
+    ruleName: 'Inbox PDFs',
+    filePath: '/tmp/inbox/history.pdf',
+    status: 'success',
+    message: 'Compressed for email.',
+    outputs: ['/tmp/out/history.pdf'],
+    at: HISTORY_RUN_AT,
+    ...overrides,
+  };
+}
+
 describe('Automations', () => {
   let fixture: ComponentFixture<Automations>;
   let component: Automations;
@@ -101,6 +119,8 @@ describe('Automations', () => {
       'listAutomationRulesV1',
       'listRecipesV1',
       'getAutomationStatusV1',
+      'listAutomationRunsV1',
+      'clearAutomationRunsV1',
       'saveAutomationRuleV1',
       'deleteAutomationRuleV1',
       'setAutomationRuleEnabledV1',
@@ -118,6 +138,15 @@ describe('Automations', () => {
       rules: [sampleRule()],
     });
     wailsSpy.getAutomationStatusV1.and.resolveTo(sampleStatus());
+    wailsSpy.listAutomationRunsV1.and.resolveTo({
+      success: true,
+      message: 'ok',
+      runs: [sampleRun()],
+    });
+    wailsSpy.clearAutomationRunsV1.and.resolveTo({
+      success: true,
+      message: 'Automation run history cleared.',
+    });
     wailsSpy.saveAutomationRuleV1.and.resolveTo({
       success: true,
       message: 'Automation rule saved.',
@@ -392,5 +421,81 @@ describe('Automations', () => {
 
     expect(component.rules()[0].lastStatus).toBe('failed');
     expect(fixture.nativeElement.textContent).not.toContain('Not ours.');
+  }));
+
+  it('renders persisted recent runs', () => {
+    const text = fixture.nativeElement.textContent as string;
+
+    expect(text).toContain('Recent runs');
+    expect(text).toContain('Inbox PDFs');
+    expect(text).toContain('history.pdf');
+    expect(text).toContain('Success');
+    expect(text).toContain('Compressed for email.');
+    expect(text).toContain('5 min ago');
+    expect(text).toContain('1 file');
+    expect(wailsSpy.listAutomationRunsV1).toHaveBeenCalledWith(20);
+  });
+
+  it('prepends terminal live runs and ignores running events', fakeAsync(() => {
+    automationRunSubject.next({
+      ruleId: 'rule_1',
+      ruleName: 'Inbox PDFs',
+      filePath: '/tmp/inbox/live.pdf',
+      status: 'failed',
+      message: 'Ghostscript is missing.',
+      outputs: [],
+      at: LAST_RUN_AT + 5_000,
+    });
+    fixture.detectChanges();
+
+    expect(component.runs().length).toBe(2);
+    expect(component.runs()[0].id).toBe(`live-${LAST_RUN_AT + 5_000}-rule_1`);
+    expect(component.runs()[0].filePath).toBe('/tmp/inbox/live.pdf');
+    expect(component.runs()[0].status).toBe('failed');
+    expect(fixture.nativeElement.textContent).toContain('live.pdf');
+
+    automationRunSubject.next({
+      ruleId: 'rule_1',
+      ruleName: 'Inbox PDFs',
+      filePath: '/tmp/inbox/running.pdf',
+      status: 'running',
+      message: 'Working…',
+      outputs: [],
+      at: LAST_RUN_AT + 6_000,
+    });
+    fixture.detectChanges();
+
+    expect(component.runs().length).toBe(2);
+    expect(component.runs()[0].status).toBe('failed');
+    expect(component.runs().some((run) => run.status === 'running')).toBeFalse();
+  }));
+
+  it('clears the run history only after confirmation', fakeAsync(() => {
+    click('.automation-clear-runs');
+    fixture.detectChanges();
+
+    expect(wailsSpy.clearAutomationRunsV1).not.toHaveBeenCalled();
+    expect(query('.automation-confirm-clear-runs')).not.toBeNull();
+
+    click('.automation-cancel-clear-runs');
+    fixture.detectChanges();
+
+    expect(query('.automation-confirm-clear-runs')).toBeNull();
+    expect(wailsSpy.clearAutomationRunsV1).not.toHaveBeenCalled();
+
+    click('.automation-clear-runs');
+    fixture.detectChanges();
+    click('.automation-confirm-clear-runs');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.clearAutomationRunsV1).toHaveBeenCalledTimes(1);
+    expect(component.runs().length).toBe(0);
+    expect(fixture.nativeElement.textContent).toContain(
+      'No automation runs yet.',
+    );
+    expect(fixture.nativeElement.textContent).toContain(
+      'Automation run history cleared.',
+    );
   }));
 });

@@ -29,6 +29,13 @@ describe('PreferencesService', () => {
     expect(service.defaultOutputDir()).toBe('');
   });
 
+  it('starts with no whisper path overrides', () => {
+    const service = TestBed.inject(PreferencesService);
+
+    expect(service.whisperPath()).toBe('');
+    expect(service.whisperModelPath()).toBe('');
+  });
+
   it('stores a trimmed folder and persists it', () => {
     const service = TestBed.inject(PreferencesService);
 
@@ -37,6 +44,8 @@ describe('PreferencesService', () => {
     expect(service.defaultOutputDir()).toBe('/tmp/exports');
     expect(JSON.parse(localStorage.getItem(PREFERENCES_STORAGE_KEY) ?? '{}')).toEqual({
       defaultOutputDir: '/tmp/exports',
+      whisperPath: '',
+      whisperModelPath: '',
     });
   });
 
@@ -60,6 +69,8 @@ describe('PreferencesService', () => {
     expect(service.defaultOutputDir()).toBe('');
     expect(JSON.parse(localStorage.getItem(PREFERENCES_STORAGE_KEY) ?? '{}')).toEqual({
       defaultOutputDir: '',
+      whisperPath: '',
+      whisperModelPath: '',
     });
   });
 
@@ -71,19 +82,93 @@ describe('PreferencesService', () => {
     expect(service.defaultOutputDir()).toBe('');
   });
 
+  it('stores trimmed whisper paths and persists them', () => {
+    const service = TestBed.inject(PreferencesService);
+
+    service.setWhisperPath('  /opt/whisper-cli  ');
+    service.setWhisperModelPath('  /models/ggml-base.bin  ');
+
+    expect(service.whisperPath()).toBe('/opt/whisper-cli');
+    expect(service.whisperModelPath()).toBe('/models/ggml-base.bin');
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_STORAGE_KEY) ?? '{}')).toEqual({
+      defaultOutputDir: '',
+      whisperPath: '/opt/whisper-cli',
+      whisperModelPath: '/models/ggml-base.bin',
+    });
+  });
+
+  it('reloads the saved whisper paths in a new instance', () => {
+    const service = TestBed.inject(PreferencesService);
+    service.setWhisperPath('/opt/whisper-cli');
+    service.setWhisperModelPath('/models/ggml-base.bin');
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({});
+
+    const reloaded = TestBed.inject(PreferencesService);
+    expect(reloaded.whisperPath()).toBe('/opt/whisper-cli');
+    expect(reloaded.whisperModelPath()).toBe('/models/ggml-base.bin');
+  });
+
+  it('clears whisper paths without touching the output folder', () => {
+    const service = TestBed.inject(PreferencesService);
+    service.setDefaultOutputDir('/tmp/exports');
+    service.setWhisperPath('/opt/whisper-cli');
+    service.setWhisperModelPath('/models/ggml-base.bin');
+
+    service.clearWhisperPaths();
+
+    expect(service.whisperPath()).toBe('');
+    expect(service.whisperModelPath()).toBe('');
+    expect(service.defaultOutputDir()).toBe('/tmp/exports');
+  });
+
+  it('keeps whisper overrides when the output folder is cleared', () => {
+    const service = TestBed.inject(PreferencesService);
+    service.setDefaultOutputDir('/tmp/exports');
+    service.setWhisperPath('/opt/whisper-cli');
+    service.setWhisperModelPath('/models/ggml-base.bin');
+
+    service.clearDefaultOutputDir();
+
+    expect(service.defaultOutputDir()).toBe('');
+    expect(service.whisperPath()).toBe('/opt/whisper-cli');
+    expect(service.whisperModelPath()).toBe('/models/ggml-base.bin');
+  });
+
+  it('treats empty whisper paths as backend defaults', () => {
+    const service = TestBed.inject(PreferencesService);
+
+    service.setWhisperPath('   ');
+    service.setWhisperModelPath('   ');
+
+    expect(service.whisperPath()).toBe('');
+    expect(service.whisperModelPath()).toBe('');
+  });
+
   it('falls back to empty defaults for malformed storage', () => {
     localStorage.setItem(PREFERENCES_STORAGE_KEY, '{not json');
 
-    expect(TestBed.inject(PreferencesService).defaultOutputDir()).toBe('');
+    const service = TestBed.inject(PreferencesService);
+    expect(service.defaultOutputDir()).toBe('');
+    expect(service.whisperPath()).toBe('');
+    expect(service.whisperModelPath()).toBe('');
   });
 
   it('ignores unexpected value shapes in storage', () => {
     localStorage.setItem(
       PREFERENCES_STORAGE_KEY,
-      JSON.stringify({ defaultOutputDir: 42 }),
+      JSON.stringify({
+        defaultOutputDir: 42,
+        whisperPath: 7,
+        whisperModelPath: false,
+      }),
     );
 
-    expect(TestBed.inject(PreferencesService).defaultOutputDir()).toBe('');
+    const service = TestBed.inject(PreferencesService);
+    expect(service.defaultOutputDir()).toBe('');
+    expect(service.whisperPath()).toBe('');
+    expect(service.whisperModelPath()).toBe('');
   });
 
   it('keeps working when storage reads are blocked', () => {
@@ -93,6 +178,8 @@ describe('PreferencesService', () => {
 
     expect(service.defaultOutputDir()).toBe('');
     service.setDefaultOutputDir('/tmp/exports');
+    service.setWhisperPath('/opt/whisper-cli');
     expect(service.defaultOutputDir()).toBe('/tmp/exports');
+    expect(service.whisperPath()).toBe('/opt/whisper-cli');
   });
 });

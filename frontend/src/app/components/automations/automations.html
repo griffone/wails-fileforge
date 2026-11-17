@@ -510,5 +510,97 @@
         </div>
       </section>
     }
+
+    <section
+      class="panel automation-runs"
+      aria-labelledby="automation-runs-title"
+    >
+      <div class="panel-head automation-runs-head">
+        <div class="automation-runs-title">
+          <h2 id="automation-runs-title" class="panel-title">Recent runs</h2>
+          <span class="badge badge-neutral automation-runs-count">{{
+            runs().length
+          }}</span>
+        </div>
+
+        @if (confirmClearRuns()) {
+          <div
+            class="automation-runs-confirm"
+            role="group"
+            aria-label="Confirm clear run history"
+          >
+            <button
+              type="button"
+              class="btn btn-danger btn-sm automation-confirm-clear-runs"
+              [disabled]="runsLoading()"
+              (click)="clearRuns()"
+            >
+              Confirm clear
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm automation-cancel-clear-runs"
+              [disabled]="runsLoading()"
+              (click)="cancelClearRuns()"
+            >
+              Cancel
+            </button>
+          </div>
+        } @else {
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm automation-clear-runs"
+            [disabled]="runsLoading() || runs().length === 0"
+            (click)="requestClearRuns()"
+          >
+            Clear history
+          </button>
+        }
+      </div>
+
+      <div class="panel-body automation-runs-body">
+        @if (runsLoading()) {
+          <p
+            class="automation-runs-loading"
+            role="status"
+            aria-live="polite"
+          >
+            Loading recent runs…
+          </p>
+        } @else if (runs().length === 0) {
+          <p class="automation-runs-empty">No automation runs yet.</p>
+        } @else {
+          <ul class="automation-runs-list" aria-label="Recent automation runs">
+            @for (run of runs(); track run.id) {
+              <li class="automation-run">
+                <div class="automation-run-head">
+                  <span [class]="statusBadgeClass(run.status)">{{
+                    statusLabel(run.status)
+                  }}</span>
+                  <span class="automation-run-rule">{{
+                    run.ruleName || run.ruleId
+                  }}</span>
+                  <span class="automation-run-time mono">{{
+                    relativeTime(run.at)
+                  }}</span>
+                </div>
+
+                <p class="automation-run-file mono" [title]="run.filePath">
+                  {{ runFileName(run) }}
+                </p>
+
+                @if (run.message) {
+                  <p class="automation-run-message">{{ run.message }}</p>
+                }
+
+                <span class="automation-run-outputs mono">{{
+                  runOutputsLabel(run)
+                }}</span>
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    </section>
   </div>
 </div>

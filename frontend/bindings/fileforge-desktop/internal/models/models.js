@@ -233,6 +233,130 @@ export class AutomationRuleV1 {
 }
 
 /**
+ * AutomationRunRecordV1 is one terminal automation run kept in the local run
+ * history. RuleName is captured at run time so the history survives rule
+ * deletion.
+ */
+export class AutomationRunRecordV1 {
+    /**
+     * Creates a new AutomationRunRecordV1 instance.
+     * @param {Partial<AutomationRunRecordV1>} [$$source = {}] - The source object to create the AutomationRunRecordV1.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("ruleId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["ruleId"] = "";
+        }
+        if (!("ruleName" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["ruleName"] = "";
+        }
+        if (!("filePath" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["filePath"] = "";
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["outputs"] = undefined;
+        }
+        if (!("at" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["at"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutomationRunRecordV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutomationRunRecordV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField6_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("outputs" in $$parsedSource) {
+            $$parsedSource["outputs"] = $$createField6_0($$parsedSource["outputs"]);
+        }
+        return new AutomationRunRecordV1(/** @type {Partial<AutomationRunRecordV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * AutomationRunsActionResponseV1 is the result of clearing the run history.
+ */
+export class AutomationRunsActionResponseV1 {
+    /**
+     * Creates a new AutomationRunsActionResponseV1 instance.
+     * @param {Partial<AutomationRunsActionResponseV1>} [$$source = {}] - The source object to create the AutomationRunsActionResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutomationRunsActionResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutomationRunsActionResponseV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AutomationRunsActionResponseV1(/** @type {Partial<AutomationRunsActionResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
  * AutomationStatusResponseV1 is the compact automation summary shown on Home.
  * The last-run fields mirror the most recently run rule.
  */
@@ -1639,6 +1763,56 @@ export class ListAutomationRulesResponseV1 {
 }
 
 /**
+ * ListAutomationRunsResponseV1 lists the persisted automation run history,
+ * newest first.
+ */
+export class ListAutomationRunsResponseV1 {
+    /**
+     * Creates a new ListAutomationRunsResponseV1 instance.
+     * @param {Partial<ListAutomationRunsResponseV1>} [$$source = {}] - The source object to create the ListAutomationRunsResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("runs" in $$source)) {
+            /**
+             * @member
+             * @type {AutomationRunRecordV1[]}
+             */
+            this["runs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ListAutomationRunsResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ListAutomationRunsResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType19;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("runs" in $$parsedSource) {
+            $$parsedSource["runs"] = $$createField2_0($$parsedSource["runs"]);
+        }
+        return new ListAutomationRunsResponseV1(/** @type {Partial<ListAutomationRunsResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
  * ListRecipesResponseV1 lists the built-in recipes available to the UI.
  */
 export class ListRecipesResponseV1 {
@@ -1678,7 +1852,7 @@ export class ListRecipesResponseV1 {
      * @returns {ListRecipesResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType19;
+        const $$createField2_0 = $$createType21;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("recipes" in $$parsedSource) {
             $$parsedSource["recipes"] = $$createField2_0($$parsedSource["recipes"]);
@@ -1724,12 +1898,148 @@ export class ListToolsResponseV1 {
      * @returns {ListToolsResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType21;
+        const $$createField2_0 = $$createType23;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tools" in $$parsedSource) {
             $$parsedSource["tools"] = $$createField2_0($$parsedSource["tools"]);
         }
         return new ListToolsResponseV1(/** @type {Partial<ListToolsResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * LocalCapabilitiesResponseV1 reports the local runtime surface: every checked
+ * binary with its guidance plus the installed OCR languages.
+ */
+export class LocalCapabilitiesResponseV1 {
+    /**
+     * Creates a new LocalCapabilitiesResponseV1 instance.
+     * @param {Partial<LocalCapabilitiesResponseV1>} [$$source = {}] - The source object to create the LocalCapabilitiesResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("checks" in $$source)) {
+            /**
+             * @member
+             * @type {LocalCapabilityV1[]}
+             */
+            this["checks"] = [];
+        }
+        if (!("ocrLanguages" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["ocrLanguages"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["recommendedOcrLanguage"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LocalCapabilitiesResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {LocalCapabilitiesResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType25;
+        const $$createField3_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("checks" in $$parsedSource) {
+            $$parsedSource["checks"] = $$createField2_0($$parsedSource["checks"]);
+        }
+        if ("ocrLanguages" in $$parsedSource) {
+            $$parsedSource["ocrLanguages"] = $$createField3_0($$parsedSource["ocrLanguages"]);
+        }
+        return new LocalCapabilitiesResponseV1(/** @type {Partial<LocalCapabilitiesResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * LocalCapabilityV1 is one external tool check shown in the Local capabilities
+ * panel. Required tools are needed for a whole tool family; optional ones only
+ * improve an existing workflow.
+ */
+export class LocalCapabilityV1 {
+    /**
+     * Creates a new LocalCapabilityV1 instance.
+     * @param {Partial<LocalCapabilityV1>} [$$source = {}] - The source object to create the LocalCapabilityV1.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("available" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["available"] = false;
+        }
+        if (!("required" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["required"] = false;
+        }
+        if (!("detail" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["detail"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["suggestion"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LocalCapabilityV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {LocalCapabilityV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LocalCapabilityV1(/** @type {Partial<LocalCapabilityV1>} */($$parsedSource));
     }
 }
 
@@ -2021,7 +2331,7 @@ export class PlanJobResponseV1 {
      * @returns {PlanJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType23;
+        const $$createField2_0 = $$createType27;
         const $$createField3_0 = $$createType5;
         const $$createField4_0 = $$createType4;
         const $$createField5_0 = $$createType3;
@@ -2194,9 +2504,9 @@ export class RecipePlanResponseV1 {
      * @returns {RecipePlanResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType24;
+        const $$createField2_0 = $$createType28;
         const $$createField3_0 = $$createType4;
-        const $$createField5_0 = $$createType23;
+        const $$createField5_0 = $$createType27;
         const $$createField6_0 = $$createType4;
         const $$createField7_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
@@ -2392,9 +2702,9 @@ export class RecipeResultV1 {
      * @returns {RecipeResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType26;
+        const $$createField6_0 = $$createType30;
         const $$createField7_0 = $$createType4;
-        const $$createField9_0 = $$createType28;
+        const $$createField9_0 = $$createType32;
         const $$createField10_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("steps" in $$parsedSource) {
@@ -2467,7 +2777,7 @@ export class RecipeStatusResponseV1 {
      * @returns {RecipeStatusResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType30;
+        const $$createField3_0 = $$createType34;
         const $$createField4_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
@@ -2708,7 +3018,7 @@ export class RecipeV1 {
     static createFrom($$source = {}) {
         const $$createField5_0 = $$createType4;
         const $$createField7_0 = $$createType4;
-        const $$createField8_0 = $$createType32;
+        const $$createField8_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("acceptExtensions" in $$parsedSource) {
             $$parsedSource["acceptExtensions"] = $$createField5_0($$parsedSource["acceptExtensions"]);
@@ -2877,8 +3187,8 @@ export class ToolCatalogEntryV1 {
      * @returns {ToolCatalogEntryV1}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType33;
-        const $$createField1_0 = $$createType34;
+        const $$createField0_0 = $$createType37;
+        const $$createField1_0 = $$createType38;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("manifest" in $$parsedSource) {
             $$parsedSource["manifest"] = $$createField0_0($$parsedSource["manifest"]);
@@ -3055,6 +3365,373 @@ export class ToolRuntimeStateV1 {
 }
 
 /**
+ * ToolchainComponentV1 is one portable component of the managed local
+ * toolchain. Ready means the file was verified on disk; Required components
+ * gate ToolchainStatusV1.Ready.
+ */
+export class ToolchainComponentV1 {
+    /**
+     * Creates a new ToolchainComponentV1 instance.
+     * @param {Partial<ToolchainComponentV1>} [$$source = {}] - The source object to create the ToolchainComponentV1.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("ready" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ready"] = false;
+        }
+        if (!("required" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["required"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["path"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["version"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["detail"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ToolchainComponentV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ToolchainComponentV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ToolchainComponentV1(/** @type {Partial<ToolchainComponentV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * ToolchainInstallOptionsV1 selects what the installer must provide. An empty
+ * model installs "small"; an empty language list installs English and Spanish.
+ */
+export class ToolchainInstallOptionsV1 {
+    /**
+     * Creates a new ToolchainInstallOptionsV1 instance.
+     * @param {Partial<ToolchainInstallOptionsV1>} [$$source = {}] - The source object to create the ToolchainInstallOptionsV1.
+     */
+    constructor($$source = {}) {
+        if (!("model" in $$source)) {
+            /**
+             * small|medium|large-v3; empty = small
+             * @member
+             * @type {string}
+             */
+            this["model"] = "";
+        }
+        if (!("ocrLanguages" in $$source)) {
+            /**
+             * eng|spa; empty = both
+             * @member
+             * @type {string[]}
+             */
+            this["ocrLanguages"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["force"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ToolchainInstallOptionsV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ToolchainInstallOptionsV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("ocrLanguages" in $$parsedSource) {
+            $$parsedSource["ocrLanguages"] = $$createField1_0($$parsedSource["ocrLanguages"]);
+        }
+        return new ToolchainInstallOptionsV1(/** @type {Partial<ToolchainInstallOptionsV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * ToolchainStatusV1 is the managed toolchain snapshot: component readiness,
+ * the selected Whisper model, the installed OCR languages and the current
+ * install state. It is safe to poll while an install runs.
+ */
+export class ToolchainStatusV1 {
+    /**
+     * Creates a new ToolchainStatusV1 instance.
+     * @param {Partial<ToolchainStatusV1>} [$$source = {}] - The source object to create the ToolchainStatusV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("ready" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ready"] = false;
+        }
+        if (!("installing" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["installing"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["cancelling"] = undefined;
+        }
+        if (!("percent" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["percent"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["phase"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["detail"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["error"] = undefined;
+        }
+        if (!("storageDir" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["storageDir"] = "";
+        }
+        if (!("components" in $$source)) {
+            /**
+             * @member
+             * @type {ToolchainComponentV1[]}
+             */
+            this["components"] = [];
+        }
+        if (!("model" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["model"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["modelPath"] = undefined;
+        }
+        if (!("ocrLanguages" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["ocrLanguages"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ToolchainStatusV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ToolchainStatusV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField10_0 = $$createType40;
+        const $$createField13_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("components" in $$parsedSource) {
+            $$parsedSource["components"] = $$createField10_0($$parsedSource["components"]);
+        }
+        if ("ocrLanguages" in $$parsedSource) {
+            $$parsedSource["ocrLanguages"] = $$createField13_0($$parsedSource["ocrLanguages"]);
+        }
+        return new ToolchainStatusV1(/** @type {Partial<ToolchainStatusV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * TranscriptionCapabilitiesResponseV1 reports whether local Whisper
+ * transcription can run. Available requires both the whisper-cli binary and a
+ * non-empty model file. Paths are the resolved ones: a user override wins when
+ * it exists, otherwise the installed defaults are used.
+ */
+export class TranscriptionCapabilitiesResponseV1 {
+    /**
+     * Creates a new TranscriptionCapabilitiesResponseV1 instance.
+     * @param {Partial<TranscriptionCapabilitiesResponseV1>} [$$source = {}] - The source object to create the TranscriptionCapabilitiesResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("available" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["available"] = false;
+        }
+        if (!("whisperPath" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["whisperPath"] = "";
+        }
+        if (!("whisperPresent" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["whisperPresent"] = false;
+        }
+        if (!("modelPath" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["modelPath"] = "";
+        }
+        if (!("modelPresent" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["modelPresent"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["modelName"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["modelSizeBytes"] = undefined;
+        }
+        if (!("languages" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["languages"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["defaultLanguage"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TranscriptionCapabilitiesResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {TranscriptionCapabilitiesResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField9_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("languages" in $$parsedSource) {
+            $$parsedSource["languages"] = $$createField9_0($$parsedSource["languages"]);
+        }
+        return new TranscriptionCapabilitiesResponseV1(/** @type {Partial<TranscriptionCapabilitiesResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
  * UndoResultV1 reports the per-file outcome of an undo or restore request.
  */
 export class UndoResultV1 {
@@ -3102,7 +3779,7 @@ export class UndoResultV1 {
      */
     static createFrom($$source = {}) {
         const $$createField2_0 = $$createType4;
-        const $$createField3_0 = $$createType36;
+        const $$createField3_0 = $$createType42;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("moved" in $$parsedSource) {
             $$parsedSource["moved"] = $$createField2_0($$parsedSource["moved"]);
@@ -3305,7 +3982,7 @@ export class VerificationReportV1 {
      * @returns {VerificationReportV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType38;
+        const $$createField2_0 = $$createType44;
         const $$createField3_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
@@ -3376,7 +4053,7 @@ export class VerifiedOutputV1 {
      * @returns {VerifiedOutputV1}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType40;
+        const $$createField4_0 = $$createType46;
         const $$createField5_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("checks" in $$parsedSource) {
@@ -3408,26 +4085,32 @@ const $$createType14 = $Create.Array($$createType13);
 const $$createType15 = JobResultV1.createFrom;
 const $$createType16 = $Create.Nullable($$createType15);
 const $$createType17 = $Create.Array($$createType0);
-const $$createType18 = RecipeV1.createFrom;
+const $$createType18 = AutomationRunRecordV1.createFrom;
 const $$createType19 = $Create.Array($$createType18);
-const $$createType20 = ToolCatalogEntryV1.createFrom;
+const $$createType20 = RecipeV1.createFrom;
 const $$createType21 = $Create.Array($$createType20);
-const $$createType22 = PlannedOutputV1.createFrom;
+const $$createType22 = ToolCatalogEntryV1.createFrom;
 const $$createType23 = $Create.Array($$createType22);
-const $$createType24 = $Create.Nullable($$createType18);
-const $$createType25 = RecipeStepResultV1.createFrom;
-const $$createType26 = $Create.Array($$createType25);
-const $$createType27 = VerificationReportV1.createFrom;
-const $$createType28 = $Create.Nullable($$createType27);
-const $$createType29 = RecipeResultV1.createFrom;
-const $$createType30 = $Create.Nullable($$createType29);
-const $$createType31 = RecipeStepV1.createFrom;
-const $$createType32 = $Create.Array($$createType31);
-const $$createType33 = ToolManifestV1.createFrom;
-const $$createType34 = ToolRuntimeStateV1.createFrom;
-const $$createType35 = UndoSkippedV1.createFrom;
+const $$createType24 = LocalCapabilityV1.createFrom;
+const $$createType25 = $Create.Array($$createType24);
+const $$createType26 = PlannedOutputV1.createFrom;
+const $$createType27 = $Create.Array($$createType26);
+const $$createType28 = $Create.Nullable($$createType20);
+const $$createType29 = RecipeStepResultV1.createFrom;
+const $$createType30 = $Create.Array($$createType29);
+const $$createType31 = VerificationReportV1.createFrom;
+const $$createType32 = $Create.Nullable($$createType31);
+const $$createType33 = RecipeResultV1.createFrom;
+const $$createType34 = $Create.Nullable($$createType33);
+const $$createType35 = RecipeStepV1.createFrom;
 const $$createType36 = $Create.Array($$createType35);
-const $$createType37 = VerifiedOutputV1.createFrom;
-const $$createType38 = $Create.Array($$createType37);
-const $$createType39 = VerificationCheckV1.createFrom;
+const $$createType37 = ToolManifestV1.createFrom;
+const $$createType38 = ToolRuntimeStateV1.createFrom;
+const $$createType39 = ToolchainComponentV1.createFrom;
 const $$createType40 = $Create.Array($$createType39);
+const $$createType41 = UndoSkippedV1.createFrom;
+const $$createType42 = $Create.Array($$createType41);
+const $$createType43 = VerifiedOutputV1.createFrom;
+const $$createType44 = $Create.Array($$createType43);
+const $$createType45 = VerificationCheckV1.createFrom;
+const $$createType46 = $Create.Array($$createType45);

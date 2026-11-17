@@ -535,3 +535,34 @@ func TestInspectFileTXTIsDocument(t *testing.T) {
 		t.Fatalf("expected a readable txt file, got %+v", info)
 	}
 }
+
+func TestInspectFileSubtitlesAreDocuments(t *testing.T) {
+	dir := t.TempDir()
+
+	cases := []struct {
+		name     string
+		content  string
+		wantMime string
+	}{
+		{name: "movie.srt", content: "1\n00:00:00,000 --> 00:00:02,000\nHello\n", wantMime: "application/x-subrip"},
+		{name: "movie.vtt", content: "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello\n", wantMime: "text/vtt"},
+	}
+
+	for _, testCase := range cases {
+		path := filepath.Join(dir, testCase.name)
+		if err := os.WriteFile(path, []byte(testCase.content), 0o644); err != nil {
+			t.Fatalf("write subtitle fixture %s: %v", path, err)
+		}
+
+		info := InspectFile(path)
+		if info.Kind != "document" {
+			t.Fatalf("%s: expected document kind, got %q", testCase.name, info.Kind)
+		}
+		if info.MimeType != testCase.wantMime {
+			t.Fatalf("%s: expected %q, got %q", testCase.name, testCase.wantMime, info.MimeType)
+		}
+		if !info.Exists || info.SizeBytes <= 0 {
+			t.Fatalf("%s: expected a readable subtitle file, got %+v", testCase.name, info)
+		}
+	}
+}

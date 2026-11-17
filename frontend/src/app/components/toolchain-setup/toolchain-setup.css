@@ -1,0 +1,210 @@
+/* First-run toolchain overlay — blocking setup surface for managed tools. */
+
+.toolchain-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 16% 10%, var(--accent-soft), transparent 46%),
+    radial-gradient(circle at 86% 92%, var(--info-soft), transparent 48%),
+    var(--bg);
+  animation: toolchain-fade 180ms ease both;
+}
+
+.toolchain-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(580px, 100%);
+  padding: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 1px 0 var(--edge-highlight);
+  animation: toolchain-rise 200ms cubic-bezier(0.2, 0.8, 0.24, 1) both;
+}
+
+.toolchain-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.toolchain-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--accent-line);
+  border-radius: 13px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.toolchain-heading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.toolchain-heading-text .eyebrow {
+  margin: 0;
+}
+
+.toolchain-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.375rem, 1rem + 0.9vw, 1.75rem);
+  font-weight: 650;
+  letter-spacing: -0.024em;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.toolchain-sub {
+  margin: 0;
+  max-width: 54ch;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+
+.toolchain-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.toolchain-progress .progress {
+  height: 8px;
+}
+
+.toolchain-progress-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toolchain-phase {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  color: var(--text);
+}
+
+.toolchain-percent {
+  font-size: 0.75rem;
+  color: var(--accent-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.toolchain-message {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.toolchain-error {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.toolchain-error-text {
+  flex: 1;
+  min-width: 12ch;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.toolchain-unsupported {
+  align-items: flex-start;
+}
+
+.toolchain-cancelled {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-line);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.toolchain-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.toolchain-components {
+  margin: 2px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+@keyframes toolchain-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes toolchain-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 560px) {
+  .toolchain-backdrop {
+    padding: 18px 12px;
+  }
+
+  .toolchain-panel {
+    padding: 20px 18px;
+  }
+
+  .toolchain-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolchain-backdrop,
+  .toolchain-panel {
+    animation: none;
+  }
+}

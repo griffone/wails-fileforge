@@ -1,0 +1,161 @@
+@if (visible()) {
+  <div class="toolchain-backdrop">
+    <section
+      class="toolchain-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="toolchain-setup-title"
+    >
+      <header class="toolchain-head">
+        <span class="toolchain-badge" aria-hidden="true">
+          <lucide-icon
+            [img]="toolIcon"
+            [size]="20"
+            [strokeWidth]="1.75"
+          ></lucide-icon>
+        </span>
+        <div class="toolchain-heading-text">
+          <p class="eyebrow">FIRST RUN</p>
+          <h2 class="toolchain-title" id="toolchain-setup-title">
+            Installing local tools
+          </h2>
+        </div>
+      </header>
+
+      <p class="toolchain-sub">
+        FileForge is preparing Whisper, Tesseract, FFmpeg and the local
+        OCR/transcription tools. No admin rights and no system changes.
+      </p>
+
+      @if (unsupported()) {
+        <div class="banner banner-warning toolchain-unsupported" role="alert">
+          <lucide-icon
+            [img]="alertIcon"
+            [size]="16"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+          <span class="toolchain-error-text">{{ status()?.message }}</span>
+        </div>
+
+        <div class="toolchain-actions">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm toolchain-settings"
+            (click)="openSettings()"
+          >
+            Open Settings
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm toolchain-continue"
+            (click)="continueWithoutTools()"
+          >
+            Continue without tools
+          </button>
+        </div>
+      } @else {
+        <div class="toolchain-progress">
+          <div
+            class="progress"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            [attr.aria-valuenow]="indeterminate() ? null : percent()"
+            [attr.aria-valuetext]="
+              phaseLabel() + ' · ' + percentLabel()
+            "
+          >
+            <div
+              class="progress-fill"
+              [class.is-indeterminate]="indeterminate()"
+              [style.width.%]="indeterminate() ? null : percent()"
+            ></div>
+          </div>
+
+          <div class="toolchain-progress-meta">
+            <span class="toolchain-phase">{{ phaseLabel() }}</span>
+            <span class="toolchain-percent mono">{{ percentLabel() }}</span>
+          </div>
+
+          @if (message()) {
+            <p class="toolchain-message">{{ message() }}</p>
+          }
+        </div>
+
+        @if (errorMessage(); as error) {
+          <div class="banner banner-danger toolchain-error" role="alert">
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <span class="toolchain-error-text">{{ error }}</span>
+          </div>
+        }
+
+        @if (cancelled()) {
+          <p class="toolchain-cancelled" role="status">
+            The installation was cancelled. You can retry now or continue with
+            the tools that are already available.
+          </p>
+        }
+
+        <div class="toolchain-actions">
+          @if (installing()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolchain-cancel"
+              [disabled]="cancelling()"
+              (click)="cancel()"
+            >
+              {{ cancelling() ? 'Cancelling…' : 'Cancel' }}
+            </button>
+          } @else if (errorMessage() || cancelled()) {
+            <button
+              type="button"
+              class="btn btn-primary btn-sm toolchain-retry"
+              (click)="retry()"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm toolchain-continue"
+              (click)="continueWithoutTools()"
+            >
+              Continue without tools
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolchain-settings"
+              (click)="openSettings()"
+            >
+              Open Settings
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="btn btn-primary btn-sm toolchain-retry"
+              (click)="retry()"
+            >
+              Start installation
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolchain-continue"
+              (click)="continueWithoutTools()"
+            >
+              Continue without tools
+            </button>
+          }
+        </div>
+      }
+
+      <p class="toolchain-components mono">
+        Whisper · Tesseract · FFmpeg · Poppler · Ghostscript
+      </p>
+    </section>
+  </div>
+}

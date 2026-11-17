@@ -1395,6 +1395,12 @@
     transition: width 240ms ease;
   }
 
+  /* Unknown-duration work (e.g. conda environment creation). */
+  .progress-fill.is-indeterminate {
+    width: 34%;
+    animation: ff-progress-indeterminate 1.4s ease-in-out infinite;
+  }
+
   .divider {
     height: 0;
     border: 0;
@@ -1460,6 +1466,16 @@
 
   50% {
     opacity: 0.45;
+  }
+}
+
+@keyframes ff-progress-indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(310%);
   }
 }
 

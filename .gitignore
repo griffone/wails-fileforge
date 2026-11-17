@@ -10,3 +10,8 @@ build/linux/appimage/appicon.png
 build/linux/appimage/fileforge-desktop
 build/linux/fileforge-desktop.desktop
 build/linux/appimage/*.AppImage
+
+# Local ODD/AI working files (not shipped)
+/odd/
+/AGENTS.md
+/.atl/
