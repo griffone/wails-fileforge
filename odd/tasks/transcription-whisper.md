@@ -47,7 +47,7 @@
    - Video/audio intake, language select (Auto/English/Spanish), format checkboxes (SRT/VTT/TXT), model status, output plan, run/cancel/progress, result, undo.
    - Show the result summary (segments/characters) and a capability banner when the model/binary is missing.
 6. **Registry/tests**
-   - Tool count becomes 14; Video category 4; navigation 19.
+   - Tool count becomes 14; Video category 4; navigation 18.
    - SRT/VTT classified as documents for verification.
    - Go engine/tool tests (fake runner + real whisper integration using the installed model/JFK fixture when available); frontend page/Settings specs; Home/registry count updates.
 
@@ -70,7 +70,7 @@
 5. Cancellation kills the process, cleans temp files and leaves no final outputs.
 6. Settings shows transcription status and lets the user choose a binary/model; overrides persist.
 7. `/video-transcribe` plans/runs with language/formats, shows progress and result, and records undoable outputs.
-8. Tool count 14, Video 4, navigation 19; Home/registry specs updated.
+8. Tool count 14, Video 4, navigation 18; Home/registry specs updated.
 9. Go tests, frontend specs and build pass; bindings regenerated only.
 10. No regressions in OCR, automation, recipes, tools, undo or navigation.
 

@@ -23,7 +23,7 @@ import (
 	"fileforge-desktop/internal/recipes"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/services"
-	_ "fileforge-desktop/internal/video"
+	"fileforge-desktop/internal/video"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -196,6 +196,15 @@ func (a *App) ListRecipesV1() models.ListRecipesResponseV1 {
 // recommended one. It is safe to call before any OCR job.
 func (a *App) GetOCRCapabilitiesV1() models.OCRCapabilitiesResponseV1 {
 	return pdf.OCRCapabilitiesV1(a.contextOrBackground())
+}
+
+// GetTranscriptionCapabilitiesV1 reports whether local Whisper transcription
+// can run: the resolved whisper-cli binary, the resolved model with its size,
+// and the supported languages. Empty paths resolve the installed defaults, so
+// the Settings panel can pass persisted overrides. It never fails: a missing
+// binary or model is reported with guidance, not an error.
+func (a *App) GetTranscriptionCapabilitiesV1(whisperPath, modelPath string) models.TranscriptionCapabilitiesResponseV1 {
+	return video.TranscriptionCapabilitiesV1(whisperPath, modelPath)
 }
 
 // GetLocalCapabilitiesV1 reports every external tool the local tools rely on,

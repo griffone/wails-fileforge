@@ -195,6 +195,22 @@ export function GetRecipeStatusV1(jobID) {
 }
 
 /**
+ * GetTranscriptionCapabilitiesV1 reports whether local Whisper transcription
+ * can run: the resolved whisper-cli binary, the resolved model with its size,
+ * and the supported languages. Empty paths resolve the installed defaults, so
+ * the Settings panel can pass persisted overrides. It never fails: a missing
+ * binary or model is reported with guidance, not an error.
+ * @param {string} whisperPath
+ * @param {string} modelPath
+ * @returns {$CancellablePromise<models$0.TranscriptionCapabilitiesResponseV1>}
+ */
+export function GetTranscriptionCapabilitiesV1(whisperPath, modelPath) {
+    return $Call.ByID(4175229221, whisperPath, modelPath).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType16($result);
+    }));
+}
+
+/**
  * InspectFilesV1 describes files for UI cards. Missing files are reported per
  * item instead of failing the batch.
  * @param {string[]} paths
@@ -202,7 +218,7 @@ export function GetRecipeStatusV1(jobID) {
  */
 export function InspectFilesV1(paths) {
     return $Call.ByID(3131092044, paths).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType16($result);
+        return $$createType17($result);
     }));
 }
 
@@ -213,7 +229,7 @@ export function InspectFilesV1(paths) {
  */
 export function ListAutomationRulesV1() {
     return $Call.ByID(3321976981).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType17($result);
+        return $$createType18($result);
     }));
 }
 
@@ -225,7 +241,7 @@ export function ListAutomationRulesV1() {
  */
 export function ListAutomationRunsV1(limit) {
     return $Call.ByID(546598670, limit).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType18($result);
+        return $$createType19($result);
     }));
 }
 
@@ -236,7 +252,7 @@ export function ListAutomationRunsV1(limit) {
  */
 export function ListJobHistoryV1() {
     return $Call.ByID(2396679858).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType20($result);
+        return $$createType21($result);
     }));
 }
 
@@ -246,7 +262,7 @@ export function ListJobHistoryV1() {
  */
 export function ListRecipesV1() {
     return $Call.ByID(388441352).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType21($result);
+        return $$createType22($result);
     }));
 }
 
@@ -255,7 +271,7 @@ export function ListRecipesV1() {
  */
 export function ListToolsV1() {
     return $Call.ByID(517184612).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType22($result);
+        return $$createType23($result);
     }));
 }
 
@@ -280,7 +296,7 @@ export function OpenFileDialog() {
  */
 export function OpenMultipleFilesDialog() {
     return $Call.ByID(3029276213).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType23($result);
+        return $$createType24($result);
     }));
 }
 
@@ -301,7 +317,7 @@ export function OpenPath(path) {
  */
 export function PlanJobV1(req) {
     return $Call.ByID(254724065, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType24($result);
+        return $$createType25($result);
     }));
 }
 
@@ -313,7 +329,7 @@ export function PlanJobV1(req) {
  */
 export function PlanRecipeV1(req) {
     return $Call.ByID(2840622370, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType25($result);
+        return $$createType26($result);
     }));
 }
 
@@ -327,7 +343,7 @@ export function PlanRecipeV1(req) {
  */
 export function RegisterMediaPath(path) {
     return $Call.ByID(1853528726, path).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType26($result);
+        return $$createType27($result);
     }));
 }
 
@@ -339,7 +355,7 @@ export function RegisterMediaPath(path) {
  */
 export function RestoreJobV1(jobID) {
     return $Call.ByID(666662266, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType27($result);
+        return $$createType28($result);
     }));
 }
 
@@ -360,7 +376,7 @@ export function RevealInFolder(path) {
  */
 export function RunJobV1(req) {
     return $Call.ByID(162380599, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType28($result);
+        return $$createType29($result);
     }));
 }
 
@@ -371,7 +387,7 @@ export function RunJobV1(req) {
  */
 export function RunRecipeV1(req) {
     return $Call.ByID(1732206072, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType29($result);
+        return $$createType30($result);
     }));
 }
 
@@ -432,7 +448,7 @@ export function StartPreview(req) {
  */
 export function UndoJobV1(jobID) {
     return $Call.ByID(2249209138, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType27($result);
+        return $$createType28($result);
     }));
 }
 
@@ -442,7 +458,7 @@ export function UndoJobV1(jobID) {
  */
 export function ValidateJobV1(req) {
     return $Call.ByID(1505194326, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType30($result);
+        return $$createType31($result);
     }));
 }
 
@@ -455,7 +471,7 @@ export function ValidateJobV1(req) {
  */
 export function VerifyJobV1(jobID) {
     return $Call.ByID(1020044031, jobID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType31($result);
+        return $$createType32($result);
     }));
 }
 
@@ -476,19 +492,20 @@ const $$createType12 = models$0.OCRCapabilitiesResponseV1.createFrom;
 const $$createType13 = models$0.PDFPreviewSourceResponseV1.createFrom;
 const $$createType14 = preview$0.PreviewResult.createFrom;
 const $$createType15 = preview$0.JobStatus.createFrom;
-const $$createType16 = models$0.InspectFilesResponseV1.createFrom;
-const $$createType17 = models$0.ListAutomationRulesResponseV1.createFrom;
-const $$createType18 = models$0.ListAutomationRunsResponseV1.createFrom;
-const $$createType19 = models$0.JobHistoryEntryV1.createFrom;
-const $$createType20 = $Create.Array($$createType19);
-const $$createType21 = models$0.ListRecipesResponseV1.createFrom;
-const $$createType22 = models$0.ListToolsResponseV1.createFrom;
-const $$createType23 = $Create.Array($Create.Any);
-const $$createType24 = models$0.PlanJobResponseV1.createFrom;
-const $$createType25 = models$0.RecipePlanResponseV1.createFrom;
-const $$createType26 = models$0.MediaSourceResponseV1.createFrom;
-const $$createType27 = models$0.UndoResultV1.createFrom;
-const $$createType28 = models$0.RunJobResponseV1.createFrom;
-const $$createType29 = models$0.RunRecipeResponseV1.createFrom;
-const $$createType30 = models$0.ValidateJobResponseV1.createFrom;
-const $$createType31 = models$0.VerificationReportV1.createFrom;
+const $$createType16 = models$0.TranscriptionCapabilitiesResponseV1.createFrom;
+const $$createType17 = models$0.InspectFilesResponseV1.createFrom;
+const $$createType18 = models$0.ListAutomationRulesResponseV1.createFrom;
+const $$createType19 = models$0.ListAutomationRunsResponseV1.createFrom;
+const $$createType20 = models$0.JobHistoryEntryV1.createFrom;
+const $$createType21 = $Create.Array($$createType20);
+const $$createType22 = models$0.ListRecipesResponseV1.createFrom;
+const $$createType23 = models$0.ListToolsResponseV1.createFrom;
+const $$createType24 = $Create.Array($Create.Any);
+const $$createType25 = models$0.PlanJobResponseV1.createFrom;
+const $$createType26 = models$0.RecipePlanResponseV1.createFrom;
+const $$createType27 = models$0.MediaSourceResponseV1.createFrom;
+const $$createType28 = models$0.UndoResultV1.createFrom;
+const $$createType29 = models$0.RunJobResponseV1.createFrom;
+const $$createType30 = models$0.RunRecipeResponseV1.createFrom;
+const $$createType31 = models$0.ValidateJobResponseV1.createFrom;
+const $$createType32 = models$0.VerificationReportV1.createFrom;

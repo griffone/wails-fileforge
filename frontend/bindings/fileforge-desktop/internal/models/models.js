@@ -3365,6 +3365,114 @@ export class ToolRuntimeStateV1 {
 }
 
 /**
+ * TranscriptionCapabilitiesResponseV1 reports whether local Whisper
+ * transcription can run. Available requires both the whisper-cli binary and a
+ * non-empty model file. Paths are the resolved ones: a user override wins when
+ * it exists, otherwise the installed defaults are used.
+ */
+export class TranscriptionCapabilitiesResponseV1 {
+    /**
+     * Creates a new TranscriptionCapabilitiesResponseV1 instance.
+     * @param {Partial<TranscriptionCapabilitiesResponseV1>} [$$source = {}] - The source object to create the TranscriptionCapabilitiesResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("available" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["available"] = false;
+        }
+        if (!("whisperPath" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["whisperPath"] = "";
+        }
+        if (!("whisperPresent" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["whisperPresent"] = false;
+        }
+        if (!("modelPath" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["modelPath"] = "";
+        }
+        if (!("modelPresent" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["modelPresent"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["modelName"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["modelSizeBytes"] = undefined;
+        }
+        if (!("languages" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["languages"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["defaultLanguage"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TranscriptionCapabilitiesResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {TranscriptionCapabilitiesResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField9_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("languages" in $$parsedSource) {
+            $$parsedSource["languages"] = $$createField9_0($$parsedSource["languages"]);
+        }
+        return new TranscriptionCapabilitiesResponseV1(/** @type {Partial<TranscriptionCapabilitiesResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
  * UndoResultV1 reports the per-file outcome of an undo or restore request.
  */
 export class UndoResultV1 {

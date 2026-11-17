@@ -288,7 +288,7 @@ func kindFromExtension(extension string) string {
 		return kindPDF
 	case "mp4", "mov", "mkv", "webm", "avi":
 		return kindVideo
-	case "md", "markdown", "docx", "html", "htm", "txt":
+	case "md", "markdown", "docx", "html", "htm", "txt", "srt", "vtt":
 		return kindDocument
 	case "zip":
 		return kindArchive
@@ -307,6 +307,10 @@ func mimeTypeFor(extension, kind string) string {
 		return "text/html"
 	case "txt":
 		return "text/plain"
+	case "srt":
+		return "application/x-subrip"
+	case "vtt":
+		return "text/vtt"
 	}
 
 	if extension != "" {

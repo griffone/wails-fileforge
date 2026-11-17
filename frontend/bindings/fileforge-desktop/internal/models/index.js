@@ -49,6 +49,7 @@ export {
     ToolCatalogEntryV1,
     ToolManifestV1,
     ToolRuntimeStateV1,
+    TranscriptionCapabilitiesResponseV1,
     UndoResultV1,
     UndoSkippedV1,
     ValidateJobResponseV1,
