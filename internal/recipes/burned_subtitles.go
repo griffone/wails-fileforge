@@ -403,6 +403,12 @@ func (s *Service) executeBurnedSubtitles(ctx context.Context, tracked *recipeJob
 	report := verify.VerifyPaths(outputs)
 	report = addBurnedSubtitlesChecks(ctx, report, burned, cues, videoPath, burned.SubtitlePath)
 
+	if ctx.Err() != nil {
+		removeCreatedFiles(created)
+		s.cancelJob(tracked)
+		return
+	}
+
 	status := models.JobStatusSuccess
 	message := fmt.Sprintf("Burned-in subtitles ready: %s and %s.", filepath.Base(videoPath), filepath.Base(burned.SubtitlePath))
 	verifyMessage := "Duration, cues and rendered frames verified."
