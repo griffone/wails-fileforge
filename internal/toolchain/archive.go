@@ -30,8 +30,8 @@ func ExtractArchive(archivePath, destDir string, kind ArchiveKind) error {
 	}
 }
 
-// ExtractZip extracts a ZIP archive with path traversal protection. Symlinks
-// and other non-regular entries are skipped.
+// ExtractZip extracts a ZIP archive with path traversal protection. Safe
+// relative symlinks are preserved; device entries are skipped.
 func ExtractZip(archivePath, destDir string) error {
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
@@ -53,8 +53,18 @@ func ExtractZip(archivePath, destDir string) error {
 
 			continue
 		}
+		if mode&os.ModeSymlink != 0 {
+			linkTarget, readErr := readZipSymlink(entry)
+			if readErr != nil {
+				return readErr
+			}
+			if err := createArchiveSymlink(destDir, entry.Name, linkTarget, target); err != nil {
+				return err
+			}
+			continue
+		}
 		if !mode.IsRegular() {
-			// Symlinks and device entries are not part of a verified release.
+			// Device entries are not part of a verified release.
 			continue
 		}
 
@@ -100,7 +110,7 @@ func extractZipFile(entry *zip.File, target string, mode os.FileMode) error {
 }
 
 // ExtractTarGz extracts a gzipped tar archive with path traversal protection.
-// Symlinks, hardlinks and device entries are skipped.
+// Safe relative symlinks are preserved; hardlinks and device entries are skipped.
 func ExtractTarGz(archivePath, destDir string) error {
 	file, err := os.Open(archivePath)
 	if err != nil {
@@ -138,12 +148,68 @@ func ExtractTarGz(archivePath, destDir string) error {
 			if err := extractTarFile(tarReader, header, target); err != nil {
 				return err
 			}
+		case tar.TypeSymlink:
+			if err := createArchiveSymlink(destDir, header.Name, header.Linkname, target); err != nil {
+				return err
+			}
 		default:
-			// Symlinks, hardlinks and devices are not part of a verified
-			// release archive.
+			// Hardlinks and devices are not part of a verified release archive.
 			continue
 		}
 	}
+}
+
+func readZipSymlink(entry *zip.File) (string, error) {
+	source, err := entry.Open()
+	if err != nil {
+		return "", fmt.Errorf("read symlink %s: %w", entry.Name, err)
+	}
+	defer source.Close()
+
+	data, err := io.ReadAll(io.LimitReader(source, 4096))
+	if err != nil {
+		return "", fmt.Errorf("read symlink %s: %w", entry.Name, err)
+	}
+
+	return strings.TrimSpace(string(data)), nil
+}
+
+// createArchiveSymlink creates a relative symlink after verifying that both the
+// entry and its target stay inside destDir. Release archives such as
+// whisper.cpp use soname links (libwhisper.so.1 -> libwhisper.so.1.9.5), so
+// dropping them leaves the runtime unable to start.
+func createArchiveSymlink(destDir, entryName, linkName, target string) error {
+	if err := validateArchiveLink(destDir, entryName, linkName); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), archiveDirMode); err != nil {
+		return fmt.Errorf("create %s: %w", filepath.Dir(target), err)
+	}
+	_ = os.Remove(target)
+	if err := os.Symlink(linkName, target); err != nil {
+		return fmt.Errorf("create symlink %s -> %s: %w", entryName, linkName, err)
+	}
+
+	return nil
+}
+
+func validateArchiveLink(destDir, entryName, linkName string) error {
+	if strings.TrimSpace(linkName) == "" {
+		return fmt.Errorf("archive symlink %s has an empty target", entryName)
+	}
+	normalized := strings.ReplaceAll(linkName, "\\", "/")
+	if strings.HasPrefix(normalized, "/") || isWindowsAbsolutePath(normalized) {
+		return fmt.Errorf("archive symlink %s has an absolute target: %s", entryName, linkName)
+	}
+
+	entryDir := filepath.Dir(filepath.FromSlash(strings.ReplaceAll(entryName, "\\", "/")))
+	resolved := filepath.Clean(filepath.Join(destDir, entryDir, filepath.FromSlash(normalized)))
+	relative, err := filepath.Rel(destDir, resolved)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("archive symlink %s escapes the destination: %s", entryName, linkName)
+	}
+
+	return nil
 }
 
 func extractTarFile(reader io.Reader, header *tar.Header, target string) error {

@@ -55,6 +55,36 @@ func ManagedTessdataDir(dataDir string) string {
 	return filepath.Join(ToolchainDir(dataDir), "tessdata")
 }
 
+// whisperRuntimeState verifies that the managed whisper-cli exists and, on
+// Linux, that the soname symlinks required by the prebuilt binary are present.
+// Dropping those symlinks during extraction leaves whisper-cli unable to load
+// libwhisper.so.1, so the toolchain must not report the runtime as ready.
+func whisperRuntimeState(root string, platform Platform) (bool, string) {
+	return whisperRuntimeStateInDir(whisperDir(root), platform)
+}
+
+func whisperRuntimeStateInDir(dir string, platform Platform) (bool, string) {
+	cli := filepath.Join(dir, platform.WhisperCLIName())
+	if !fileWithContent(cli) {
+		return false, "Whisper runtime is not installed."
+	}
+
+	if platform.OS == "linux" {
+		for _, library := range []string{"libwhisper.so.1", "libggml.so.0", "libggml-base.so.0"} {
+			if !fileWithContent(filepath.Join(dir, library)) {
+				return false, "Whisper runtime is incomplete (missing shared libraries). Run Install / repair."
+			}
+		}
+	}
+
+	return true, "Local whisper.cpp transcription runtime"
+}
+
+func whisperRuntimeReadyInDir(dir string, platform Platform) bool {
+	ready, _ := whisperRuntimeStateInDir(dir, platform)
+	return ready
+}
+
 // managedBinDirs lists the conda prefix binary folders in PATH precedence
 // order. Windows environments ship DLLs and executables under Library/bin and
 // Scripts; Unix uses bin.

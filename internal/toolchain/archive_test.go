@@ -122,8 +122,8 @@ func TestExtractTarGz(t *testing.T) {
 	writeTarGzFixture(t, archivePath, []archiveTestEntry{
 		{name: "whisper-bin-ubuntu-x64/", dir: true, mode: 0o755},
 		{name: "whisper-bin-ubuntu-x64/whisper-cli", content: "binary", mode: 0o755},
-		{name: "whisper-bin-ubuntu-x64/lib/libwhisper.so.1", content: "library", mode: 0o644},
-		{name: "whisper-bin-ubuntu-x64/link", link: "/etc/passwd", mode: 0o777},
+		{name: "whisper-bin-ubuntu-x64/lib/libwhisper.so.1.9.5", content: "library", mode: 0o644},
+		{name: "whisper-bin-ubuntu-x64/lib/libwhisper.so.1", link: "libwhisper.so.1.9.5", mode: 0o777},
 	})
 
 	destDir := filepath.Join(t.TempDir(), "extract")
@@ -144,12 +144,15 @@ func TestExtractTarGz(t *testing.T) {
 	}
 
 	libPath := filepath.Join(destDir, "whisper-bin-ubuntu-x64", "lib", "libwhisper.so.1")
-	if got := readFileString(t, libPath); got != "library" {
-		t.Fatalf("library content = %q", got)
+	linkTarget, err := os.Readlink(libPath)
+	if err != nil {
+		t.Fatalf("expected the soname symlink to be preserved: %v", err)
 	}
-
-	if _, err := os.Lstat(filepath.Join(destDir, "whisper-bin-ubuntu-x64", "link")); !os.IsNotExist(err) {
-		t.Fatalf("expected symlinks to be skipped, got %v", err)
+	if linkTarget != "libwhisper.so.1.9.5" {
+		t.Fatalf("symlink target = %q", linkTarget)
+	}
+	if got := readFileString(t, libPath); got != "library" {
+		t.Fatalf("library content through symlink = %q", got)
 	}
 }
 
@@ -298,5 +301,20 @@ func writeArchiveTestFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func TestExtractTarGzRejectsUnsafeSymlink(t *testing.T) {
+	archivePath := filepath.Join(t.TempDir(), "evil.tar.gz")
+	writeTarGzFixture(t, archivePath, []archiveTestEntry{
+		{name: "root/link", link: "../../etc/passwd", mode: 0o777},
+	})
+
+	err := ExtractTarGz(archivePath, filepath.Join(t.TempDir(), "extract"))
+	if err == nil {
+		t.Fatal("expected an unsafe symlink error")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

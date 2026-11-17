@@ -506,7 +506,7 @@ func (s *Service) installEnvironment(ctx context.Context, force bool) error {
 
 func (s *Service) installWhisper(ctx context.Context, staging string, force bool) error {
 	targetDir := whisperDir(s.root)
-	if !force && fileWithContent(whisperCLIPath(s.root, s.platform)) {
+	if !force && whisperRuntimeReadyInDir(targetDir, s.platform) {
 		s.progress(PhaseWhisper, whisperEndPercent, "whisper.cpp is already installed.", false)
 
 		return nil
@@ -534,10 +534,10 @@ func (s *Service) installWhisper(ctx context.Context, staging string, force bool
 
 		return err
 	}
-	if !fileWithContent(filepath.Join(newDir, s.platform.WhisperCLIName())) {
+	if !whisperRuntimeReadyInDir(newDir, s.platform) {
 		_ = os.RemoveAll(newDir)
 
-		return fmt.Errorf("the whisper.cpp archive did not contain %s", s.platform.WhisperCLIName())
+		return fmt.Errorf("the whisper.cpp archive did not contain a usable runtime (%s and its shared libraries)", s.platform.WhisperCLIName())
 	}
 	if err := os.RemoveAll(targetDir); err != nil {
 		_ = os.RemoveAll(newDir)
@@ -914,12 +914,13 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 	}
 
 	cliPath := whisperCLIPath(s.root, s.platform)
+	cliReady, cliDetail := whisperRuntimeState(s.root, s.platform)
 	cliComponent := models.ToolchainComponentV1{
 		ID:       "whisper-cli",
 		Label:    "Whisper runtime",
-		Ready:    fileWithContent(cliPath),
+		Ready:    cliReady,
 		Required: true,
-		Detail:   "Local whisper.cpp transcription runtime",
+		Detail:   cliDetail,
 	}
 	if cliComponent.Ready {
 		cliComponent.Path = cliPath

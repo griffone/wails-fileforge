@@ -176,6 +176,8 @@ func linuxToolchainPayloads(t *testing.T) map[string][]byte {
 		{name: "whisper-bin-ubuntu-x64/", dir: true, mode: 0o755},
 		{name: "whisper-bin-ubuntu-x64/whisper-cli", content: "whisper binary", mode: 0o755},
 		{name: "whisper-bin-ubuntu-x64/libwhisper.so.1", content: "whisper library", mode: 0o644},
+		{name: "whisper-bin-ubuntu-x64/libggml.so.0", content: "ggml library", mode: 0o644},
+		{name: "whisper-bin-ubuntu-x64/libggml-base.so.0", content: "ggml base library", mode: 0o644},
 	})
 	archivePayload, err := os.ReadFile(archivePath)
 	if err != nil {
@@ -810,6 +812,45 @@ func TestInstallSelectedModelAndLanguages(t *testing.T) {
 	}
 	if downloader.callsFor(mustModelURL(t, "small")) != 0 {
 		t.Fatal("the non-selected small model must not be downloaded when medium is selected")
+	}
+}
+
+func TestMissingWhisperSharedLibraryIsNotReadyAndRepairs(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	dataDir := t.TempDir()
+	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, &fakeRunner{})
+
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	waitForTerminalEvent(t, events)
+	if !service.Status().Ready {
+		t.Fatal("expected the initial install to be ready")
+	}
+
+	library := filepath.Join(dataDir, ToolchainDirName, "whisper", "libwhisper.so.1")
+	if err := os.Remove(library); err != nil {
+		t.Fatalf("remove whisper library: %v", err)
+	}
+
+	status := service.Status()
+	if status.Ready {
+		t.Fatal("a runtime without libwhisper.so.1 must not be ready")
+	}
+	component := componentsByID(t, status)["whisper-cli"]
+	if component.Ready || !strings.Contains(component.Detail, "shared libraries") {
+		t.Fatalf("expected an incomplete-runtime detail, got %+v", component)
+	}
+
+	service.StartIfNeeded(context.Background())
+	if !service.Status().Installing {
+		t.Fatal("expected StartIfNeeded to repair the broken runtime")
+	}
+	waitForTerminalEvent(t, events)
+	if !service.Status().Ready {
+		t.Fatal("expected the repaired runtime to be ready")
+	}
+	if _, err := os.Lstat(library); err != nil {
+		t.Fatalf("expected the soname symlink/library to be restored: %v", err)
 	}
 }
 
