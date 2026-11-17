@@ -637,7 +637,22 @@ func mapTranscriptionError(err error) *models.JobErrorV1 {
 	case engine.ErrorCodeTranscribeValidation:
 		return models.NewJobError(models.ErrorCodeValidationInvalidInput, transcribeErr.Code, transcribeErr.Message, nil)
 	default:
-		return models.NewCanonicalJobError(transcribeErr.Code, transcribeErr.Message, nil)
+		message := transcribeErr.Message
+		details := map[string]any{}
+		if transcribeErr.Cause != nil {
+			reason := strings.TrimSpace(transcribeErr.Cause.Error())
+			if reason != "" {
+				if len(reason) > 500 {
+					reason = reason[:500] + "…"
+				}
+				details["reason"] = reason
+				if !strings.Contains(message, reason) {
+					message += ": " + reason
+				}
+			}
+		}
+
+		return models.NewCanonicalJobError(transcribeErr.Code, message, details)
 	}
 }
 
