@@ -33,7 +33,13 @@ task dev
 
 # Production build
 task build
+
+# Windows installer + portable ZIP (cross-build from Linux)
+task build:windows
 ```
+
+The Windows build and the Windows install layout are documented in
+[docs/windows-build.md](docs/windows-build.md).
 
 `task dev` delegates to the Wails binary configured in `Taskfile.yml`. If your binary lives elsewhere, update the task or run:
 

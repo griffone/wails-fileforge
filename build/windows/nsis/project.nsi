@@ -1,4 +1,5 @@
 Unicode true
+SetCompressor /SOLID lzma
 
 ####
 ## Please note: Template replacements don't work in this file. They are provided with default defines like
@@ -29,6 +30,14 @@ Unicode true
 ## !define UNINST_KEY_NAME     "UninstKeyInRegistry"  # Default "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
 ####
 ## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
+####
+## Product metadata
+####
+!define INFO_COMPANYNAME    "FileForge"
+!define INFO_PRODUCTNAME    "FileForge Desktop"
+!define INFO_PRODUCTVERSION "1.0.0"
+!define INFO_COPYRIGHT      "© 2026 FileForge"
+
 ####
 ## Include the wails tools
 ####
@@ -87,6 +96,12 @@ Section
     SetOutPath $INSTDIR
     
     !insertmacro wails.files
+
+    # Bundle the libvips runtime next to the executable. bimg links it at
+    # startup, so this cannot be installed later by the in-app toolchain.
+    !ifdef LIBVIPS_DIR
+        File /r "${LIBVIPS_DIR}/*.dll"
+    !endif
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
