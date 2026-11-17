@@ -1,6 +1,6 @@
 # Local Transcription (Whisper) — Sixth Slice
 
-- Status: in progress
+- Status: implemented on branch; pending native desktop pass and merge
 - Branch: `feat/transcription-whisper` (stacked on `feat/local-capabilities-polish`)
 - Started: 2026-11-17
 - Plan: `docs/differentiation-roadmap.md`
@@ -94,3 +94,10 @@
 - Add `srt`/`vtt` to `inspect.kindFromExtension` as documents with text MIME types.
 - The page reuses the standard plan/run/status/ResultCard pattern; no new job API.
 - The Settings page passes the persisted whisper paths to the capabilities endpoint; empty values resolve defaults.
+
+## Final status
+
+- Backend and frontend implemented on `feat/transcription-whisper` (commits `8030071`, `f40f47c`).
+- Real local verification: English JFK sample and Spanish `SpanishL1D2.ogg` transcribed correctly with whisper.cpp 1.9.5 + `ggml-base.bin`; the managed installer later defaults to `ggml-small.bin`.
+- Go tests and 461 Karma specs passed at the transcription commit; the installer slice later added its own UI/tests on top.
+- Pending: native desktop pass and merge; the managed toolchain now supplies the default whisper/model paths.

@@ -1,6 +1,6 @@
 # Managed Toolchain Installer + Global Settings — Slice
 
-- Status: in progress
+- Status: implemented on branch; pending native overlay pass and merge
 - Branch: `feat/toolchain-installer` (stacked on `feat/transcription-whisper`)
 - Started: 2026-11-17
 - Goal: on first run (AppImage or Windows), install the local tools and a good Whisper model into the app data directory with a visible progress bar, without admin rights, system PATH changes or hardcoded user paths; expose a global Settings panel for tools, models and language packs.
@@ -161,3 +161,13 @@
 - Add `gswin64c`/`gswin32c` fallbacks to the PDF Ghostscript lookup.
 - Keep the installer cancelable; a canceled install must not mark components ready.
 - The first-run overlay should poll `GetToolchainInstallStateV1` and subscribe to events; events may fire before the UI loads.
+
+## Final status and verification
+
+- Status: implemented on `feat/toolchain-installer`; frontend and backend committed (`5163113`, `c8bd938`).
+- Real end-to-end install on Linux passed (`FILEFORGE_TOOLCHAIN_E2E=1`, 52.29s) into a fresh temp data dir: micromamba env (ffmpeg/tesseract/poppler/ghostscript), prebuilt whisper, default small model and eng/spa tessdata, status ready.
+- Platform matrix: Linux amd64/arm64 and Windows amd64 are supported; Windows ARM64 and macOS return a clear unsupported reason instead of guessing.
+- First-run behavior: startup applies the managed PATH/TESSDATA_PREFIX, starts the install when missing, and the overlay shows the progress bar/phase. Subsequent launches skip when ready.
+- Global Settings: Tools & Models panel with components, model quality (small default, medium/large optional), OCR languages, install/repair, progress/cancel, storage folder and refresh. No LibreOffice installation.
+- Checks: `go test ./...` pass (including toolchain, archive/downloader, env, integration, 474 Karma specs and `tsc --noEmit`). Visual Settings/Tools panel checked in preview; the overlay requires a real Tauri/Wails runtime because preview has no IPC.
+- Pending: native overlay visual pass, Windows package validation, and merge.
