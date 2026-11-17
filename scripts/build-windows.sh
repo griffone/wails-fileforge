@@ -17,10 +17,9 @@ CACHE_DIR="${FILEFORGE_WINDOWS_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/fileforge-
 VIPS_ZIP="$CACHE_DIR/vips-dev-x64-all-$VIPS_VERSION.zip"
 VIPS_DIR="$CACHE_DIR/vips-dev-$VIPS_MAJOR_MINOR"
 VIPS_URL="https://github.com/libvips/build-win64-mxe/releases/download/v$VIPS_VERSION/vips-dev-x64-all-$VIPS_VERSION.zip"
-APP_VERSION="${FILEFORGE_VERSION:-1.0.0}"
-APP_DIR="$ROOT_DIR/dist/windows/FileForge Desktop"
-INSTALLER="$ROOT_DIR/dist/windows/FileForge-Desktop-$APP_VERSION-amd64-installer.exe"
-PORTABLE="$ROOT_DIR/dist/windows/FileForge-Desktop-$APP_VERSION-windows-amd64-portable.zip"
+STAGE_DIR="$CACHE_DIR/portable/FileForge Desktop"
+INSTALLER="$ROOT_DIR/bin/fileforge-desktop-amd64-installer.exe"
+PORTABLE="$ROOT_DIR/bin/fileforge-desktop-windows-amd64.zip"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -123,8 +122,8 @@ echo "==> Building the frontend"
 )
 
 echo "==> Generating the Windows resources and executable"
-rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR"
+rm -rf "$STAGE_DIR"
+mkdir -p "$STAGE_DIR"
 SYSO="$ROOT_DIR/wails_windows_amd64.syso"
 trap 'rm -f "$SYSO"' EXIT
 "$WAILS3_BIN" generate syso \
@@ -137,12 +136,12 @@ trap 'rm -f "$SYSO"' EXIT
   cd "$ROOT_DIR"
   go build -tags production -trimpath -buildvcs=false \
     -ldflags="-w -s -H windowsgui" \
-    -o "$APP_DIR/fileforge-desktop.exe" .
+    -o "$STAGE_DIR/fileforge-desktop.exe" .
 )
 
 echo "==> Bundling the libvips runtime"
-cp "$VIPS_DIR"/bin/*.dll "$APP_DIR"/
-cp -r "$VIPS_DIR"/bin/vips-modules-* "$APP_DIR"/
+cp "$VIPS_DIR"/bin/*.dll "$STAGE_DIR"/
+cp -r "$VIPS_DIR"/bin/vips-modules-* "$STAGE_DIR"/
 
 echo "==> Building the NSIS installer"
 BOOTSTRAPPER="$ROOT_DIR/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe"
@@ -150,19 +149,19 @@ if [ ! -f "$BOOTSTRAPPER" ]; then
   "$WAILS3_BIN" generate webview2bootstrapper -dir "$ROOT_DIR/build/windows/nsis"
 fi
 mkdir -p "$ROOT_DIR/bin"
+rm -f "$INSTALLER"
 (
   cd "$ROOT_DIR/build/windows/nsis"
   makensis \
-    -DARG_WAILS_AMD64_BINARY="$APP_DIR/fileforge-desktop.exe" \
+    -DARG_WAILS_AMD64_BINARY="$STAGE_DIR/fileforge-desktop.exe" \
     -DLIBVIPS_DIR="$VIPS_DIR/bin" \
     project.nsi
 )
-mv "$ROOT_DIR/bin/fileforge-desktop-amd64-installer.exe" "$INSTALLER"
 
 echo "==> Creating the portable ZIP"
 rm -f "$PORTABLE"
 (
-  cd "$ROOT_DIR/dist/windows"
+  cd "$CACHE_DIR/portable"
   zip -qr "$PORTABLE" "FileForge Desktop"
 )
 

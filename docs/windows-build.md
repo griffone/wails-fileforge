@@ -24,13 +24,13 @@ The task runs `scripts/build-windows.sh`, which performs the complete pipeline:
 Artifacts:
 
 ```text
-dist/windows/FileForge-Desktop-1.0.0-amd64-installer.exe
-dist/windows/FileForge-Desktop-1.0.0-windows-amd64-portable.zip
-dist/windows/FileForge Desktop/
+bin/fileforge-desktop-amd64-installer.exe
+bin/fileforge-desktop-windows-amd64.zip
 ```
 
-The artifact names use `FILEFORGE_VERSION` (default `1.0.0`); keep it in sync
-with `build/windows/info.json` and the `INFO_PRODUCTVERSION` define in
+The ZIP contains a `FileForge Desktop/` folder with the exe, the libvips DLLs
+and `vips-modules-8.18`. The version metadata comes from
+`build/windows/info.json` and the `INFO_PRODUCTVERSION` define in
 `build/windows/nsis/project.nsi`. The libvips cache
 lives in `~/.cache/fileforge-windows`; override it with
 `FILEFORGE_WINDOWS_CACHE`. The Wails CLI is resolved from `PATH`, then

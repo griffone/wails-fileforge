@@ -15,6 +15,3 @@ build/linux/appimage/*.AppImage
 /odd/
 /AGENTS.md
 /.atl/
-
-# Windows build artifacts (installer/portable zip)
-/dist/
