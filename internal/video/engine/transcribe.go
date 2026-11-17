@@ -1,9 +1,13 @@
 package engine
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,6 +115,13 @@ type TranscribeCommandRunner interface {
 	Output(ctx context.Context, name string, args []string) ([]byte, error)
 }
 
+// StreamingTranscribeCommandRunner is implemented by runners that can surface
+// whisper.cpp progress while the command runs. The engine falls back to Output
+// when a runner only supports the buffered contract.
+type StreamingTranscribeCommandRunner interface {
+	RunStreaming(ctx context.Context, name string, args []string, onLine func(string)) ([]byte, error)
+}
+
 // ExecTranscribeCommandRunner runs real binaries with exec.CommandContext, so
 // context cancellation kills ffmpeg or whisper-cli.
 type ExecTranscribeCommandRunner struct{}
@@ -120,15 +131,61 @@ func (r *ExecTranscribeCommandRunner) Output(ctx context.Context, name string, a
 
 	output, err := command.CombinedOutput()
 	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			return output, fmt.Errorf("%s failed: %w", name, err)
-		}
-
-		return output, fmt.Errorf("%s failed: %w: %s", name, err, message)
+		return output, transcribeCommandError(name, output, err)
 	}
 
 	return output, nil
+}
+
+// RunStreaming runs a command and calls onLine for every stdout/stderr line.
+// whisper.cpp only reports progress when its output is consumed while running;
+// buffering until exit would leave the UI stuck at the initial percentage.
+func (r *ExecTranscribeCommandRunner) RunStreaming(ctx context.Context, name string, args []string, onLine func(string)) ([]byte, error) {
+	command := exec.CommandContext(ctx, name, args...)
+
+	pipeReader, pipeWriter := io.Pipe()
+	command.Stdout = pipeWriter
+	command.Stderr = pipeWriter
+	if err := command.Start(); err != nil {
+		_ = pipeWriter.Close()
+		_ = pipeReader.Close()
+		return nil, err
+	}
+
+	var buffer bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		scanner := bufio.NewScanner(pipeReader)
+		for scanner.Scan() {
+			line := scanner.Text()
+			buffer.WriteString(line)
+			buffer.WriteByte('\n')
+			if onLine != nil {
+				onLine(line)
+			}
+		}
+		_ = pipeReader.Close()
+	}()
+
+	waitErr := command.Wait()
+	_ = pipeWriter.Close()
+	<-done
+	output := buffer.Bytes()
+	if waitErr != nil {
+		return output, transcribeCommandError(name, output, waitErr)
+	}
+
+	return output, nil
+}
+
+func transcribeCommandError(name string, output []byte, err error) error {
+	message := strings.TrimSpace(string(output))
+	if message == "" {
+		return fmt.Errorf("%s failed: %w", name, err)
+	}
+
+	return fmt.Errorf("%s failed: %w: %s", name, err, message)
 }
 
 func resolveTranscribeRunner(runner TranscribeCommandRunner) TranscribeCommandRunner {
@@ -601,10 +658,31 @@ func Transcribe(ctx context.Context, runner TranscribeCommandRunner, req Transcr
 			whisperArgs = append(whisperArgs, "-otxt")
 		}
 	}
-	whisperArgs = append(whisperArgs, "-of", tempPrefix)
+	whisperArgs = append(whisperArgs, "-pp", "-of", tempPrefix)
 
 	emitTranscribeProgress(onProgress, TranscribeStageTranscribe, 20, "Transcribing audio with Whisper…")
-	if _, runErr := runner.Output(ctx, capabilities.WhisperPath, whisperArgs); runErr != nil {
+	whisperProgress := func(line string) {
+		percent, ok := parseWhisperProgress(line)
+		if !ok || onProgress == nil {
+			return
+		}
+		overall := 20 + int(math.Round(float64(percent)*0.7))
+		if overall > 89 {
+			overall = 89
+		}
+		onProgress(TranscribeProgressEvent{
+			Stage:   TranscribeStageTranscribe,
+			Percent: overall,
+			Message: fmt.Sprintf("Transcribing audio… %d%%", percent),
+		})
+	}
+	var whisperErr error
+	if streamer, ok := runner.(StreamingTranscribeCommandRunner); ok {
+		_, whisperErr = streamer.RunStreaming(ctx, capabilities.WhisperPath, whisperArgs, whisperProgress)
+	} else {
+		_, whisperErr = runner.Output(ctx, capabilities.WhisperPath, whisperArgs)
+	}
+	if whisperErr != nil {
 		if ctx.Err() != nil {
 			return TranscribeResult{}, cancelledTranscriptionError("transcription canceled", ctx.Err())
 		}
@@ -612,7 +690,7 @@ func Transcribe(ctx context.Context, runner TranscribeCommandRunner, req Transcr
 		return TranscribeResult{}, &TranscriptionError{
 			Code:    ErrorCodeTranscribeFailed,
 			Message: "Whisper could not transcribe the audio",
-			Cause:   runErr,
+			Cause:   whisperErr,
 		}
 	}
 	if ctx.Err() != nil {
@@ -673,6 +751,23 @@ func Transcribe(ctx context.Context, runner TranscribeCommandRunner, req Transcr
 	}
 
 	return result, nil
+}
+
+var whisperProgressPattern = regexp.MustCompile(`progress\s*=\s*(\d+)%`)
+
+// parseWhisperProgress extracts the percentage from whisper.cpp's
+// `whisper_print_progress_callback: progress = 48%` output.
+func parseWhisperProgress(line string) (int, bool) {
+	matches := whisperProgressPattern.FindStringSubmatch(line)
+	if len(matches) != 2 {
+		return 0, false
+	}
+	value, err := strconv.Atoi(matches[1])
+	if err != nil || value < 0 || value > 100 {
+		return 0, false
+	}
+
+	return value, true
 }
 
 // TranscriptionWhisperMissingMessage explains where whisper-cli was expected

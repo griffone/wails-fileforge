@@ -322,6 +322,75 @@ func (r *fakeTranscribeRunner) writeFakeWhisperOutputs(args []string) ([]byte, e
 	return nil, nil
 }
 
+type streamingFakeTranscribeRunner struct {
+	*fakeTranscribeRunner
+	lines []string
+}
+
+func (r *streamingFakeTranscribeRunner) RunStreaming(ctx context.Context, name string, args []string, onLine func(string)) ([]byte, error) {
+	if name == "ffmpeg" {
+		return r.Output(ctx, name, args)
+	}
+	r.mu.Lock()
+	r.calls = append(r.calls, transcribeRunnerCall{Name: name, Args: append([]string{}, args...)})
+	whisper := r.whisper
+	r.mu.Unlock()
+	if whisper != nil {
+		return whisper(ctx, name, args)
+	}
+	for _, line := range r.lines {
+		if onLine != nil {
+			onLine(line)
+		}
+	}
+
+	return r.writeFakeWhisperOutputs(args)
+}
+
+func TestTranscribeStreamsWhisperProgress(t *testing.T) {
+	runner := &streamingFakeTranscribeRunner{
+		fakeTranscribeRunner: newFakeTranscribeRunner(),
+		lines: []string{
+			"whisper_print_progress_callback: progress =  48%",
+			"whisper_print_progress_callback: progress =  95%",
+			"whisper_print_progress_callback: progress = 100%",
+		},
+	}
+	request := newTranscribeEngineFixture(t, TranscribeFormatTXT)
+
+	var percents []int
+	result, transcribeErr := Transcribe(context.Background(), runner, request, func(event TranscribeProgressEvent) {
+		if event.Stage == TranscribeStageTranscribe {
+			percents = append(percents, event.Percent)
+		}
+	})
+	if transcribeErr != nil {
+		t.Fatalf("unexpected transcription error: %v", transcribeErr)
+	}
+	if result.TextCharacters == 0 {
+		t.Fatal("expected a non-empty transcript")
+	}
+
+	want := []int{20, 54, 87, 89}
+	if len(percents) != len(want) {
+		t.Fatalf("progress events = %v, want %v", percents, want)
+	}
+	for index, value := range want {
+		if percents[index] != value {
+			t.Fatalf("progress events = %v, want %v", percents, want)
+		}
+	}
+
+	calls := runner.snapshotCalls()
+	if len(calls) < 2 {
+		t.Fatalf("expected ffmpeg and whisper calls, got %+v", calls)
+	}
+	call := calls[len(calls)-1]
+	if !containsString(call.Args, "-pp") {
+		t.Fatalf("expected -pp in whisper args: %v", call.Args)
+	}
+}
+
 func (r *fakeTranscribeRunner) snapshotCalls() []transcribeRunnerCall {
 	r.mu.Lock()
 	defer r.mu.Unlock()
