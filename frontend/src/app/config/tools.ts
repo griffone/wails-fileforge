@@ -1,6 +1,7 @@
 import {
   Activity,
   Anvil,
+  Captions,
   Combine,
   Crop,
   FileText,
@@ -110,7 +111,7 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
-/** The thirteen conversion tools. Ids mirror the backend toolId contract. */
+/** The fourteen conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -273,9 +274,20 @@ export const TOOLS: readonly ToolDefinition[] = [
     formats: ['MP4', 'MOV', 'MKV', 'WebM'],
     keywords: ['video', 'merge', 'join', 'concat', 'clips', 'order'],
   },
+  {
+    id: 'tool.video.transcribe',
+    name: 'Video Transcribe',
+    navName: 'Transcribe',
+    description: 'Transcribe video and audio locally with Whisper. No uploads.',
+    route: '/video-transcribe',
+    category: 'video',
+    icon: Captions,
+    formats: ['SRT', 'VTT', 'TXT'],
+    keywords: ['video', 'audio', 'transcribe', 'whisper', 'subtitles', 'srt', 'vtt'],
+  },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 17-entry navigation model. */
+/** Home, every tool, then System Status, Automations and Settings: the full 18-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,

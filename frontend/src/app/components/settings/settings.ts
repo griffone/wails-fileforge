@@ -16,14 +16,19 @@ import { Theme, ThemeService } from '../../services/theme.service';
 import {
   LocalCapabilityV1,
   LocalCapabilitiesResponseV1,
+  TranscriptionCapabilitiesResponseV1,
   Wails,
 } from '../../services/wails';
+import { formatBytes } from '../../utils/format';
 
 /** Shared with the Home onboarding strip. */
 const ONBOARDING_STORAGE_KEY = 'ff-onboarding-dismissed';
 
 const CAPABILITIES_ERROR_FALLBACK =
   'The local capability check did not run. Open FileForge in the desktop app, then retry.';
+
+const TRANSCRIPTION_ERROR_FALLBACK =
+  'The transcription check did not run. Open FileForge in the desktop app, then retry.';
 
 @Component({
   selector: 'app-settings',
@@ -70,8 +75,25 @@ export class Settings implements OnInit {
   readonly capabilitiesLoading = signal(false);
   readonly capabilitiesError = signal('');
 
+  readonly transcriptionCapabilities =
+    signal<TranscriptionCapabilitiesResponseV1 | null>(null);
+  readonly transcriptionLoading = signal(false);
+  readonly transcriptionError = signal('');
+
+  readonly whisperPath = this.preferences.whisperPath;
+  readonly whisperModelPath = this.preferences.whisperModelPath;
+
+  readonly transcriptionReady = computed(
+    () => this.transcriptionCapabilities()?.available === true,
+  );
+
+  readonly hasWhisperOverrides = computed(
+    () => this.whisperPath().length > 0 || this.whisperModelPath().length > 0,
+  );
+
   ngOnInit(): void {
     void this.loadCapabilities();
+    void this.loadTranscriptionCapabilities();
   }
 
   async loadCapabilities(): Promise<void> {
@@ -99,6 +121,141 @@ export class Settings implements OnInit {
 
   refreshCapabilities(): void {
     void this.loadCapabilities();
+  }
+
+  /** Reads the Whisper runtime with the persisted overrides (empty = defaults). */
+  async loadTranscriptionCapabilities(): Promise<void> {
+    this.transcriptionLoading.set(true);
+    this.transcriptionError.set('');
+
+    try {
+      const response = await this.wails.getTranscriptionCapabilitiesV1(
+        this.preferences.whisperPath(),
+        this.preferences.whisperModelPath(),
+      );
+      if (!response.success) {
+        this.transcriptionCapabilities.set(null);
+        this.transcriptionError.set(
+          this.friendlyCapabilitiesError(
+            response.message,
+            TRANSCRIPTION_ERROR_FALLBACK,
+          ),
+        );
+        return;
+      }
+
+      this.transcriptionCapabilities.set(response);
+    } catch {
+      this.transcriptionCapabilities.set(null);
+      this.transcriptionError.set(TRANSCRIPTION_ERROR_FALLBACK);
+    } finally {
+      this.transcriptionLoading.set(false);
+    }
+  }
+
+  refreshTranscription(): void {
+    void this.loadTranscriptionCapabilities();
+  }
+
+  async chooseWhisperBinary(): Promise<void> {
+    const path = (await this.wails.openFileDialog()).trim();
+    if (!path) {
+      return;
+    }
+
+    this.preferences.setWhisperPath(path);
+    this.actionMessage.set('');
+    await this.loadTranscriptionCapabilities();
+  }
+
+  async chooseWhisperModel(): Promise<void> {
+    const path = (await this.wails.openFileDialog()).trim();
+    if (!path) {
+      return;
+    }
+
+    this.preferences.setWhisperModelPath(path);
+    this.actionMessage.set('');
+    await this.loadTranscriptionCapabilities();
+  }
+
+  async useDetectedWhisperPaths(): Promise<void> {
+    if (!this.hasWhisperOverrides()) {
+      return;
+    }
+
+    this.preferences.clearWhisperPaths();
+    this.actionMessage.set('');
+    await this.loadTranscriptionCapabilities();
+  }
+
+  transcriptionBadgeClass(): string {
+    return this.transcriptionReady()
+      ? 'badge badge-success'
+      : 'badge badge-neutral';
+  }
+
+  transcriptionStateLabel(): string {
+    if (!this.transcriptionCapabilities()) {
+      return 'Unknown';
+    }
+    return this.transcriptionReady() ? 'Ready' : 'Setup needed';
+  }
+
+  transcriptionModelLine(): string {
+    const capabilities = this.transcriptionCapabilities();
+    if (!capabilities) {
+      return 'No Whisper model detected.';
+    }
+
+    const name = capabilities.modelName?.trim() || 'Whisper model';
+    if (!capabilities.modelPresent) {
+      return `${name} not found`;
+    }
+    if (
+      typeof capabilities.modelSizeBytes === 'number' &&
+      capabilities.modelSizeBytes > 0
+    ) {
+      return `${name} · ${formatBytes(capabilities.modelSizeBytes)}`;
+    }
+    return name;
+  }
+
+  transcriptionBinaryPath(): string {
+    return this.transcriptionCapabilities()?.whisperPath?.trim() || 'Not found';
+  }
+
+  transcriptionModelPathLabel(): string {
+    return this.transcriptionCapabilities()?.modelPath?.trim() || 'Not found';
+  }
+
+  transcriptionLanguagesLabel(): string {
+    const languages = this.transcriptionCapabilities()?.languages ?? [];
+    if (languages.length === 0) {
+      return 'Languages: not reported';
+    }
+
+    const labels = languages.map((language) => {
+      switch (language) {
+        case 'auto':
+          return 'Auto';
+        case 'en':
+          return 'English';
+        case 'es':
+          return 'Spanish';
+        default:
+          return language.toUpperCase();
+      }
+    });
+    return `Languages: ${labels.join(' · ')}`;
+  }
+
+  transcriptionGuidance(): string {
+    const capabilities = this.transcriptionCapabilities();
+    if (!capabilities || capabilities.available) {
+      return '';
+    }
+    return 'Install whisper.cpp and choose a ggml model file. FileForge never downloads models automatically.';
   }
 
   capabilityBadgeClass(check: LocalCapabilityV1): string {
@@ -141,14 +298,17 @@ export class Settings implements OnInit {
       : `OCR languages: ${installed}`;
   }
 
-  private friendlyCapabilitiesError(message: string): string {
+  private friendlyCapabilitiesError(
+    message: string,
+    fallback: string = CAPABILITIES_ERROR_FALLBACK,
+  ): string {
     const text = (message ?? '').trim();
     if (
       !text ||
       /<\/?[a-z][\s\S]*>/i.test(text) ||
       /Cannot POST|DOCTYPE html/i.test(text)
     ) {
-      return CAPABILITIES_ERROR_FALLBACK;
+      return fallback;
     }
 
     return text.length > 240 ? `${text.slice(0, 237)}…` : text;

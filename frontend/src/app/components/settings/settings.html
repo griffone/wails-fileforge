@@ -124,6 +124,141 @@
 
     <section
       class="panel settings-panel"
+      aria-labelledby="settings-transcription-title"
+    >
+      <div class="panel-head">
+        <h2 id="settings-transcription-title" class="panel-title">
+          Transcription
+        </h2>
+        <button
+          type="button"
+          class="icon-btn settings-refresh-transcription"
+          aria-label="Refresh transcription status"
+          [disabled]="transcriptionLoading()"
+          [attr.aria-busy]="transcriptionLoading()"
+          (click)="refreshTranscription()"
+        >
+          <lucide-icon
+            [img]="refreshIcon"
+            [size]="15"
+            [strokeWidth]="1.75"
+            [class.is-spinning]="transcriptionLoading()"
+            aria-hidden="true"
+          ></lucide-icon>
+        </button>
+      </div>
+
+      <div class="settings-body">
+        @if (transcriptionLoading() && !transcriptionCapabilities()) {
+          <p
+            class="settings-capability-loading"
+            role="status"
+            aria-live="polite"
+          >
+            Checking Whisper…
+          </p>
+        } @else if (transcriptionError(); as message) {
+          <div
+            class="banner banner-warning settings-capability-error"
+            role="alert"
+          >
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <span class="settings-capability-error-text">{{ message }}</span>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm settings-retry-transcription"
+              [disabled]="transcriptionLoading()"
+              (click)="refreshTranscription()"
+            >
+              Retry
+            </button>
+          </div>
+        } @else if (transcriptionCapabilities()) {
+          <div class="settings-capability-ocr settings-transcription-status">
+            <span
+              class="status-dot"
+              [attr.data-state]="transcriptionReady() ? 'success' : 'warning'"
+              aria-hidden="true"
+            ></span>
+            <span class="settings-capability-label mono">Whisper</span>
+            <span [class]="transcriptionBadgeClass()">{{
+              transcriptionStateLabel()
+            }}</span>
+            <span class="settings-capability-ocr-line mono">{{
+              transcriptionModelLine()
+            }}</span>
+          </div>
+
+          <div class="settings-capability-list settings-transcription-rows">
+            <div class="settings-transcription-row">
+              <div class="settings-row-text settings-transcription-row-text">
+                <span class="settings-current-label">
+                  Whisper binary
+                </span>
+                <p class="settings-transcription-path mono settings-whisper-path">
+                  {{ transcriptionBinaryPath() }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm settings-choose-whisper"
+                (click)="chooseWhisperBinary()"
+              >
+                Choose file
+              </button>
+            </div>
+
+            <div class="settings-transcription-row">
+              <div class="settings-row-text settings-transcription-row-text">
+                <span class="settings-current-label">Model file</span>
+                <p class="settings-transcription-path mono settings-whisper-model-path">
+                  {{ transcriptionModelPathLabel() }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm settings-choose-whisper-model"
+                (click)="chooseWhisperModel()"
+              >
+                Choose file
+              </button>
+            </div>
+          </div>
+
+          <p class="settings-capability-ocr-line mono">
+            {{ transcriptionLanguagesLabel() }}
+          </p>
+
+          @if (transcriptionGuidance(); as guidance) {
+            <p class="settings-capability-suggestion">{{ guidance }}</p>
+          }
+
+          <div class="actions">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm settings-use-detected-whisper"
+              [disabled]="!hasWhisperOverrides()"
+              (click)="useDetectedWhisperPaths()"
+            >
+              Use detected paths
+            </button>
+          </div>
+
+          <p class="settings-help">
+            Overrides are remembered on this machine. Empty paths use the
+            installed whisper.cpp defaults.
+          </p>
+        }
+      </div>
+    </section>
+
+    <section
+      class="panel settings-panel"
       aria-labelledby="settings-capabilities-title"
     >
       <div class="panel-head">

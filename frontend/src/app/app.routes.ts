@@ -14,6 +14,7 @@ import { DocDocxToPdf } from './components/doc-docx-to-pdf/doc-docx-to-pdf';
 import { VideoConvert } from './components/video-convert/video-convert';
 import { VideoTrim } from './components/video-trim/video-trim';
 import { VideoMerge } from './components/video-merge/video-merge';
+import { VideoTranscribe } from './components/video-transcribe/video-transcribe';
 import { Settings } from './components/settings/settings';
 import { RecipeRun } from './components/recipe-run/recipe-run';
 import { Automations } from './components/automations/automations';
@@ -36,6 +37,7 @@ export const routes: Routes = [
   { path: 'video-convert', component: VideoConvert },
   { path: 'video-trim', component: VideoTrim },
   { path: 'video-merge', component: VideoMerge },
+  { path: 'video-transcribe', component: VideoTranscribe },
   { path: 'recipe/email-pdf', component: RecipeRun, data: { recipeId: 'recipe.email_pdf' } },
   {
     path: 'recipe/web-image-set',

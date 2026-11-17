@@ -37,6 +37,14 @@ export class JobCard {
         return 'Running';
       case 'ocr':
         return 'OCR';
+      case 'extract':
+        return 'Extracting';
+      case 'transcribe':
+        return 'Transcribing';
+      case 'publish':
+        return 'Saving';
+      case 'transcribe.done':
+        return 'Done';
       case 'success':
         return 'Done';
       case 'partial_success':

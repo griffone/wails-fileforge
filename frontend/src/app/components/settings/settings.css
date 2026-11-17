@@ -119,12 +119,14 @@
 
 /* ---- Local capabilities -------------------------------------------------- */
 
-.settings-refresh-capabilities {
+.settings-refresh-capabilities,
+.settings-refresh-transcription {
   width: 30px;
   height: 30px;
 }
 
-.settings-refresh-capabilities .is-spinning {
+.settings-refresh-capabilities .is-spinning,
+.settings-refresh-transcription .is-spinning {
   animation: settings-capabilities-spin 900ms linear infinite;
 }
 
@@ -248,6 +250,25 @@
   color: var(--success);
   font-size: 0.75rem;
   line-height: 1.5;
+}
+
+/* ---- Transcription ------------------------------------------------------- */
+
+.settings-transcription-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.settings-transcription-row + .settings-transcription-row {
+  border-top: 1px solid var(--border);
+}
+
+.settings-transcription-path {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
 }
 
 .settings-about {

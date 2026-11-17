@@ -520,6 +520,26 @@ export interface OCRCapabilitiesResponseV1 {
   recommendedLanguage: string;
 }
 
+/**
+ * Detected state of the local Whisper transcription pipeline. `available`
+ * requires both the whisper-cli binary and a model file. Paths are resolved:
+ * a user override wins when it exists, otherwise the installed defaults.
+ * Field names mirror the Go DTO JSON tags.
+ */
+export interface TranscriptionCapabilitiesResponseV1 {
+  success: boolean;
+  message: string;
+  available: boolean;
+  whisperPath: string;
+  whisperPresent: boolean;
+  modelPath: string;
+  modelPresent: boolean;
+  modelName?: string;
+  modelSizeBytes?: number;
+  languages: string[];
+  defaultLanguage?: string;
+}
+
 /** One external binary the local tools can rely on. */
 export interface LocalCapabilityV1 {
   id: string;
@@ -990,6 +1010,29 @@ export class Wails {
         pdfToText: false,
         languages: [],
         recommendedLanguage: '',
+      };
+    }
+  }
+
+  async getTranscriptionCapabilitiesV1(
+    whisperPath: string,
+    modelPath: string,
+  ): Promise<TranscriptionCapabilitiesResponseV1> {
+    try {
+      return await this.callByID(4175229221, whisperPath, modelPath);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage(
+          'Get transcription capabilities failed',
+          error,
+        ),
+        available: false,
+        whisperPath: '',
+        whisperPresent: false,
+        modelPath: '',
+        modelPresent: false,
+        languages: [],
       };
     }
   }

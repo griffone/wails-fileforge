@@ -11,12 +11,12 @@ describe('ToolRegistryService', () => {
     service = TestBed.inject(ToolRegistryService);
   });
 
-  it('exposes the thirteen conversion tools', () => {
-    expect(service.tools.length).toBe(13);
+  it('exposes the fourteen conversion tools', () => {
+    expect(service.tools.length).toBe(14);
   });
 
-  it('exposes seventeen navigation entries', () => {
-    expect(service.navigation.length).toBe(17);
+  it('exposes eighteen navigation entries', () => {
+    expect(service.navigation.length).toBe(18);
     expect(service.navigation[0].route).toBe('/');
     expect(service.navigation[service.navigation.length - 2].route).toBe(
       '/automations',
@@ -40,6 +40,13 @@ describe('ToolRegistryService', () => {
     expect(service.findByRoute('/pdf-ocr')?.name).toBe('PDF OCR');
     expect(service.findByRoute('/pdf-ocr')?.navName).toBe('OCR');
     expect(service.findByRoute('/pdf-ocr')?.category).toBe('pdf');
+    expect(service.findByRoute('/video-transcribe')?.name).toBe(
+      'Video Transcribe',
+    );
+    expect(service.findByRoute('/video-transcribe')?.navName).toBe(
+      'Transcribe',
+    );
+    expect(service.findByRoute('/video-transcribe')?.category).toBe('video');
     expect(service.findByRoute('/tool-catalog')?.name).toBe('System Status');
     expect(service.findByRoute('/automations')?.name).toBe('Automations');
     expect(service.findByRoute('/settings')?.name).toBe('Settings');
@@ -60,6 +67,7 @@ describe('ToolRegistryService', () => {
     const settings = service.findByRoute('/settings');
     const tool = service.findByRoute('/video-trim');
     const ocr = service.findByRoute('/pdf-ocr');
+    const transcribe = service.findByRoute('/video-transcribe');
 
     expect(home && service.isTool(home)).toBeFalse();
     expect(system && service.isTool(system)).toBeFalse();
@@ -67,6 +75,7 @@ describe('ToolRegistryService', () => {
     expect(settings && service.isTool(settings)).toBeFalse();
     expect(tool && service.isTool(tool)).toBeTrue();
     expect(ocr && service.isTool(ocr)).toBeTrue();
+    expect(transcribe && service.isTool(transcribe)).toBeTrue();
   });
 
   it('groups every navigation entry exactly once', () => {
@@ -85,6 +94,9 @@ describe('ToolRegistryService', () => {
     expect(
       service.navGroups.find((group) => group.id === 'pdf')?.items.length,
     ).toBe(5);
+    expect(
+      service.navGroups.find((group) => group.id === 'video')?.items.length,
+    ).toBe(4);
   });
 
   it('labels categories', () => {

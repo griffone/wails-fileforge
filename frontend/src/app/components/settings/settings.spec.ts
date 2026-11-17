@@ -11,6 +11,7 @@ import { RecentConversionsService } from '../../services/recent-conversions.serv
 import {
   JobResultV1,
   LocalCapabilitiesResponseV1,
+  TranscriptionCapabilitiesResponseV1,
   Wails,
 } from '../../services/wails';
 
@@ -52,6 +53,20 @@ const CAPABILITIES: LocalCapabilitiesResponseV1 = {
   ],
   ocrLanguages: ['afr'],
   recommendedOcrLanguage: 'afr',
+};
+
+const TRANSCRIPTION: TranscriptionCapabilitiesResponseV1 = {
+  success: true,
+  message: 'Local transcription is available.',
+  available: true,
+  whisperPath: '/home/user/.local/share/fileforge/whisper/whisper-cli',
+  whisperPresent: true,
+  modelPath: '/home/user/.local/share/fileforge/models/ggml-base.bin',
+  modelPresent: true,
+  modelName: 'ggml-base',
+  modelSizeBytes: 142 * 1024 * 1024,
+  languages: ['auto', 'en', 'es'],
+  defaultLanguage: 'auto',
 };
 
 describe('Settings', () => {
@@ -119,10 +134,14 @@ describe('Settings', () => {
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'openDirectoryDialog',
+      'openFileDialog',
       'getLocalCapabilitiesV1',
+      'getTranscriptionCapabilitiesV1',
     ]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.openFileDialog.and.resolveTo('');
     wailsSpy.getLocalCapabilitiesV1.and.resolveTo(CAPABILITIES);
+    wailsSpy.getTranscriptionCapabilitiesV1.and.resolveTo(TRANSCRIPTION);
 
     await TestBed.configureTestingModule({
       imports: [Settings],
@@ -158,7 +177,11 @@ describe('Settings', () => {
     fixture.detectChanges();
 
     expect(component.defaultOutputDir()).toBe('/tmp/exports');
-    expect(storedPreferences()).toEqual({ defaultOutputDir: '/tmp/exports' });
+    expect(storedPreferences()).toEqual({
+      defaultOutputDir: '/tmp/exports',
+      whisperPath: '',
+      whisperModelPath: '',
+    });
     expect(
       element().querySelector('.settings-path')?.textContent,
     ).toContain('/tmp/exports');
@@ -170,7 +193,11 @@ describe('Settings', () => {
     fixture.detectChanges();
 
     expect(component.defaultOutputDir()).toBe('');
-    expect(storedPreferences()).toEqual({ defaultOutputDir: '' });
+    expect(storedPreferences()).toEqual({
+      defaultOutputDir: '',
+      whisperPath: '',
+      whisperModelPath: '',
+    });
     expect(element().querySelector('.settings-path')).toBeNull();
     expect(button('.settings-next-to-original').getAttribute('aria-pressed')).toBe(
       'true',
@@ -335,5 +362,138 @@ describe('Settings', () => {
 
     expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(3);
     expect(element().textContent).toContain('OCR page rasterizer');
+  }));
+
+  it('shows the Whisper runtime, model and resolved paths', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const text = element().textContent ?? '';
+    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledWith('', '');
+    expect(text).toContain('Transcription');
+    expect(text).toContain('Whisper');
+    expect(text).toContain('Ready');
+    expect(text).toContain('ggml-base · 142 MB');
+    expect(text).toContain('Languages: Auto · English · Spanish');
+    expect(
+      element().querySelector('.settings-whisper-path')?.textContent,
+    ).toContain('/fileforge/whisper/whisper-cli');
+    expect(
+      element().querySelector('.settings-whisper-model-path')?.textContent,
+    ).toContain('ggml-base.bin');
+    expect(
+      element()
+        .querySelector('.settings-transcription-status .status-dot')
+        ?.getAttribute('data-state'),
+    ).toBe('success');
+    expect(button('.settings-use-detected-whisper').disabled).toBeTrue();
+  }));
+
+  it('persists chosen whisper files and refreshes the status', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    wailsSpy.openFileDialog.and.resolveTo('/opt/whisper-cli');
+    button('.settings-choose-whisper').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(storedPreferences()).toEqual({
+      defaultOutputDir: '',
+      whisperPath: '/opt/whisper-cli',
+      whisperModelPath: '',
+    });
+    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledWith(
+      '/opt/whisper-cli',
+      '',
+    );
+
+    wailsSpy.openFileDialog.and.resolveTo('/models/ggml-medium.bin');
+    button('.settings-choose-whisper-model').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(storedPreferences()).toEqual({
+      defaultOutputDir: '',
+      whisperPath: '/opt/whisper-cli',
+      whisperModelPath: '/models/ggml-medium.bin',
+    });
+    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledWith(
+      '/opt/whisper-cli',
+      '/models/ggml-medium.bin',
+    );
+    expect(button('.settings-use-detected-whisper').disabled).toBeFalse();
+  }));
+
+  it('ignores a cancelled whisper file picker', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    button('.settings-choose-whisper').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.whisperPath()).toBe('');
+    expect(localStorage.getItem(PREFERENCES_STORAGE_KEY)).toBeNull();
+    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledTimes(1);
+  }));
+
+  it('clears whisper overrides back to the detected paths', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    wailsSpy.openFileDialog.and.resolveTo('/opt/whisper-cli');
+    button('.settings-choose-whisper').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(button('.settings-use-detected-whisper').disabled).toBeFalse();
+
+    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledWith(
+      '/opt/whisper-cli',
+      '',
+    );
+
+    button('.settings-use-detected-whisper').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(storedPreferences()).toEqual({
+      defaultOutputDir: '',
+      whisperPath: '',
+      whisperModelPath: '',
+    });
+    expect(
+      wailsSpy.getTranscriptionCapabilitiesV1.calls.mostRecent().args,
+    ).toEqual(['', '']);
+    expect(button('.settings-use-detected-whisper').disabled).toBeTrue();
+  }));
+
+  it('shows setup guidance when the Whisper model is missing', fakeAsync(() => {
+    wailsSpy.getTranscriptionCapabilitiesV1.and.resolveTo({
+      ...TRANSCRIPTION,
+      message: 'Local transcription is unavailable: install a ggml model.',
+      available: false,
+      modelPresent: false,
+      modelName: '',
+      modelSizeBytes: 0,
+      defaultLanguage: '',
+    });
+
+    component.refreshTranscription();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('Setup needed');
+    expect(text).toContain('Whisper model not found');
+    expect(text).toContain(
+      'Install whisper.cpp and choose a ggml model file. FileForge never downloads models automatically.',
+    );
+    expect(
+      element()
+        .querySelector('.settings-transcription-status .status-dot')
+        ?.getAttribute('data-state'),
+    ).toBe('warning');
   }));
 });
