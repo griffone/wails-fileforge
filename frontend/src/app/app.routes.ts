@@ -15,12 +15,14 @@ import { VideoTrim } from './components/video-trim/video-trim';
 import { VideoMerge } from './components/video-merge/video-merge';
 import { Settings } from './components/settings/settings';
 import { RecipeRun } from './components/recipe-run/recipe-run';
+import { Automations } from './components/automations/automations';
 
 export const routes: Routes = [
   { path: '', component: Home },
   { path: 'image-converter', component: ImageConverter },
   { path: 'tool-catalog', component: ToolCatalog },
   { path: 'settings', component: Settings },
+  { path: 'automations', component: Automations },
   { path: 'image-crop', component: ImageCrop },
   { path: 'image-annotate', component: ImageAnnotate },
   { path: 'pdf-merge', component: PdfMerge },

@@ -19,6 +19,7 @@ import {
   Search,
   SearchX,
   ShieldCheck,
+  Workflow,
   X,
 } from 'lucide-angular';
 
@@ -30,7 +31,7 @@ import {
 } from '../../services/recent-conversions.service';
 import { RecentToolsService } from '../../services/recent-tools.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
-import { ToolCatalogEntryV1, PathActionResponseV1, Wails } from '../../services/wails';
+import { ToolCatalogEntryV1, PathActionResponseV1, AutomationStatusResponseV1, Wails } from '../../services/wails';
 import { fileDir, fileExtension, fileName } from '../../utils/format';
 
 type CategoryFilter = 'all' | ToolCategory;
@@ -65,10 +66,17 @@ export class Home implements OnInit {
   readonly shieldIcon = ShieldCheck;
   readonly openIcon = ExternalLink;
   readonly folderIcon = FolderOpen;
+  readonly automationIcon = Workflow;
 
   readonly query = signal('');
   readonly activeCategory = signal<CategoryFilter>('all');
   readonly actionMessage = signal('');
+  readonly automationStatus = signal<AutomationStatusResponseV1 | null>(null);
+
+  readonly showAutomationStatus = computed(() => {
+    const status = this.automationStatus();
+    return !!status && status.success && status.totalRules > 0;
+  });
 
   private readonly onboardingDismissedState: WritableSignal<boolean>;
   readonly onboardingDismissed: Signal<boolean>;
@@ -158,6 +166,7 @@ export class Home implements OnInit {
 
   ngOnInit(): void {
     void this.loadData();
+    void this.loadAutomationStatus();
   }
 
   isRuntimeAvailable(): boolean {
@@ -357,6 +366,23 @@ export class Home implements OnInit {
       );
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Automation status is independent of the tool catalog: a catalog failure
+   * must not hide the folder-rule card. Zero rules hides the card entirely.
+   */
+  private async loadAutomationStatus(): Promise<void> {
+    try {
+      const response = await this.wailsService.getAutomationStatusV1();
+      if (response.success && response.totalRules > 0) {
+        this.automationStatus.set(response);
+        return;
+      }
+      this.automationStatus.set(null);
+    } catch {
+      this.automationStatus.set(null);
     }
   }
 

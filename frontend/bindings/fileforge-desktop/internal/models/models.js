@@ -6,6 +6,313 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+/**
+ * AutomationRuleActionResponseV1 is the result of a rule mutation. Rule is the
+ * saved rule with its runtime state when the mutation succeeded.
+ */
+export class AutomationRuleActionResponseV1 {
+    /**
+     * Creates a new AutomationRuleActionResponseV1 instance.
+     * @param {Partial<AutomationRuleActionResponseV1>} [$$source = {}] - The source object to create the AutomationRuleActionResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {AutomationRuleV1 | null | undefined}
+             */
+            this["rule"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {JobErrorV1 | null | undefined}
+             */
+            this["error"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutomationRuleActionResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutomationRuleActionResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType1;
+        const $$createField3_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("rule" in $$parsedSource) {
+            $$parsedSource["rule"] = $$createField2_0($$parsedSource["rule"]);
+        }
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField3_0($$parsedSource["error"]);
+        }
+        return new AutomationRuleActionResponseV1(/** @type {Partial<AutomationRuleActionResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * AutomationRuleV1 is one watch-folder rule: a folder, an accepted input kind
+ * and the recipe that runs for every arriving file. RuntimeStatus and
+ * RuntimeReason are response-only dynamic state and are never persisted.
+ */
+export class AutomationRuleV1 {
+    /**
+     * Creates a new AutomationRuleV1 instance.
+     * @param {Partial<AutomationRuleV1>} [$$source = {}] - The source object to create the AutomationRuleV1.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("watchDir" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["watchDir"] = "";
+        }
+        if (!("recipeId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["recipeId"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["extensions"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["outputDir"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any } | undefined}
+             */
+            this["options"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["deleteSource"] = undefined;
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["updatedAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["lastRunAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastStatus"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastMessage"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastFile"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["lastOutputs"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * Runtime-only state; never persisted.
+             * @member
+             * @type {string | undefined}
+             */
+            this["runtimeStatus"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["runtimeReason"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutomationRuleV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutomationRuleV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField5_0 = $$createType4;
+        const $$createField7_0 = $$createType5;
+        const $$createField15_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("extensions" in $$parsedSource) {
+            $$parsedSource["extensions"] = $$createField5_0($$parsedSource["extensions"]);
+        }
+        if ("options" in $$parsedSource) {
+            $$parsedSource["options"] = $$createField7_0($$parsedSource["options"]);
+        }
+        if ("lastOutputs" in $$parsedSource) {
+            $$parsedSource["lastOutputs"] = $$createField15_0($$parsedSource["lastOutputs"]);
+        }
+        return new AutomationRuleV1(/** @type {Partial<AutomationRuleV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * AutomationStatusResponseV1 is the compact automation summary shown on Home.
+ * The last-run fields mirror the most recently run rule.
+ */
+export class AutomationStatusResponseV1 {
+    /**
+     * Creates a new AutomationStatusResponseV1 instance.
+     * @param {Partial<AutomationStatusResponseV1>} [$$source = {}] - The source object to create the AutomationStatusResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("totalRules" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["totalRules"] = 0;
+        }
+        if (!("activeRules" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["activeRules"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["lastRunAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastStatus"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastMessage"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastFile"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutomationStatusResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutomationStatusResponseV1}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AutomationStatusResponseV1(/** @type {Partial<AutomationStatusResponseV1>} */($$parsedSource));
+    }
+}
+
 export class CancelJobResponseV1 {
     /**
      * Creates a new CancelJobResponseV1 instance.
@@ -50,7 +357,7 @@ export class CancelJobResponseV1 {
      * @returns {CancelJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType1;
+        const $$createField3_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField3_0($$parsedSource["error"]);
@@ -363,7 +670,7 @@ export class ImageAnnotatePreviewRequestV1 {
      * @returns {ImageAnnotatePreviewRequestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType3;
+        const $$createField1_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("operations" in $$parsedSource) {
             $$parsedSource["operations"] = $$createField1_0($$parsedSource["operations"]);
@@ -437,7 +744,7 @@ export class ImageAnnotatePreviewResponseV1 {
      * @returns {ImageAnnotatePreviewResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType1;
+        const $$createField6_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField6_0($$parsedSource["error"]);
@@ -581,7 +888,7 @@ export class ImageCropPreviewResponseV1 {
      * @returns {ImageCropPreviewResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType1;
+        const $$createField6_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField6_0($$parsedSource["error"]);
@@ -655,7 +962,7 @@ export class ImagePreviewSourceResponseV1 {
      * @returns {ImagePreviewSourceResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType1;
+        const $$createField6_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField6_0($$parsedSource["error"]);
@@ -701,7 +1008,7 @@ export class InspectFilesResponseV1 {
      * @returns {InspectFilesResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType5;
+        const $$createField2_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("files" in $$parsedSource) {
             $$parsedSource["files"] = $$createField2_0($$parsedSource["files"]);
@@ -754,7 +1061,7 @@ export class JobErrorV1 {
      * @returns {JobErrorV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType6;
+        const $$createField3_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("details" in $$parsedSource) {
             $$parsedSource["details"] = $$createField3_0($$parsedSource["details"]);
@@ -824,7 +1131,7 @@ export class JobHistoryEntryV1 {
      * @returns {JobHistoryEntryV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType8;
+        const $$createField5_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
             $$parsedSource["outputs"] = $$createField5_0($$parsedSource["outputs"]);
@@ -1009,8 +1316,8 @@ export class JobRequestV1 {
      * @returns {JobRequestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType9;
-        const $$createField4_0 = $$createType6;
+        const $$createField2_0 = $$createType4;
+        const $$createField4_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputPaths" in $$parsedSource) {
             $$parsedSource["inputPaths"] = $$createField2_0($$parsedSource["inputPaths"]);
@@ -1101,8 +1408,8 @@ export class JobResultItemV1 {
      * @returns {JobResultItemV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType9;
-        const $$createField8_0 = $$createType1;
+        const $$createField2_0 = $$createType4;
+        const $$createField8_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
             $$parsedSource["outputs"] = $$createField2_0($$parsedSource["outputs"]);
@@ -1200,9 +1507,9 @@ export class JobResultV1 {
      * @returns {JobResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType10;
-        const $$createField6_0 = $$createType12;
-        const $$createField7_0 = $$createType1;
+        const $$createField5_0 = $$createType12;
+        const $$createField6_0 = $$createType14;
+        const $$createField7_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
             $$parsedSource["progress"] = $$createField5_0($$parsedSource["progress"]);
@@ -1268,8 +1575,8 @@ export class JobStatusResponseV1 {
      * @returns {JobStatusResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType14;
-        const $$createField4_0 = $$createType1;
+        const $$createField3_0 = $$createType16;
+        const $$createField4_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
             $$parsedSource["result"] = $$createField3_0($$parsedSource["result"]);
@@ -1278,6 +1585,56 @@ export class JobStatusResponseV1 {
             $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
         }
         return new JobStatusResponseV1(/** @type {Partial<JobStatusResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
+ * ListAutomationRulesResponseV1 lists every saved automation rule with its
+ * current runtime state.
+ */
+export class ListAutomationRulesResponseV1 {
+    /**
+     * Creates a new ListAutomationRulesResponseV1 instance.
+     * @param {Partial<ListAutomationRulesResponseV1>} [$$source = {}] - The source object to create the ListAutomationRulesResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("rules" in $$source)) {
+            /**
+             * @member
+             * @type {AutomationRuleV1[]}
+             */
+            this["rules"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ListAutomationRulesResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ListAutomationRulesResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType17;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("rules" in $$parsedSource) {
+            $$parsedSource["rules"] = $$createField2_0($$parsedSource["rules"]);
+        }
+        return new ListAutomationRulesResponseV1(/** @type {Partial<ListAutomationRulesResponseV1>} */($$parsedSource));
     }
 }
 
@@ -1321,7 +1678,7 @@ export class ListRecipesResponseV1 {
      * @returns {ListRecipesResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType16;
+        const $$createField2_0 = $$createType19;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("recipes" in $$parsedSource) {
             $$parsedSource["recipes"] = $$createField2_0($$parsedSource["recipes"]);
@@ -1367,7 +1724,7 @@ export class ListToolsResponseV1 {
      * @returns {ListToolsResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType18;
+        const $$createField2_0 = $$createType21;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tools" in $$parsedSource) {
             $$parsedSource["tools"] = $$createField2_0($$parsedSource["tools"]);
@@ -1476,7 +1833,7 @@ export class PDFPreviewSourceResponseV1 {
      * @returns {PDFPreviewSourceResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType1;
+        const $$createField4_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
@@ -1578,10 +1935,10 @@ export class PlanJobResponseV1 {
      * @returns {PlanJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType20;
-        const $$createField3_0 = $$createType6;
-        const $$createField4_0 = $$createType9;
-        const $$createField5_0 = $$createType1;
+        const $$createField2_0 = $$createType23;
+        const $$createField3_0 = $$createType5;
+        const $$createField4_0 = $$createType4;
+        const $$createField5_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
             $$parsedSource["outputs"] = $$createField2_0($$parsedSource["outputs"]);
@@ -1665,7 +2022,7 @@ export class PlannedOutputV1 {
      * @returns {PlannedOutputV1}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType9;
+        const $$createField6_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("warnings" in $$parsedSource) {
             $$parsedSource["warnings"] = $$createField6_0($$parsedSource["warnings"]);
@@ -1751,11 +2108,11 @@ export class RecipePlanResponseV1 {
      * @returns {RecipePlanResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType21;
-        const $$createField3_0 = $$createType9;
-        const $$createField5_0 = $$createType20;
-        const $$createField6_0 = $$createType9;
-        const $$createField7_0 = $$createType1;
+        const $$createField2_0 = $$createType24;
+        const $$createField3_0 = $$createType4;
+        const $$createField5_0 = $$createType23;
+        const $$createField6_0 = $$createType4;
+        const $$createField7_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("recipe" in $$parsedSource) {
             $$parsedSource["recipe"] = $$createField2_0($$parsedSource["recipe"]);
@@ -1824,8 +2181,8 @@ export class RecipeRequestV1 {
      * @returns {RecipeRequestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType9;
-        const $$createField3_0 = $$createType6;
+        const $$createField1_0 = $$createType4;
+        const $$createField3_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputPaths" in $$parsedSource) {
             $$parsedSource["inputPaths"] = $$createField1_0($$parsedSource["inputPaths"]);
@@ -1949,10 +2306,10 @@ export class RecipeResultV1 {
      * @returns {RecipeResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType23;
-        const $$createField7_0 = $$createType9;
-        const $$createField9_0 = $$createType25;
-        const $$createField10_0 = $$createType1;
+        const $$createField6_0 = $$createType26;
+        const $$createField7_0 = $$createType4;
+        const $$createField9_0 = $$createType28;
+        const $$createField10_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("steps" in $$parsedSource) {
             $$parsedSource["steps"] = $$createField6_0($$parsedSource["steps"]);
@@ -2024,8 +2381,8 @@ export class RecipeStatusResponseV1 {
      * @returns {RecipeStatusResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType27;
-        const $$createField4_0 = $$createType1;
+        const $$createField3_0 = $$createType30;
+        const $$createField4_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
             $$parsedSource["result"] = $$createField3_0($$parsedSource["result"]);
@@ -2105,8 +2462,8 @@ export class RecipeStepResultV1 {
      * @returns {RecipeStepResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType9;
-        const $$createField6_0 = $$createType1;
+        const $$createField5_0 = $$createType4;
+        const $$createField6_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
             $$parsedSource["outputs"] = $$createField5_0($$parsedSource["outputs"]);
@@ -2263,9 +2620,9 @@ export class RecipeV1 {
      * @returns {RecipeV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType9;
-        const $$createField7_0 = $$createType9;
-        const $$createField8_0 = $$createType29;
+        const $$createField5_0 = $$createType4;
+        const $$createField7_0 = $$createType4;
+        const $$createField8_0 = $$createType32;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("acceptExtensions" in $$parsedSource) {
             $$parsedSource["acceptExtensions"] = $$createField5_0($$parsedSource["acceptExtensions"]);
@@ -2331,7 +2688,7 @@ export class RunJobResponseV1 {
      * @returns {RunJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType1;
+        const $$createField4_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
@@ -2395,7 +2752,7 @@ export class RunRecipeResponseV1 {
      * @returns {RunRecipeResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType1;
+        const $$createField4_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField4_0($$parsedSource["error"]);
@@ -2434,8 +2791,8 @@ export class ToolCatalogEntryV1 {
      * @returns {ToolCatalogEntryV1}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType30;
-        const $$createField1_0 = $$createType31;
+        const $$createField0_0 = $$createType33;
+        const $$createField1_0 = $$createType34;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("manifest" in $$parsedSource) {
             $$parsedSource["manifest"] = $$createField0_0($$parsedSource["manifest"]);
@@ -2547,10 +2904,10 @@ export class ToolManifestV1 {
      * @returns {ToolManifestV1}
      */
     static createFrom($$source = {}) {
-        const $$createField8_0 = $$createType9;
-        const $$createField9_0 = $$createType9;
-        const $$createField10_0 = $$createType9;
-        const $$createField11_0 = $$createType9;
+        const $$createField8_0 = $$createType4;
+        const $$createField9_0 = $$createType4;
+        const $$createField10_0 = $$createType4;
+        const $$createField11_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("inputExtensions" in $$parsedSource) {
             $$parsedSource["inputExtensions"] = $$createField8_0($$parsedSource["inputExtensions"]);
@@ -2658,8 +3015,8 @@ export class UndoResultV1 {
      * @returns {UndoResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType9;
-        const $$createField3_0 = $$createType33;
+        const $$createField2_0 = $$createType4;
+        const $$createField3_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("moved" in $$parsedSource) {
             $$parsedSource["moved"] = $$createField2_0($$parsedSource["moved"]);
@@ -2753,7 +3110,7 @@ export class ValidateJobResponseV1 {
      * @returns {ValidateJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType1;
+        const $$createField3_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("error" in $$parsedSource) {
             $$parsedSource["error"] = $$createField3_0($$parsedSource["error"]);
@@ -2862,8 +3219,8 @@ export class VerificationReportV1 {
      * @returns {VerificationReportV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType35;
-        const $$createField3_0 = $$createType9;
+        const $$createField2_0 = $$createType38;
+        const $$createField3_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
             $$parsedSource["outputs"] = $$createField2_0($$parsedSource["outputs"]);
@@ -2933,8 +3290,8 @@ export class VerifiedOutputV1 {
      * @returns {VerifiedOutputV1}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType37;
-        const $$createField5_0 = $$createType9;
+        const $$createField4_0 = $$createType40;
+        const $$createField5_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("checks" in $$parsedSource) {
             $$parsedSource["checks"] = $$createField4_0($$parsedSource["checks"]);
@@ -2947,41 +3304,44 @@ export class VerifiedOutputV1 {
 }
 
 // Private type creation functions
-const $$createType0 = JobErrorV1.createFrom;
+const $$createType0 = AutomationRuleV1.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = ImageAnnotateOperationV1.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = FileInfoV1.createFrom;
-const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = $Create.Map($Create.Any, $Create.Any);
-const $$createType7 = JobOutputRecordV1.createFrom;
-const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = $Create.Array($Create.Any);
-const $$createType10 = JobProgressV1.createFrom;
-const $$createType11 = JobResultItemV1.createFrom;
-const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = JobResultV1.createFrom;
-const $$createType14 = $Create.Nullable($$createType13);
-const $$createType15 = RecipeV1.createFrom;
-const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = ToolCatalogEntryV1.createFrom;
-const $$createType18 = $Create.Array($$createType17);
-const $$createType19 = PlannedOutputV1.createFrom;
-const $$createType20 = $Create.Array($$createType19);
-const $$createType21 = $Create.Nullable($$createType15);
-const $$createType22 = RecipeStepResultV1.createFrom;
+const $$createType2 = JobErrorV1.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);
+const $$createType4 = $Create.Array($Create.Any);
+const $$createType5 = $Create.Map($Create.Any, $Create.Any);
+const $$createType6 = ImageAnnotateOperationV1.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = FileInfoV1.createFrom;
+const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = JobOutputRecordV1.createFrom;
+const $$createType11 = $Create.Array($$createType10);
+const $$createType12 = JobProgressV1.createFrom;
+const $$createType13 = JobResultItemV1.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = JobResultV1.createFrom;
+const $$createType16 = $Create.Nullable($$createType15);
+const $$createType17 = $Create.Array($$createType0);
+const $$createType18 = RecipeV1.createFrom;
+const $$createType19 = $Create.Array($$createType18);
+const $$createType20 = ToolCatalogEntryV1.createFrom;
+const $$createType21 = $Create.Array($$createType20);
+const $$createType22 = PlannedOutputV1.createFrom;
 const $$createType23 = $Create.Array($$createType22);
-const $$createType24 = VerificationReportV1.createFrom;
-const $$createType25 = $Create.Nullable($$createType24);
-const $$createType26 = RecipeResultV1.createFrom;
-const $$createType27 = $Create.Nullable($$createType26);
-const $$createType28 = RecipeStepV1.createFrom;
-const $$createType29 = $Create.Array($$createType28);
-const $$createType30 = ToolManifestV1.createFrom;
-const $$createType31 = ToolRuntimeStateV1.createFrom;
-const $$createType32 = UndoSkippedV1.createFrom;
-const $$createType33 = $Create.Array($$createType32);
-const $$createType34 = VerifiedOutputV1.createFrom;
-const $$createType35 = $Create.Array($$createType34);
-const $$createType36 = VerificationCheckV1.createFrom;
-const $$createType37 = $Create.Array($$createType36);
+const $$createType24 = $Create.Nullable($$createType18);
+const $$createType25 = RecipeStepResultV1.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = VerificationReportV1.createFrom;
+const $$createType28 = $Create.Nullable($$createType27);
+const $$createType29 = RecipeResultV1.createFrom;
+const $$createType30 = $Create.Nullable($$createType29);
+const $$createType31 = RecipeStepV1.createFrom;
+const $$createType32 = $Create.Array($$createType31);
+const $$createType33 = ToolManifestV1.createFrom;
+const $$createType34 = ToolRuntimeStateV1.createFrom;
+const $$createType35 = UndoSkippedV1.createFrom;
+const $$createType36 = $Create.Array($$createType35);
+const $$createType37 = VerifiedOutputV1.createFrom;
+const $$createType38 = $Create.Array($$createType37);
+const $$createType39 = VerificationCheckV1.createFrom;
+const $$createType40 = $Create.Array($$createType39);

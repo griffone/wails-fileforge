@@ -168,6 +168,54 @@
     </section>
   }
 
+  @if (showAutomationStatus()) {
+    <section
+      class="panel home-automation"
+      aria-labelledby="home-automation-title"
+    >
+      <div class="home-automation-body">
+        <span class="tool-icon" data-tone="system" aria-hidden="true">
+          <lucide-icon
+            [img]="automationIcon"
+            [size]="16"
+            [strokeWidth]="1.75"
+          ></lucide-icon>
+        </span>
+
+        <div class="home-automation-copy">
+          <h2 id="home-automation-title" class="home-automation-title">
+            Folder rules
+          </h2>
+          <p class="home-automation-meta">
+            <span
+              >{{ automationStatus()?.activeRules ?? 0 }} of
+              {{ automationStatus()?.totalRules ?? 0 }} rules active</span
+            >
+            @if (automationStatus()?.lastRunAt; as lastRunAt) {
+              <span class="home-automation-run">
+                · Last run {{ relativeTime(lastRunAt) }}
+                <span
+                  [class]="statusClass(automationStatus()?.lastStatus ?? '')"
+                  >{{ statusLabel(automationStatus()?.lastStatus ?? '') }}</span
+                >
+              </span>
+            }
+          </p>
+        </div>
+
+        <a class="home-automation-link" routerLink="/automations">
+          Manage automations
+          <lucide-icon
+            [img]="arrowIcon"
+            [size]="13"
+            [strokeWidth]="2"
+            aria-hidden="true"
+          ></lucide-icon>
+        </a>
+      </div>
+    </section>
+  }
+
   @if (showRecent()) {
     <section class="home-recent" aria-labelledby="home-recent-title">
       <div class="section-head">

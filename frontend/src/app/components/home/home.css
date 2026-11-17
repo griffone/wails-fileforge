@@ -341,6 +341,65 @@
   white-space: nowrap;
 }
 
+/* ---- Folder rules -------------------------------------------------------- */
+
+.home-automation {
+  margin-top: 28px;
+}
+
+.home-automation-body {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 13px 16px;
+}
+
+.home-automation-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.home-automation-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  color: var(--text);
+}
+
+.home-automation-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.home-automation-run {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.home-automation-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 /* ---- Tool index ---------------------------------------------------------- */
 
 .home-tools {
