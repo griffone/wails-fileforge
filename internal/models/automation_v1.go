@@ -67,3 +67,31 @@ type AutomationRunEventV1 struct {
 	Outputs  []string `json:"outputs,omitempty"`
 	At       int64    `json:"at"`
 }
+
+// AutomationRunRecordV1 is one terminal automation run kept in the local run
+// history. RuleName is captured at run time so the history survives rule
+// deletion.
+type AutomationRunRecordV1 struct {
+	ID       string   `json:"id"`
+	RuleID   string   `json:"ruleId"`
+	RuleName string   `json:"ruleName"`
+	FilePath string   `json:"filePath"`
+	Status   string   `json:"status"`
+	Message  string   `json:"message"`
+	Outputs  []string `json:"outputs,omitempty"`
+	At       int64    `json:"at"`
+}
+
+// ListAutomationRunsResponseV1 lists the persisted automation run history,
+// newest first.
+type ListAutomationRunsResponseV1 struct {
+	Success bool                    `json:"success"`
+	Message string                  `json:"message"`
+	Runs    []AutomationRunRecordV1 `json:"runs"`
+}
+
+// AutomationRunsActionResponseV1 is the result of clearing the run history.
+type AutomationRunsActionResponseV1 struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}

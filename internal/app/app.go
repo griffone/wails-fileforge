@@ -12,6 +12,7 @@ import (
 
 	// Import for auto-registration
 	"fileforge-desktop/internal/automation"
+	"fileforge-desktop/internal/capabilities"
 	_ "fileforge-desktop/internal/doc"
 	_ "fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/inspect"
@@ -56,6 +57,7 @@ func New() *App {
 		}
 		app.Event.Emit(automation.RunEventNameV1, evt)
 	})
+	a.automationService.SetRunStore(automation.NewRunStore(automation.DefaultRunPath()))
 	// initialize preview service with sensible defaults; AllowedRoots: $HOME + TMP
 	home, _ := os.UserHomeDir()
 	allowed := []string{}
@@ -196,6 +198,13 @@ func (a *App) GetOCRCapabilitiesV1() models.OCRCapabilitiesResponseV1 {
 	return pdf.OCRCapabilitiesV1(a.contextOrBackground())
 }
 
+// GetLocalCapabilitiesV1 reports every external tool the local tools rely on,
+// with availability, required/optional state and guidance, plus the installed
+// OCR languages. It never fails: a missing tool is reported, not an error.
+func (a *App) GetLocalCapabilitiesV1() models.LocalCapabilitiesResponseV1 {
+	return capabilities.Detect(a.contextOrBackground())
+}
+
 // PlanRecipeV1 validates a recipe request and resolves its final output
 // without running any tool.
 func (a *App) PlanRecipeV1(req models.RecipeRequestV1) models.RecipePlanResponseV1 {
@@ -241,6 +250,17 @@ func (a *App) SetAutomationRuleEnabledV1(id string, enabled bool) models.Automat
 // GetAutomationStatusV1 returns the compact automation summary used on Home.
 func (a *App) GetAutomationStatusV1() models.AutomationStatusResponseV1 {
 	return a.automationService.Status()
+}
+
+// ListAutomationRunsV1 returns the persisted terminal automation runs, newest
+// first. A zero limit uses the service default.
+func (a *App) ListAutomationRunsV1(limit int) models.ListAutomationRunsResponseV1 {
+	return a.automationService.ListRuns(limit)
+}
+
+// ClearAutomationRunsV1 permanently removes the persisted run history.
+func (a *App) ClearAutomationRunsV1() models.AutomationRunsActionResponseV1 {
+	return a.automationService.ClearRuns()
 }
 
 // InspectFilesV1 describes files for UI cards. Missing files are reported per

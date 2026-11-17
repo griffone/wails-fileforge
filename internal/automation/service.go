@@ -49,6 +49,7 @@ type RecipeRunner interface {
 // Service owns the automation rules and their watchers.
 type Service struct {
 	store   *Store
+	runs    *RunStore
 	recipes RecipeRunner
 	emit    func(models.AutomationRunEventV1)
 
@@ -82,6 +83,12 @@ func NewService(store *Store, recipes RecipeRunner, emit func(models.AutomationR
 	}
 
 	return service
+}
+
+// SetRunStore attaches the optional terminal-run history. It is called once
+// during app wiring, before Start.
+func (s *Service) SetRunStore(runs *RunStore) {
+	s.runs = runs
 }
 
 // Start begins watching every enabled rule. It is idempotent and never fails:
@@ -389,6 +396,53 @@ func (s *Service) Status() models.AutomationStatusResponseV1 {
 	return response
 }
 
+// ListRuns returns the persisted terminal run history, newest first. An empty
+// history is a successful empty response; a missing run store is reported as a
+// failure so the UI can explain why the panel is unavailable.
+func (s *Service) ListRuns(limit int) models.ListAutomationRunsResponseV1 {
+	if s.runs == nil {
+		return models.ListAutomationRunsResponseV1{
+			Success: false,
+			Message: "Automation run history is not available.",
+		}
+	}
+
+	runs := s.runs.List(limit)
+	message := "Automation runs loaded."
+	if len(runs) == 0 {
+		message = "No automation runs yet."
+	}
+
+	return models.ListAutomationRunsResponseV1{
+		Success: true,
+		Message: message,
+		Runs:    runs,
+	}
+}
+
+// ClearRuns permanently removes the persisted run history.
+func (s *Service) ClearRuns() models.AutomationRunsActionResponseV1 {
+	if s.runs == nil {
+		return models.AutomationRunsActionResponseV1{
+			Success: false,
+			Message: "Automation run history is not available.",
+		}
+	}
+
+	if err := s.runs.Clear(); err != nil {
+		log.Printf("automation.runs.clear.failed err=%v", err)
+		return models.AutomationRunsActionResponseV1{
+			Success: false,
+			Message: "The automation run history could not be cleared.",
+		}
+	}
+
+	return models.AutomationRunsActionResponseV1{
+		Success: true,
+		Message: "Automation run history cleared.",
+	}
+}
+
 func (s *Service) validateRule(rule models.AutomationRuleV1) (models.AutomationRuleV1, *models.JobErrorV1) {
 	normalized := cloneRule(rule)
 	normalized.ID = strings.TrimSpace(normalized.ID)
@@ -635,13 +689,36 @@ func (s *Service) clearRuntimeError(id string) {
 }
 
 func (s *Service) recordRun(ruleID, status, message, file string, outputs []string) {
-	if s.store == nil {
+	at := time.Now().UnixMilli()
+
+	if s.store != nil {
+		if err := s.store.UpdateRun(ruleID, at, status, message, file, outputs); err != nil {
+			log.Printf("automation.run.record.failed ruleId=%s status=%s err=%v", ruleID, status, err)
+		}
+	}
+
+	if s.runs == nil {
 		return
 	}
 
-	if err := s.store.UpdateRun(ruleID, time.Now().UnixMilli(), status, message, file, outputs); err != nil {
-		log.Printf("automation.run.record.failed ruleId=%s status=%s err=%v", ruleID, status, err)
+	// The rule may have been deleted while the run was in flight; the captured
+	// name falls back to the id so the history entry still makes sense.
+	ruleName := ruleID
+	if s.store != nil {
+		if rule, found := s.store.Get(ruleID); found && strings.TrimSpace(rule.Name) != "" {
+			ruleName = rule.Name
+		}
 	}
+
+	s.runs.Record(models.AutomationRunRecordV1{
+		RuleID:   ruleID,
+		RuleName: ruleName,
+		FilePath: file,
+		Status:   status,
+		Message:  message,
+		Outputs:  outputs,
+		At:       at,
+	})
 }
 
 func (s *Service) emitRun(event models.AutomationRunEventV1) {
