@@ -39,7 +39,7 @@ function toolchainStatus(
         required: true,
       },
     ],
-    model: 'small',
+    model: 'medium',
     ocrLanguages: ['eng', 'spa'],
     ...overrides,
   };
@@ -155,7 +155,7 @@ describe('ToolchainSetup', () => {
 
     button('.toolchain-retry').click();
     expect(stub.install).toHaveBeenCalledWith({
-      model: 'small',
+      model: 'medium',
       ocrLanguages: ['eng', 'spa'],
     });
 

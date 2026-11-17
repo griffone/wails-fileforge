@@ -218,7 +218,7 @@ export class ToolchainStateService {
     status: ToolchainStatusV1,
   ): ToolchainInstallOptionsV1 {
     return {
-      model: status.model || 'small',
+      model: status.model || 'medium',
       ocrLanguages:
         status.ocrLanguages?.length > 0
           ? [...status.ocrLanguages]

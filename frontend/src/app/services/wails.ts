@@ -1835,7 +1835,7 @@ export class Wails {
       percent: 0,
       storageDir: '',
       components: [],
-      model: 'small',
+      model: 'medium',
       ocrLanguages: [],
     };
   }

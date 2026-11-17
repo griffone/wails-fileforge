@@ -309,7 +309,7 @@ func TestManagedPaths(t *testing.T) {
 	if len(models) != 3 {
 		t.Fatalf("expected three managed model paths, got %d", len(models))
 	}
-	if filepath.Base(models[0]) != "ggml-small.bin" || filepath.Base(models[2]) != "ggml-large-v3.bin" {
+	if filepath.Base(models[0]) != "ggml-medium.bin" || filepath.Base(models[2]) != "ggml-large-v3.bin" {
 		t.Fatalf("unexpected managed model order: %v", models)
 	}
 }

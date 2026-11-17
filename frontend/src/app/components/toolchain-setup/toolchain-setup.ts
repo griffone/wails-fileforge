@@ -190,7 +190,7 @@ export class ToolchainSetup implements OnInit {
   private defaultOptions(): ToolchainInstallOptionsV1 {
     const status = this.status();
     return {
-      model: status?.model || 'small',
+      model: status?.model || 'medium',
       ocrLanguages:
         status?.ocrLanguages && status.ocrLanguages.length > 0
           ? [...status.ocrLanguages]

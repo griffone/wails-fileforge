@@ -103,8 +103,8 @@ const TOOLCHAIN_COMPONENTS: ToolchainComponentV1[] = [
     label: 'Whisper model',
     ready: true,
     required: true,
-    path: `${TOOLCHAIN_STORAGE}/models/ggml-small.bin`,
-    detail: 'Whisper small model',
+    path: `${TOOLCHAIN_STORAGE}/models/ggml-medium.bin`,
+    detail: 'Whisper medium model',
   },
   {
     id: 'tesseract-eng',
@@ -134,7 +134,7 @@ function toolchainStatus(
     phase: 'idle',
     storageDir: TOOLCHAIN_STORAGE,
     components: TOOLCHAIN_COMPONENTS,
-    model: 'small',
+    model: 'medium',
     ocrLanguages: ['eng', 'spa'],
     ...overrides,
   };
@@ -680,14 +680,14 @@ describe('Settings', () => {
       '.settings-model-select',
     );
     expect(select).not.toBeNull();
-    expect(select?.value).toBe('small');
+    expect(select?.value).toBe('medium');
 
-    select!.value = 'medium';
+    select!.value = 'small';
     select!.dispatchEvent(new Event('change'));
     fixture.detectChanges();
 
     expect(toolchain.install).toHaveBeenCalledWith({
-      model: 'medium',
+      model: 'small',
       ocrLanguages: ['eng', 'spa'],
       force: false,
     });
@@ -708,7 +708,7 @@ describe('Settings', () => {
     fixture.detectChanges();
 
     expect(toolchain.install).toHaveBeenCalledWith({
-      model: 'small',
+      model: 'medium',
       ocrLanguages: ['eng'],
       force: false,
     });
@@ -778,7 +778,7 @@ describe('Settings', () => {
     button('.settings-retry-toolchain').click();
 
     expect(toolchain.install).toHaveBeenCalledWith({
-      model: 'small',
+      model: 'medium',
       ocrLanguages: ['eng', 'spa'],
       force: false,
     });

@@ -20,7 +20,7 @@ const (
 	ModelMedium  = "medium"
 	ModelLargeV3 = "large-v3"
 
-	DefaultModel = ModelSmall
+	DefaultModel = ModelMedium
 )
 
 // Supported Tesseract language data. The empty option means both.

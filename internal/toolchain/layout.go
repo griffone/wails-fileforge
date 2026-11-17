@@ -31,11 +31,19 @@ func ManagedWhisperCLIPath(dataDir string) string {
 }
 
 // ManagedModelPaths returns the managed Whisper model paths in default-first
-// order (small, medium, large-v3).
+// order (the selected default model, then the other supported models).
 func ManagedModelPaths(dataDir string) []string {
 	modelsDir := filepath.Join(ToolchainDir(dataDir), "models")
-	paths := make([]string, 0, len(SupportedModels()))
+	ordered := make([]string, 0, len(SupportedModels()))
+	ordered = append(ordered, DefaultModel)
 	for _, model := range SupportedModels() {
+		if model != DefaultModel {
+			ordered = append(ordered, model)
+		}
+	}
+
+	paths := make([]string, 0, len(ordered))
+	for _, model := range ordered {
 		paths = append(paths, filepath.Join(modelsDir, ModelFileName(model)))
 	}
 

@@ -8,7 +8,7 @@
 ## Product requirements
 
 1. First run must install:
-   - whisper.cpp `whisper-cli` + a good multilingual Whisper model (default `small`; medium/large selectable).
+   - whisper.cpp `whisper-cli` + a good multilingual Whisper model (default `medium`; small/large selectable).
    - Tesseract + English/Spanish language data.
    - ffmpeg/ffprobe, pdftoppm/pdftotext (Poppler) and Ghostscript.
    - LibreOffice is explicitly **not** installed.
@@ -33,7 +33,7 @@
     micromamba(.exe)
     env/                    # micromamba prefix
     whisper/                # extracted prebuilt release, contains whisper-cli(.exe)
-    models/ggml-small.bin   # selected model(s)
+    models/ggml-medium.bin  # selected model(s)
     tessdata/eng.traineddata, spa.traineddata
     manifest.json           # installed components, versions, model, timestamp
   ```
@@ -51,7 +51,8 @@
   - Windows x64: `whisper-bin-x64.zip`.
   - Extract/flatten into `toolchain/whisper` (shared libs/DLLs stay beside the CLI).
 - **Models** from Hugging Face whisper.cpp:
-  - `ggml-small.bin` (~466 MB, default “good” balance),
+  - `ggml-medium.bin` (~1.5 GB, default “good quality”),
+  - `ggml-small.bin` (~466 MB, lighter download),
   - `ggml-medium.bin` (~1.5 GB, high quality),
   - `ggml-large-v3.bin` (~3.1 GB, maximum quality).
 - **Tesseract languages** from `tessdata_fast`: `eng.traineddata`, `spa.traineddata`.
@@ -119,7 +120,7 @@
 - **Managed prefix, not system install.** No admin, no registry, no system PATH changes.
 - **Micromamba for portable dependencies.** It is the most reliable way to get ffmpeg/tesseract/poppler/ghostscript on Windows and Linux without per-OS packaging.
 - **Prebuilt whisper + Hugging Face model.** No runtime compilation; no cloud transcription.
-- **Default model small.** It is a substantial quality step over base/tiny; medium/large are available in Settings for users who prefer quality over download size.
+- **Default model medium.** The user requested a good model over a basic one; small and large-v3 remain selectable in Settings.
 - **Download at first run, not bundle.** Keeps the AppImage/installer small; the progress screen makes the download explicit.
 - **Never install LibreOffice.**
 - **TLS only.** Downloads use HTTPS; checksums are recorded where practical.
@@ -165,9 +166,9 @@
 ## Final status and verification
 
 - Status: implemented on `feat/toolchain-installer`; frontend and backend committed (`5163113`, `c8bd938`).
-- Real end-to-end install on Linux passed (`FILEFORGE_TOOLCHAIN_E2E=1`, 52.29s) into a fresh temp data dir: micromamba env (ffmpeg/tesseract/poppler/ghostscript), prebuilt whisper, default small model and eng/spa tessdata, status ready.
+- Real end-to-end install on Linux passed (`FILEFORGE_TOOLCHAIN_E2E=1`, 52.29s) into a fresh temp data dir: micromamba env (ffmpeg/tesseract/poppler/ghostscript), prebuilt whisper, the then-default small model and eng/spa tessdata, status ready. The current default is medium; the medium path is covered by the fake-downloader tests.
 - Platform matrix: Linux amd64/arm64 and Windows amd64 are supported; Windows ARM64 and macOS return a clear unsupported reason instead of guessing.
 - First-run behavior: startup applies the managed PATH/TESSDATA_PREFIX, starts the install when missing, and the overlay shows the progress bar/phase. Subsequent launches skip when ready.
-- Global Settings: Tools & Models panel with components, model quality (small default, medium/large optional), OCR languages, install/repair, progress/cancel, storage folder and refresh. No LibreOffice installation.
+- Global Settings: Tools & Models panel with components, model quality (medium default, small/large optional), OCR languages, install/repair, progress/cancel, storage folder and refresh. No LibreOffice installation.
 - Checks: `go test ./...` pass (including toolchain, archive/downloader, env, integration, 474 Karma specs and `tsc --noEmit`). Visual Settings/Tools panel checked in preview; the overlay requires a real Tauri/Wails runtime because preview has no IPC.
 - Pending: native overlay visual pass, Windows package validation, and merge.

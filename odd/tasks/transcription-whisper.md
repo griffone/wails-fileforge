@@ -98,6 +98,6 @@
 ## Final status
 
 - Backend and frontend implemented on `feat/transcription-whisper` (commits `8030071`, `f40f47c`).
-- Real local verification: English JFK sample and Spanish `SpanishL1D2.ogg` transcribed correctly with whisper.cpp 1.9.5 + `ggml-base.bin`; the managed installer later defaults to `ggml-small.bin`.
+- Real local verification: English JFK sample and Spanish `SpanishL1D2.ogg` transcribed correctly with whisper.cpp 1.9.5 + `ggml-base.bin`; the managed installer defaults to `ggml-medium.bin`.
 - Go tests and 461 Karma specs passed at the transcription commit; the installer slice later added its own UI/tests on top.
 - Pending: native desktop pass and merge; the managed toolchain now supplies the default whisper/model paths.

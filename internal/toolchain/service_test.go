@@ -358,7 +358,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	if status.Percent != 100 || status.Phase != PhaseReady {
 		t.Fatalf("unexpected final progress: %d%% %q", status.Percent, status.Phase)
 	}
-	if status.Model != "small" || status.ModelPath != filepath.Join(dataDir, ToolchainDirName, "models", "ggml-small.bin") {
+	if status.Model != DefaultModel || status.ModelPath != filepath.Join(dataDir, ToolchainDirName, "models", ModelFileName(DefaultModel)) {
 		t.Fatalf("unexpected model status: %+v", status)
 	}
 	if !reflect.DeepEqual(status.OCRLanguages, []string{"eng", "spa"}) {
@@ -387,7 +387,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 		filepath.Join(root, "env", "bin", "ffmpeg"),
 		filepath.Join(root, "env", "bin", "tesseract"),
 		filepath.Join(root, "whisper", "whisper-cli"),
-		filepath.Join(root, "models", "ggml-small.bin"),
+		filepath.Join(root, "models", ModelFileName(DefaultModel)),
 		filepath.Join(root, "tessdata", "eng.traineddata"),
 		filepath.Join(root, "tessdata", "spa.traineddata"),
 	}
@@ -429,7 +429,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	}
 
 	manifest := readManifestForTest(t, filepath.Join(root, "manifest.json"))
-	if manifest.Model != "small" {
+	if manifest.Model != DefaultModel {
 		t.Fatalf("manifest model = %q", manifest.Model)
 	}
 	if !reflect.DeepEqual(manifest.OCRLanguages, []string{"eng", "spa"}) {
@@ -498,12 +498,12 @@ func TestInstallSkipsAlreadyPresentComponents(t *testing.T) {
 
 	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
 	waitForTerminalEvent(t, events)
-	firstModelCalls := downloader.callsFor(mustModelURL(t, "small"))
+	firstModelCalls := downloader.callsFor(mustModelURL(t, DefaultModel))
 
 	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
 	waitForTerminalEvent(t, events)
 
-	if got := downloader.callsFor(mustModelURL(t, "small")); got != firstModelCalls {
+	if got := downloader.callsFor(mustModelURL(t, DefaultModel)); got != firstModelCalls {
 		t.Fatalf("model downloaded again without Force: %d calls, want %d", got, firstModelCalls)
 	}
 	if !service.Status().Ready {
@@ -533,12 +533,12 @@ func TestInstallForceDownloadsAgain(t *testing.T) {
 
 	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
 	waitForTerminalEvent(t, events)
-	firstModelCalls := downloader.callsFor(mustModelURL(t, "small"))
+	firstModelCalls := downloader.callsFor(mustModelURL(t, DefaultModel))
 
 	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
 	waitForTerminalEvent(t, events)
 
-	if got := downloader.callsFor(mustModelURL(t, "small")); got != firstModelCalls+1 {
+	if got := downloader.callsFor(mustModelURL(t, DefaultModel)); got != firstModelCalls+1 {
 		t.Fatalf("expected a forced model download, got %d calls, want %d", got, firstModelCalls+1)
 	}
 	if !service.Status().Ready {
@@ -656,7 +656,7 @@ func TestCancelStopsInstallAndCleansStaging(t *testing.T) {
 
 	dataDir := t.TempDir()
 	downloader := &fakeDownloader{payloads: linuxToolchainPayloads(t)}
-	downloader.blockURL = mustModelURL(t, "small")
+	downloader.blockURL = mustModelURL(t, DefaultModel)
 	downloader.started = make(chan string, 1)
 
 	service, events := newTestToolchainService(t, dataDir, downloader, &fakeRunner{})
@@ -697,7 +697,7 @@ func TestCancelStopsInstallAndCleansStaging(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "staging")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected the staging folder to be cleaned, got %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "models", "ggml-small.bin")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, "models", ModelFileName(DefaultModel))); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected no model file after cancel, got %v", err)
 	}
 }
@@ -707,7 +707,7 @@ func TestStartIsNotDuplicatedWhileInstalling(t *testing.T) {
 
 	dataDir := t.TempDir()
 	downloader := &fakeDownloader{payloads: linuxToolchainPayloads(t)}
-	downloader.blockURL = mustModelURL(t, "small")
+	downloader.blockURL = mustModelURL(t, DefaultModel)
 	downloader.started = make(chan string, 1)
 	service, events := newTestToolchainService(t, dataDir, downloader, &fakeRunner{})
 
@@ -718,10 +718,10 @@ func TestStartIsNotDuplicatedWhileInstalling(t *testing.T) {
 	if !second.Installing {
 		t.Fatalf("unexpected second start status: %+v", second)
 	}
-	if second.Model != "small" {
+	if second.Model != DefaultModel {
 		t.Fatalf("a second Start must not change the running model, got %q", second.Model)
 	}
-	if calls := downloader.callsFor(mustModelURL(t, "small")); calls != 1 {
+	if calls := downloader.callsFor(mustModelURL(t, DefaultModel)); calls != 1 {
 		t.Fatalf("model download calls = %d, want 1", calls)
 	}
 
@@ -809,7 +809,7 @@ func TestInstallSelectedModelAndLanguages(t *testing.T) {
 		t.Fatal("expected the medium model to be downloaded")
 	}
 	if downloader.callsFor(mustModelURL(t, "small")) != 0 {
-		t.Fatal("the default model must not be downloaded when medium is selected")
+		t.Fatal("the non-selected small model must not be downloaded when medium is selected")
 	}
 }
 

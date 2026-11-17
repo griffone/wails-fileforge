@@ -43,8 +43,8 @@ const TRANSCRIPTION_ERROR_FALLBACK =
   'The transcription check did not run. Open FileForge in the desktop app, then retry.';
 
 const TOOLCHAIN_MODELS = [
-  { id: 'small', label: 'Small — recommended' },
-  { id: 'medium', label: 'Medium — higher quality' },
+  { id: 'medium', label: 'Medium — recommended' },
+  { id: 'small', label: 'Small — lighter download' },
   { id: 'large-v3', label: 'Large v3 — maximum quality' },
 ] as const;
 
