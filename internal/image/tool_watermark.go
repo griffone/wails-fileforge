@@ -1,0 +1,1146 @@
+package image
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/outputplan"
+
+	"github.com/h2non/bimg"
+)
+
+const ToolIDImageWatermarkV1 = "tool.image.watermark"
+
+const (
+	watermarkDefaultMarginPercent    = 3.0
+	watermarkDefaultTextScalePercent = 5.0
+	watermarkDefaultLogoScalePercent = 20.0
+	watermarkDefaultOpacity          = 0.6
+	watermarkDefaultTileRotation     = -30.0
+	watermarkToolMinQuality          = 40
+	watermarkAnimatedWarning         = "animated GIF input: only the first frame is watermarked"
+	watermarkPNGQualityWarning       = "quality applies to JPEG and WebP; PNG is lossless"
+	watermarkLogoExtensionsMessage   = "png, jpg, jpeg, webp"
+	watermarkOutputSuffix            = "_watermarked"
+)
+
+// WatermarkTool implements the image watermark Tool V1 contract.
+type WatermarkTool struct{}
+
+// watermarkRequest is the parsed, normalized request. The logo bytes are read
+// exactly once here so planning and execution never touch the logo file again.
+type watermarkRequest struct {
+	mode            string
+	inputPaths      []string
+	outputPath      string
+	outputDir       string
+	kind            string
+	text            string
+	bold            bool
+	color           string
+	logoPath        string
+	logoBytes       []byte
+	anchor          string
+	marginPercent   float64
+	scalePercent    float64
+	opacity         float64
+	tile            bool
+	rotationDegrees float64
+	format          string
+	quality         int
+	qualitySupplied bool
+}
+
+// preparedWatermark is one resolved input/output pair ready for execution.
+type preparedWatermark struct {
+	inputPath  string
+	outputPath string
+	options    WatermarkOptions
+}
+
+func NewWatermarkTool() *WatermarkTool {
+	return &WatermarkTool{}
+}
+
+func (t *WatermarkTool) ID() string {
+	return ToolIDImageWatermarkV1
+}
+
+func (t *WatermarkTool) Capability() string {
+	return ToolIDImageWatermarkV1
+}
+
+func (t *WatermarkTool) Manifest() models.ToolManifestV1 {
+	return models.ToolManifestV1{
+		ToolID:           t.ID(),
+		Name:             "Image Watermark",
+		Description:      "Watermark images with text or a logo using nine anchors, opacity, scale, margin and tiling",
+		Domain:           "image",
+		Capability:       t.Capability(),
+		Version:          "v1",
+		SupportsSingle:   true,
+		SupportsBatch:    true,
+		InputExtensions:  append([]string(nil), imageInputExtensions...),
+		OutputExtensions: []string{"jpeg", "png", "webp"},
+		RuntimeDeps:      []string{"libvips"},
+		Tags:             []string{"image", "watermark"},
+	}
+}
+
+func (t *WatermarkTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
+	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+}
+
+func (t *WatermarkTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+	_, planErr := t.Plan(ctx, req)
+	return planErr
+}
+
+// Plan resolves one collision-safe <stem>_watermarked.<ext> destination per
+// input and validates every option without encoding anything. An explicit
+// options.outputPath keeps the single request contract: it must differ from the
+// input, agree with the resolved format, and not exist yet.
+func (t *WatermarkTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+	plan, _, planErr := t.planRequest(req)
+	return plan, planErr
+}
+
+// planRequest also returns the prepared items so execution reuses the logo
+// bytes and background decisions resolved during planning.
+func (t *WatermarkTool) planRequest(req models.JobRequestV1) (models.PlanJobResponseV1, []preparedWatermark, *models.JobErrorV1) {
+	parsed, parseErr := parseWatermarkRequest(req)
+	if parseErr != nil {
+		plan, _ := planFailure(models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}, parseErr)
+		return plan, nil, parseErr
+	}
+
+	return planParsedWatermarkRequest(parsed)
+}
+
+// ExecuteSingle implements tools.SingleExecutor by delegating to the progress
+// variant with a no-op callback.
+func (t *WatermarkTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+	return t.ExecuteSingleWithProgress(ctx, req, nil)
+}
+
+// ExecuteSingleWithProgress watermarks the planned image and reports stage
+// level progress for the one-item job.
+func (t *WatermarkTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+	inputPath := firstInputPath(req.InputPaths)
+
+	plan, prepared, planErr := t.planRequest(req)
+	if planErr != nil {
+		return imageFailureItem(inputPath, plannedOutputPath(plan), planErr), planErr
+	}
+
+	item := prepared[0]
+	if onProgress != nil {
+		onProgress(models.JobProgressV1{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "watermarking 1/1"})
+	}
+
+	outcome, execErr := executeWatermarkToPath(ctx, item)
+	if execErr != nil {
+		jobErr, _ := watermarkExecutionError(ctx, "IMAGE_WATERMARK_EXECUTION", item.inputPath, execErr)
+		return imageFailureItem(item.inputPath, item.outputPath, jobErr), jobErr
+	}
+
+	if onProgress != nil {
+		onProgress(models.JobProgressV1{Current: 1, Total: 1, Stage: models.JobStatusRunning, Message: "processed 1/1"})
+	}
+
+	return watermarkSuccessItem(item, outcome), nil
+}
+
+// ExecuteBatch watermarks every planned input with per-item progress and
+// per-item errors, mirroring the other image batch tools.
+func (t *WatermarkTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	parsed, parseErr := parseWatermarkRequest(req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	if parsed.mode != "batch" {
+		return nil, models.NewCanonicalJobError("IMAGE_WATERMARK_MODE_INVALID", "mode must be batch", nil)
+	}
+
+	_, prepared, planErr := planParsedWatermarkRequest(parsed)
+	if planErr != nil {
+		return nil, planErr
+	}
+
+	items := make([]models.JobResultItemV1, 0, len(prepared))
+	var firstErr *models.JobErrorV1
+
+	for idx, item := range prepared {
+		select {
+		case <-ctx.Done():
+			return items, watermarkCancelledError(ctx)
+		default:
+		}
+
+		outcome, execErr := executeWatermarkToPath(ctx, item)
+		if execErr != nil {
+			itemErr, cancelled := watermarkExecutionError(ctx, "IMAGE_WATERMARK_BATCH_ITEM", item.inputPath, execErr)
+			if cancelled {
+				// A cancelled item must not be reported as a retryable batch
+				// failure, especially when it is the last item.
+				items = append(items, imageFailureItem(item.inputPath, item.outputPath, itemErr))
+				return items, itemErr
+			}
+			if firstErr == nil {
+				firstErr = itemErr
+			}
+			items = append(items, imageFailureItem(item.inputPath, item.outputPath, itemErr))
+		} else {
+			items = append(items, watermarkSuccessItem(item, outcome))
+		}
+
+		if onProgress != nil {
+			onProgress(models.JobProgressV1{Current: idx + 1, Total: len(prepared), Stage: models.JobStatusRunning, Message: fmt.Sprintf("processed %d/%d", idx+1, len(prepared))})
+		}
+	}
+
+	return items, firstErr
+}
+
+func parseWatermarkRequest(req models.JobRequestV1) (watermarkRequest, *models.JobErrorV1) {
+	mode := strings.TrimSpace(req.Mode)
+	if mode != "single" && mode != "batch" {
+		return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_MODE_INVALID", "mode must be single or batch", nil)
+	}
+
+	if len(req.InputPaths) == 0 {
+		return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_INPUT_REQUIRED", "Choose at least one image to watermark.", nil)
+	}
+
+	if mode == "single" && len(req.InputPaths) != 1 {
+		return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_SINGLE_INPUT_COUNT", "single mode requires exactly one input", nil)
+	}
+
+	inputPaths := make([]string, 0, len(req.InputPaths))
+	for _, rawPath := range req.InputPaths {
+		trimmed := strings.TrimSpace(rawPath)
+		if trimmed == "" {
+			return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_INPUT_REQUIRED", "inputPaths contains empty item", nil)
+		}
+		inputPaths = append(inputPaths, trimmed)
+	}
+
+	kind, kindErr := watermarkKindOption(req.Options)
+	if kindErr != nil {
+		return watermarkRequest{}, kindErr
+	}
+
+	text, textErr := watermarkTextOption(req.Options)
+	if textErr != nil {
+		return watermarkRequest{}, textErr
+	}
+	text = watermarkNormalizeText(text)
+	if textErr := watermarkValidateTextOption(kind, text); textErr != nil {
+		return watermarkRequest{}, textErr
+	}
+
+	var logoPath string
+	var logoBytes []byte
+	if kind == watermarkKindLogo {
+		loadedPath, loadedBytes, logoErr := watermarkLogoOption(req.Options)
+		if logoErr != nil {
+			return watermarkRequest{}, logoErr
+		}
+		logoPath = loadedPath
+		logoBytes = loadedBytes
+	}
+
+	anchor, anchorErr := watermarkAnchorOption(req.Options)
+	if anchorErr != nil {
+		return watermarkRequest{}, anchorErr
+	}
+
+	marginPercent, marginErr := watermarkBoundedFloatOption(req.Options, "marginPercent", watermarkDefaultMarginPercent, watermarkMinMarginPercent, watermarkMaxMarginPercent, "IMAGE_WATERMARK_MARGIN_INVALID")
+	if marginErr != nil {
+		return watermarkRequest{}, marginErr
+	}
+
+	scaleDefault := watermarkDefaultTextScalePercent
+	scaleMin, scaleMax := watermarkMinTextScalePercent, watermarkMaxTextScalePercent
+	if kind == watermarkKindLogo {
+		scaleDefault = watermarkDefaultLogoScalePercent
+		scaleMin, scaleMax = watermarkMinLogoScalePercent, watermarkMaxLogoScalePercent
+	}
+	scalePercent, scaleErr := watermarkBoundedFloatOption(req.Options, "scalePercent", scaleDefault, scaleMin, scaleMax, "IMAGE_WATERMARK_SCALE_INVALID")
+	if scaleErr != nil {
+		return watermarkRequest{}, scaleErr
+	}
+
+	opacity, opacityErr := watermarkBoundedFloatOption(req.Options, "opacity", watermarkDefaultOpacity, watermarkMinOpacity, watermarkMaxOpacity, "IMAGE_WATERMARK_OPACITY_INVALID")
+	if opacityErr != nil {
+		return watermarkRequest{}, opacityErr
+	}
+
+	rotationDegrees, rotationErr := watermarkBoundedFloatOption(req.Options, "rotationDegrees", watermarkDefaultTileRotation, watermarkMinRotationDegrees, watermarkMaxRotationDegrees, "IMAGE_WATERMARK_ROTATION_INVALID")
+	if rotationErr != nil {
+		return watermarkRequest{}, rotationErr
+	}
+
+	bold := true
+	if optionSupplied(req.Options, "bold") {
+		value, ok := boolOption(req.Options, "bold")
+		if !ok {
+			return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_OPTION_INVALID", "options.bold must be a boolean", nil)
+		}
+		bold = value
+	}
+
+	if kind == watermarkKindText {
+		face, faceErr := watermarkFontFace(bold, watermarkMinFontSize)
+		if faceErr != nil {
+			return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_UNSUPPORTED", faceErr.Error(), nil)
+		}
+		if unsupported, ok := watermarkUnsupportedRune(face, text); ok {
+			return watermarkRequest{}, models.NewCanonicalJobError(
+				"IMAGE_WATERMARK_TEXT_UNSUPPORTED",
+				watermarkUnsupportedRuneError(unsupported).Error(),
+				map[string]any{"rune": string(unsupported), "codepoint": fmt.Sprintf("U+%04X", unsupported)},
+			)
+		}
+	}
+
+	tile := false
+	if optionSupplied(req.Options, "tile") {
+		value, ok := boolOption(req.Options, "tile")
+		if !ok {
+			return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_OPTION_INVALID", "options.tile must be a boolean", nil)
+		}
+		tile = value
+	}
+	if tile && kind == watermarkKindLogo {
+		return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_TILE_UNSUPPORTED", "options.tile is only supported for text watermarks", nil)
+	}
+
+	color, colorErr := watermarkColorOption(req.Options)
+	if colorErr != nil {
+		return watermarkRequest{}, colorErr
+	}
+
+	format, formatErr := watermarkRequestedFormat(req.Options)
+	if formatErr != nil {
+		return watermarkRequest{}, formatErr
+	}
+
+	quality := watermarkDefaultQuality
+	qualitySupplied := optionSupplied(req.Options, "quality")
+	if qualitySupplied {
+		value, _, qualityErr := watermarkOptionalInt(req.Options, "quality")
+		if qualityErr != nil {
+			return watermarkRequest{}, qualityErr
+		}
+		if value < watermarkToolMinQuality || value > watermarkMaxQuality {
+			return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_QUALITY_INVALID", "options.quality must be between 40 and 100", nil)
+		}
+		quality = value
+	}
+
+	outputDir := strings.TrimSpace(req.OutputDir)
+	if outputDir == "" {
+		outputDir = convertOptionString(req.Options, "outputDir")
+	}
+
+	return watermarkRequest{
+		mode:            mode,
+		inputPaths:      inputPaths,
+		outputPath:      convertOptionString(req.Options, "outputPath"),
+		outputDir:       outputDir,
+		kind:            kind,
+		text:            text,
+		bold:            bold,
+		color:           color,
+		logoPath:        logoPath,
+		logoBytes:       logoBytes,
+		anchor:          anchor,
+		marginPercent:   marginPercent,
+		scalePercent:    scalePercent,
+		opacity:         opacity,
+		tile:            tile,
+		rotationDegrees: rotationDegrees,
+		format:          format,
+		quality:         quality,
+		qualitySupplied: qualitySupplied,
+	}, nil
+}
+
+func watermarkKindOption(options map[string]any) (string, *models.JobErrorV1) {
+	kind := strings.ToLower(convertOptionString(options, "kind"))
+	if kind == "" {
+		return watermarkKindText, nil
+	}
+	if kind != watermarkKindText && kind != watermarkKindLogo {
+		return "", models.NewCanonicalJobError("IMAGE_WATERMARK_KIND_INVALID", "options.kind must be text or logo", nil)
+	}
+
+	return kind, nil
+}
+
+func watermarkTextOption(options map[string]any) (string, *models.JobErrorV1) {
+	if !optionSupplied(options, "text") {
+		return "", nil
+	}
+
+	value, ok := options["text"].(string)
+	if !ok {
+		return "", models.NewCanonicalJobError("IMAGE_WATERMARK_OPTION_INVALID", "options.text must be a string", nil)
+	}
+
+	return value, nil
+}
+
+// watermarkValidateTextOption enforces the text surface limits at plan time so
+// a bad request never reaches execution. The engine repeats the check as a
+// final guard.
+func watermarkValidateTextOption(kind, text string) *models.JobErrorV1 {
+	if kind != watermarkKindText {
+		return nil
+	}
+
+	if strings.TrimSpace(text) == "" {
+		return models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_REQUIRED", "options.text is required for text watermarks.", nil)
+	}
+	if len([]rune(text)) > watermarkMaxTextRunes {
+		return models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_TOO_LONG", fmt.Sprintf("options.text must be at most %d characters", watermarkMaxTextRunes), nil)
+	}
+	if len(strings.Split(text, "\n")) > watermarkMaxTextLines {
+		return models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_TOO_MANY_LINES", fmt.Sprintf("options.text must be at most %d lines", watermarkMaxTextLines), nil)
+	}
+	for _, character := range text {
+		if character != '\n' && (character < 0x20 || character == 0x7f) {
+			return models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_CONTROL_CHARS", "options.text must not contain control characters", nil)
+		}
+	}
+
+	return nil
+}
+
+// watermarkLogoOption loads and validates the logo exactly once per request.
+func watermarkLogoOption(options map[string]any) (string, []byte, *models.JobErrorV1) {
+	logoPath := convertOptionString(options, "logoPath")
+	if logoPath == "" {
+		return "", nil, models.NewCanonicalJobError("IMAGE_WATERMARK_LOGO_REQUIRED", "options.logoPath is required for logo watermarks.", nil)
+	}
+
+	info, statErr := os.Stat(logoPath)
+	if statErr != nil {
+		if errors.Is(statErr, os.ErrNotExist) {
+			return "", nil, models.NewCanonicalJobError(
+				"IMAGE_WATERMARK_LOGO_NOT_FOUND",
+				fmt.Sprintf("%s was not found.", filepath.Base(logoPath)),
+				map[string]any{"logoPath": logoPath},
+			)
+		}
+
+		return "", nil, models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_LOGO_NOT_FOUND",
+			fmt.Sprintf("%s cannot be read.", filepath.Base(logoPath)),
+			map[string]any{"logoPath": logoPath},
+		)
+	}
+
+	if info.IsDir() {
+		return "", nil, models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_LOGO_UNSUPPORTED",
+			fmt.Sprintf("%s is a folder, not an image.", filepath.Base(logoPath)),
+			map[string]any{"logoPath": logoPath},
+		)
+	}
+
+	extension := normalizeFormatName(strings.TrimPrefix(filepath.Ext(logoPath), "."))
+	if extension != "png" && extension != "jpeg" && extension != "webp" {
+		return "", nil, models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_LOGO_UNSUPPORTED",
+			fmt.Sprintf("%s is not a supported logo. Use %s.", filepath.Base(logoPath), watermarkLogoExtensionsMessage),
+			map[string]any{"logoPath": logoPath, "extension": extension},
+		)
+	}
+
+	logoBytes, readErr := os.ReadFile(logoPath)
+	if readErr != nil {
+		return "", nil, models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_LOGO_NOT_FOUND",
+			fmt.Sprintf("%s cannot be read.", filepath.Base(logoPath)),
+			map[string]any{"logoPath": logoPath, "error": readErr.Error()},
+		)
+	}
+
+	if _, _, decodeErr := image.Decode(bytes.NewReader(logoBytes)); decodeErr != nil {
+		return "", nil, models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_LOGO_INVALID",
+			fmt.Sprintf("%s is not a readable image.", filepath.Base(logoPath)),
+			map[string]any{"logoPath": logoPath, "error": decodeErr.Error()},
+		)
+	}
+
+	return logoPath, logoBytes, nil
+}
+
+func watermarkAnchorOption(options map[string]any) (string, *models.JobErrorV1) {
+	anchor := strings.ToLower(convertOptionString(options, "anchor"))
+	if anchor == "" {
+		return watermarkDefaultAnchor, nil
+	}
+	if _, _, ok := watermarkAnchorFactors(anchor); !ok {
+		return "", models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_ANCHOR_INVALID",
+			fmt.Sprintf("options.anchor must be one of: %s", strings.Join(watermarkAnchorNames, ", ")),
+			nil,
+		)
+	}
+
+	return anchor, nil
+}
+
+// watermarkBoundedFloatOption reads one bounded float option. Supplied values
+// of the wrong type, NaN or infinity are rejected so a typo never silently
+// changes the drawn watermark.
+func watermarkBoundedFloatOption(options map[string]any, key string, defaultValue, min, max float64, invalidCode string) (float64, *models.JobErrorV1) {
+	value := defaultValue
+	if optionSupplied(options, key) {
+		parsed, ok := watermarkFloatValue(options[key])
+		if !ok {
+			return 0, models.NewCanonicalJobError(invalidCode, fmt.Sprintf("options.%s must be numeric", key), nil)
+		}
+		value = parsed
+	}
+
+	if value < min || value > max {
+		return 0, models.NewCanonicalJobError(
+			invalidCode,
+			fmt.Sprintf("options.%s must be between %v and %v", key, min, max),
+			nil,
+		)
+	}
+
+	return value, nil
+}
+
+func watermarkFloatValue(raw any) (float64, bool) {
+	var value float64
+	switch casted := raw.(type) {
+	case float64:
+		value = casted
+	case float32:
+		value = float64(casted)
+	case int:
+		value = float64(casted)
+	case int8:
+		value = float64(casted)
+	case int16:
+		value = float64(casted)
+	case int32:
+		value = float64(casted)
+	case int64:
+		value = float64(casted)
+	case uint:
+		value = float64(casted)
+	case uint8:
+		value = float64(casted)
+	case uint16:
+		value = float64(casted)
+	case uint32:
+		value = float64(casted)
+	case uint64:
+		value = float64(casted)
+	case json.Number:
+		parsed, err := casted.Float64()
+		if err != nil {
+			return 0, false
+		}
+		value = parsed
+	default:
+		return 0, false
+	}
+
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+
+	return value, true
+}
+
+// watermarkOptionalInt reads an optional integer option and rejects fractions.
+func watermarkOptionalInt(options map[string]any, key string) (int, bool, *models.JobErrorV1) {
+	if !optionSupplied(options, key) {
+		return 0, false, nil
+	}
+
+	if floatValue, isFloat := options[key].(float64); isFloat && floatValue != math.Trunc(floatValue) {
+		return 0, true, models.NewCanonicalJobError("IMAGE_WATERMARK_OPTION_INVALID", fmt.Sprintf("options.%s must be an integer", key), nil)
+	}
+
+	value, ok := numericOption(options, key)
+	if !ok {
+		return 0, true, models.NewCanonicalJobError("IMAGE_WATERMARK_OPTION_INVALID", fmt.Sprintf("options.%s must be numeric", key), nil)
+	}
+
+	return value, true, nil
+}
+
+func watermarkColorOption(options map[string]any) (string, *models.JobErrorV1) {
+	color := convertOptionString(options, "color")
+	if color == "" {
+		return watermarkDefaultColor, nil
+	}
+	if !watermarkValidHexColor(color) {
+		return "", models.NewCanonicalJobError("IMAGE_WATERMARK_COLOR_INVALID", "options.color must be a #RRGGBB hex value", nil)
+	}
+
+	return color, nil
+}
+
+func watermarkRequestedFormat(options map[string]any) (string, *models.JobErrorV1) {
+	raw, exists := options["format"]
+	if !exists || raw == nil {
+		return imageAutoFormat, nil
+	}
+
+	text, ok := raw.(string)
+	if !ok {
+		return "", models.NewCanonicalJobError("IMAGE_WATERMARK_FORMAT_INVALID", "format must be auto, jpeg, png or webp", nil)
+	}
+
+	format := normalizeFormatName(text)
+	switch format {
+	case "":
+		return imageAutoFormat, nil
+	case imageAutoFormat, "original":
+		return imageAutoFormat, nil
+	case "jpeg", "png", "webp":
+		return format, nil
+	default:
+		return "", models.NewCanonicalJobError("IMAGE_WATERMARK_FORMAT_INVALID", fmt.Sprintf("format must be auto, jpeg, png or webp (got %q)", strings.TrimSpace(text)), nil)
+	}
+}
+
+func validateWatermarkInputPath(inputPath string) *models.JobErrorV1 {
+	trimmed := strings.TrimSpace(inputPath)
+	if trimmed == "" {
+		return models.NewCanonicalJobError("IMAGE_WATERMARK_INPUT_REQUIRED", "inputPath is required", nil)
+	}
+
+	info, statErr := os.Stat(trimmed)
+	if statErr != nil {
+		if errors.Is(statErr, os.ErrNotExist) {
+			return models.NewCanonicalJobError(
+				"IMAGE_WATERMARK_INPUT_NOT_FOUND",
+				fmt.Sprintf("%s was not found.", filepath.Base(trimmed)),
+				map[string]any{"inputPath": trimmed},
+			)
+		}
+
+		return models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_INPUT_NOT_FOUND",
+			fmt.Sprintf("%s cannot be read.", filepath.Base(trimmed)),
+			map[string]any{"inputPath": trimmed},
+		)
+	}
+
+	if info.IsDir() {
+		return models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_INPUT_UNSUPPORTED",
+			fmt.Sprintf("%s is a folder, not an image.", filepath.Base(trimmed)),
+			map[string]any{"inputPath": trimmed},
+		)
+	}
+
+	extension := strings.ToLower(strings.TrimPrefix(filepath.Ext(trimmed), "."))
+	if !compressSupportsInputExtension(extension) {
+		return models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_INPUT_UNSUPPORTED",
+			fmt.Sprintf("%s is not a supported image. Use %s.", filepath.Base(trimmed), strings.Join(imageInputExtensions, ", ")),
+			map[string]any{"inputPath": trimmed, "extension": extension},
+		)
+	}
+
+	return nil
+}
+
+// resolveWatermarkOutputFormat keeps an explicit format untouched and resolves
+// auto per input: JPEG, PNG and WebP keep their family, everything else falls to
+// JPEG unless the source carries transparency.
+func resolveWatermarkOutputFormat(inputPath, requested string) string {
+	if requested != imageAutoFormat {
+		return requested
+	}
+
+	return compressAutoFormat(inputPath)
+}
+
+// planParsedWatermarkRequest builds the public plan plus one prepared item per
+// output. Engine options (logo bytes, background flattening) are resolved here
+// so execution performs no extra reads or metadata probes.
+func planParsedWatermarkRequest(parsed watermarkRequest) (models.PlanJobResponseV1, []preparedWatermark, *models.JobErrorV1) {
+	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+
+	formats := make([]string, 0, len(parsed.inputPaths))
+	alphas := make([]bool, 0, len(parsed.inputPaths))
+	inputWarnings := make([]string, 0)
+
+	for _, inputPath := range parsed.inputPaths {
+		if inputErr := validateWatermarkInputPath(inputPath); inputErr != nil {
+			failedPlan, _ := planFailure(plan, inputErr)
+			return failedPlan, nil, inputErr
+		}
+		formats = append(formats, resolveWatermarkOutputFormat(inputPath, parsed.format))
+		alphas = append(alphas, compressInputHasAlpha(inputPath))
+
+		if compressInputFrameCount(inputPath) > 1 {
+			inputWarnings = append(inputWarnings, fmt.Sprintf("%s: %s", filepath.Base(inputPath), watermarkAnimatedWarning))
+		}
+
+		// Reject text that cannot fit even at the 12 px floor before execution.
+		// Undecodable inputs are skipped here; the executor reports the real
+		// decode error with a per-item failure.
+		if parsed.kind == watermarkKindText {
+			if width, height, dimErr := readPlanImageDimensions(inputPath); dimErr == nil {
+				if fitErr := watermarkPlanTextFitError(parsed, inputPath, width, height); fitErr != nil {
+					failedPlan, _ := planFailure(plan, fitErr)
+					return failedPlan, nil, fitErr
+				}
+			}
+		}
+	}
+
+	// Reserve every input path so an auto-derived output can never overwrite a
+	// different input of the same batch.
+	used := make(map[string]struct{}, len(parsed.inputPaths))
+	for _, inputPath := range parsed.inputPaths {
+		outputplan.MarkUsed(used, inputPath)
+	}
+
+	optionWarnings := make([]string, 0, 1)
+	if parsed.qualitySupplied && watermarkFormatsUsePNG(formats) {
+		optionWarnings = append(optionWarnings, watermarkPNGQualityWarning)
+	}
+
+	if parsed.mode == "single" {
+		if parsed.outputDir != "" && strings.TrimSpace(parsed.outputPath) == "" {
+			if dirErr := validateWatermarkOutputDir(parsed.outputDir); dirErr != nil {
+				failedPlan, _ := planFailure(plan, dirErr)
+				return failedPlan, nil, dirErr
+			}
+		}
+
+		planned, planErr := planSingleWatermarkOutput(parsed, formats[0], used)
+		if planErr != nil {
+			if planned.OutputPath != "" {
+				plan.Outputs = []models.PlannedOutputV1{planned}
+			}
+			failedPlan, _ := planFailure(plan, planErr)
+			return failedPlan, nil, planErr
+		}
+
+		plan.Success = true
+		plan.Message = watermarkPlanMessage(1)
+		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Warnings = append(append([]string{}, planned.Warnings...), inputWarnings...)
+		plan.Warnings = append(plan.Warnings, optionWarnings...)
+		plan.EffectiveOptions = watermarkEffectiveOptions(parsed, formats)
+
+		prepared := []preparedWatermark{{
+			inputPath:  planned.InputPath,
+			outputPath: planned.OutputPath,
+			options:    watermarkEngineOptions(parsed, formats[0], alphas[0]),
+		}}
+
+		return plan, prepared, nil
+	}
+
+	if parsed.outputDir != "" {
+		if dirErr := validateWatermarkOutputDir(parsed.outputDir); dirErr != nil {
+			failedPlan, _ := planFailure(plan, dirErr)
+			return failedPlan, nil, dirErr
+		}
+	}
+
+	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
+	preparedItems := make([]preparedWatermark, 0, len(parsed.inputPaths))
+	outputWarnings := make([]string, 0, len(parsed.inputPaths))
+
+	for index, inputPath := range parsed.inputPaths {
+		targetDir := parsed.outputDir
+		if targetDir == "" {
+			targetDir = filepath.Dir(inputPath)
+		}
+
+		planned := planAutoWatermarkOutput(inputPath, filepath.Clean(targetDir), formats[index], used)
+		outputs = append(outputs, planned)
+		outputWarnings = append(outputWarnings, planned.Warnings...)
+		preparedItems = append(preparedItems, preparedWatermark{
+			inputPath:  planned.InputPath,
+			outputPath: planned.OutputPath,
+			options:    watermarkEngineOptions(parsed, formats[index], alphas[index]),
+		})
+	}
+
+	plan.Success = true
+	plan.Message = watermarkPlanMessage(len(outputs))
+	plan.Outputs = outputs
+	plan.Warnings = append(outputWarnings, inputWarnings...)
+	plan.Warnings = append(plan.Warnings, optionWarnings...)
+	plan.EffectiveOptions = watermarkEffectiveOptions(parsed, formats)
+
+	return plan, preparedItems, nil
+}
+
+// watermarkFormatsUsePNG reports whether any planned output is PNG.
+func watermarkFormatsUsePNG(formats []string) bool {
+	for _, format := range formats {
+		if format == "png" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// watermarkEngineOptions turns the parsed request into engine input for one
+// output. JPEG output with an alpha source is flattened on white because bimg
+// skips flattening when Background is its zero value (black).
+func watermarkEngineOptions(parsed watermarkRequest, outputFmt string, sourceHasAlpha bool) WatermarkOptions {
+	options := WatermarkOptions{
+		Kind:            parsed.kind,
+		Text:            parsed.text,
+		Bold:            parsed.bold,
+		Color:           parsed.color,
+		Logo:            parsed.logoBytes,
+		Anchor:          parsed.anchor,
+		MarginPercent:   parsed.marginPercent,
+		ScalePercent:    parsed.scalePercent,
+		Opacity:         parsed.opacity,
+		Tile:            parsed.tile,
+		RotationDegrees: parsed.rotationDegrees,
+		Format:          outputFmt,
+		Quality:         parsed.quality,
+	}
+
+	if outputFmt == "jpeg" && sourceHasAlpha {
+		white := bimg.Color{R: 255, G: 255, B: 255}
+		options.Background = &white
+	}
+
+	return options
+}
+
+// planSingleWatermarkOutput resolves the one output of a single request.
+func planSingleWatermarkOutput(parsed watermarkRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
+	inputPath := parsed.inputPaths[0]
+
+	if explicitOutput := strings.TrimSpace(parsed.outputPath); explicitOutput != "" {
+		return planExplicitWatermarkOutput(inputPath, explicitOutput, outputFmt)
+	}
+
+	targetDir := strings.TrimSpace(parsed.outputDir)
+	if targetDir == "" {
+		targetDir = filepath.Dir(inputPath)
+	}
+
+	return planAutoWatermarkOutput(inputPath, filepath.Clean(targetDir), outputFmt, used), nil
+}
+
+func planExplicitWatermarkOutput(inputPath, explicitOutput, outputFormat string) (models.PlannedOutputV1, *models.JobErrorV1) {
+	planned := models.PlannedOutputV1{
+		InputPath:  inputPath,
+		OutputPath: filepath.Clean(strings.TrimSpace(explicitOutput)),
+		OutputKind: imageOutputKindFile,
+	}
+
+	if !compressOutputExtensionMatches(planned.OutputPath, outputFormat) {
+		return planned, models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_OUTPUT_EXTENSION_MISMATCH",
+			compressOutputExtensionMessage(planned.OutputPath, outputFormat),
+			map[string]any{"outputPath": planned.OutputPath, "format": outputFormat},
+		)
+	}
+
+	if sameFilePath(inputPath, planned.OutputPath) {
+		return planned, models.NewCanonicalJobError("IMAGE_WATERMARK_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
+	}
+
+	info, statErr := os.Stat(planned.OutputPath)
+	switch {
+	case statErr == nil:
+		planned.Exists = true
+		if info.IsDir() {
+			return planned, models.NewCanonicalJobError(
+				"IMAGE_WATERMARK_OUTPUT_DIR_INVALID",
+				fmt.Sprintf("%s is a folder, not a file.", filepath.Base(planned.OutputPath)),
+				map[string]any{"outputPath": planned.OutputPath},
+			)
+		}
+		return planned, models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_OUTPUT_EXISTS",
+			fmt.Sprintf("%s already exists. Choose another name.", filepath.Base(planned.OutputPath)),
+			map[string]any{"outputPath": planned.OutputPath},
+		)
+	case !errors.Is(statErr, os.ErrNotExist):
+		return planned, models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_OUTPUT_DIR_INVALID",
+			fmt.Sprintf("%s cannot be accessed. Choose another location.", filepath.Base(planned.OutputPath)),
+			map[string]any{"outputPath": planned.OutputPath},
+		)
+	}
+
+	return planned, nil
+}
+
+// planAutoWatermarkOutput derives a collision-safe name inside dir. It never
+// writes.
+func planAutoWatermarkOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutputV1 {
+	planned := models.PlannedOutputV1{
+		InputPath:  inputPath,
+		OutputKind: imageOutputKindFile,
+	}
+
+	base := watermarkOutputBaseName(inputPath)
+	outputPath, adjusted := outputplan.UniqueFilePath(dir, base, outputFmt, used)
+	planned.OutputPath = outputPath
+
+	if adjusted {
+		planned.Adjusted = true
+		planned.Warnings = append(planned.Warnings, fmt.Sprintf("%s already exists. Saving as %s.", base+"."+outputFmt, filepath.Base(outputPath)))
+	}
+
+	return planned
+}
+
+func watermarkOutputBaseName(inputPath string) string {
+	stem := strings.TrimSpace(strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath)))
+	if stem == "" {
+		stem = "image"
+	}
+
+	return stem + watermarkOutputSuffix
+}
+
+func validateWatermarkOutputDir(outputDir string) *models.JobErrorV1 {
+	info, statErr := os.Stat(outputDir)
+	if statErr != nil {
+		return models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_OUTPUT_DIR_INVALID",
+			"The output folder cannot be used.",
+			map[string]any{"outputDir": outputDir, "error": statErr.Error()},
+		)
+	}
+	if !info.IsDir() {
+		return models.NewCanonicalJobError(
+			"IMAGE_WATERMARK_OUTPUT_DIR_INVALID",
+			fmt.Sprintf("%s is not a folder.", outputDir),
+			map[string]any{"outputDir": outputDir},
+		)
+	}
+
+	return nil
+}
+
+func watermarkPlanMessage(count int) string {
+	if count == 1 {
+		return "Ready to watermark 1 image."
+	}
+
+	return fmt.Sprintf("Ready to watermark %d images.", count)
+}
+
+// watermarkPlanTextFitError rejects text that cannot fit even at the 12 px
+// floor, so the UI fails before execution. The execution path keeps the same
+// checks as a final defense.
+func watermarkPlanTextFitError(parsed watermarkRequest, inputPath string, width, height int) *models.JobErrorV1 {
+	if width < 1 || height < 1 {
+		return nil
+	}
+
+	shortEdge := width
+	if height < shortEdge {
+		shortEdge = height
+	}
+	margin := int(math.Max(1, math.Round(float64(shortEdge)*parsed.marginPercent/100)))
+	details := map[string]any{"inputPath": inputPath}
+
+	if parsed.tile {
+		stamp, stampErr := watermarkRenderTileStamp(parsed.text, parsed.bold, watermarkMinFontSize, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+		if stampErr != nil {
+			return models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_DOES_NOT_FIT", stampErr.Error(), details)
+		}
+		if stamp.Bounds().Dx() > width {
+			return models.NewCanonicalJobError(
+				"IMAGE_WATERMARK_TEXT_DOES_NOT_FIT",
+				fmt.Sprintf("text is too wide to tile at the minimum font size (%d px); shorten the text or use a larger image", watermarkMinFontSize),
+				details,
+			)
+		}
+
+		return nil
+	}
+
+	message := fmt.Sprintf("text does not fit the image at the minimum font size (%d px); use fewer or shorter lines, or a larger image", watermarkMinFontSize)
+	insetWidth := width - 2*margin
+	insetHeight := height - 2*margin
+	if insetWidth <= 0 || insetHeight <= 0 {
+		return models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_DOES_NOT_FIT", message, details)
+	}
+
+	face, faceErr := watermarkFontFace(parsed.bold, watermarkMinFontSize)
+	if faceErr != nil {
+		return models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_DOES_NOT_FIT", faceErr.Error(), details)
+	}
+	block := watermarkMeasureText(parsed.text, face, watermarkMinFontSize)
+	if block.width <= float64(insetWidth) && block.height <= float64(insetHeight) {
+		return nil
+	}
+
+	return models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_DOES_NOT_FIT", message, details)
+}
+
+func watermarkEffectiveOptions(parsed watermarkRequest, formats []string) map[string]any {
+	effective := map[string]any{
+		"kind":          parsed.kind,
+		"anchor":        parsed.anchor,
+		"marginPercent": parsed.marginPercent,
+		"scalePercent":  parsed.scalePercent,
+		"opacity":       parsed.opacity,
+		"tile":          parsed.tile,
+		"quality":       parsed.quality,
+	}
+	if parsed.kind == watermarkKindText {
+		effective["text"] = parsed.text
+		effective["color"] = parsed.color
+		effective["bold"] = parsed.bold
+	}
+	if parsed.kind == watermarkKindLogo {
+		effective["logoPath"] = parsed.logoPath
+	}
+	// Rotation only affects tiled text, so echoing it for every watermark would
+	// overstate what the request does.
+	if parsed.tile {
+		effective["rotationDegrees"] = parsed.rotationDegrees
+	}
+	if format, ok := commonPlannedFormat(formats); ok {
+		effective["format"] = format
+	}
+
+	return effective
+}
+
+// watermarkCancelledError builds the canonical cancellation error. It falls back
+// to context.Canceled when the context has no recorded cause.
+func watermarkCancelledError(ctx context.Context) *models.JobErrorV1 {
+	var cause error = context.Canceled
+	if ctx != nil && ctx.Err() != nil {
+		cause = ctx.Err()
+	}
+
+	message := fmt.Errorf(OperationCancelledMsg, cause).Error()
+	return models.NewCanonicalJobError("IMAGE_WATERMARK_CANCELLED", message, nil)
+}
+
+// watermarkExecutionError maps a failed execution to a job error. Cancellation
+// wins over the generic execution/item code so the orchestrator reports
+// CANCELLED_BY_USER, including when the last batch item is interrupted. The raw
+// cause stays in Details while the message remains user-facing.
+func watermarkExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobErrorV1, bool) {
+	if watermarkIsCancellation(ctx, execErr) {
+		return watermarkCancelledError(ctx), true
+	}
+
+	details := map[string]any{"inputPath": inputPath}
+	if execErr != nil {
+		details["error"] = execErr.Error()
+	}
+
+	return models.NewCanonicalJobError(detailCode, "Could not watermark the image.", details), false
+}
+
+func watermarkIsCancellation(ctx context.Context, err error) bool {
+	if ctx != nil && ctx.Err() != nil {
+		return true
+	}
+
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func watermarkCheckContext(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf(OperationCancelledMsg, ctx.Err())
+	default:
+		return nil
+	}
+}
+
+func executeWatermarkToPath(ctx context.Context, prepared preparedWatermark) (WatermarkOutcome, error) {
+	if checkErr := watermarkCheckContext(ctx); checkErr != nil {
+		return WatermarkOutcome{}, checkErr
+	}
+
+	input, readErr := os.ReadFile(prepared.inputPath)
+	if readErr != nil {
+		return WatermarkOutcome{}, fmt.Errorf("read input failed: %w", readErr)
+	}
+
+	if checkErr := watermarkCheckContext(ctx); checkErr != nil {
+		return WatermarkOutcome{}, checkErr
+	}
+
+	output, outcome, applyErr := ApplyWatermark(input, prepared.options)
+	if applyErr != nil {
+		return WatermarkOutcome{}, fmt.Errorf("watermark failed: %w", applyErr)
+	}
+
+	if checkErr := watermarkCheckContext(ctx); checkErr != nil {
+		return WatermarkOutcome{}, checkErr
+	}
+
+	if mkErr := os.MkdirAll(filepath.Dir(prepared.outputPath), 0o755); mkErr != nil {
+		return WatermarkOutcome{}, fmt.Errorf("create output dir failed: %w", mkErr)
+	}
+
+	if writeErr := os.WriteFile(prepared.outputPath, output, DefaultFilePermissions); writeErr != nil {
+		return WatermarkOutcome{}, fmt.Errorf("write output failed: %w", writeErr)
+	}
+
+	return outcome, nil
+}
+
+func watermarkSuccessItem(prepared preparedWatermark, outcome WatermarkOutcome) models.JobResultItemV1 {
+	return models.JobResultItemV1{
+		InputPath:   prepared.inputPath,
+		OutputPath:  prepared.outputPath,
+		Outputs:     []string{prepared.outputPath},
+		OutputCount: 1,
+		Success:     true,
+		Message:     watermarkResultMessage(prepared, outcome),
+	}
+}
+
+// watermarkResultMessage reports the drawn watermark honestly: its mode, anchor,
+// resolved size and the encoded dimensions.
+func watermarkResultMessage(prepared preparedWatermark, outcome WatermarkOutcome) string {
+	if outcome.FontSize > 0 {
+		if prepared.options.Tile {
+			return fmt.Sprintf("tiled text watermark (font %d px, %d×%d)", outcome.FontSize, outcome.Width, outcome.Height)
+		}
+		return fmt.Sprintf("text watermark at %s (font %d px, %d×%d)", outcome.Anchor, outcome.FontSize, outcome.Width, outcome.Height)
+	}
+
+	return fmt.Sprintf("logo watermark at %s (%d px wide, %d×%d)", outcome.Anchor, outcome.LogoWidth, outcome.Width, outcome.Height)
+}
