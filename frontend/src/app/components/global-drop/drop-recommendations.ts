@@ -103,6 +103,10 @@ export function recommendDropTools(
     routes.add('/image-converter');
     routes.add('/image-crop');
     routes.add('/image-annotate');
+    routes.add('/image-compress');
+    routes.add('/image-watermark');
+    routes.add('/image-ocr');
+    routes.add('/image-background');
     routes.add('/pdf-from-images');
   }
 

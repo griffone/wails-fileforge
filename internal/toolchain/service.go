@@ -2,8 +2,11 @@ package toolchain
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,30 +28,42 @@ const (
 	PhaseModel       = "model"
 	PhaseTessdata    = "tessdata"
 	PhasePdf2Docx    = "pdf2docx"
+	PhaseRembg       = "rembg"
 	PhaseFinalize    = "finalize"
 	PhaseReady       = "ready"
 	PhaseCancelled   = "cancelled"
 	PhaseIdle        = "idle"
 )
 
+// Percent ranges partition the install progress bar. Each phase starts where the
+// previous one ends so the reported percent never goes backwards.
 const (
 	micromambaDownloadStartPercent = 0
 	micromambaDownloadEndPercent   = 5
-	environmentEndPercent          = 40
-	whisperDownloadStartPercent    = 40
-	whisperDownloadEndPercent      = 47
-	whisperEndPercent              = 50
-	modelDownloadStartPercent      = 50
-	modelDownloadEndPercent        = 93
-	tessdataStartPercent           = 93
-	tessdataEndPercent             = 95
-	pdf2docxStartPercent           = 95
-	pdf2docxInstallPercent         = 96
-	pdf2docxEndPercent             = 99
+	environmentEndPercent          = 38
+	whisperDownloadStartPercent    = 38
+	whisperDownloadEndPercent      = 45
+	whisperEndPercent              = 48
+	modelDownloadStartPercent      = 48
+	modelDownloadEndPercent        = 88
+	tessdataStartPercent           = 88
+	tessdataEndPercent             = 91
+	pdf2docxStartPercent           = 91
+	pdf2docxInstallPercent         = 92
+	pdf2docxEndPercent             = 94
+	rembgVenvStartPercent          = 94
+	rembgVenvInstallPercent        = 95
+	rembgVenvEndPercent            = 96
+	rembgModelStartPercent         = 96
+	rembgModelEndPercent           = 99
 	readyPercent                   = 100
 
 	condaPackagesMessage = "Installing FFmpeg, Tesseract, Poppler, Ghostscript and Python…"
 	versionProbeTimeout  = 1500 * time.Millisecond
+
+	// rembgImportTimeout bounds the import smoke test. Importing onnxruntime is
+	// the slowest step, so a generous but finite timeout catches a broken venv.
+	rembgImportTimeout = 90 * time.Second
 )
 
 // pdf2docxPins is the validated package set installed into the dedicated PDF to
@@ -61,6 +76,25 @@ var pdf2docxPins = []string{
 	"python-docx==1.1.2",
 	"fonttools==4.53.1",
 	"pdf2docx==0.5.13",
+}
+
+// rembgPins is the validated package set installed into the dedicated
+// background removal virtual environment. rembg pulls onnxruntime for CPU
+// inference, so the runtime, the array/image stack and its transitive pins are
+// fixed rather than resolved at install time.
+var rembgPins = []string{
+	"rembg[cpu]==2.0.87",
+	"onnxruntime==1.32.0",
+	"numpy==2.3.5",
+	"scipy==1.16.3",
+	"pillow==12.3.0",
+	"numba==0.68.1",
+	"llvmlite==0.50.0",
+	"scikit-image==0.26.0",
+	"pymatting==1.1.16",
+	"pooch==1.9.0",
+	"tqdm==4.70.1",
+	"jsonschema==4.26.0",
 }
 
 // Service owns the managed toolchain: status verification, environment
@@ -440,6 +474,9 @@ func (s *Service) install(ctx context.Context, model string, languages []string,
 	if err := s.installPdf2Docx(ctx, force); err != nil {
 		return err
 	}
+	if err := s.installRembg(ctx, staging, force); err != nil {
+		return err
+	}
 
 	return s.finalize(model, languages)
 }
@@ -488,13 +525,17 @@ func (s *Service) installEnvironment(ctx context.Context, force bool) error {
 	prefix := envDir(s.root)
 	if force {
 		// A forced reinstall recreates the prefix so a corrupted environment is
-		// repaired from scratch instead of patched. The PDF to DOCX virtual
-		// environment is derived from this prefix, so it is recreated too.
+		// repaired from scratch instead of patched. The virtual environments are
+		// derived from this prefix, so they are recreated too. The RemBG model
+		// folder is kept: re-downloading ~179 MB on every repair is wasteful.
 		if err := os.RemoveAll(prefix); err != nil {
 			return fmt.Errorf("replace the conda environment: %w", err)
 		}
 		if err := os.RemoveAll(pdf2docxVenvDir(s.root)); err != nil {
 			return fmt.Errorf("replace the PDF to DOCX environment: %w", err)
+		}
+		if err := os.RemoveAll(rembgVenvDir(s.root)); err != nil {
+			return fmt.Errorf("replace the background removal environment: %w", err)
 		}
 	}
 	action := "create"
@@ -691,7 +732,7 @@ func (s *Service) installPdf2Docx(ctx context.Context, force bool) error {
 		return err
 	}
 
-	basePython := pdf2docxBasePythonPath(s.root, s.platform.OS)
+	basePython := managedBasePythonPath(s.root, s.platform.OS)
 	if !fileWithContent(basePython) {
 		return fmt.Errorf("the managed Python is missing; reinstall the toolchain")
 	}
@@ -737,6 +778,176 @@ func (s *Service) installPdf2Docx(ctx context.Context, force bool) error {
 	}
 
 	s.progress(PhasePdf2Docx, pdf2docxEndPercent, "PDF to DOCX engine is ready.", false)
+
+	return nil
+}
+
+// installRembg creates the dedicated virtual environment for the background
+// removal engine, verifies that it imports, and installs the pinned ONNX model.
+// The model lives outside the venv, so repairing the engine never discards the
+// downloaded weights. The staging argument is accepted for symmetry with the
+// other installer steps; the model uses a temp file next to its destination so
+// the final rename stays atomic.
+func (s *Service) installRembg(ctx context.Context, _ string, force bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	basePython := managedBasePythonPath(s.root, s.platform.OS)
+	if !fileWithContent(basePython) {
+		return fmt.Errorf("the managed Python is missing; reinstall the toolchain")
+	}
+
+	venv := rembgVenvDir(s.root)
+	venvPython := rembgVenvPythonPath(s.root, s.platform.OS)
+	readyMarker := rembgReadyFilePath(s.root)
+	if !force && fileWithContent(venvPython) && fileWithContent(readyMarker) {
+		s.progress(PhaseRembg, rembgVenvEndPercent, "The background removal engine is already installed.", false)
+	} else {
+		if err := os.RemoveAll(venv); err != nil {
+			return fmt.Errorf("replace the background removal environment: %w", err)
+		}
+		// A rebuilt venv must prove itself again: leaving the old marker behind
+		// would let a failed pip or import hide behind a stale success.
+		if err := os.Remove(readyMarker); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("reset the background removal readiness marker: %w", err)
+		}
+
+		environment := withEnvironment(os.Environ(), map[string]string{
+			"PATH": prependPath(os.Getenv("PATH"), managedPathDirs(s.root, s.platform.OS), pathListSeparatorFor(s.platform.OS)),
+		})
+
+		s.progress(PhaseRembg, rembgVenvStartPercent, "Creating the background removal environment…", false)
+		if _, err := s.runner.Run(ctx, basePython, []string{"-m", "venv", venv}, environment); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+
+			return fmt.Errorf("create the background removal environment: %w", err)
+		}
+
+		s.progress(PhaseRembg, rembgVenvInstallPercent, "Installing the background removal engine…", false)
+		pipArgs := append([]string{"-m", "pip", "install", "--no-cache-dir", "--disable-pip-version-check"}, rembgPins...)
+		if _, err := s.runner.Run(ctx, venvPython, pipArgs, environment); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+
+			return fmt.Errorf("install the background removal engine: %w", err)
+		}
+
+		if !fileWithContent(venvPython) || !rembgPackagesInstalled(s.root, s.platform.OS) {
+			return fmt.Errorf("the background removal engine did not install correctly: the virtual environment is incomplete")
+		}
+
+		// The marker is written only after a real import succeeds, so a venv
+		// with missing shared libraries is never reported as ready.
+		importContext, cancel := context.WithTimeout(ctx, rembgImportTimeout)
+		_, importErr := s.runner.Run(importContext, venvPython, []string{"-c", "import rembg, onnxruntime"}, environment)
+		cancel()
+		if importErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+
+			return fmt.Errorf("the background removal engine could not be imported: %w", importErr)
+		}
+
+		if err := os.MkdirAll(rembgHomeDir(s.root), 0o755); err != nil {
+			return fmt.Errorf("create the background removal home: %w", err)
+		}
+		if err := os.WriteFile(readyMarker, []byte("rembg 2.0.87\n"), 0o644); err != nil {
+			return fmt.Errorf("mark the background removal engine as ready: %w", err)
+		}
+
+		s.progress(PhaseRembg, rembgVenvEndPercent, "Background removal engine is verified.", false)
+	}
+
+	return s.installRembgModel(ctx, force)
+}
+
+// installRembgModel downloads the pinned model with size and checksum
+// verification. A failed download or a bad checksum leaves the previous model
+// untouched, so a botched repair never destroys a working installation.
+func (s *Service) installRembgModel(ctx context.Context, force bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	spec := rembgModelSpec
+	target := rembgModelPath(s.root, spec.Model)
+	if fileHasExactSize(target, spec.SizeBytes) && (!force || verifyRembgModel(target, spec) == nil) {
+		s.progress(PhaseRembg, rembgModelEndPercent, "The background removal model is already installed.", false)
+
+		return nil
+	}
+
+	s.progress(PhaseRembg, rembgModelStartPercent, "Downloading the background removal model…", false)
+	modelDir := filepath.Dir(target)
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		return fmt.Errorf("create the background removal model folder: %w", err)
+	}
+
+	tempFile, err := os.CreateTemp(modelDir, ".fileforge-rembg-model-*")
+	if err != nil {
+		return fmt.Errorf("create a temporary background removal model file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	_ = tempFile.Close()
+	defer func() {
+		_ = os.Remove(tempPath)
+	}()
+
+	if err := s.downloader.Download(ctx, spec.URL, tempPath, s.progressRange(
+		PhaseRembg, "Downloading the background removal model…",
+		rembgModelStartPercent, rembgModelEndPercent,
+	)); err != nil {
+		return fmt.Errorf("download the background removal model: %w", err)
+	}
+
+	if err := verifyRembgModel(tempPath, spec); err != nil {
+		return fmt.Errorf("verify the background removal model: %w", err)
+	}
+	if err := replaceFile(tempPath, target); err != nil {
+		return fmt.Errorf("install the background removal model: %w", err)
+	}
+
+	s.progress(PhaseRembg, rembgModelEndPercent, "The background removal model is installed.", false)
+
+	return nil
+}
+
+// verifyRembgModel checks the exact size and MD5 checksum of a downloaded model
+// file. The shared downloader has no checksum support, so the verification
+// stays local to this pack.
+func verifyRembgModel(path string, spec RembgModelSpec) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", filepath.Base(path), err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory", filepath.Base(path))
+	}
+	if info.Size() != spec.SizeBytes {
+		return fmt.Errorf("%s has %d bytes, want %d", filepath.Base(path), info.Size(), spec.SizeBytes)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", filepath.Base(path), err)
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	hash := md5.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return fmt.Errorf("hash %s: %w", filepath.Base(path), err)
+	}
+	actual := hex.EncodeToString(hash.Sum(nil))
+	if !strings.EqualFold(actual, spec.MD5) {
+		return fmt.Errorf("%s checksum is %s, want %s", filepath.Base(path), actual, spec.MD5)
+	}
 
 	return nil
 }
@@ -989,7 +1200,7 @@ var versionArgsByComponent = map[string][]string{
 }
 
 func (s *Service) buildComponents(model string, languages []string, probeVersions bool) []models.ToolchainComponentV1 {
-	components := make([]models.ToolchainComponentV1, 0, len(managedBinarySpecs)+6)
+	components := make([]models.ToolchainComponentV1, 0, len(managedBinarySpecs)+8)
 
 	micromamba := micromambaPath(s.root, s.platform)
 	micromambaComponent := models.ToolchainComponentV1{
@@ -1094,6 +1305,36 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 		pdf2docxComponent.Path = venvPython
 	}
 	components = append(components, pdf2docxComponent)
+
+	// The background removal pack is optional too: the venv and the model have
+	// separate components so the UI can tell an engine repair from a model
+	// download, and neither gates the rest of the application. A missing pack
+	// reports the repair detail instead of a path that does not exist.
+	rembgReady, rembgDetail := rembgRuntimeState(s.root, s.platform.OS)
+	rembgComponent := models.ToolchainComponentV1{
+		ID:       "rembg",
+		Label:    "Background removal engine",
+		Ready:    rembgReady,
+		Required: false,
+		Detail:   rembgDetail,
+	}
+	if rembgReady {
+		rembgComponent.Path = rembgVenvPythonPath(s.root, s.platform.OS)
+	}
+	components = append(components, rembgComponent)
+
+	rembgModelReady, rembgModelDetail := rembgModelState(s.root)
+	rembgModelComponent := models.ToolchainComponentV1{
+		ID:       "rembg-model",
+		Label:    "Background removal model",
+		Ready:    rembgModelReady,
+		Required: false,
+		Detail:   rembgModelDetail,
+	}
+	if rembgModelReady {
+		rembgModelComponent.Path = rembgModelPath(s.root, rembgModelSpec.Model)
+	}
+	components = append(components, rembgModelComponent)
 
 	return components
 }

@@ -3,6 +3,7 @@ package toolchain
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,6 +104,9 @@ type fakeRunner struct {
 	calls        []fakeRunnerCall
 	failOn       string
 	failVersions bool
+	// failRembgPip fails only the pip install that targets rembg-venv, so a
+	// forced rebuild can be tested without breaking the pdf2docx install.
+	failRembgPip bool
 }
 
 func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []string) ([]byte, error) {
@@ -110,6 +114,7 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []
 	r.calls = append(r.calls, fakeRunnerCall{name: name, args: append([]string{}, args...), env: append([]string{}, env...)})
 	fail := r.failOn != "" && len(args) > 0 && args[0] == r.failOn
 	failVersion := r.failVersions && len(args) > 0 && (args[0] == "--version" || args[0] == "-version")
+	failRembgPip := r.failRembgPip
 	r.mu.Unlock()
 
 	if failVersion {
@@ -132,11 +137,16 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []
 		return []byte("Transaction finished\n"), nil
 	}
 
-	// The PDF to DOCX engine lives in a dedicated virtual environment created
-	// from the managed Python and filled by pip.
+	// The engine virtual environments are created from the managed Python and
+	// filled by pip. The background removal venv also needs the package markers
+	// the installer verifies before writing its readiness file.
 	if len(args) >= 3 && args[0] == "-m" && args[1] == "venv" {
 		venvDir := args[2]
-		for _, name := range []string{"python", "pdf2docx"} {
+		names := []string{"python"}
+		if filepath.Base(venvDir) != "rembg-venv" {
+			names = append(names, "pdf2docx")
+		}
+		for _, name := range names {
 			path := filepath.Join(venvDir, "bin", name)
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				return nil, err
@@ -149,10 +159,38 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []
 		return []byte("venv created\n"), nil
 	}
 	if len(args) >= 3 && args[0] == "-m" && args[1] == "pip" && args[2] == "install" {
+		venvDir := filepath.Dir(filepath.Dir(name))
+		if filepath.Base(venvDir) == "rembg-venv" {
+			if failRembgPip {
+				return nil, fmt.Errorf("fake rembg pip install failed")
+			}
+			if err := writeFakeRembgPackages(venvDir); err != nil {
+				return nil, err
+			}
+
+			return []byte("Successfully installed rembg-2.0.87\n"), nil
+		}
+
 		return []byte("Successfully installed pdf2docx-0.5.13\n"), nil
 	}
 
 	return []byte("fake-version 1.2.3\n"), nil
+}
+
+// writeFakeRembgPackages simulates a pip install of rembg and onnxruntime by
+// creating the package file and the pip receipt the installer checks.
+func writeFakeRembgPackages(venvDir string) error {
+	sitePackages := filepath.Join(venvDir, "lib", "python3.11", "site-packages")
+
+	initPath := filepath.Join(sitePackages, "rembg", "__init__.py")
+	if err := os.MkdirAll(filepath.Dir(initPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(initPath, []byte("__version__ = '2.0.87'\n"), 0o644); err != nil {
+		return err
+	}
+
+	return os.MkdirAll(filepath.Join(sitePackages, "onnxruntime-1.32.0.dist-info"), 0o755)
 }
 
 func (r *fakeRunner) recordedCalls() []fakeRunnerCall {
@@ -219,6 +257,10 @@ func linuxToolchainPayloads(t *testing.T) map[string][]byte {
 	largeURL, _ := ModelURL("large-v3")
 	englishURL, _ := TessdataURL("eng")
 	spanishURL, _ := TessdataURL("spa")
+	rembgURL, err := RembgModelURL(DefaultRembgModel)
+	if err != nil {
+		t.Fatalf("background removal model URL: %v", err)
+	}
 
 	return map[string][]byte{
 		platform.MicromambaURL: []byte("#!/bin/sh\necho micromamba\n"),
@@ -228,7 +270,25 @@ func linuxToolchainPayloads(t *testing.T) map[string][]byte {
 		largeURL:               []byte("large model"),
 		englishURL:             []byte("english traineddata"),
 		spanishURL:             []byte("spanish traineddata"),
+		rembgURL:               fakeRembgModelPayload(t),
 	}
+}
+
+// fakeRembgModelPayload returns a small stand-in for the 179 MB ONNX model and
+// points the expected size and checksum at it for the duration of the test, so
+// the real verification path runs without writing the real weights.
+func fakeRembgModelPayload(t *testing.T) []byte {
+	t.Helper()
+
+	payload := []byte("fake isnet-general-use onnx payload")
+	original := rembgModelSpec
+	rembgModelSpec.SizeBytes = int64(len(payload))
+	rembgModelSpec.MD5 = fmt.Sprintf("%x", md5.Sum(payload))
+	t.Cleanup(func() {
+		rembgModelSpec = original
+	})
+
+	return payload
 }
 
 func preserveToolchainEnvironment(t *testing.T) {
@@ -337,7 +397,7 @@ func TestStatusBeforeInstall(t *testing.T) {
 	expected := []string{
 		"micromamba", "ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext",
 		"ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa",
-		"tesseract-pdf", "pdf2docx",
+		"tesseract-pdf", "pdf2docx", "rembg", "rembg-model",
 	}
 	if len(status.Components) != len(expected) {
 		t.Fatalf("expected %d components, got %d: %+v", len(expected), len(status.Components), status.Components)
@@ -354,8 +414,11 @@ func TestStatusBeforeInstall(t *testing.T) {
 	if !byID["ffmpeg"].Required || !byID["whisper-model"].Required || !byID["tesseract-eng"].Required || !byID["tesseract-pdf"].Required {
 		t.Fatal("expected ffmpeg, whisper-model, tesseract-eng and tesseract-pdf to be required")
 	}
-	if byID["micromamba"].Required || byID["ghostscript"].Required || byID["pdftotext"].Required || byID["pdf2docx"].Required {
-		t.Fatal("expected micromamba, ghostscript, pdftotext and pdf2docx to be optional")
+	if byID["micromamba"].Required || byID["ghostscript"].Required || byID["pdftotext"].Required || byID["pdf2docx"].Required || byID["rembg"].Required || byID["rembg-model"].Required {
+		t.Fatal("expected micromamba, ghostscript, pdftotext, pdf2docx, rembg and rembg-model to be optional")
+	}
+	if byID["rembg"].Path != "" || byID["rembg-model"].Path != "" {
+		t.Fatal("optional pack components must not expose a path before they are ready")
 	}
 }
 
@@ -399,7 +462,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	}
 
 	byID := componentsByID(t, status)
-	for _, id := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa", "pdf2docx"} {
+	for _, id := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa", "pdf2docx", "rembg", "rembg-model"} {
 		component := byID[id]
 		if !component.Ready {
 			t.Fatalf("component %q is not ready: %+v", id, component)
@@ -426,6 +489,10 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 		filepath.Join(root, "tessdata", "spa.traineddata"),
 		filepath.Join(root, "pdf2docx-venv", "bin", "python"),
 		filepath.Join(root, "pdf2docx-venv", "bin", "pdf2docx"),
+		filepath.Join(root, "rembg-venv", "bin", "python"),
+		filepath.Join(root, "rembg-venv", "lib", "python3.11", "site-packages", "rembg", "__init__.py"),
+		filepath.Join(root, "rembg", ".ready"),
+		filepath.Join(root, "rembg", "models", DefaultRembgModel, RembgModelFileName(DefaultRembgModel)),
 	}
 	for _, path := range requiredFiles {
 		info, err := os.Stat(path)
@@ -435,6 +502,9 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 		if info.IsDir() {
 			t.Fatalf("expected a file at %s", path)
 		}
+	}
+	if !directoryExists(filepath.Join(root, "rembg-venv", "lib", "python3.11", "site-packages", "onnxruntime-1.32.0.dist-info")) {
+		t.Fatal("expected the onnxruntime dist-info directory in the background removal venv")
 	}
 
 	micromambaInfo, err := os.Stat(filepath.Join(root, "micromamba"))
@@ -476,6 +546,19 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	}
 	if !containsAll(pipCall.args, pdf2docxPins...) || !containsAll(pipCall.args, "--no-cache-dir", "--disable-pip-version-check") {
 		t.Fatalf("unexpected pinned package install: %v", pipCall.args)
+	}
+
+	// The background removal venv is created the same way and filled with its
+	// own pinned package set, then imported before the readiness marker.
+	rembgPython := filepath.Join(root, "rembg-venv", "bin", "python")
+	rembgCalls := runnerCallsForBinary(runner.recordedCalls(), rembgPython)
+	rembgPipCall := findRunnerCallStartingWith(t, rembgCalls, "-m", "pip", "install")
+	if !containsAll(rembgPipCall.args, rembgPins...) || !containsAll(rembgPipCall.args, "--no-cache-dir", "--disable-pip-version-check") {
+		t.Fatalf("unexpected background removal package install: %v", rembgPipCall.args)
+	}
+	importCall := findRunnerCallStartingWith(t, rembgCalls, "-c")
+	if len(importCall.args) != 2 || importCall.args[1] != "import rembg, onnxruntime" {
+		t.Fatalf("unexpected background removal import check: %v", importCall.args)
 	}
 
 	manifest := readManifestForTest(t, filepath.Join(root, "manifest.json"))
@@ -572,15 +655,22 @@ func TestInstallSkipsAlreadyPresentComponents(t *testing.T) {
 		t.Fatalf("expected one micromamba install call on the repair run, got %d", installCalls)
 	}
 
-	// The pdf2docx virtual environment is reused instead of reinstalled.
-	pipCalls := 0
-	for _, call := range runner.recordedCalls() {
-		if len(call.args) >= 3 && call.args[0] == "-m" && call.args[1] == "pip" && call.args[2] == "install" {
-			pipCalls++
-		}
+	// Both engine virtual environments are reused instead of reinstalled.
+	root := filepath.Join(dataDir, ToolchainDirName)
+	if calls := countRunnerCallsForBinary(runner.recordedCalls(), filepath.Join(root, "pdf2docx-venv", "bin", "python")); calls != 1 {
+		t.Fatalf("expected the pdf2docx venv to be reused without Force, got %d pip installs", calls)
 	}
-	if pipCalls != 1 {
-		t.Fatalf("expected the pdf2docx venv to be reused without Force, got %d pip installs", pipCalls)
+	if calls := countRunnerCallsForBinary(runner.recordedCalls(), filepath.Join(root, "rembg-venv", "bin", "python")); calls != 2 {
+		// One pip install plus one import check on the first run; the repair
+		// run must add nothing because the marker exists.
+		t.Fatalf("expected the background removal venv to be reused without Force, got %d calls", calls)
+	}
+	rembgURL, err := RembgModelURL(DefaultRembgModel)
+	if err != nil {
+		t.Fatalf("background removal model URL: %v", err)
+	}
+	if calls := downloader.callsFor(rembgURL); calls != 1 {
+		t.Fatalf("background removal model downloaded again without Force: %d calls, want 1", calls)
 	}
 }
 
@@ -1024,6 +1114,362 @@ func TestPdf2DocxVenvIsOptionalAndRepairs(t *testing.T) {
 	}
 }
 
+func TestRembgVenvIsOptionalAndRepairs(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	dataDir := t.TempDir()
+	downloader := &fakeDownloader{payloads: linuxToolchainPayloads(t)}
+	runner := &fakeRunner{}
+	service, events := newTestToolchainService(t, dataDir, downloader, runner)
+
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	waitForTerminalEvent(t, events)
+	if !service.Status().Ready {
+		t.Fatal("expected the initial install to be ready")
+	}
+
+	root := filepath.Join(dataDir, ToolchainDirName)
+	venvDir := filepath.Join(root, "rembg-venv")
+	modelPath := filepath.Join(root, "rembg", "models", DefaultRembgModel, RembgModelFileName(DefaultRembgModel))
+	modelURL, err := RembgModelURL(DefaultRembgModel)
+	if err != nil {
+		t.Fatalf("background removal model URL: %v", err)
+	}
+
+	if info, err := os.Stat(modelPath); err != nil || info.IsDir() {
+		t.Fatalf("expected the installed model at %s: %v", modelPath, err)
+	}
+	// Pin the mtime so a forced repair that keeps the model is provable.
+	oldTime := time.Unix(1_600_000_000, 0)
+	if err := os.Chtimes(modelPath, oldTime, oldTime); err != nil {
+		t.Fatalf("pin the model mtime: %v", err)
+	}
+
+	if err := os.RemoveAll(venvDir); err != nil {
+		t.Fatalf("remove the background removal venv: %v", err)
+	}
+
+	status := service.Status()
+	if !status.Ready {
+		t.Fatalf("an optional background removal engine must not block readiness: %+v", status)
+	}
+	byID := componentsByID(t, status)
+	component := byID["rembg"]
+	if component.Ready || component.Required {
+		t.Fatalf("expected an optional, not ready rembg component: %+v", component)
+	}
+	if component.Path != "" {
+		t.Fatalf("a not ready rembg component must not expose a path: %+v", component)
+	}
+	if !strings.Contains(component.Detail, "Install / repair") {
+		t.Fatalf("expected a repair detail, got %+v", component)
+	}
+	modelComponent := byID["rembg-model"]
+	if !modelComponent.Ready || modelComponent.Required {
+		t.Fatalf("expected an optional, ready rembg model component: %+v", modelComponent)
+	}
+	if modelComponent.Path != modelPath {
+		t.Fatalf("model component path = %q, want %q", modelComponent.Path, modelPath)
+	}
+	if _, found := ManagedRembgPythonPath(dataDir); found {
+		t.Fatal("the managed background removal interpreter must not be reported without the venv")
+	}
+	if home, found := ManagedRembgHome(dataDir); !found || home != filepath.Join(root, "rembg") {
+		t.Fatalf("unexpected managed background removal home: %q %v", home, found)
+	}
+	if path, found := ManagedRembgModelPath(dataDir, DefaultRembgModel); !found || path != modelPath {
+		t.Fatalf("unexpected managed background removal model path: %q %v", path, found)
+	}
+
+	// An optional component alone must not trigger a background reinstall.
+	service.StartIfNeeded(context.Background())
+	time.Sleep(50 * time.Millisecond)
+	if service.Status().Installing {
+		t.Fatal("StartIfNeeded must not reinstall when only the optional background removal venv is missing")
+	}
+
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	if !service.Status().Installing {
+		t.Fatal("expected the forced install to start")
+	}
+	waitForTerminalEvent(t, events)
+
+	status = service.Status()
+	if !status.Ready {
+		t.Fatalf("expected the repaired toolchain to be ready: %+v", status)
+	}
+	byID = componentsByID(t, status)
+	component = byID["rembg"]
+	if !component.Ready || component.Path != filepath.Join(venvDir, "bin", "python") {
+		t.Fatalf("expected a ready rembg component pointing at the venv interpreter: %+v", component)
+	}
+	for _, path := range []string{
+		filepath.Join(venvDir, "bin", "python"),
+		filepath.Join(venvDir, "lib", "python3.11", "site-packages", "rembg", "__init__.py"),
+		filepath.Join(root, "rembg", ".ready"),
+	} {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			t.Fatalf("expected the restored background removal file %s: %v", path, err)
+		}
+	}
+	if !directoryExists(filepath.Join(venvDir, "lib", "python3.11", "site-packages", "onnxruntime-1.32.0.dist-info")) {
+		t.Fatal("expected the restored onnxruntime dist-info directory")
+	}
+
+	repairedInfo, err := os.Stat(modelPath)
+	if err != nil {
+		t.Fatalf("stat the model after the forced repair: %v", err)
+	}
+	if !repairedInfo.ModTime().Equal(oldTime) {
+		t.Fatalf("a forced repair must keep the installed model, mtime changed from %v to %v", oldTime, repairedInfo.ModTime())
+	}
+	if calls := downloader.callsFor(modelURL); calls != 1 {
+		t.Fatalf("a forced repair re-downloaded the model: %d calls, want 1", calls)
+	}
+
+	// A checksum mismatch must fail the install without deleting the old model.
+	oldPayload, err := os.ReadFile(modelPath)
+	if err != nil {
+		t.Fatalf("read the installed model: %v", err)
+	}
+	injectedSpec := rembgModelSpec
+	rembgModelSpec.MD5 = strings.Repeat("0", 32)
+	t.Cleanup(func() {
+		rembgModelSpec = injectedSpec
+	})
+
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	collected := waitForTerminalEvent(t, events)
+	terminal := collected[len(collected)-1]
+	if terminal.Error == "" || !terminal.Done {
+		t.Fatalf("expected a terminal checksum error, got %+v", terminal)
+	}
+	if !strings.Contains(terminal.Error, "checksum") {
+		t.Fatalf("expected the checksum failure to be reported, got %q", terminal.Error)
+	}
+	if calls := downloader.callsFor(modelURL); calls != 2 {
+		t.Fatalf("expected the failed repair to download the model once more, got %d calls", calls)
+	}
+	afterPayload, err := os.ReadFile(modelPath)
+	if err != nil {
+		t.Fatalf("read the model after the failed repair: %v", err)
+	}
+	if !bytes.Equal(afterPayload, oldPayload) {
+		t.Fatal("a failed checksum must keep the previous model file")
+	}
+	if !componentsByID(t, service.Status())["rembg-model"].Ready {
+		t.Fatal("the previous model must stay ready after a failed download")
+	}
+}
+
+func TestRembgVenvSkipAndForceContract(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	dataDir := t.TempDir()
+	downloader := &fakeDownloader{payloads: linuxToolchainPayloads(t)}
+	runner := &fakeRunner{}
+	service, events := newTestToolchainService(t, dataDir, downloader, runner)
+
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	waitForTerminalEvent(t, events)
+
+	root := filepath.Join(dataDir, ToolchainDirName)
+	venvDir := filepath.Join(root, "rembg-venv")
+	venvPython := filepath.Join(venvDir, "bin", "python")
+	basePython := filepath.Join(root, "env", "bin", "python")
+	marker := filepath.Join(root, "rembg", ".ready")
+	modelURL, err := RembgModelURL(DefaultRembgModel)
+	if err != nil {
+		t.Fatalf("background removal model URL: %v", err)
+	}
+
+	// The venv is created exactly like the pdf2docx venv: the managed
+	// interpreter with `-m venv <rembg-venv>` as its only arguments.
+	creationCalls := runnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir)
+	if len(creationCalls) != 1 {
+		t.Fatalf("expected one background removal venv creation, got %d", len(creationCalls))
+	}
+	if creationCalls[0].name != basePython {
+		t.Fatalf("venv created with %q, want the managed interpreter %q", creationCalls[0].name, basePython)
+	}
+	if !reflect.DeepEqual(creationCalls[0].args, []string{"-m", "venv", venvDir}) {
+		t.Fatalf("unexpected background removal venv argv: %v", creationCalls[0].args)
+	}
+
+	// A present venv with its marker is reused without touching pip or venv.
+	creationsBefore := countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir)
+	venvCallsBefore := countRunnerCallsForBinary(runner.recordedCalls(), venvPython)
+	modelCallsBefore := downloader.callsFor(modelURL)
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	waitForTerminalEvent(t, events)
+	if got := countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir); got != creationsBefore {
+		t.Fatalf("a skip install recreated the venv: %d creations, want %d", got, creationsBefore)
+	}
+	if got := countRunnerCallsForBinary(runner.recordedCalls(), venvPython); got != venvCallsBefore {
+		t.Fatalf("a skip install ran pip or the import check: %d calls, want %d", got, venvCallsBefore)
+	}
+	if got := downloader.callsFor(modelURL); got != modelCallsBefore {
+		t.Fatalf("a skip install downloaded the model again: %d calls, want %d", got, modelCallsBefore)
+	}
+
+	// Losing only the marker must force a rebuild: the venv alone is not proof
+	// that the engine imported.
+	if err := os.Remove(marker); err != nil {
+		t.Fatalf("remove the readiness marker: %v", err)
+	}
+	creationsBefore = countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir)
+	venvCallsBefore = countRunnerCallsForBinary(runner.recordedCalls(), venvPython)
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	waitForTerminalEvent(t, events)
+	if got := countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir); got != creationsBefore+1 {
+		t.Fatalf("a missing marker must rebuild the venv: %d creations, want %d", got, creationsBefore+1)
+	}
+	// A rebuild runs pip and the import check on the venv interpreter.
+	if got := countRunnerCallsForBinary(runner.recordedCalls(), venvPython); got != venvCallsBefore+2 {
+		t.Fatalf("a missing marker must reinstall the packages: %d calls, want %d", got, venvCallsBefore+2)
+	}
+	if !fileWithContent(marker) {
+		t.Fatal("expected the readiness marker to be rewritten")
+	}
+
+	// Force rebuilds a present venv and rewrites the marker.
+	oldTime := time.Unix(1_600_000_000, 0)
+	if err := os.Chtimes(marker, oldTime, oldTime); err != nil {
+		t.Fatalf("pin the readiness marker mtime: %v", err)
+	}
+	creationsBefore = countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir)
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	waitForTerminalEvent(t, events)
+	if got := countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir); got != creationsBefore+1 {
+		t.Fatalf("a forced install must rebuild the venv: %d creations, want %d", got, creationsBefore+1)
+	}
+	markerInfo, err := os.Stat(marker)
+	if err != nil {
+		t.Fatalf("stat the rewritten marker: %v", err)
+	}
+	if markerInfo.ModTime().Equal(oldTime) {
+		t.Fatal("a forced install must rewrite the readiness marker")
+	}
+
+	// The stale marker is removed before pip: a failed rebuild must not leave
+	// the previous success behind.
+	runner.failRembgPip = true
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	collected := waitForTerminalEvent(t, events)
+	terminal := collected[len(collected)-1]
+	if terminal.Error == "" {
+		t.Fatalf("expected the pip failure to be reported, got %+v", terminal)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a failed rebuild must not leave the readiness marker, got %v", err)
+	}
+	if componentsByID(t, service.Status())["rembg"].Ready {
+		t.Fatal("a failed rebuild must not report the background removal engine as ready")
+	}
+}
+
+func TestRembgModelFailureKeepsPreviousModelAndCleansTemp(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	dataDir := t.TempDir()
+	downloader := &fakeDownloader{payloads: linuxToolchainPayloads(t)}
+	service, events := newTestToolchainService(t, dataDir, downloader, &fakeRunner{})
+
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	waitForTerminalEvent(t, events)
+
+	root := filepath.Join(dataDir, ToolchainDirName)
+	modelPath := rembgModelPath(root, DefaultRembgModel)
+	modelDir := filepath.Dir(modelPath)
+	modelURL, err := RembgModelURL(DefaultRembgModel)
+	if err != nil {
+		t.Fatalf("background removal model URL: %v", err)
+	}
+	installedPayload, err := os.ReadFile(modelPath)
+	if err != nil {
+		t.Fatalf("read the installed model: %v", err)
+	}
+
+	// A checksum that does not match the installed file skips the reuse fast
+	// path, so a forced repair actually attempts the download.
+	injectedSpec := rembgModelSpec
+	rembgModelSpec.MD5 = strings.Repeat("0", 32)
+	t.Cleanup(func() {
+		rembgModelSpec = injectedSpec
+	})
+
+	assertModelUntouchedNoTemp := func(stage string) {
+		t.Helper()
+
+		payload, err := os.ReadFile(modelPath)
+		if err != nil {
+			t.Fatalf("%s: read the model: %v", stage, err)
+		}
+		if !bytes.Equal(payload, installedPayload) {
+			t.Fatalf("%s: the previous model was modified", stage)
+		}
+		matches, err := filepath.Glob(filepath.Join(modelDir, ".fileforge-rembg-model-*"))
+		if err != nil {
+			t.Fatalf("%s: glob the model temp files: %v", stage, err)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("%s: expected no model temp files, got %v", stage, matches)
+		}
+	}
+
+	// A failed download keeps the previous model and cleans its temp file.
+	downloader.failURL = modelURL
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	collected := waitForTerminalEvent(t, events)
+	if terminal := collected[len(collected)-1]; terminal.Error == "" {
+		t.Fatalf("expected the download failure to be reported, got %+v", terminal)
+	}
+	assertModelUntouchedNoTemp("failed download")
+
+	// A failed checksum also keeps the previous model and cleans its temp file.
+	downloader.failURL = ""
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	collected = waitForTerminalEvent(t, events)
+	terminal := collected[len(collected)-1]
+	if terminal.Error == "" || !strings.Contains(terminal.Error, "checksum") {
+		t.Fatalf("expected a checksum failure, got %+v", terminal)
+	}
+	assertModelUntouchedNoTemp("failed checksum")
+}
+
+func runnerCallsForBinary(calls []fakeRunnerCall, binary string) []fakeRunnerCall {
+	filtered := make([]fakeRunnerCall, 0, len(calls))
+	for _, call := range calls {
+		if call.name == binary {
+			filtered = append(filtered, call)
+		}
+	}
+
+	return filtered
+}
+
+func countRunnerCallsForBinary(calls []fakeRunnerCall, binary string) int {
+	return len(runnerCallsForBinary(calls, binary))
+}
+
+// runnerCallsForRembgVenvCreation returns the `python -m venv <rembg-venv>`
+// calls, so tests can assert the exact argv and how often the venv was rebuilt.
+func runnerCallsForRembgVenvCreation(calls []fakeRunnerCall, venvDir string) []fakeRunnerCall {
+	filtered := make([]fakeRunnerCall, 0, len(calls))
+	for _, call := range calls {
+		if len(call.args) == 3 && call.args[0] == "-m" && call.args[1] == "venv" && call.args[2] == venvDir {
+			filtered = append(filtered, call)
+		}
+	}
+
+	return filtered
+}
+
+func countRunnerCallsForRembgVenvCreation(calls []fakeRunnerCall, venvDir string) int {
+	return len(runnerCallsForRembgVenvCreation(calls, venvDir))
+}
+
 func findRunnerCall(t *testing.T, calls []fakeRunnerCall, action string) fakeRunnerCall {
 	t.Helper()
 
@@ -1136,7 +1582,8 @@ func mustModelURL(t *testing.T, model string) string {
 
 // TestToolchainRealInstallE2E downloads and installs the real toolchain into a
 // temporary data directory. It is opt-in because it uses the network and
-// downloads the Whisper model (hundreds of MB).
+// downloads the Whisper model, the background removal venv (~450-550 MB) and
+// its model (171 MB), so the run is large and slow.
 func TestToolchainRealInstallE2E(t *testing.T) {
 	if os.Getenv("FILEFORGE_TOOLCHAIN_E2E") != "1" {
 		t.Skip("set FILEFORGE_TOOLCHAIN_E2E=1 to run the real toolchain install")

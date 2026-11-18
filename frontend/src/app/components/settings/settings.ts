@@ -659,6 +659,8 @@ function toolchainPhaseLabel(phase: string): string {
       return 'Downloading the model';
     case 'tessdata':
       return 'Installing OCR languages';
+    case 'rembg':
+      return 'Installing background removal';
     case 'finalize':
       return 'Verifying';
     case 'ready':

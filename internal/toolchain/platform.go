@@ -38,6 +38,7 @@ const (
 	whisperReleaseBaseURL    = "https://github.com/ggerganov/whisper.cpp/releases/download/" + WhisperReleaseTag + "/"
 	whisperModelBaseURL      = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
 	tessdataFastBaseURL      = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/"
+	rembgModelReleaseBaseURL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0"
 
 	// ToolchainDirName is the managed folder inside the application data
 	// directory.
@@ -242,6 +243,69 @@ func ModelURL(model string) (string, error) {
 	}
 
 	return whisperModelBaseURL + ModelFileName(normalized), nil
+}
+
+// DefaultRembgModel is the pinned background removal model. It is Apache-2.0
+// licensed, and every rembg session must pass it explicitly: the rembg default
+// (bria-rmbg) ships non-commercial weights.
+const DefaultRembgModel = "isnet-general-use"
+
+// Metadata for the pinned ONNX model. The size is a cheap readiness check; the
+// checksum is verified only while installing.
+const (
+	rembgModelSizeBytes int64 = 178648008
+	rembgModelMD5             = "fc16ebd8b0c10d971d3513d564d01e29"
+)
+
+// RembgModelSpec describes one pinned background removal model.
+type RembgModelSpec struct {
+	Model     string
+	FileName  string
+	URL       string
+	SizeBytes int64
+	MD5       string
+}
+
+// defaultRembgModelSpec returns the validated metadata of the default model.
+func defaultRembgModelSpec() RembgModelSpec {
+	url, _ := RembgModelURL(DefaultRembgModel)
+
+	return RembgModelSpec{
+		Model:     DefaultRembgModel,
+		FileName:  RembgModelFileName(DefaultRembgModel),
+		URL:       url,
+		SizeBytes: rembgModelSizeBytes,
+		MD5:       rembgModelMD5,
+	}
+}
+
+// DefaultRembgModelSpec returns the metadata of the pinned background removal
+// model. Callers use it to gate readiness on the exact size the installer
+// verifies instead of duplicating the constant.
+func DefaultRembgModelSpec() RembgModelSpec {
+	return defaultRembgModelSpec()
+}
+
+// rembgModelSpec is the model the installer manages. It is a variable so tests
+// can substitute a small fake payload and its checksum; production never
+// overwrites it.
+var rembgModelSpec = defaultRembgModelSpec()
+
+// RembgModelFileName returns the ONNX file name for a background removal model.
+func RembgModelFileName(model string) string {
+	return model + ".onnx"
+}
+
+// RembgModelURL returns the pinned release URL for a background removal model.
+// Only the validated default model is accepted: an arbitrary name would fetch
+// unverified weights.
+func RembgModelURL(model string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	if normalized != DefaultRembgModel {
+		return "", fmt.Errorf("unsupported background removal model %q: use %s", model, DefaultRembgModel)
+	}
+
+	return rembgModelReleaseBaseURL + "/" + RembgModelFileName(normalized), nil
 }
 
 // SupportedOCRLanguages lists the downloadable Tesseract language data.

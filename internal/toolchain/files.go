@@ -27,6 +27,13 @@ func fileWithContent(path string) bool {
 	return err == nil && !info.IsDir() && info.Size() > 0
 }
 
+// fileHasExactSize reports whether path is a regular file with exactly size
+// bytes. Pinned model files use it as a cheap readiness check.
+func fileHasExactSize(path string, size int64) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Size() == size
+}
+
 // copyFileContent copies sourcePath into destPath through a temp file, so an
 // interrupted copy never leaves a truncated asset behind.
 func copyFileContent(sourcePath, destPath string) error {

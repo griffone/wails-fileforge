@@ -4,6 +4,7 @@ import {
   Captions,
   Combine,
   Crop,
+  Eraser,
   FileText,
   FileType,
   Frame,
@@ -12,9 +13,11 @@ import {
   Image as ImageIcon,
   Layers,
   LayoutGrid,
+  Minimize2,
   PenTool,
   ScanText,
   Scissors,
+  Stamp,
   Settings2,
   Timer,
   Video,
@@ -112,7 +115,7 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
-/** The sixteen conversion tools. Ids mirror the backend toolId contract. */
+/** The twenty conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -146,6 +149,88 @@ export const TOOLS: readonly ToolDefinition[] = [
     icon: PenTool,
     formats: ['PNG', 'JPG', 'WebP'],
     keywords: ['image', 'annotate', 'text', 'arrow', 'box', 'blur', 'redact', 'markup'],
+  },
+  {
+    id: 'tool.image.compress',
+    name: 'Image Compress',
+    navName: 'Compress',
+    description: 'Compress images to a target file size with optional downscaling.',
+    route: '/image-compress',
+    category: 'image',
+    icon: Minimize2,
+    formats: ['PNG', 'JPG', 'WebP'],
+    keywords: [
+      'image',
+      'compress',
+      'target size',
+      'size limit',
+      'shrink',
+      'smaller',
+      'downscale',
+      'optimize',
+    ],
+  },
+  {
+    id: 'tool.image.watermark',
+    name: 'Image Watermark',
+    navName: 'Watermark',
+    description: 'Watermark images with text or a logo at nine anchors, with opacity and tiling.',
+    route: '/image-watermark',
+    category: 'image',
+    icon: Stamp,
+    formats: ['PNG', 'JPG', 'WebP'],
+    keywords: [
+      'image',
+      'watermark',
+      'text watermark',
+      'logo',
+      'anchor',
+      'opacity',
+      'tile',
+      'tiled',
+      'brand',
+    ],
+  },
+  {
+    id: 'tool.image.ocr',
+    name: 'Image OCR',
+    navName: 'Image OCR',
+    description:
+      'Extract text from images with local Tesseract and optionally write a searchable PDF.',
+    route: '/image-ocr',
+    category: 'image',
+    icon: ScanText,
+    formats: ['TXT', 'PDF'],
+    keywords: [
+      'image',
+      'text',
+      'extract text',
+      'screenshot',
+      'scan',
+      'tesseract',
+      'searchable',
+    ],
+  },
+  {
+    id: 'tool.image.background',
+    name: 'Remove Background',
+    navName: 'Remove BG',
+    description:
+      'Remove image backgrounds locally and save a transparent PNG or a chosen color.',
+    route: '/image-background',
+    category: 'image',
+    icon: Eraser,
+    formats: ['PNG'],
+    keywords: [
+      'image',
+      'background',
+      'remove background',
+      'transparent',
+      'cutout',
+      'subject',
+      'product photo',
+      'rembg',
+    ],
   },
   {
     id: 'tool.pdf.merge',
@@ -310,7 +395,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 20-entry navigation model. */
+/** Home, every tool, then System Status, Automations and Settings: the full 24-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,
