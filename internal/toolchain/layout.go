@@ -14,6 +14,8 @@ import (
 //	models/ggml-<model>.bin
 //	tessdata/eng.traineddata, spa.traineddata
 //	pdf2docx-venv/        dedicated venv for the PDF to DOCX engine
+//	rembg-venv/           dedicated venv for the background removal engine
+//	rembg/                REMBG_HOME/U2NET_HOME with models/<model>/<model>.onnx
 //	manifest.json
 //
 // The helpers below are the single source of truth for those paths.
@@ -69,6 +71,32 @@ func ManagedPDF2DOCXPythonPath(dataDir string) (string, bool) {
 // virtual environment for the running OS.
 func ManagedPDF2DOCXPath(dataDir string) (string, bool) {
 	path := pdf2docxVenvBinaryPath(ToolchainDir(dataDir), runtime.GOOS)
+
+	return path, fileWithContent(path)
+}
+
+// ManagedRembgPythonPath returns the interpreter of the managed background
+// removal virtual environment for the running OS. It is exported so the
+// background removal engine runs with the exact package set installed by the
+// toolchain.
+func ManagedRembgPythonPath(dataDir string) (string, bool) {
+	path := rembgVenvPythonPath(ToolchainDir(dataDir), runtime.GOOS)
+
+	return path, fileWithContent(path)
+}
+
+// ManagedRembgHome returns the managed RemBG home folder, which is also passed
+// as REMBG_HOME and U2NET_HOME to the child process.
+func ManagedRembgHome(dataDir string) (string, bool) {
+	path := rembgHomeDir(ToolchainDir(dataDir))
+
+	return path, directoryExists(path)
+}
+
+// ManagedRembgModelPath returns the managed ONNX model file for the requested
+// background removal model.
+func ManagedRembgModelPath(dataDir, model string) (string, bool) {
+	path := rembgModelPath(ToolchainDir(dataDir), model)
 
 	return path, fileWithContent(path)
 }
@@ -199,9 +227,9 @@ func pdf2docxVenvDir(root string) string {
 	return filepath.Join(root, "pdf2docx-venv")
 }
 
-// pdf2docxBasePythonPath returns the managed conda interpreter used to create
-// the PDF to DOCX virtual environment.
-func pdf2docxBasePythonPath(root, goos string) string {
+// managedBasePythonPath returns the managed conda interpreter used to create
+// the dedicated virtual environments (PDF to DOCX and background removal).
+func managedBasePythonPath(root, goos string) string {
 	if goos == "windows" {
 		return filepath.Join(envDir(root), "python.exe")
 	}
@@ -227,6 +255,126 @@ func pdf2docxVenvBinaryPath(root, goos string) string {
 	}
 
 	return filepath.Join(pdf2docxVenvDir(root), "bin", "pdf2docx")
+}
+
+// rembgVenvDir returns the dedicated virtual environment that hosts the pinned
+// background removal engine packages. It is separate from the conda prefix and
+// from the PDF to DOCX environment so a repair of one never breaks the others.
+func rembgVenvDir(root string) string {
+	return filepath.Join(root, "rembg-venv")
+}
+
+// rembgVenvPythonPath returns the interpreter inside the background removal
+// virtual environment.
+func rembgVenvPythonPath(root, goos string) string {
+	if goos == "windows" {
+		return filepath.Join(rembgVenvDir(root), "Scripts", "python.exe")
+	}
+
+	return filepath.Join(rembgVenvDir(root), "bin", "python")
+}
+
+// rembgHomeDir returns the RemBG home folder. Both REMBG_HOME and U2NET_HOME
+// point here, and the pinned model files live below it so the application
+// never reads weights from the user home directory.
+func rembgHomeDir(root string) string {
+	return filepath.Join(root, "rembg")
+}
+
+// rembgModelPath returns the ONNX file for a background removal model.
+func rembgModelPath(root, model string) string {
+	return filepath.Join(rembgHomeDir(root), "models", model, RembgModelFileName(model))
+}
+
+// rembgReadyFileName marks a background removal virtual environment that was
+// installed and imported successfully. It lives in the RemBG home, not inside
+// the venv, so a partial venv can never carry the marker by accident.
+const rembgReadyFileName = ".ready"
+
+// rembgReadyFilePath returns the readiness marker path.
+func rembgReadyFilePath(root string) string {
+	return filepath.Join(rembgHomeDir(root), rembgReadyFileName)
+}
+
+// rembgSitePackagesDir returns the site-packages folder of the background
+// removal virtual environment. Windows keeps it under Lib; Unix nests it below
+// lib/pythonX.Y, so the Python version is discovered instead of hardcoded.
+func rembgSitePackagesDir(root, goos string) (string, bool) {
+	venv := rembgVenvDir(root)
+	if goos == "windows" {
+		dir := filepath.Join(venv, "Lib", "site-packages")
+
+		return dir, directoryExists(dir)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(venv, "lib", "python*", "site-packages"))
+	if err != nil {
+		return "", false
+	}
+	for _, match := range matches {
+		if directoryExists(match) {
+			return match, true
+		}
+	}
+
+	return "", false
+}
+
+// rembgPackagesInstalled reports whether the venv carries the rembg package and
+// a pip receipt for onnxruntime. A missing dist-info directory means the
+// install was interrupted, so the environment is never reported as ready.
+func rembgPackagesInstalled(root, goos string) bool {
+	sitePackages, found := rembgSitePackagesDir(root, goos)
+	if !found {
+		return false
+	}
+	if !fileWithContent(filepath.Join(sitePackages, "rembg", "__init__.py")) {
+		return false
+	}
+
+	matches, err := filepath.Glob(filepath.Join(sitePackages, "onnxruntime-*.dist-info"))
+	if err != nil {
+		return false
+	}
+	for _, match := range matches {
+		if directoryExists(match) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// rembgRuntimeState verifies the background removal engine: the interpreter,
+// the installed packages and the marker written after a successful import.
+func rembgRuntimeState(root, goos string) (bool, string) {
+	if !fileWithContent(rembgVenvPythonPath(root, goos)) {
+		return false, "Background removal engine is not installed. Run Install / repair."
+	}
+	if !rembgPackagesInstalled(root, goos) {
+		return false, "Background removal engine is incomplete. Run Install / repair."
+	}
+	if !fileWithContent(rembgReadyFilePath(root)) {
+		return false, "Background removal engine is not verified. Run Install / repair."
+	}
+
+	return true, "Local background removal engine"
+}
+
+// rembgModelState verifies the pinned model by its exact size. The checksum is
+// only verified during install because hashing ~179 MB on every status poll
+// would be wasteful.
+func rembgModelState(root string) (bool, string) {
+	spec := rembgModelSpec
+	path := rembgModelPath(root, spec.Model)
+	if fileHasExactSize(path, spec.SizeBytes) {
+		return true, "Local background removal model"
+	}
+	if fileWithContent(path) {
+		return false, "Background removal model is incomplete. Run Install / repair."
+	}
+
+	return false, "Background removal model is not installed. Run Install / repair."
 }
 
 func manifestFilePath(root string) string {

@@ -1,9 +1,11 @@
 package toolchain
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -372,5 +374,172 @@ func TestManagedBinaryPathUnixLayout(t *testing.T) {
 	writeLayoutFixture(t, windowsPath)
 	if path, found := managedBinaryPath(root, "linux", []string{"ffmpeg"}); !found || path != ffmpeg {
 		t.Fatalf("linux must not use the Windows layout: %q, %t", path, found)
+	}
+}
+
+func TestRembgModelMetadata(t *testing.T) {
+	spec := defaultRembgModelSpec()
+	if spec.Model != "isnet-general-use" {
+		t.Fatalf("default model = %q, want isnet-general-use", spec.Model)
+	}
+	if spec.FileName != "isnet-general-use.onnx" {
+		t.Fatalf("default model file = %q, want isnet-general-use.onnx", spec.FileName)
+	}
+	if spec.URL != "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx" {
+		t.Fatalf("unexpected model URL: %q", spec.URL)
+	}
+	if spec.SizeBytes != 178648008 {
+		t.Fatalf("default model size = %d, want 178648008", spec.SizeBytes)
+	}
+	if spec.MD5 != "fc16ebd8b0c10d971d3513d564d01e29" {
+		t.Fatalf("default model checksum = %q", spec.MD5)
+	}
+
+	if got := RembgModelFileName("isnet-general-use"); got != "isnet-general-use.onnx" {
+		t.Fatalf("model file name = %q", got)
+	}
+	url, err := RembgModelURL(" ISNET-GENERAL-USE ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if url != spec.URL {
+		t.Fatalf("model URL = %q, want %q", url, spec.URL)
+	}
+	if _, err := RembgModelURL("bria-rmbg"); err == nil {
+		t.Fatal("unvalidated models must be rejected")
+	}
+	if _, err := RembgModelURL(""); err == nil {
+		t.Fatal("an empty model must be rejected")
+	}
+}
+
+func TestRembgLayoutPaths(t *testing.T) {
+	root := filepath.Join("tmp", "fileforge", ToolchainDirName)
+
+	if got := rembgVenvDir(root); got != filepath.Join(root, "rembg-venv") {
+		t.Fatalf("rembg venv dir = %q", got)
+	}
+	if got := rembgVenvPythonPath(root, "linux"); got != filepath.Join(root, "rembg-venv", "bin", "python") {
+		t.Fatalf("unix rembg interpreter = %q", got)
+	}
+	if got := rembgVenvPythonPath(root, "windows"); got != filepath.Join(root, "rembg-venv", "Scripts", "python.exe") {
+		t.Fatalf("windows rembg interpreter = %q", got)
+	}
+	if got := rembgHomeDir(root); got != filepath.Join(root, "rembg") {
+		t.Fatalf("rembg home = %q", got)
+	}
+	wantModel := filepath.Join(root, "rembg", "models", "isnet-general-use", "isnet-general-use.onnx")
+	if got := rembgModelPath(root, "isnet-general-use"); got != wantModel {
+		t.Fatalf("rembg model path = %q, want %q", got, wantModel)
+	}
+	if got := rembgReadyFilePath(root); got != filepath.Join(root, "rembg", ".ready") {
+		t.Fatalf("rembg ready marker = %q", got)
+	}
+}
+
+func TestManagedRembgPathsOnDisk(t *testing.T) {
+	dataDir := t.TempDir()
+	root := ToolchainDir(dataDir)
+	python := rembgVenvPythonPath(root, runtime.GOOS)
+	model := rembgModelPath(root, DefaultRembgModel)
+
+	if _, found := ManagedRembgPythonPath(dataDir); found {
+		t.Fatal("the managed interpreter must not be reported before the venv exists")
+	}
+	if _, found := ManagedRembgHome(dataDir); found {
+		t.Fatal("the managed home must not be reported before it exists")
+	}
+	if _, found := ManagedRembgModelPath(dataDir, DefaultRembgModel); found {
+		t.Fatal("the managed model must not be reported before it is downloaded")
+	}
+
+	writeLayoutFixture(t, python)
+	writeLayoutFixture(t, model)
+	if err := os.MkdirAll(rembgHomeDir(root), 0o755); err != nil {
+		t.Fatalf("create rembg home: %v", err)
+	}
+
+	if got, found := ManagedRembgPythonPath(dataDir); !found || got != python {
+		t.Fatalf("managed rembg interpreter = %q, %t", got, found)
+	}
+	if got, found := ManagedRembgHome(dataDir); !found || got != rembgHomeDir(root) {
+		t.Fatalf("managed rembg home = %q, %t", got, found)
+	}
+	if got, found := ManagedRembgModelPath(dataDir, DefaultRembgModel); !found || got != model {
+		t.Fatalf("managed rembg model = %q, %t", got, found)
+	}
+}
+
+func TestRembgRuntimeStateWindowsLayout(t *testing.T) {
+	root := t.TempDir()
+	venv := filepath.Join(root, "rembg-venv")
+	writeLayoutFixture(t, filepath.Join(venv, "Scripts", "python.exe"))
+	sitePackages := filepath.Join(venv, "Lib", "site-packages")
+	writeLayoutFixture(t, filepath.Join(sitePackages, "rembg", "__init__.py"))
+	if err := os.MkdirAll(filepath.Join(sitePackages, "onnxruntime-1.32.0.dist-info"), 0o755); err != nil {
+		t.Fatalf("create the onnxruntime dist-info directory: %v", err)
+	}
+
+	if ready, detail := rembgRuntimeState(root, "windows"); ready {
+		t.Fatalf("a venv without the marker must not be ready: %s", detail)
+	} else if !strings.Contains(detail, "not verified") {
+		t.Fatalf("expected a not-verified detail, got %q", detail)
+	}
+	if ready, _ := rembgRuntimeState(root, "linux"); ready {
+		t.Fatal("the Unix layout must not accept the Windows tree")
+	}
+
+	writeLayoutFixture(t, rembgReadyFilePath(root))
+	if ready, detail := rembgRuntimeState(root, "windows"); !ready {
+		t.Fatalf("expected the Windows-shaped engine to be ready, got %q", detail)
+	}
+	if got, found := rembgSitePackagesDir(root, "windows"); !found || got != sitePackages {
+		t.Fatalf("windows site-packages = %q, %t, want %q", got, found, sitePackages)
+	}
+	if ready, _ := rembgRuntimeState(root, "linux"); ready {
+		t.Fatal("the Unix layout must not accept the Windows tree even with a marker")
+	}
+}
+
+func TestRembgModelStateSizeBranches(t *testing.T) {
+	root := t.TempDir()
+	expectedSize := int64(16)
+	original := rembgModelSpec
+	rembgModelSpec.SizeBytes = expectedSize
+	t.Cleanup(func() {
+		rembgModelSpec = original
+	})
+
+	path := rembgModelPath(root, DefaultRembgModel)
+	if ready, detail := rembgModelState(root); ready {
+		t.Fatalf("a missing model must not be ready: %s", detail)
+	} else if !strings.Contains(detail, "not installed") {
+		t.Fatalf("expected a not-installed detail, got %q", detail)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create the model folder: %v", err)
+	}
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), int(expectedSize)), 0o644); err != nil {
+		t.Fatalf("write the exact-size model: %v", err)
+	}
+	if ready, detail := rembgModelState(root); !ready {
+		t.Fatalf("expected an exact-size model to be ready, got %q", detail)
+	}
+
+	if err := os.WriteFile(path, []byte("short"), 0o644); err != nil {
+		t.Fatalf("write the wrong-size model: %v", err)
+	}
+	if ready, detail := rembgModelState(root); ready {
+		t.Fatalf("a wrong-size model must not be ready: %s", detail)
+	} else if !strings.Contains(detail, "incomplete") {
+		t.Fatalf("expected an incomplete detail, got %q", detail)
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove the model: %v", err)
+	}
+	if ready, detail := rembgModelState(root); ready || !strings.Contains(detail, "not installed") {
+		t.Fatalf("expected a missing-model detail, got %q (ready=%t)", detail, ready)
 	}
 }
