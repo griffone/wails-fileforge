@@ -132,6 +132,26 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []
 		return []byte("Transaction finished\n"), nil
 	}
 
+	// The PDF to DOCX engine lives in a dedicated virtual environment created
+	// from the managed Python and filled by pip.
+	if len(args) >= 3 && args[0] == "-m" && args[1] == "venv" {
+		venvDir := args[2]
+		for _, name := range []string{"python", "pdf2docx"} {
+			path := filepath.Join(venvDir, "bin", name)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+				return nil, err
+			}
+		}
+
+		return []byte("venv created\n"), nil
+	}
+	if len(args) >= 3 && args[0] == "-m" && args[1] == "pip" && args[2] == "install" {
+		return []byte("Successfully installed pdf2docx-0.5.13\n"), nil
+	}
+
 	return []byte("fake-version 1.2.3\n"), nil
 }
 
@@ -153,7 +173,7 @@ func argumentAfter(args []string, flag string) string {
 }
 
 func writeFakeCondaEnvironment(prefix string) error {
-	for _, name := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "gs"} {
+	for _, name := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "gs", "python", "pip"} {
 		path := filepath.Join(prefix, "bin", name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
@@ -317,7 +337,7 @@ func TestStatusBeforeInstall(t *testing.T) {
 	expected := []string{
 		"micromamba", "ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext",
 		"ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa",
-		"tesseract-pdf",
+		"tesseract-pdf", "pdf2docx",
 	}
 	if len(status.Components) != len(expected) {
 		t.Fatalf("expected %d components, got %d: %+v", len(expected), len(status.Components), status.Components)
@@ -334,8 +354,8 @@ func TestStatusBeforeInstall(t *testing.T) {
 	if !byID["ffmpeg"].Required || !byID["whisper-model"].Required || !byID["tesseract-eng"].Required || !byID["tesseract-pdf"].Required {
 		t.Fatal("expected ffmpeg, whisper-model, tesseract-eng and tesseract-pdf to be required")
 	}
-	if byID["micromamba"].Required || byID["ghostscript"].Required || byID["pdftotext"].Required {
-		t.Fatal("expected micromamba, ghostscript and pdftotext to be optional")
+	if byID["micromamba"].Required || byID["ghostscript"].Required || byID["pdftotext"].Required || byID["pdf2docx"].Required {
+		t.Fatal("expected micromamba, ghostscript, pdftotext and pdf2docx to be optional")
 	}
 }
 
@@ -379,7 +399,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	}
 
 	byID := componentsByID(t, status)
-	for _, id := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa"} {
+	for _, id := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa", "pdf2docx"} {
 		component := byID[id]
 		if !component.Ready {
 			t.Fatalf("component %q is not ready: %+v", id, component)
@@ -399,10 +419,13 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 		filepath.Join(root, "micromamba"),
 		filepath.Join(root, "env", "bin", "ffmpeg"),
 		filepath.Join(root, "env", "bin", "tesseract"),
+		filepath.Join(root, "env", "bin", "python"),
 		filepath.Join(root, "whisper", "whisper-cli"),
 		filepath.Join(root, "models", ModelFileName(DefaultModel)),
 		filepath.Join(root, "tessdata", "eng.traineddata"),
 		filepath.Join(root, "tessdata", "spa.traineddata"),
+		filepath.Join(root, "pdf2docx-venv", "bin", "python"),
+		filepath.Join(root, "pdf2docx-venv", "bin", "pdf2docx"),
 	}
 	for _, path := range requiredFiles {
 		info, err := os.Stat(path)
@@ -428,7 +451,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 
 	// The conda environment is created with the managed mamba root.
 	createCall := findRunnerCall(t, runner.recordedCalls(), "create")
-	if !containsAll(createCall.args, "ffmpeg", "tesseract", "poppler", "ghostscript", "conda-forge") {
+	if !containsAll(createCall.args, "ffmpeg", "tesseract", "poppler", "ghostscript", "conda-forge", "python=3.11", "pip") {
 		t.Fatalf("unexpected micromamba create args: %v", createCall.args)
 	}
 	if !containsAll(createCall.env, "MAMBA_ROOT_PREFIX="+filepath.Join(root, "mamba-root")) {
@@ -439,6 +462,20 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	}
 	if containsAll(createCall.env, "MAMBA_ROOT_PREFIX=/ambient/mamba") {
 		t.Fatal("an ambient MAMBA_ROOT_PREFIX must not win over the managed root")
+	}
+
+	// The PDF to DOCX venv is created from the managed Python and filled by pip
+	// with the pinned package set.
+	venvCall := findRunnerCallStartingWith(t, runner.recordedCalls(), "-m", "venv")
+	if venvCall.name != filepath.Join(root, "env", "bin", "python") {
+		t.Fatalf("unexpected venv interpreter: %s", venvCall.name)
+	}
+	pipCall := findRunnerCallStartingWith(t, runner.recordedCalls(), "-m", "pip", "install")
+	if pipCall.name != filepath.Join(root, "pdf2docx-venv", "bin", "python") {
+		t.Fatalf("pip must run inside the pdf2docx venv, got %s", pipCall.name)
+	}
+	if !containsAll(pipCall.args, pdf2docxPins...) || !containsAll(pipCall.args, "--no-cache-dir", "--disable-pip-version-check") {
+		t.Fatalf("unexpected pinned package install: %v", pipCall.args)
 	}
 
 	manifest := readManifestForTest(t, filepath.Join(root, "manifest.json"))
@@ -533,6 +570,17 @@ func TestInstallSkipsAlreadyPresentComponents(t *testing.T) {
 	}
 	if installCalls != 1 {
 		t.Fatalf("expected one micromamba install call on the repair run, got %d", installCalls)
+	}
+
+	// The pdf2docx virtual environment is reused instead of reinstalled.
+	pipCalls := 0
+	for _, call := range runner.recordedCalls() {
+		if len(call.args) >= 3 && call.args[0] == "-m" && call.args[1] == "pip" && call.args[2] == "install" {
+			pipCalls++
+		}
+	}
+	if pipCalls != 1 {
+		t.Fatalf("expected the pdf2docx venv to be reused without Force, got %d pip installs", pipCalls)
 	}
 }
 
@@ -904,6 +952,78 @@ func TestMissingTessdataPDFAssetsIsNotReadyAndRepairs(t *testing.T) {
 	}
 }
 
+func TestPdf2DocxVenvIsOptionalAndRepairs(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	dataDir := t.TempDir()
+	runner := &fakeRunner{}
+	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, runner)
+
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	waitForTerminalEvent(t, events)
+	if !service.Status().Ready {
+		t.Fatal("expected the initial install to be ready")
+	}
+
+	root := filepath.Join(dataDir, ToolchainDirName)
+	venvDir := filepath.Join(root, "pdf2docx-venv")
+	if err := os.RemoveAll(venvDir); err != nil {
+		t.Fatalf("remove the pdf2docx venv: %v", err)
+	}
+
+	status := service.Status()
+	if !status.Ready {
+		t.Fatalf("an optional pdf2docx engine must not block readiness: %+v", status)
+	}
+	component := componentsByID(t, status)["pdf2docx"]
+	if component.Ready || component.Required {
+		t.Fatalf("expected an optional, not ready pdf2docx component: %+v", component)
+	}
+	if !strings.Contains(component.Detail, "Install / repair") {
+		t.Fatalf("expected a repair detail, got %+v", component)
+	}
+	if _, found := ManagedPDF2DOCXPath(dataDir); found {
+		t.Fatal("the managed pdf2docx binary must not be reported without the venv")
+	}
+	if _, found := ManagedPDF2DOCXPythonPath(dataDir); found {
+		t.Fatal("the managed pdf2docx interpreter must not be reported without the venv")
+	}
+
+	// An optional component alone must not trigger a background reinstall.
+	service.StartIfNeeded(context.Background())
+	time.Sleep(50 * time.Millisecond)
+	if service.Status().Installing {
+		t.Fatal("StartIfNeeded must not reinstall when only the optional pdf2docx venv is missing")
+	}
+
+	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	if !service.Status().Installing {
+		t.Fatal("expected the forced install to start")
+	}
+	waitForTerminalEvent(t, events)
+
+	status = service.Status()
+	if !status.Ready {
+		t.Fatalf("expected the repaired toolchain to be ready: %+v", status)
+	}
+	component = componentsByID(t, status)["pdf2docx"]
+	if !component.Ready || component.Path != filepath.Join(venvDir, "bin", "python") {
+		t.Fatalf("expected a ready pdf2docx component pointing at the venv interpreter: %+v", component)
+	}
+	for _, path := range []string{
+		filepath.Join(venvDir, "bin", "python"),
+		filepath.Join(venvDir, "bin", "pdf2docx"),
+	} {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			t.Fatalf("expected the restored venv file %s: %v", path, err)
+		}
+	}
+	if path, found := ManagedPDF2DOCXPath(dataDir); !found || path != filepath.Join(venvDir, "bin", "pdf2docx") {
+		t.Fatalf("unexpected managed pdf2docx path: %q %v", path, found)
+	}
+}
+
 func findRunnerCall(t *testing.T, calls []fakeRunnerCall, action string) fakeRunnerCall {
 	t.Helper()
 
@@ -913,6 +1033,30 @@ func findRunnerCall(t *testing.T, calls []fakeRunnerCall, action string) fakeRun
 		}
 	}
 	t.Fatalf("no micromamba %q call found in %+v", action, calls)
+
+	return fakeRunnerCall{}
+}
+
+func findRunnerCallStartingWith(t *testing.T, calls []fakeRunnerCall, prefix ...string) fakeRunnerCall {
+	t.Helper()
+
+	for _, call := range calls {
+		if len(call.args) < len(prefix) {
+			continue
+		}
+
+		matches := true
+		for index, value := range prefix {
+			if call.args[index] != value {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return call
+		}
+	}
+	t.Fatalf("no runner call starting with %v found in %+v", prefix, calls)
 
 	return fakeRunnerCall{}
 }

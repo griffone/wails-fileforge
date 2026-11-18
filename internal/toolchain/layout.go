@@ -13,6 +13,7 @@ import (
 //	whisper/              extracted prebuilt whisper.cpp release
 //	models/ggml-<model>.bin
 //	tessdata/eng.traineddata, spa.traineddata
+//	pdf2docx-venv/        dedicated venv for the PDF to DOCX engine
 //	manifest.json
 //
 // The helpers below are the single source of truth for those paths.
@@ -53,6 +54,23 @@ func ManagedModelPaths(dataDir string) []string {
 // ManagedTessdataDir returns the managed Tesseract language data folder.
 func ManagedTessdataDir(dataDir string) string {
 	return filepath.Join(ToolchainDir(dataDir), "tessdata")
+}
+
+// ManagedPDF2DOCXPythonPath returns the interpreter of the managed PDF to DOCX
+// virtual environment for the running OS. It is exported so the PDF to DOCX
+// engine runs with the exact package set installed by the toolchain.
+func ManagedPDF2DOCXPythonPath(dataDir string) (string, bool) {
+	path := pdf2docxVenvPythonPath(ToolchainDir(dataDir), runtime.GOOS)
+
+	return path, fileWithContent(path)
+}
+
+// ManagedPDF2DOCXPath returns the pdf2docx console script of the managed
+// virtual environment for the running OS.
+func ManagedPDF2DOCXPath(dataDir string) (string, bool) {
+	path := pdf2docxVenvBinaryPath(ToolchainDir(dataDir), runtime.GOOS)
+
+	return path, fileWithContent(path)
 }
 
 // tessdataPDFAssets lists the Tesseract data files required by the searchable
@@ -172,6 +190,43 @@ func tessdataDir(root string) string {
 
 func tessdataFilePath(root, language string) string {
 	return filepath.Join(tessdataDir(root), TessdataFileName(language))
+}
+
+// pdf2docxVenvDir returns the dedicated virtual environment that hosts the
+// pinned PDF to DOCX engine packages. Keeping it outside the conda prefix
+// prevents those pins from changing the shared toolchain environment.
+func pdf2docxVenvDir(root string) string {
+	return filepath.Join(root, "pdf2docx-venv")
+}
+
+// pdf2docxBasePythonPath returns the managed conda interpreter used to create
+// the PDF to DOCX virtual environment.
+func pdf2docxBasePythonPath(root, goos string) string {
+	if goos == "windows" {
+		return filepath.Join(envDir(root), "python.exe")
+	}
+
+	return filepath.Join(envDir(root), "bin", "python")
+}
+
+// pdf2docxVenvPythonPath returns the interpreter inside the PDF to DOCX virtual
+// environment.
+func pdf2docxVenvPythonPath(root, goos string) string {
+	if goos == "windows" {
+		return filepath.Join(pdf2docxVenvDir(root), "Scripts", "python.exe")
+	}
+
+	return filepath.Join(pdf2docxVenvDir(root), "bin", "python")
+}
+
+// pdf2docxVenvBinaryPath returns the pdf2docx console script inside the PDF to
+// DOCX virtual environment.
+func pdf2docxVenvBinaryPath(root, goos string) string {
+	if goos == "windows" {
+		return filepath.Join(pdf2docxVenvDir(root), "Scripts", "pdf2docx.exe")
+	}
+
+	return filepath.Join(pdf2docxVenvDir(root), "bin", "pdf2docx")
 }
 
 func manifestFilePath(root string) string {

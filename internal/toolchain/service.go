@@ -24,6 +24,7 @@ const (
 	PhaseWhisper     = "whisper"
 	PhaseModel       = "model"
 	PhaseTessdata    = "tessdata"
+	PhasePdf2Docx    = "pdf2docx"
 	PhaseFinalize    = "finalize"
 	PhaseReady       = "ready"
 	PhaseCancelled   = "cancelled"
@@ -40,11 +41,27 @@ const (
 	modelDownloadStartPercent      = 50
 	modelDownloadEndPercent        = 93
 	tessdataStartPercent           = 93
+	tessdataEndPercent             = 95
+	pdf2docxStartPercent           = 95
+	pdf2docxInstallPercent         = 96
+	pdf2docxEndPercent             = 99
 	readyPercent                   = 100
 
-	condaPackagesMessage = "Installing FFmpeg, Tesseract, Poppler and Ghostscript…"
+	condaPackagesMessage = "Installing FFmpeg, Tesseract, Poppler, Ghostscript and Python…"
 	versionProbeTimeout  = 1500 * time.Millisecond
 )
+
+// pdf2docxPins is the validated package set installed into the dedicated PDF to
+// DOCX virtual environment. These versions are tested together, so they are
+// pinned instead of resolved at install time.
+var pdf2docxPins = []string{
+	"numpy==1.26.4",
+	"opencv-python-headless==4.10.0.84",
+	"PyMuPDF==1.26.7",
+	"python-docx==1.1.2",
+	"fonttools==4.53.1",
+	"pdf2docx==0.5.13",
+}
 
 // Service owns the managed toolchain: status verification, environment
 // application and the cancelable install state machine. All state is guarded
@@ -420,6 +437,9 @@ func (s *Service) install(ctx context.Context, model string, languages []string,
 	if err := s.installTessdata(ctx, staging, languages, force); err != nil {
 		return err
 	}
+	if err := s.installPdf2Docx(ctx, force); err != nil {
+		return err
+	}
 
 	return s.finalize(model, languages)
 }
@@ -468,9 +488,13 @@ func (s *Service) installEnvironment(ctx context.Context, force bool) error {
 	prefix := envDir(s.root)
 	if force {
 		// A forced reinstall recreates the prefix so a corrupted environment is
-		// repaired from scratch instead of patched.
+		// repaired from scratch instead of patched. The PDF to DOCX virtual
+		// environment is derived from this prefix, so it is recreated too.
 		if err := os.RemoveAll(prefix); err != nil {
 			return fmt.Errorf("replace the conda environment: %w", err)
+		}
+		if err := os.RemoveAll(pdf2docxVenvDir(s.root)); err != nil {
+			return fmt.Errorf("replace the PDF to DOCX environment: %w", err)
 		}
 	}
 	action := "create"
@@ -485,7 +509,7 @@ func (s *Service) installEnvironment(ctx context.Context, force bool) error {
 		"-y",
 		"-p", prefix,
 		"-c", "conda-forge",
-		"ffmpeg", "tesseract", "poppler", "ghostscript",
+		"ffmpeg", "tesseract", "poppler", "ghostscript", "python=3.11", "pip",
 	}
 	environment := withEnvironment(os.Environ(), map[string]string{
 		"MAMBA_ROOT_PREFIX": mambaRootDir(s.root),
@@ -499,7 +523,7 @@ func (s *Service) installEnvironment(ctx context.Context, force bool) error {
 		return fmt.Errorf("micromamba %s failed: %w", action, err)
 	}
 
-	s.progress(PhaseEnvironment, environmentEndPercent, "FFmpeg, Tesseract, Poppler and Ghostscript installed.", false)
+	s.progress(PhaseEnvironment, environmentEndPercent, "FFmpeg, Tesseract, Poppler, Ghostscript and Python installed.", false)
 
 	return nil
 }
@@ -596,8 +620,8 @@ func (s *Service) installTessdata(ctx context.Context, staging string, languages
 			return err
 		}
 
-		startPercent := tessdataStartPercent + (index*(readyPercent-tessdataStartPercent))/len(languages)
-		endPercent := tessdataStartPercent + ((index+1)*(readyPercent-tessdataStartPercent))/len(languages)
+		startPercent := tessdataStartPercent + (index*(tessdataEndPercent-tessdataStartPercent))/len(languages)
+		endPercent := tessdataStartPercent + ((index+1)*(tessdataEndPercent-tessdataStartPercent))/len(languages)
 		message := fmt.Sprintf("Downloading Tesseract language data (%s)…", language)
 
 		target := tessdataFilePath(s.root, language)
@@ -653,7 +677,66 @@ func (s *Service) installTessdataPDFAssets(force bool) error {
 		}
 	}
 
-	s.progress(PhaseTessdata, readyPercent, "Tesseract PDF support is installed.", false)
+	s.progress(PhaseTessdata, tessdataEndPercent, "Tesseract PDF support is installed.", false)
+
+	return nil
+}
+
+// installPdf2Docx creates the dedicated virtual environment for the PDF to DOCX
+// engine and installs the pinned package set into it. The conda prefix only
+// contributes the base interpreter: installing these packages there would
+// upgrade shared libraries used by the rest of the toolchain.
+func (s *Service) installPdf2Docx(ctx context.Context, force bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	basePython := pdf2docxBasePythonPath(s.root, s.platform.OS)
+	if !fileWithContent(basePython) {
+		return fmt.Errorf("the managed Python is missing; reinstall the toolchain")
+	}
+
+	venv := pdf2docxVenvDir(s.root)
+	venvPython := pdf2docxVenvPythonPath(s.root, s.platform.OS)
+	venvBinary := pdf2docxVenvBinaryPath(s.root, s.platform.OS)
+	if !force && fileWithContent(venvPython) && fileWithContent(venvBinary) {
+		s.progress(PhasePdf2Docx, pdf2docxEndPercent, "The PDF to DOCX engine is already installed.", false)
+
+		return nil
+	}
+
+	if err := os.RemoveAll(venv); err != nil {
+		return fmt.Errorf("replace the PDF to DOCX environment: %w", err)
+	}
+
+	environment := withEnvironment(os.Environ(), map[string]string{
+		"PATH": prependPath(os.Getenv("PATH"), managedPathDirs(s.root, s.platform.OS), pathListSeparatorFor(s.platform.OS)),
+	})
+
+	s.progress(PhasePdf2Docx, pdf2docxStartPercent, "Creating the PDF to DOCX environment…", false)
+	if _, err := s.runner.Run(ctx, basePython, []string{"-m", "venv", venv}, environment); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		return fmt.Errorf("create the PDF to DOCX environment: %w", err)
+	}
+
+	s.progress(PhasePdf2Docx, pdf2docxInstallPercent, "Installing the PDF to DOCX engine…", false)
+	pipArgs := append([]string{"-m", "pip", "install", "--no-cache-dir", "--disable-pip-version-check"}, pdf2docxPins...)
+	if _, err := s.runner.Run(ctx, venvPython, pipArgs, environment); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		return fmt.Errorf("install the PDF to DOCX engine: %w", err)
+	}
+
+	if !fileWithContent(venvPython) || !fileWithContent(venvBinary) {
+		return fmt.Errorf("the PDF to DOCX engine did not install correctly: the virtual environment is incomplete")
+	}
+
+	s.progress(PhasePdf2Docx, pdf2docxEndPercent, "PDF to DOCX engine is ready.", false)
 
 	return nil
 }
@@ -906,7 +989,7 @@ var versionArgsByComponent = map[string][]string{
 }
 
 func (s *Service) buildComponents(model string, languages []string, probeVersions bool) []models.ToolchainComponentV1 {
-	components := make([]models.ToolchainComponentV1, 0, len(managedBinarySpecs)+5)
+	components := make([]models.ToolchainComponentV1, 0, len(managedBinarySpecs)+6)
 
 	micromamba := micromambaPath(s.root, s.platform)
 	micromambaComponent := models.ToolchainComponentV1{
@@ -990,6 +1073,27 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 		pdfAssetsComponent.Path = filepath.Join(tessdataDir(s.root), "pdf.ttf")
 	}
 	components = append(components, pdfAssetsComponent)
+
+	// The PDF to DOCX engine is optional: a missing virtual environment must not
+	// block the rest of the application.
+	venvPython := pdf2docxVenvPythonPath(s.root, s.platform.OS)
+	venvBinary := pdf2docxVenvBinaryPath(s.root, s.platform.OS)
+	pdf2docxReady := fileWithContent(venvPython) && fileWithContent(venvBinary)
+	pdf2docxDetail := "PDF to DOCX engine is not installed. Run Install / repair."
+	if pdf2docxReady {
+		pdf2docxDetail = "Local PDF to DOCX conversion engine"
+	}
+	pdf2docxComponent := models.ToolchainComponentV1{
+		ID:       "pdf2docx",
+		Label:    "PDF to DOCX engine",
+		Ready:    pdf2docxReady,
+		Required: false,
+		Detail:   pdf2docxDetail,
+	}
+	if pdf2docxReady {
+		pdf2docxComponent.Path = venvPython
+	}
+	components = append(components, pdf2docxComponent)
 
 	return components
 }
