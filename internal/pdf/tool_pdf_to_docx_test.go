@@ -348,7 +348,7 @@ func TestPDFToDOCXToolExecuteSingleWithProgress(t *testing.T) {
 	if len(item.Outputs) != 1 || item.Outputs[0] != expectedOutput || item.OutputCount != 1 {
 		t.Fatalf("unexpected outputs: %+v", item)
 	}
-	for _, fragment := range []string{"4 paragraphs", "2 bold runs", "1 images", "1 tables"} {
+	for _, fragment := range []string{"4 paragraphs", "2 bold runs", "1 image", "1 table"} {
 		if !strings.Contains(item.Message, fragment) {
 			t.Fatalf("expected %q in the message, got %q", fragment, item.Message)
 		}

@@ -108,6 +108,12 @@ The app installs its local tools under the current user's LocalAppData:
     Library\bin\pdftotext.exe
     Library\bin\gswin64c.exe
     Library\share\tessdata\
+    python.exe
+    Scripts\pip.exe
+  pdf2docx-venv\
+    Scripts\python.exe
+    Scripts\pdf2docx.exe
+    Lib\site-packages\pdf2docx\
   whisper\
     whisper-cli.exe
     ...DLLs
@@ -136,6 +142,14 @@ Notes:
   PDF; the installer and the toolchain readiness check now guarantee them.
 - The default Whisper model is medium (`ggml-medium.bin`, about 1.5 GB). Small
   and large-v3 can be installed from Settings → Tools & Models.
+- The PDF to DOCX engine uses the conda Python 3.11 only as its base
+  interpreter. pdf2docx and its dependencies live in the isolated
+  `pdf2docx-venv` (about 350 MB) with pinned versions; they are never installed
+  into the conda environment. The engine is optional: if it is missing, only
+  PDF to DOCX is degraded and Settings → Tools & Models can repair it.
+- pdf2docx is MIT-licensed; its PDF parser PyMuPDF is AGPL-3.0 (or a commercial
+  Artifex license). The dependency is downloaded into the user's toolchain at
+  install time, not embedded in the application binary.
 - The toolchain is per user. On a shared machine each Windows user downloads
   their own copy.
 
@@ -160,12 +174,13 @@ it from **Settings → Tools & Models → Install / repair**. The first install
 needs internet access and downloads:
 
 - micromamba
-- the conda environment with FFmpeg, Tesseract, Poppler and Ghostscript
+- the conda environment with FFmpeg, Tesseract, Poppler, Ghostscript and Python 3.11
+- the isolated pdf2docx venv
 - whisper.cpp and the default model
 - the Tesseract language data
 
-Expect roughly 2 GB of disk usage, mostly the medium Whisper model. After that,
-conversion and transcription run locally.
+Expect roughly 3 GB of disk usage, mostly the medium Whisper model and the
+Python environment. After that, conversion and transcription run locally.
 
 ## Uninstall and cleanup
 
@@ -191,6 +206,13 @@ The toolchain is large; deleting it is the way to reclaim the space.
 - **OCR fails with a merge error**: open Settings → Tools & Models and run
   Install / repair. The `tesseract-pdf` component checks `configs\pdf`,
   `configs\txt` and `pdf.ttf`.
+- **PDF to DOCX says the engine is not installed**: run Settings → Tools &
+  Models → Install / repair. The installer recreates `pdf2docx-venv` with the
+  pinned packages; check the network/proxy if the pip download fails. A failed
+  venv install does not block the rest of the app.
+- **PDF to DOCX output differs from the PDF**: text-based PDFs reconstruct
+  paragraphs, styles, images and tables. Scanned PDFs need PDF OCR first;
+  multi-column layouts, equations and forms may need manual cleanup.
 - **First-run downloads fail**: check the proxy/firewall. The downloads come
   from GitHub, conda-forge and Hugging Face. Re-run Install / repair.
 - **SmartScreen warns**: the installer is unsigned. For distribution, sign the

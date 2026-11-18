@@ -150,7 +150,7 @@ func (t *PDFToDOCXTool) Plan(_ context.Context, req models.JobRequestV1) (models
 	}
 
 	plan.Success = true
-	plan.Message = fmt.Sprintf("Ready to convert %d pages to DOCX.", pages)
+	plan.Message = fmt.Sprintf("Ready to convert %d %s to DOCX.", pages, pdfToDOCXPlural(pages, "page", "pages"))
 	plan.Outputs = []models.PlannedOutputV1{planned}
 
 	return plan, nil
@@ -348,11 +348,11 @@ func pdfToDOCXSuccessItem(planned models.PlannedOutputV1, result engine.PDFToDOC
 	}
 
 	message := fmt.Sprintf(
-		"DOCX created: %d paragraphs, %d bold runs, %d images, %d tables.",
-		result.Stats.Paragraphs,
-		result.Stats.BoldRuns,
-		result.Stats.Images,
-		result.Stats.Tables,
+		"DOCX created: %d %s, %d bold %s, %d %s, %d %s.",
+		result.Stats.Paragraphs, pdfToDOCXPlural(result.Stats.Paragraphs, "paragraph", "paragraphs"),
+		result.Stats.BoldRuns, pdfToDOCXPlural(result.Stats.BoldRuns, "run", "runs"),
+		result.Stats.Images, pdfToDOCXPlural(result.Stats.Images, "image", "images"),
+		result.Stats.Tables, pdfToDOCXPlural(result.Stats.Tables, "table", "tables"),
 	)
 	if result.Stats.TextCharacters == 0 {
 		message += " No text was found; the PDF may be scanned. Run PDF OCR first."
@@ -384,6 +384,14 @@ func pdfToDOCXPlannedOutputPath(plan models.PlanJobResponseV1) string {
 	}
 
 	return plan.Outputs[0].OutputPath
+}
+
+func pdfToDOCXPlural(count int, singular, plural string) string {
+	if count == 1 {
+		return singular
+	}
+
+	return plural
 }
 
 func pdfToDOCXRequestError(message string) *models.JobErrorV1 {
