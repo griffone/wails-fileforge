@@ -4,6 +4,8 @@ import { ImageConverter } from './components/image-converter/image-converter';
 import { ToolCatalog } from './components/tool-catalog/tool-catalog';
 import { ImageCrop } from './components/image-crop/image-crop';
 import { ImageAnnotate } from './components/image-annotate/image-annotate';
+import { ImageCompress } from './components/image-compress/image-compress';
+import { ImageWatermark } from './components/image-watermark/image-watermark';
 import { PdfMerge } from './components/pdf-merge/pdf-merge';
 import { PdfSplit } from './components/pdf-split/pdf-split';
 import { PdfCrop } from './components/pdf-crop/pdf-crop';
@@ -29,6 +31,8 @@ export const routes: Routes = [
   { path: 'automations', component: Automations },
   { path: 'image-crop', component: ImageCrop },
   { path: 'image-annotate', component: ImageAnnotate },
+  { path: 'image-compress', component: ImageCompress },
+  { path: 'image-watermark', component: ImageWatermark },
   { path: 'pdf-merge', component: PdfMerge },
   { path: 'pdf-split', component: PdfSplit },
   { path: 'pdf-crop', component: PdfCrop },

@@ -1,0 +1,423 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">IMAGE</p>
+        <h1 class="page-title">Image <em>Compress</em></h1>
+        <p class="page-sub">
+          Compress images to a target file size. The tool searches quality, uses
+          a palette for PNG and can downscale when the target needs it.
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon
+          [img]="shieldIcon"
+          [size]="12"
+          [strokeWidth]="2"
+          aria-hidden="true"
+        ></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    <div class="flow-grid">
+      <section
+        class="panel intake-panel"
+        aria-labelledby="compress-input-title"
+      >
+        <div class="panel-head">
+          <div>
+            <h2 id="compress-input-title" class="panel-title">Images</h2>
+            <p class="panel-sub">
+              Drop images or choose them from your computer.
+            </p>
+          </div>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+        </div>
+
+        <div class="panel-body">
+          <app-file-drop
+            accept="image/*"
+            title="Drop images here"
+            hint="PNG · JPG · WebP · GIF · BMP · TIFF"
+            ariaLabel="Drop or choose images to compress"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
+          <div
+            class="toolbar"
+            role="group"
+            aria-label="Image selection actions"
+          >
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              (click)="chooseFiles()"
+            >
+              <lucide-icon
+                [img]="folderIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              Choose files
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
+            >
+              <lucide-icon
+                [img]="closeIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              Clear
+            </button>
+          </div>
+
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span>{{ note.text }}</span>
+            </div>
+          }
+
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
+
+          @if (selectedPaths().length > 1) {
+            <p class="batch-note">
+              The same target and settings apply to every image.
+            </p>
+          }
+        </div>
+      </section>
+
+      <section
+        class="panel outcome-panel"
+        aria-labelledby="compress-output-title"
+      >
+        <div class="panel-head">
+          <div>
+            <h2 id="compress-output-title" class="panel-title">Output</h2>
+            <p class="panel-sub">
+              Set the target, then check where the files will go.
+            </p>
+          </div>
+          <span class="badge badge-neutral">{{ formatBadge() }}</span>
+        </div>
+
+        <div class="panel-body">
+          <div class="field">
+            <label class="label" for="compress-target">Target size (MB)</label>
+            <div class="target-row">
+              <input
+                id="compress-target"
+                class="input"
+                type="number"
+                min="0.1"
+                step="0.1"
+                inputmode="decimal"
+                aria-describedby="compress-target-help"
+                [value]="targetMb() ?? ''"
+                [attr.aria-invalid]="targetValid() ? null : 'true'"
+                (input)="onTargetInput($event)"
+              />
+              <span class="target-unit mono">MB</span>
+            </div>
+            @if (targetValid()) {
+              <p
+                id="compress-target-help"
+                class="field-help target-summary"
+                role="status"
+              >
+                {{ targetSummary() }}
+              </p>
+            } @else {
+              <p
+                id="compress-target-help"
+                class="field-help field-help-error"
+                role="alert"
+              >
+                Enter a target size greater than 0 MB.
+              </p>
+            }
+          </div>
+
+          <div class="field">
+            <label class="label" for="compress-format">Format</label>
+            <select
+              id="compress-format"
+              class="select"
+              [value]="format()"
+              (change)="onFormatChange($event)"
+            >
+              @for (option of formatOptions; track option.value) {
+                <option [value]="option.value">{{ option.label }}</option>
+              }
+            </select>
+            @if (format() === "auto") {
+              <p class="field-help">
+                Keeps JPEG, WebP and PNG. Other sources become JPEG, or PNG when
+                they have transparency.
+              </p>
+            } @else if (format() === "png") {
+              <p class="field-help">
+                PNG is lossless; the tool quantises the palette to reach the
+                target.
+              </p>
+            } @else {
+              <p class="field-help">
+                Every image is encoded as {{ formatBadge() }}.
+              </p>
+            }
+          </div>
+
+          <div class="field">
+            <span class="label">Downscaling</span>
+            <label class="check-row" for="compress-downscale">
+              <input
+                id="compress-downscale"
+                type="checkbox"
+                [checked]="allowDownscale()"
+                (change)="onAllowDownscaleToggle($event)"
+              />
+              Allow downscaling to reach the target
+            </label>
+            <p class="field-help">
+              Reduces the longest edge in steps when quality alone can't hit the
+              target. Never enlarges.
+            </p>
+          </div>
+
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                (click)="useOriginalFolders()"
+              >
+                Use original folders
+              </button>
+            </div>
+          }
+
+          <details
+            class="advanced"
+            [open]="advancedOpen()"
+            (toggle)="onAdvancedToggle($event)"
+          >
+            <summary class="advanced-summary">
+              <span class="advanced-title">Advanced</span>
+              <span class="advanced-hint"
+                >Dimension limit, quality ceiling and metadata</span
+              >
+            </summary>
+
+            <div class="advanced-body">
+              <div class="advanced-grid">
+                <div class="field">
+                  <label class="label" for="compress-max-dimension"
+                    >Max dimension (px)</label
+                  >
+                  <input
+                    id="compress-max-dimension"
+                    class="input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="Original size"
+                    [value]="maxDimension() ?? ''"
+                    (input)="onMaxDimensionInput($event)"
+                  />
+                  <p class="field-help">
+                    Caps the longest edge before compression. Leave empty to
+                    keep the original.
+                  </p>
+                </div>
+
+                <div class="field">
+                  <label class="label" for="compress-quality"
+                    >Quality ceiling</label
+                  >
+                  <input
+                    id="compress-quality"
+                    class="input"
+                    type="number"
+                    min="40"
+                    max="100"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="Encoder default"
+                    [value]="quality() ?? ''"
+                    (input)="onQualityInput($event)"
+                  />
+                  <p class="field-help">
+                    40–100. Caps the encoder search; PNG ignores it and
+                    quantises instead.
+                  </p>
+                </div>
+
+                <div class="field">
+                  <span class="label">Metadata</span>
+                  <label class="check-row" for="compress-strip-metadata">
+                    <input
+                      id="compress-strip-metadata"
+                      type="checkbox"
+                      [checked]="stripMetadata()"
+                      (change)="onStripMetadataToggle($event)"
+                    />
+                    Strip metadata
+                  </label>
+                  <p class="field-help">
+                    Removes EXIF, GPS and color profiles unless keeping them is
+                    the only way to reach the target.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm advanced-reset"
+                (click)="resetAdvanced()"
+              >
+                <lucide-icon
+                  [img]="resetIcon"
+                  [size]="14"
+                  [strokeWidth]="1.75"
+                  aria-hidden="true"
+                ></lucide-icon>
+                Reset advanced settings
+              </button>
+            </div>
+          </details>
+
+          <div class="banner banner-info target-note">
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <div class="banner-copy">
+              <strong>Targets are best effort</strong>
+              <span
+                >When an image can't reach the target, the tool stops at the
+                smallest result it can produce and reports the actual
+                size.</span
+              >
+            </div>
+          </div>
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (actionHelper(); as helper) {
+            <p class="action-helper" role="status">{{ helper }}</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">
+                Cancel
+              </button>
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Compression progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      @if (savingsSummary(); as savings) {
+        <p class="savings-summary" role="status">{{ savings }}</p>
+      }
+
+      @if (targetOutcome(); as outcome) {
+        <p class="target-outcome" role="status">{{ outcome }}</p>
+      }
+
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="image"
+        verbPast="compressed"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
+  </div>
+</div>

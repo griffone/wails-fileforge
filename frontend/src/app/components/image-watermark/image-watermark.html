@@ -1,0 +1,754 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">IMAGE</p>
+        <h1 class="page-title">Image <em>Watermark</em></h1>
+        <p class="page-sub">
+          Add a text or logo watermark to a batch of images. Pick one of nine
+          anchors and check the placement before running.
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon
+          [img]="shieldIcon"
+          [size]="12"
+          [strokeWidth]="2"
+          aria-hidden="true"
+        ></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    <div class="flow-grid">
+      <div class="flow-column">
+        <section class="panel intake-panel" aria-labelledby="wm-input-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="wm-input-title" class="panel-title">Images</h2>
+              <p class="panel-sub">
+                Drop images or choose them from your computer.
+              </p>
+            </div>
+            <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+          </div>
+
+          <div class="panel-body">
+            <app-file-drop
+              accept="image/*"
+              title="Drop images here"
+              hint="PNG · JPG · WebP · GIF · BMP · TIFF"
+              ariaLabel="Drop or choose images to watermark"
+              [nativePicker]="true"
+              (pathsSelected)="onPathsSelected($event)"
+              (browseRequested)="chooseFiles()"
+            ></app-file-drop>
+
+            <div
+              class="toolbar"
+              role="group"
+              aria-label="Image selection actions"
+            >
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                (click)="chooseFiles()"
+              >
+                <lucide-icon
+                  [img]="folderIcon"
+                  [size]="14"
+                  [strokeWidth]="1.75"
+                  aria-hidden="true"
+                ></lucide-icon>
+                Choose files
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm toolbar-end"
+                [disabled]="selectedPaths().length === 0"
+                (click)="clear()"
+              >
+                <lucide-icon
+                  [img]="closeIcon"
+                  [size]="14"
+                  [strokeWidth]="1.75"
+                  aria-hidden="true"
+                ></lucide-icon>
+                Clear
+              </button>
+            </div>
+
+            @if (notice(); as note) {
+              <div
+                class="banner error-banner"
+                [class.banner-warning]="note.tone === 'warning'"
+                [class.banner-danger]="note.tone === 'danger'"
+                role="alert"
+              >
+                <lucide-icon
+                  [img]="alertIcon"
+                  [size]="16"
+                  [strokeWidth]="1.75"
+                  aria-hidden="true"
+                ></lucide-icon>
+                <span>{{ note.text }}</span>
+              </div>
+            }
+
+            @if (fileItems().length > 0) {
+              <app-file-queue
+                [items]="fileItems()"
+                (remove)="removeFile($event)"
+              ></app-file-queue>
+            }
+
+            @if (isBatch()) {
+              <p class="batch-note">
+                The same watermark applies to every image.
+              </p>
+            }
+          </div>
+        </section>
+
+        <section class="panel preview-panel" aria-labelledby="wm-preview-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="wm-preview-title" class="panel-title">Preview</h2>
+              <p class="panel-sub">
+                The first selected image with the current placement.
+              </p>
+            </div>
+            @if (tilePreview()) {
+              <span class="badge badge-warning">Approximate</span>
+            }
+          </div>
+
+          <div class="panel-body">
+            @if (hasPreview()) {
+              <figure class="preview-block">
+                <div class="preview-frame">
+                  <div class="preview-canvas">
+                    <img
+                      [src]="previewUrl()"
+                      alt="First image with the watermark preview"
+                      class="preview-image"
+                      draggable="false"
+                      (error)="onPreviewImageError()"
+                    />
+
+                    <svg
+                      class="wm-overlay"
+                      [attr.viewBox]="
+                        '0 0 ' + imageWidth() + ' ' + imageHeight()
+                      "
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      @if (tilePreview(); as tile) {
+                        <defs>
+                          <pattern
+                            [attr.id]="tilePatternId"
+                            [attr.width]="tile.width"
+                            [attr.height]="tile.height"
+                            patternUnits="userSpaceOnUse"
+                            [attr.patternTransform]="
+                              'rotate(' + tile.rotation + ')'
+                            "
+                          >
+                            @for (line of tile.lines; track $index) {
+                              <text
+                                [attr.x]="tile.padding"
+                                [attr.y]="line.y"
+                                [attr.font-size]="tile.fontSize"
+                                [attr.font-weight]="bold() ? 700 : 400"
+                                [attr.fill]="color()"
+                                [textContent]="line.text || ' '"
+                              ></text>
+                            }
+                          </pattern>
+                        </defs>
+                        <rect
+                          x="0"
+                          y="0"
+                          [attr.width]="imageWidth()"
+                          [attr.height]="imageHeight()"
+                          [attr.fill]="'url(#' + tilePatternId + ')'"
+                          [attr.opacity]="opacity()"
+                        ></rect>
+                      } @else if (textPreview(); as text) {
+                        <g
+                          [attr.opacity]="opacity()"
+                          [attr.fill]="color()"
+                          [attr.font-weight]="text.fontWeight"
+                          [attr.text-anchor]="text.anchor"
+                        >
+                          @for (line of text.lines; track $index) {
+                            <text
+                              [attr.x]="text.x"
+                              [attr.y]="line.y"
+                              [attr.font-size]="text.fontSize"
+                              [textContent]="line.text || ' '"
+                            ></text>
+                          }
+                        </g>
+                      } @else if (logoPreview(); as logo) {
+                        <image
+                          [attr.x]="logo.x"
+                          [attr.y]="logo.y"
+                          [attr.width]="logo.width"
+                          [attr.height]="logo.height"
+                          [attr.href]="logo.href"
+                          [attr.opacity]="opacity()"
+                          preserveAspectRatio="xMidYMid meet"
+                          (error)="onLogoPreviewError()"
+                        ></image>
+                      }
+                    </svg>
+                  </div>
+                </div>
+
+                <figcaption class="preview-caption">
+                  {{ previewDescription() }}
+                </figcaption>
+
+                @if (tilePreview()) {
+                  <p class="preview-note">
+                    Tiled preview is approximate. The output repeats the text on
+                    a rotated grid using the bundled font.
+                  </p>
+                } @else if (kind() === "logo") {
+                  <p class="preview-note">
+                    Logo preview uses a thumbnail. The output scales the
+                    original logo to the same width.
+                  </p>
+                } @else {
+                  <p class="preview-note">
+                    Preview is approximate; the output auto-fits the text and
+                    uses the bundled font.
+                  </p>
+                }
+              </figure>
+            } @else {
+              <div class="empty-state preview-empty">
+                <lucide-icon
+                  [img]="imageIcon"
+                  [size]="22"
+                  [strokeWidth]="1.5"
+                  aria-hidden="true"
+                ></lucide-icon>
+                <strong>
+                  {{
+                    previewLoading()
+                      ? "Loading preview…"
+                      : hasSelection()
+                        ? "Preview unavailable"
+                        : "No image to watermark yet"
+                  }}
+                </strong>
+                <span>
+                  {{
+                    previewLoading()
+                      ? "Reading the first image from disk."
+                      : previewError() ||
+                        "Add an image above to see the watermark placement."
+                  }}
+                </span>
+              </div>
+            }
+          </div>
+        </section>
+      </div>
+
+      <div class="flow-column">
+        <section
+          class="panel settings-panel"
+          aria-labelledby="wm-settings-title"
+        >
+          <div class="panel-head">
+            <div>
+              <h2 id="wm-settings-title" class="panel-title">Watermark</h2>
+              <p class="panel-sub">
+                Choose the content, placement and visibility.
+              </p>
+            </div>
+            <span class="badge badge-neutral">{{ kindLabel() }}</span>
+          </div>
+
+          <div class="panel-body">
+            <div class="field">
+              <span class="label">Type</span>
+              <div class="segmented" role="group" aria-label="Watermark type">
+                <button
+                  type="button"
+                  class="chip"
+                  [attr.aria-pressed]="kind() === 'text'"
+                  (click)="setKind('text')"
+                >
+                  Text
+                </button>
+                <button
+                  type="button"
+                  class="chip"
+                  [attr.aria-pressed]="kind() === 'logo'"
+                  [disabled]="tile()"
+                  [attr.title]="
+                    tile() ? 'Untick tiling to use a logo' : 'Logo watermark'
+                  "
+                  (click)="setKind('logo')"
+                >
+                  Logo
+                </button>
+              </div>
+            </div>
+
+            @if (kind() === "text") {
+              <div class="field">
+                <label class="label" for="wm-text">Text</label>
+                <textarea
+                  id="wm-text"
+                  class="textarea"
+                  rows="2"
+                  aria-describedby="wm-text-help"
+                  [value]="text()"
+                  (input)="onTextInput($event)"
+                ></textarea>
+                <p id="wm-text-help" class="field-help">
+                  Line breaks are preserved. {{ textLimitLabel() }}, up to 10
+                  lines.
+                </p>
+              </div>
+
+              <div class="inline-fields">
+                <div class="field">
+                  <label class="label" for="wm-color">Color</label>
+                  <div class="color-row">
+                    <input
+                      id="wm-color"
+                      class="color-input"
+                      type="color"
+                      aria-label="Watermark color"
+                      [value]="color()"
+                      (input)="onColorInput($event)"
+                    />
+                    <span class="color-value mono">{{ color() }}</span>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <span class="label">Weight</span>
+                  <label class="check-row" for="wm-bold">
+                    <input
+                      id="wm-bold"
+                      type="checkbox"
+                      [checked]="bold()"
+                      (change)="onBoldToggle($event)"
+                    />
+                    Bold text
+                  </label>
+                </div>
+              </div>
+            } @else {
+              <div class="field">
+                <span class="label">Logo</span>
+                <div class="logo-picker">
+                  <span class="logo-thumb" aria-hidden="true">
+                    @if (logoThumbnailUrl()) {
+                      <img [src]="logoThumbnailUrl()" alt="" />
+                    } @else {
+                      <lucide-icon
+                        [img]="uploadIcon"
+                        [size]="18"
+                        [strokeWidth]="1.6"
+                      ></lucide-icon>
+                    }
+                  </span>
+                  <span class="logo-copy">
+                    <span class="logo-name mono" [title]="logoPath()">
+                      {{
+                        logoPath() ? fileName(logoPath()) : "No logo selected"
+                      }}
+                    </span>
+                    <span
+                      class="field-help"
+                      [class.field-help-error]="logoError().length > 0"
+                    >
+                      {{
+                        logoError() ||
+                          (logoLoading()
+                            ? "Loading thumbnail…"
+                            : "PNG, JPEG or WebP.")
+                      }}
+                    </span>
+                  </span>
+                  <span class="logo-actions">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      (click)="chooseLogo()"
+                    >
+                      Choose logo
+                    </button>
+                    @if (logoPath()) {
+                      <button
+                        type="button"
+                        class="icon-btn"
+                        aria-label="Remove logo"
+                        title="Remove logo"
+                        (click)="removeLogo()"
+                      >
+                        <lucide-icon
+                          [img]="closeIcon"
+                          [size]="15"
+                          [strokeWidth]="1.75"
+                          aria-hidden="true"
+                        ></lucide-icon>
+                      </button>
+                    }
+                  </span>
+                </div>
+              </div>
+            }
+
+            <div class="field">
+              <span class="label" id="wm-anchor-label">Anchor</span>
+              <div class="anchor-row">
+                <div
+                  class="anchor-grid"
+                  role="group"
+                  aria-labelledby="wm-anchor-label"
+                >
+                  @for (option of anchors; track option.id) {
+                    <button
+                      type="button"
+                      class="anchor-button"
+                      [attr.aria-pressed]="isActiveAnchor(option.id)"
+                      [attr.aria-label]="'Anchor: ' + option.label"
+                      [attr.title]="option.label"
+                      (click)="setAnchor(option.id)"
+                    >
+                      <span
+                        class="anchor-dot"
+                        [style.justify-content]="justifyFor(option.ax)"
+                        [style.align-items]="alignFor(option.ay)"
+                      ></span>
+                    </button>
+                  }
+                </div>
+                <span class="anchor-value">{{ activeAnchor().label }}</span>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="wm-margin"
+                >Margin (% of short edge)</label
+              >
+              <div class="range-row">
+                <input
+                  id="wm-margin-range"
+                  class="range"
+                  type="range"
+                  min="2"
+                  max="5"
+                  step="0.5"
+                  aria-label="Margin percent"
+                  [value]="marginPercent()"
+                  (input)="onMarginInput($event)"
+                />
+                <input
+                  id="wm-margin"
+                  class="input range-number"
+                  type="number"
+                  min="2"
+                  max="5"
+                  step="0.5"
+                  inputmode="decimal"
+                  [value]="marginPercent()"
+                  (input)="onMarginInput($event)"
+                />
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="wm-scale">
+                {{
+                  kind() === "logo"
+                    ? "Scale (% of image width)"
+                    : "Scale (% of short edge)"
+                }}
+              </label>
+              <div class="range-row">
+                <input
+                  id="wm-scale-range"
+                  class="range"
+                  type="range"
+                  [min]="scaleRange().min"
+                  [max]="scaleRange().max"
+                  [step]="scaleRange().step"
+                  aria-label="Watermark scale percent"
+                  [value]="scalePercent()"
+                  (input)="onScaleInput($event)"
+                />
+                <input
+                  id="wm-scale"
+                  class="input range-number"
+                  type="number"
+                  [min]="scaleRange().min"
+                  [max]="scaleRange().max"
+                  [step]="scaleRange().step"
+                  inputmode="decimal"
+                  [value]="scalePercent()"
+                  (input)="onScaleInput($event)"
+                />
+              </div>
+              <p class="field-help">
+                {{
+                  kind() === "logo"
+                    ? "Logo width relative to the image."
+                    : "Font size relative to the shorter image edge."
+                }}
+              </p>
+            </div>
+
+            <div class="field">
+              <label class="label" for="wm-opacity">Opacity (0.05–1)</label>
+              <div class="range-row">
+                <input
+                  id="wm-opacity-range"
+                  class="range"
+                  type="range"
+                  min="0.05"
+                  max="1"
+                  step="0.05"
+                  aria-label="Opacity"
+                  [value]="opacity()"
+                  (input)="onOpacityInput($event)"
+                />
+                <input
+                  id="wm-opacity"
+                  class="input range-number"
+                  type="number"
+                  min="0.05"
+                  max="1"
+                  step="0.05"
+                  inputmode="decimal"
+                  [value]="opacity()"
+                  (input)="onOpacityInput($event)"
+                />
+              </div>
+            </div>
+
+            @if (kind() === "text") {
+              <div class="field">
+                <span class="label">Tiling</span>
+                <label class="check-row" for="wm-tile">
+                  <input
+                    id="wm-tile"
+                    type="checkbox"
+                    [checked]="tile()"
+                    (change)="onTileToggle($event)"
+                  />
+                  Repeat the text across the image
+                </label>
+                <p class="field-help">
+                  Tiling applies to text watermarks only; it replaces the single
+                  anchored placement.
+                </p>
+              </div>
+
+              @if (tile()) {
+                <div class="field">
+                  <label class="label" for="wm-rotation"
+                    >Rotation (-90° to 90°)</label
+                  >
+                  <div class="range-row">
+                    <input
+                      id="wm-rotation-range"
+                      class="range"
+                      type="range"
+                      min="-90"
+                      max="90"
+                      step="1"
+                      aria-label="Tile rotation degrees"
+                      [value]="rotationDegrees()"
+                      (input)="onRotationInput($event)"
+                    />
+                    <input
+                      id="wm-rotation"
+                      class="input range-number"
+                      type="number"
+                      min="-90"
+                      max="90"
+                      step="1"
+                      inputmode="numeric"
+                      [value]="rotationDegrees()"
+                      (input)="onRotationInput($event)"
+                    />
+                  </div>
+                </div>
+              }
+            }
+          </div>
+        </section>
+
+        <section class="panel outcome-panel" aria-labelledby="wm-output-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="wm-output-title" class="panel-title">Output</h2>
+              <p class="panel-sub">
+                Check where the watermarked images will go.
+              </p>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <details
+              class="advanced"
+              [open]="advancedOpen()"
+              (toggle)="onAdvancedToggle($event)"
+            >
+              <summary class="advanced-summary">
+                <span class="advanced-title">Advanced</span>
+                <span class="advanced-hint">Format and quality</span>
+              </summary>
+
+              <div class="advanced-body">
+                <div class="advanced-grid">
+                  <div class="field">
+                    <label class="label" for="wm-format">Format</label>
+                    <select
+                      id="wm-format"
+                      class="select"
+                      [value]="format()"
+                      (change)="onFormatChange($event)"
+                    >
+                      @for (option of formatOptions; track option.value) {
+                        <option [value]="option.value">
+                          {{ option.label }}
+                        </option>
+                      }
+                    </select>
+                    <p class="field-help">
+                      Auto keeps JPEG, PNG and WebP. Other sources become JPEG,
+                      or PNG when they have transparency.
+                    </p>
+                  </div>
+
+                  <div class="field">
+                    <label class="label" for="wm-quality">Quality</label>
+                    <input
+                      id="wm-quality"
+                      class="input"
+                      type="number"
+                      min="40"
+                      max="100"
+                      step="1"
+                      inputmode="numeric"
+                      [value]="quality()"
+                      (input)="onQualityInput($event)"
+                    />
+                    <p class="field-help">
+                      40–100. Applies to JPEG and WebP; PNG is lossless.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <app-output-plan-card
+              [plan]="plan()"
+              [loading]="planLoading()"
+              [destinationLabel]="destinationLabel()"
+              [isDefaultDestination]="isDefaultDestination()"
+              (changeDestination)="chooseOutputFolder()"
+            ></app-output-plan-card>
+
+            @if (!isDefaultDestination()) {
+              <div class="destination-actions">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  (click)="useOriginalFolders()"
+                >
+                  Use original folders
+                </button>
+              </div>
+            }
+
+            @if (jobErrorCopy(); as error) {
+              <div class="banner banner-danger error-banner" role="alert">
+                <lucide-icon
+                  [img]="alertIcon"
+                  [size]="16"
+                  [strokeWidth]="1.75"
+                  aria-hidden="true"
+                ></lucide-icon>
+                <div class="banner-copy">
+                  <strong>{{ error.title }}</strong>
+                  <span>{{ error.description }}</span>
+                </div>
+              </div>
+            }
+
+            @if (actionMessage(); as message) {
+              <div class="banner banner-warning error-banner" role="alert">
+                <lucide-icon
+                  [img]="alertIcon"
+                  [size]="16"
+                  [strokeWidth]="1.75"
+                  aria-hidden="true"
+                ></lucide-icon>
+                <span>{{ message }}</span>
+              </div>
+            }
+
+            @if (actionHelper(); as helper) {
+              <p class="action-helper" role="status">{{ helper }}</p>
+            }
+
+            <div class="action-row">
+              <button
+                type="button"
+                class="btn btn-primary btn-lg action-primary"
+                [disabled]="!canRun()"
+                (click)="run()"
+              >
+                {{ primaryLabel() }}
+              </button>
+
+              @if (isPolling()) {
+                <button type="button" class="btn btn-ghost" (click)="cancel()">
+                  Cancel
+                </button>
+              }
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Watermark progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="image"
+        verbPast="watermarked"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
+  </div>
+</div>

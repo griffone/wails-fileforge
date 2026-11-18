@@ -12,9 +12,11 @@ import {
   Image as ImageIcon,
   Layers,
   LayoutGrid,
+  Minimize2,
   PenTool,
   ScanText,
   Scissors,
+  Stamp,
   Settings2,
   Timer,
   Video,
@@ -112,7 +114,7 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
-/** The sixteen conversion tools. Ids mirror the backend toolId contract. */
+/** The eighteen conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -146,6 +148,47 @@ export const TOOLS: readonly ToolDefinition[] = [
     icon: PenTool,
     formats: ['PNG', 'JPG', 'WebP'],
     keywords: ['image', 'annotate', 'text', 'arrow', 'box', 'blur', 'redact', 'markup'],
+  },
+  {
+    id: 'tool.image.compress',
+    name: 'Image Compress',
+    navName: 'Compress',
+    description: 'Compress images to a target file size with optional downscaling.',
+    route: '/image-compress',
+    category: 'image',
+    icon: Minimize2,
+    formats: ['PNG', 'JPG', 'WebP'],
+    keywords: [
+      'image',
+      'compress',
+      'target size',
+      'size limit',
+      'shrink',
+      'smaller',
+      'downscale',
+      'optimize',
+    ],
+  },
+  {
+    id: 'tool.image.watermark',
+    name: 'Image Watermark',
+    navName: 'Watermark',
+    description: 'Watermark images with text or a logo at nine anchors, with opacity and tiling.',
+    route: '/image-watermark',
+    category: 'image',
+    icon: Stamp,
+    formats: ['PNG', 'JPG', 'WebP'],
+    keywords: [
+      'image',
+      'watermark',
+      'text watermark',
+      'logo',
+      'anchor',
+      'opacity',
+      'tile',
+      'tiled',
+      'brand',
+    ],
   },
   {
     id: 'tool.pdf.merge',
@@ -310,7 +353,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 20-entry navigation model. */
+/** Home, every tool, then System Status, Automations and Settings: the full 22-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,

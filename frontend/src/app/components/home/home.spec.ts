@@ -256,7 +256,7 @@ describe('Home', () => {
   it('renders every workbench tool by default', () => {
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(16);
+    expect(cardNames().length).toBe(18);
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -274,7 +274,14 @@ describe('Home', () => {
     filterChip('Image').click();
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(3);
+    expect(cardNames().length).toBe(5);
+    expect(cardNames()).toEqual([
+      'Image Convert',
+      'Image Crop',
+      'Image Annotate',
+      'Image Compress',
+      'Image Watermark',
+    ]);
     expect(filterChip('Image').getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -336,7 +343,7 @@ describe('Home', () => {
     (fixture.nativeElement.querySelector('.empty-state-action') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(16);
+    expect(cardNames().length).toBe(18);
     expect(searchInput().value).toBe('');
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
@@ -395,7 +402,7 @@ describe('Home', () => {
     expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
       'Outcomes, not one tool at a time.',
     );
-    expect(cardNames().length).toBe(16);
+    expect(cardNames().length).toBe(18);
   });
 
   it('hides recipes while a search query is active', () => {
@@ -429,7 +436,7 @@ describe('Home', () => {
     expect(section?.querySelector('a')?.getAttribute('href')).toBe(
       '/automations',
     );
-    expect(cardNames().length).toBe(16);
+    expect(cardNames().length).toBe(18);
   });
 
   it('hides the folder-rule card when there are no rules', async () => {

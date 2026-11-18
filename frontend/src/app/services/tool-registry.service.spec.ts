@@ -11,12 +11,12 @@ describe('ToolRegistryService', () => {
     service = TestBed.inject(ToolRegistryService);
   });
 
-  it('exposes the sixteen conversion tools', () => {
-    expect(service.tools.length).toBe(16);
+  it('exposes the eighteen conversion tools', () => {
+    expect(service.tools.length).toBe(18);
   });
 
-  it('exposes twenty navigation entries', () => {
-    expect(service.navigation.length).toBe(20);
+  it('exposes twenty-two navigation entries', () => {
+    expect(service.navigation.length).toBe(22);
     expect(service.navigation[0].route).toBe('/');
     expect(service.navigation[service.navigation.length - 2].route).toBe(
       '/automations',
@@ -91,6 +91,9 @@ describe('ToolRegistryService', () => {
       'Video',
       'System',
     ]);
+    expect(
+      service.navGroups.find((group) => group.id === 'image')?.items.length,
+    ).toBe(5);
     expect(
       service.navGroups.find((group) => group.id === 'pdf')?.items.length,
     ).toBe(7);
