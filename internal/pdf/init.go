@@ -9,4 +9,5 @@ func init() {
 	registry.GetGlobalRegistry().SafeRegisterToolV2(NewOptimizeTool())
 	registry.GetGlobalRegistry().SafeRegisterToolV2(NewOCRTool())
 	registry.GetGlobalRegistry().SafeRegisterToolV2(NewImagesToPDFTool())
+	registry.GetGlobalRegistry().SafeRegisterToolV2(NewPDFToDOCXTool())
 }
