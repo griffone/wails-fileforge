@@ -2,12 +2,12 @@ package image
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"fileforge-desktop/internal/models"
@@ -18,7 +18,9 @@ import (
 
 const ToolIDImageCompressV1 = "tool.image.compress"
 
-const compressCapability = "image.compress"
+const compressAnimatedWarning = "animated input: only the first frame is compressed"
+
+const compressPNGQualityWarning = "quality applies to JPEG and WebP; PNG uses palette quantisation"
 
 type CompressTool struct{}
 
@@ -64,7 +66,7 @@ func (t *CompressTool) ID() string {
 }
 
 func (t *CompressTool) Capability() string {
-	return compressCapability
+	return ToolIDImageCompressV1
 }
 
 func (t *CompressTool) Manifest() models.ToolManifestV1 {
@@ -74,7 +76,7 @@ func (t *CompressTool) Manifest() models.ToolManifestV1 {
 		Description:      "Compress images to a target file size with quality search and optional downscaling",
 		Domain:           "image",
 		Capability:       t.Capability(),
-		Version:          "1.0.0",
+		Version:          "v1",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  append([]string(nil), imageInputExtensions...),
@@ -110,11 +112,21 @@ func planParsedCompressRequest(parsed compressRequest) (models.PlanJobResponseV1
 	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
 
 	formats := make([]string, 0, len(parsed.inputPaths))
+	inputWarnings := make([]string, 0)
 	for _, inputPath := range parsed.inputPaths {
 		if inputErr := validateCompressInputPath(inputPath); inputErr != nil {
 			return planFailure(plan, inputErr)
 		}
 		formats = append(formats, resolveCompressOutputFormat(inputPath, parsed.format))
+
+		if compressInputFrameCount(inputPath) > 1 {
+			inputWarnings = append(inputWarnings, fmt.Sprintf("%s: %s", filepath.Base(inputPath), compressAnimatedWarning))
+		}
+	}
+
+	optionWarnings := make([]string, 0, 1)
+	if parsed.quality > 0 && compressFormatsUsePNG(formats) {
+		optionWarnings = append(optionWarnings, compressPNGQualityWarning)
 	}
 
 	// Reserve every input path so an auto-derived output can never overwrite a
@@ -136,7 +148,8 @@ func planParsedCompressRequest(parsed compressRequest) (models.PlanJobResponseV1
 		plan.Success = true
 		plan.Message = compressPlanMessage(1)
 		plan.Outputs = []models.PlannedOutputV1{planned}
-		plan.Warnings = planned.Warnings
+		plan.Warnings = append(append([]string{}, planned.Warnings...), inputWarnings...)
+		plan.Warnings = append(plan.Warnings, optionWarnings...)
 		plan.EffectiveOptions = compressEffectiveOptions(parsed, formats)
 
 		return plan, nil
@@ -164,7 +177,8 @@ func planParsedCompressRequest(parsed compressRequest) (models.PlanJobResponseV1
 	plan.Success = true
 	plan.Message = compressPlanMessage(len(outputs))
 	plan.Outputs = outputs
-	plan.Warnings = warnings
+	plan.Warnings = append(warnings, inputWarnings...)
+	plan.Warnings = append(plan.Warnings, optionWarnings...)
 	plan.EffectiveOptions = compressEffectiveOptions(parsed, formats)
 
 	return plan, nil
@@ -194,12 +208,7 @@ func (t *CompressTool) ExecuteSingleWithProgress(ctx context.Context, req models
 
 	execution, execErr := executeCompressToPath(ctx, prepared)
 	if execErr != nil {
-		if ctx.Err() != nil {
-			cancelErr := compressCancelledError(ctx)
-			return imageFailureItem(prepared.inputPath, prepared.outputPath, cancelErr), cancelErr
-		}
-
-		jobErr := models.NewCanonicalJobError("IMAGE_COMPRESS_EXECUTION", execErr.Error(), map[string]any{"inputPath": prepared.inputPath})
+		jobErr, _ := compressExecutionError(ctx, "IMAGE_COMPRESS_EXECUTION", prepared.inputPath, execErr)
 		return imageFailureItem(prepared.inputPath, prepared.outputPath, jobErr), jobErr
 	}
 
@@ -240,7 +249,13 @@ func (t *CompressTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 		prepared := preparedCompressFromPlan(planned, plan.EffectiveOptions)
 		execution, execErr := executeCompressToPath(ctx, prepared)
 		if execErr != nil {
-			itemErr := models.NewCanonicalJobError("IMAGE_COMPRESS_BATCH_ITEM", execErr.Error(), map[string]any{"inputPath": prepared.inputPath})
+			itemErr, cancelled := compressExecutionError(ctx, "IMAGE_COMPRESS_BATCH_ITEM", prepared.inputPath, execErr)
+			if cancelled {
+				// A cancelled item must not be reported as a retryable batch
+				// failure, especially when it is the last item.
+				items = append(items, imageFailureItem(prepared.inputPath, prepared.outputPath, itemErr))
+				return items, itemErr
+			}
 			if firstErr == nil {
 				firstErr = itemErr
 			}
@@ -354,8 +369,9 @@ func parseCompressRequest(req models.JobRequestV1) (compressRequest, *models.Job
 	}, nil
 }
 
-// compressTargetSizeOption reads the required positive byte target. Whole
-// numeric values are accepted from JSON numbers and from textual callers.
+// compressTargetSizeOption reads the required positive byte target. The numeric
+// surface mirrors internal/pdf/tool_optimize.go: every signed and unsigned
+// integer width, json.Number, and float32/float64 only when whole and finite.
 func compressTargetSizeOption(options map[string]any) (int64, *models.JobErrorV1) {
 	if !optionSupplied(options, "targetSizeBytes") {
 		return 0, models.NewCanonicalJobError("IMAGE_COMPRESS_TARGET_REQUIRED", "options.targetSizeBytes is required", nil)
@@ -365,39 +381,97 @@ func compressTargetSizeOption(options map[string]any) (int64, *models.JobErrorV1
 		return 0, models.NewCanonicalJobError("IMAGE_COMPRESS_TARGET_INVALID", "options.targetSizeBytes must be a whole number of bytes greater than zero", nil)
 	}
 
-	var value int64
-	switch typed := options["targetSizeBytes"].(type) {
+	switch value := options["targetSizeBytes"].(type) {
 	case int:
-		value = int64(typed)
+		if value <= 0 {
+			return invalid()
+		}
+		return int64(value), nil
+	case int8:
+		if value <= 0 {
+			return invalid()
+		}
+		return int64(value), nil
+	case int16:
+		if value <= 0 {
+			return invalid()
+		}
+		return int64(value), nil
 	case int32:
-		value = int64(typed)
+		if value <= 0 {
+			return invalid()
+		}
+		return int64(value), nil
 	case int64:
-		value = typed
+		if value <= 0 {
+			return invalid()
+		}
+		return value, nil
+	case uint:
+		if value == 0 {
+			return invalid()
+		}
+		return compressFloatTargetSize(float64(value))
+	case uint8:
+		if value == 0 {
+			return invalid()
+		}
+		return int64(value), nil
+	case uint16:
+		if value == 0 {
+			return invalid()
+		}
+		return int64(value), nil
+	case uint32:
+		if value == 0 {
+			return invalid()
+		}
+		return int64(value), nil
+	case uint64:
+		return compressFloatTargetSize(float64(value))
 	case float32:
-		if float64(typed) != math.Trunc(float64(typed)) || float64(typed) > math.MaxInt64 {
-			return invalid()
-		}
-		value = int64(typed)
+		return compressFloatTargetSize(float64(value))
 	case float64:
-		if typed != math.Trunc(typed) || typed > math.MaxInt64 {
-			return invalid()
+		return compressFloatTargetSize(value)
+	case json.Number:
+		if integer, err := value.Int64(); err == nil {
+			if integer <= 0 {
+				return invalid()
+			}
+			return integer, nil
 		}
-		value = int64(typed)
-	case string:
-		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
+
+		parsed, err := value.Float64()
 		if err != nil {
 			return invalid()
 		}
-		value = parsed
+		return compressFloatTargetSize(parsed)
 	default:
 		return invalid()
 	}
+}
 
-	if value <= 0 {
+func compressFloatTargetSize(value float64) (int64, *models.JobErrorV1) {
+	invalid := func() (int64, *models.JobErrorV1) {
+		return 0, models.NewCanonicalJobError("IMAGE_COMPRESS_TARGET_INVALID", "options.targetSizeBytes must be a whole number of bytes greater than zero", nil)
+	}
+
+	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+		return invalid()
+	}
+	if value > float64(math.MaxInt64) {
+		return invalid()
+	}
+	if math.Trunc(value) != value {
 		return invalid()
 	}
 
-	return value, nil
+	converted := int64(value)
+	if converted <= 0 {
+		return invalid()
+	}
+
+	return converted, nil
 }
 
 func compressRequestedFormat(options map[string]any) (string, *models.JobErrorV1) {
@@ -497,6 +571,100 @@ func compressSupportsInputExtension(extension string) bool {
 	return false
 }
 
+// compressInputFrameCount reports the number of frames bimg would keep for the
+// input. bimg v1.1.9 does not expose a page count, so animated GIFs are counted
+// structurally without decoding pixels. Other containers report one frame.
+func compressInputFrameCount(inputPath string) int {
+	if normalizeFormatName(strings.TrimPrefix(filepath.Ext(inputPath), ".")) != "gif" {
+		return 1
+	}
+
+	data, err := os.ReadFile(inputPath)
+	if err != nil {
+		return 1
+	}
+
+	frames := compressGIFFrameCount(data)
+	if frames < 1 {
+		return 1
+	}
+
+	return frames
+}
+
+// compressGIFFrameCount walks the GIF block structure and counts image
+// descriptors. It never decodes pixels and returns 0 for an unparseable stream.
+func compressGIFFrameCount(data []byte) int {
+	if len(data) < 13 {
+		return 0
+	}
+	header := string(data[:6])
+	if header != "GIF87a" && header != "GIF89a" {
+		return 0
+	}
+
+	pos := 13
+	// The logical screen descriptor flags live in the low 3 bits of the global
+	// color table size; a set high bit means the table is present.
+	if data[10]&0x80 != 0 {
+		pos += 3 * (1 << ((data[10] & 0x07) + 1))
+	}
+
+	frames := 0
+	for pos < len(data) {
+		switch data[pos] {
+		case 0x3B: // trailer
+			return frames
+		case 0x21: // extension introducer plus label
+			if pos+2 > len(data) {
+				return frames
+			}
+			next, ok := compressGIFSkipSubBlocks(data, pos+2)
+			if !ok {
+				return frames
+			}
+			pos = next
+		case 0x2C: // image descriptor
+			if pos+10 > len(data) {
+				return frames
+			}
+			frames++
+
+			flags := data[pos+9]
+			pos += 10
+			if flags&0x80 != 0 {
+				pos += 3 * (1 << ((flags & 0x07) + 1))
+			}
+
+			// LZW minimum code size, then the image data sub-blocks.
+			next, ok := compressGIFSkipSubBlocks(data, pos+1)
+			if !ok {
+				return frames
+			}
+			pos = next
+		default:
+			return frames
+		}
+	}
+
+	return frames
+}
+
+// compressGIFSkipSubBlocks advances past a chain of length-prefixed blocks and
+// returns the position after the terminating zero-length block.
+func compressGIFSkipSubBlocks(data []byte, pos int) (int, bool) {
+	for pos < len(data) {
+		size := int(data[pos])
+		pos++
+		if size == 0 {
+			return pos, true
+		}
+		pos += size
+	}
+
+	return pos, false
+}
+
 // resolveCompressOutputFormat keeps an explicit format untouched and resolves
 // the auto mode per input.
 func resolveCompressOutputFormat(inputPath, requested string) string {
@@ -543,7 +711,7 @@ func planSingleCompressOutput(parsed compressRequest, outputFmt string, used map
 	inputPath := parsed.inputPaths[0]
 
 	if explicitOutput := strings.TrimSpace(parsed.outputPath); explicitOutput != "" {
-		return planExplicitCompressOutput(inputPath, explicitOutput)
+		return planExplicitCompressOutput(inputPath, explicitOutput, outputFmt)
 	}
 
 	targetDir := strings.TrimSpace(parsed.outputDir)
@@ -554,11 +722,19 @@ func planSingleCompressOutput(parsed compressRequest, outputFmt string, used map
 	return planAutoCompressOutput(inputPath, filepath.Clean(targetDir), outputFmt, used), nil
 }
 
-func planExplicitCompressOutput(inputPath, explicitOutput string) (models.PlannedOutputV1, *models.JobErrorV1) {
+func planExplicitCompressOutput(inputPath, explicitOutput, outputFormat string) (models.PlannedOutputV1, *models.JobErrorV1) {
 	planned := models.PlannedOutputV1{
 		InputPath:  inputPath,
 		OutputPath: filepath.Clean(strings.TrimSpace(explicitOutput)),
 		OutputKind: imageOutputKindFile,
+	}
+
+	if !compressOutputExtensionMatches(planned.OutputPath, outputFormat) {
+		return planned, models.NewCanonicalJobError(
+			"IMAGE_COMPRESS_OUTPUT_EXTENSION_MISMATCH",
+			compressOutputExtensionMessage(planned.OutputPath, outputFormat),
+			map[string]any{"outputPath": planned.OutputPath, "format": outputFormat},
+		)
 	}
 
 	if sameFilePath(inputPath, planned.OutputPath) {
@@ -590,6 +766,22 @@ func planExplicitCompressOutput(inputPath, explicitOutput string) (models.Planne
 	}
 
 	return planned, nil
+}
+
+// compressOutputExtensionMatches reports whether the explicit output path
+// extension agrees with the encoder format. The jpg alias folds into jpeg.
+func compressOutputExtensionMatches(outputPath, outputFormat string) bool {
+	extension := normalizeFormatName(strings.TrimPrefix(filepath.Ext(outputPath), "."))
+	return extension != "" && extension == outputFormat
+}
+
+func compressOutputExtensionMessage(outputPath, outputFormat string) string {
+	expected := "." + outputFormat
+	if outputFormat == "jpeg" {
+		expected = ".jpg or .jpeg"
+	}
+
+	return fmt.Sprintf("%s does not match the %s output format. Use a %s file.", filepath.Base(outputPath), outputFormat, expected)
 }
 
 // planAutoCompressOutput derives a collision-safe name inside dir. It never
@@ -624,10 +816,18 @@ func compressOutputBaseName(inputPath string) string {
 func validateCompressOutputDir(outputDir string) *models.JobErrorV1 {
 	info, statErr := os.Stat(outputDir)
 	if statErr != nil {
-		return models.NewCanonicalJobError("IMAGE_COMPRESS_OUTPUT_DIR_INVALID", fmt.Sprintf("outputDir is not accessible: %v", statErr), nil)
+		return models.NewCanonicalJobError(
+			"IMAGE_COMPRESS_OUTPUT_DIR_INVALID",
+			"The output folder cannot be used.",
+			map[string]any{"outputDir": outputDir, "error": statErr.Error()},
+		)
 	}
 	if !info.IsDir() {
-		return models.NewCanonicalJobError("IMAGE_COMPRESS_OUTPUT_DIR_INVALID", fmt.Sprintf("outputDir is not a folder: %s", outputDir), nil)
+		return models.NewCanonicalJobError(
+			"IMAGE_COMPRESS_OUTPUT_DIR_INVALID",
+			fmt.Sprintf("%s is not a folder.", outputDir),
+			map[string]any{"outputDir": outputDir},
+		)
 	}
 
 	return nil
@@ -651,9 +851,6 @@ func compressEffectiveOptions(parsed compressRequest, formats []string) map[stri
 	if parsed.maxDimension > 0 {
 		effective["maxDimension"] = parsed.maxDimension
 	}
-	if parsed.quality > 0 {
-		effective["quality"] = parsed.quality
-	}
 	if parsed.backgroundHex != "" {
 		effective["background"] = parsed.backgroundHex
 	}
@@ -661,7 +858,31 @@ func compressEffectiveOptions(parsed compressRequest, formats []string) map[stri
 		effective["format"] = format
 	}
 
+	// Every output keeps the clamped ceiling so mixed batches execute each item
+	// with the requested quality. PNG ignores it and quantises through the
+	// palette ladder; the plan warning explains that difference.
+	effective["quality"] = compressEffectiveQuality(parsed.quality)
+
 	return effective
+}
+
+// compressEffectiveQuality reports the ceiling the encoder will actually use.
+func compressEffectiveQuality(quality int) int {
+	if quality <= 0 || quality > compressMaxQuality {
+		return compressMaxQuality
+	}
+
+	return quality
+}
+
+func compressFormatsUsePNG(formats []string) bool {
+	for _, format := range formats {
+		if format == "png" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // preparedCompressFromPlan turns a planned output into executor input without
@@ -723,9 +944,41 @@ func compressInt64Option(options map[string]any, key string) int64 {
 	}
 }
 
+// compressCancelledError builds the canonical cancellation error. It falls back
+// to context.Canceled when the context has no recorded cause.
 func compressCancelledError(ctx context.Context) *models.JobErrorV1 {
-	message := fmt.Errorf(OperationCancelledMsg, ctx.Err()).Error()
+	var cause error = context.Canceled
+	if ctx != nil && ctx.Err() != nil {
+		cause = ctx.Err()
+	}
+
+	message := fmt.Errorf(OperationCancelledMsg, cause).Error()
 	return models.NewCanonicalJobError("IMAGE_COMPRESS_CANCELLED", message, nil)
+}
+
+// compressExecutionError maps a failed execution to a job error. Cancellation
+// wins over the generic execution/item code so the orchestrator reports
+// CANCELLED_BY_USER, including when the last batch item is interrupted. The raw
+// cause stays in Details while the message remains user-facing.
+func compressExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobErrorV1, bool) {
+	if compressIsCancellation(ctx, execErr) {
+		return compressCancelledError(ctx), true
+	}
+
+	details := map[string]any{"inputPath": inputPath}
+	if execErr != nil {
+		details["error"] = execErr.Error()
+	}
+
+	return models.NewCanonicalJobError(detailCode, "Could not compress the image.", details), false
+}
+
+func compressIsCancellation(ctx context.Context, err error) bool {
+	if ctx != nil && ctx.Err() != nil {
+		return true
+	}
+
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func executeCompressToPath(ctx context.Context, prepared preparedCompress) (compressExecution, error) {
@@ -746,7 +999,7 @@ func executeCompressToPath(ctx context.Context, prepared preparedCompress) (comp
 	default:
 	}
 
-	output, outcome, compressErr := CompressToTarget(input, CompressOptions{
+	output, outcome, compressErr := CompressToTargetContext(ctx, input, CompressOptions{
 		TargetSizeBytes: prepared.targetSizeBytes,
 		Format:          prepared.outputFmt,
 		AllowDownscale:  prepared.allowDownscale,
@@ -798,10 +1051,13 @@ func compressResultMessage(execution compressExecution, targetSizeBytes int64) s
 	)
 
 	if execution.outcome.AlreadyUnderTarget {
-		return message + ", already under target"
+		message += ", already under target"
+	}
+	if execution.outcome.MetadataPreserved {
+		message += ", metadata kept (stripping would exceed the target or grow the file)"
 	}
 	if !execution.outcome.TargetMet {
-		return message + ", target not reached (best effort)"
+		message += ", target not reached (best effort)"
 	}
 
 	return message

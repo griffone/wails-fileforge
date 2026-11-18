@@ -1,6 +1,7 @@
 package image
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -21,8 +22,10 @@ const (
 // CompressOptions controls the size-target search. A zero TargetSizeBytes is
 // rejected; the remaining fields are optional.
 //
-// StripMetadata keeps the source EXIF/GPS data when false. The tool resolves the
-// product default (true) before calling the engine.
+// StripMetadata removes EXIF/GPS data when true. The tool resolves the product
+// default (true) before calling the engine; when stripping would exceed the
+// target or grow the file, the original bytes are kept and the outcome reports
+// MetadataPreserved.
 type CompressOptions struct {
 	TargetSizeBytes int64
 	Format          string
@@ -33,10 +36,16 @@ type CompressOptions struct {
 	Background      *bimg.Color
 }
 
-// CompressOutcome describes the image the engine selected. Width and Height are
-// the encoded pixel size; Quality is the encoder quality that produced it (the
+// CompressOutcome describes the image the engine selected.
+//
+// Width and Height describe the returned bytes: a copied original reports its
+// stored pixel axes (the EXIF orientation tag is preserved, so the stored axes
+// are what the file contains), while an encoded candidate reports its encoded
+// pixel size. Quality is the encoder quality that produced the candidate (the
 // palette quality for PNG, 100 for lossless PNG) and stays 0 when the original
-// bytes were returned unchanged.
+// bytes were returned unchanged. MetadataPreserved reports that metadata
+// stripping was requested but the original bytes were kept because the stripped
+// candidate would have exceeded the target or produced a larger file.
 type CompressOutcome struct {
 	SizeBytes          int64
 	Width              int
@@ -45,6 +54,7 @@ type CompressOutcome struct {
 	DownscaleRounds    int
 	TargetMet          bool
 	AlreadyUnderTarget bool
+	MetadataPreserved  bool
 }
 
 // compressAttempt is one encoded candidate considered by the target search.
@@ -55,15 +65,29 @@ type compressAttempt struct {
 	targetMet bool
 }
 
-// CompressToTarget encodes input so its size does not exceed
+// CompressToTarget is CompressToTargetContext with a background context.
+func CompressToTarget(input []byte, opts CompressOptions) ([]byte, CompressOutcome, error) {
+	return CompressToTargetContext(context.Background(), input, opts)
+}
+
+// CompressToTargetContext encodes input so its size does not exceed
 // opts.TargetSizeBytes when that goal is reachable. JPEG and WebP bisect the
 // encoder quality, PNG walks a lossless-to-palette ladder, and when the target
-// is still unreachable the longest edge shrinks up to three times. The best
-// candidate found is always returned, with TargetMet reporting whether the goal
-// was actually reached. The original bytes come back untouched when they
-// already satisfy the target and no format or size change was requested.
-func CompressToTarget(input []byte, opts CompressOptions) ([]byte, CompressOutcome, error) {
+// is still unreachable the longest edge shrinks up to three times.
+//
+// The best candidate found is always returned, with TargetMet reporting whether
+// the goal was actually reached. When the input already satisfies the target
+// and needs no format or size change, the original bytes are preferred: they are
+// returned untouched unless metadata stripping is requested and a stripped
+// candidate is both under the target and smaller (MetadataPreserved reports the
+// fallback). The context is checked before every encode and between downscale
+// rounds; cancellation returns an error wrapping ctx.Err().
+func CompressToTargetContext(ctx context.Context, input []byte, opts CompressOptions) ([]byte, CompressOutcome, error) {
 	outcome := CompressOutcome{}
+
+	if err := compressCheckContext(ctx); err != nil {
+		return nil, outcome, err
+	}
 
 	if opts.TargetSizeBytes <= 0 {
 		return nil, outcome, fmt.Errorf("target size must be greater than zero")
@@ -83,31 +107,16 @@ func CompressToTarget(input []byte, opts CompressOptions) ([]byte, CompressOutco
 	}
 
 	// Metadata reports the stored axes; bimg follows the EXIF orientation when
-	// processing, so mirrored axes must be swapped for the visual size.
-	sourceWidth, sourceHeight := metadata.Size.Width, metadata.Size.Height
+	// processing, so the resize search must use the visual axes.
+	storedWidth, storedHeight := metadata.Size.Width, metadata.Size.Height
+	sourceWidth, sourceHeight := storedWidth, storedHeight
 	if metadata.Orientation >= 5 && metadata.Orientation <= 8 {
 		sourceWidth, sourceHeight = sourceHeight, sourceWidth
 	}
 
 	inputFormat := normalizeFormatName(bimg.DetermineImageTypeName(input))
 	inputSize := int64(len(input))
-
-	width, height := sourceWidth, sourceHeight
-	capped := false
-	if opts.MaxDimension > 0 {
-		width, height, capped = compressScaledDimensions(width, height, opts.MaxDimension)
-	}
-
-	if !capped && inputFormat == format && inputSize <= opts.TargetSizeBytes {
-		outcome = CompressOutcome{
-			SizeBytes:          inputSize,
-			Width:              sourceWidth,
-			Height:             sourceHeight,
-			TargetMet:          true,
-			AlreadyUnderTarget: true,
-		}
-		return input, outcome, nil
-	}
+	copyEligible := inputFormat == format && inputSize <= opts.TargetSizeBytes
 
 	// Quality is a ceiling, never a floor: the search stops at or below it.
 	ceiling := opts.Quality
@@ -115,10 +124,64 @@ func CompressToTarget(input []byte, opts CompressOptions) ([]byte, CompressOutco
 		ceiling = compressMaxQuality
 	}
 
+	width, height := sourceWidth, sourceHeight
+	capped := false
+	if opts.MaxDimension > 0 {
+		width, height, capped = compressScaledDimensions(width, height, opts.MaxDimension)
+	}
+
+	// An untouched copy is only valid without a requested resize. Keeping the
+	// original respects both the size target and the source metadata.
+	if copyEligible && !capped {
+		if !opts.StripMetadata {
+			return input, CompressOutcome{
+				SizeBytes:          inputSize,
+				Width:              storedWidth,
+				Height:             storedHeight,
+				TargetMet:          true,
+				AlreadyUnderTarget: true,
+			}, nil
+		}
+
+		attempt, searchErr := compressSearch(ctx, input, imageType, width, height, ceiling, opts, false)
+		if searchErr != nil {
+			return nil, outcome, searchErr
+		}
+
+		if attempt.targetMet && attempt.size < inputSize {
+			size, sizeErr := bimg.NewImage(attempt.bytes).Size()
+			if sizeErr != nil {
+				return nil, outcome, fmt.Errorf("read compressed image size: %w", sizeErr)
+			}
+
+			return attempt.bytes, CompressOutcome{
+				SizeBytes: attempt.size,
+				Width:     size.Width,
+				Height:    size.Height,
+				Quality:   attempt.quality,
+				TargetMet: true,
+			}, nil
+		}
+
+		return input, CompressOutcome{
+			SizeBytes:          inputSize,
+			Width:              storedWidth,
+			Height:             storedHeight,
+			TargetMet:          true,
+			AlreadyUnderTarget: true,
+			MetadataPreserved:  true,
+		}, nil
+	}
+
 	rounds := 0
+	resized := capped
 	var best compressAttempt
 	for {
-		attempt, searchErr := compressSearch(input, imageType, width, height, ceiling, opts)
+		if err := compressCheckContext(ctx); err != nil {
+			return nil, outcome, err
+		}
+
+		attempt, searchErr := compressSearch(ctx, input, imageType, width, height, ceiling, opts, resized)
 		if searchErr != nil {
 			return nil, outcome, searchErr
 		}
@@ -142,6 +205,7 @@ func CompressToTarget(input []byte, opts CompressOptions) ([]byte, CompressOutco
 
 		width, height = nextWidth, nextHeight
 		rounds++
+		resized = true
 	}
 
 	size, sizeErr := bimg.NewImage(best.bytes).Size()
@@ -159,6 +223,21 @@ func CompressToTarget(input []byte, opts CompressOptions) ([]byte, CompressOutco
 	}
 
 	return best.bytes, outcome, nil
+}
+
+// compressCheckContext reports a cancellation error that wraps ctx.Err so
+// callers can classify it with errors.Is.
+func compressCheckContext(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("compress cancelled: %w", ctx.Err())
+	default:
+		return nil
+	}
 }
 
 // compressImageType resolves the requested encoder format. Only the three
@@ -185,18 +264,20 @@ func compressImageType(format string) (string, bimg.ImageType, error) {
 }
 
 // compressSearch runs the format-specific quality search at one pixel size.
-func compressSearch(input []byte, imageType bimg.ImageType, width, height, ceiling int, opts CompressOptions) (compressAttempt, error) {
+// Dimensions are only applied when resize is true, so a same-size re-encode
+// never triggers a scale-1 resample.
+func compressSearch(ctx context.Context, input []byte, imageType bimg.ImageType, width, height, ceiling int, opts CompressOptions, resize bool) (compressAttempt, error) {
 	if imageType == bimg.PNG {
-		return compressSearchPNG(input, width, height, opts)
+		return compressSearchPNG(ctx, input, width, height, opts, resize)
 	}
 
-	return compressSearchQuality(input, imageType, width, height, ceiling, opts)
+	return compressSearchQuality(ctx, input, imageType, width, height, ceiling, opts, resize)
 }
 
 // compressSearchQuality bisects the quality range and keeps the highest quality
 // whose output fits the target. The step cap guarantees a bounded amount of
 // encoding even for an unreachable target.
-func compressSearchQuality(input []byte, imageType bimg.ImageType, width, height, ceiling int, opts CompressOptions) (compressAttempt, error) {
+func compressSearchQuality(ctx context.Context, input []byte, imageType bimg.ImageType, width, height, ceiling int, opts CompressOptions, resize bool) (compressAttempt, error) {
 	low := compressJPEGMinQuality
 	if imageType == bimg.WEBP {
 		low = compressWebPMinQuality
@@ -213,11 +294,16 @@ func compressSearchQuality(input []byte, imageType bimg.ImageType, width, height
 	var smallest compressAttempt
 
 	for step := 0; step < compressQualitySteps && low <= high; step++ {
+		if err := compressCheckContext(ctx); err != nil {
+			return compressAttempt{}, err
+		}
+
 		quality := (low + high) / 2
 		encoded, err := compressEncode(input, compressEncodeOptions{
 			imageType:     imageType,
 			width:         width,
 			height:        height,
+			resize:        resize,
 			quality:       quality,
 			stripMetadata: opts.StripMetadata,
 			background:    opts.Background,
@@ -250,7 +336,7 @@ func compressSearchQuality(input []byte, imageType bimg.ImageType, width, height
 // compressSearchPNG walks the deterministic PNG ladder: lossless first, then
 // palette quantisation at 80, 60 and 40. The first candidate that fits wins and
 // the smallest over-target candidate is the honest best effort.
-func compressSearchPNG(input []byte, width, height int, opts CompressOptions) (compressAttempt, error) {
+func compressSearchPNG(ctx context.Context, input []byte, width, height int, opts CompressOptions, resize bool) (compressAttempt, error) {
 	steps := []struct {
 		palette bool
 		quality int
@@ -263,10 +349,15 @@ func compressSearchPNG(input []byte, width, height int, opts CompressOptions) (c
 
 	var smallest compressAttempt
 	for _, step := range steps {
+		if err := compressCheckContext(ctx); err != nil {
+			return compressAttempt{}, err
+		}
+
 		encoded, err := compressEncode(input, compressEncodeOptions{
 			imageType:     bimg.PNG,
 			width:         width,
 			height:        height,
+			resize:        resize,
 			quality:       step.quality,
 			palette:       step.palette,
 			stripMetadata: opts.StripMetadata,
@@ -294,6 +385,7 @@ type compressEncodeOptions struct {
 	imageType     bimg.ImageType
 	width         int
 	height        int
+	resize        bool
 	quality       int
 	palette       bool
 	stripMetadata bool
@@ -301,8 +393,8 @@ type compressEncodeOptions struct {
 }
 
 // compressEncode performs one bounded encode. Dimensions are only set when a
-// resize is requested; Enlarge stays false so nothing is ever upscaled, and the
-// background is only used for JPEG alpha flattening.
+// real resize is requested; Enlarge stays false so nothing is ever upscaled, and
+// the background is only used for JPEG alpha flattening.
 func compressEncode(input []byte, opts compressEncodeOptions) ([]byte, error) {
 	bimgOptions := bimg.Options{
 		Type:          opts.imageType,
@@ -311,7 +403,7 @@ func compressEncode(input []byte, opts compressEncodeOptions) ([]byte, error) {
 		Enlarge:       false,
 	}
 
-	if opts.width > 0 && opts.height > 0 {
+	if opts.resize && opts.width > 0 && opts.height > 0 {
 		bimgOptions.Width = opts.width
 		bimgOptions.Height = opts.height
 	}

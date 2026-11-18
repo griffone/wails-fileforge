@@ -2,12 +2,15 @@ package image
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -119,8 +122,8 @@ func TestCompressQualitySearchReachesTarget(t *testing.T) {
 	if outcome.SizeBytes > target {
 		t.Fatalf("expected output <= %d bytes, got %d", target, outcome.SizeBytes)
 	}
-	if outcome.Quality < compressJPEGMinQuality || outcome.Quality > 92 {
-		t.Fatalf("expected quality within [%d, 92], got %d", compressJPEGMinQuality, outcome.Quality)
+	if outcome.Quality < compressJPEGMinQuality || outcome.Quality > compressMaxQuality {
+		t.Fatalf("expected quality within [%d, %d], got %d", compressJPEGMinQuality, compressMaxQuality, outcome.Quality)
 	}
 	if len(output) == len(input) {
 		t.Fatal("expected a re-encoded image")
@@ -133,7 +136,7 @@ func TestCompressQualitySearchReachesTarget(t *testing.T) {
 
 	// The chosen quality must be the highest one that fits: one step higher has
 	// to exceed the target.
-	if outcome.Quality < 92 {
+	if outcome.Quality < compressMaxQuality {
 		larger, encodeErr := bimg.NewImage(input).Process(bimg.Options{
 			Type:          bimg.JPEG,
 			Quality:       outcome.Quality + 1,
@@ -358,7 +361,8 @@ func TestCompressPNGUnreachableTargetReportsBestEffort(t *testing.T) {
 		t.Fatalf("encode noise png: %v", err)
 	}
 
-	output, outcome, err := CompressToTarget(buffer.Bytes(), CompressOptions{
+	input := buffer.Bytes()
+	output, outcome, err := CompressToTarget(input, CompressOptions{
 		TargetSizeBytes: 1024,
 		Format:          "png",
 		AllowDownscale:  false,
@@ -371,14 +375,31 @@ func TestCompressPNGUnreachableTargetReportsBestEffort(t *testing.T) {
 	if outcome.TargetMet {
 		t.Fatalf("expected an unreachable png target, got %+v", outcome)
 	}
-	if outcome.Quality != 80 {
-		t.Fatalf("expected the smallest palette rung, got %d", outcome.Quality)
-	}
 	if outcome.Width != 500 || outcome.Height != 400 {
 		t.Fatalf("expected the source dimensions, got %dx%d", outcome.Width, outcome.Height)
 	}
 	if len(output) != int(outcome.SizeBytes) {
 		t.Fatalf("expected the best-effort bytes, got %d vs %d", len(output), outcome.SizeBytes)
+	}
+
+	// The lossless rung is over target, so the palette path was attempted. The
+	// returned rung is the smallest of the four, which is not necessarily 80 on
+	// every libvips build; TestCompressPNGSelectsSmallestLadderCandidate proves
+	// the choice explicitly.
+	lossless, losslessErr := bimg.NewImage(input).Process(bimg.Options{
+		Type:          bimg.PNG,
+		Quality:       compressLosslessQuality,
+		Compression:   9,
+		StripMetadata: true,
+	})
+	if losslessErr != nil {
+		t.Fatalf("encode lossless control: %v", losslessErr)
+	}
+	if int64(len(lossless)) <= 1024 {
+		t.Fatalf("expected the lossless rung to exceed the target, got %d bytes", len(lossless))
+	}
+	if !slices.Contains([]int{compressLosslessQuality, 80, 60, 40}, outcome.Quality) {
+		t.Fatalf("expected a ladder rung, got quality %d", outcome.Quality)
 	}
 }
 
@@ -392,7 +413,7 @@ func TestCompressAlreadyUnderTargetReturnsOriginal(t *testing.T) {
 	output, outcome, err := CompressToTarget(input, CompressOptions{
 		TargetSizeBytes: 1024 * 1024,
 		Format:          "png",
-		StripMetadata:   true,
+		StripMetadata:   false,
 	})
 	if err != nil {
 		t.Fatalf("compress already small png: %v", err)
@@ -407,6 +428,9 @@ func TestCompressAlreadyUnderTargetReturnsOriginal(t *testing.T) {
 	if !outcome.TargetMet {
 		t.Fatal("expected an already satisfied target to be met")
 	}
+	if outcome.MetadataPreserved {
+		t.Fatal("expected MetadataPreserved to stay false when stripping was not requested")
+	}
 	if outcome.Quality != 0 {
 		t.Fatalf("expected no encoder quality for unchanged bytes, got %d", outcome.Quality)
 	}
@@ -415,6 +439,14 @@ func TestCompressAlreadyUnderTargetReturnsOriginal(t *testing.T) {
 	}
 	if outcome.Width != 40 || outcome.Height != 30 {
 		t.Fatalf("expected 40x30, got %dx%d", outcome.Width, outcome.Height)
+	}
+
+	size, sizeErr := bimg.NewImage(output).Size()
+	if sizeErr != nil {
+		t.Fatalf("read original size: %v", sizeErr)
+	}
+	if outcome.Width != size.Width || outcome.Height != size.Height {
+		t.Fatalf("expected the outcome to describe the returned bytes, got %dx%d from %dx%d", outcome.Width, outcome.Height, size.Width, size.Height)
 	}
 }
 
@@ -585,5 +617,323 @@ func TestCompressAcceptsJPGAlias(t *testing.T) {
 	}
 	if format != "jpeg" {
 		t.Fatalf("expected jpeg output, got %s", format)
+	}
+}
+
+// injectCompressEXIFOrientation inserts an APP1 EXIF segment carrying
+// Orientation=6 so the stored axes (120x80) differ from the visual axes
+// (80x120) once libvips applies the tag.
+func injectCompressEXIFOrientation(t *testing.T, jpegBytes []byte) []byte {
+	t.Helper()
+
+	if len(jpegBytes) < 2 || jpegBytes[0] != 0xFF || jpegBytes[1] != 0xD8 {
+		t.Fatal("expected a jpeg fixture")
+	}
+
+	payload := []byte("Exif\x00\x00")
+	payload = append(payload,
+		0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, // little-endian TIFF header
+		0x01, 0x00, // one IFD entry
+		0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, // Orientation = 6
+		0x00, 0x00, 0x00, 0x00, // no next IFD
+	)
+
+	segmentLength := len(payload) + 2
+	segment := []byte{0xFF, 0xE1, byte(segmentLength >> 8), byte(segmentLength & 0xFF)}
+	segment = append(segment, payload...)
+
+	out := make([]byte, 0, len(jpegBytes)+len(segment))
+	out = append(out, jpegBytes[:2]...)
+	out = append(out, segment...)
+	out = append(out, jpegBytes[2:]...)
+
+	return out
+}
+
+func TestCompressCopyPathReportsStoredAxes(t *testing.T) {
+	input := injectCompressEXIFOrientation(t, encodeCompressNoiseJPEG(t, 120, 80, 90))
+
+	metadata, metaErr := bimg.NewImage(input).Metadata()
+	if metaErr != nil || metadata.Orientation != 6 {
+		t.Skipf("libvips build does not read the injected EXIF orientation (orientation=%d err=%v)", metadata.Orientation, metaErr)
+	}
+
+	output, outcome, err := CompressToTarget(input, CompressOptions{
+		TargetSizeBytes: 1024 * 1024,
+		Format:          "jpeg",
+		StripMetadata:   false,
+	})
+	if err != nil {
+		t.Fatalf("copy oriented jpeg: %v", err)
+	}
+	if !bytes.Equal(output, input) {
+		t.Fatal("expected the original bytes untouched")
+	}
+	if !outcome.AlreadyUnderTarget {
+		t.Fatalf("expected AlreadyUnderTarget, got %+v", outcome)
+	}
+
+	// The EXIF tag is preserved, so the outcome must describe the stored axes
+	// rather than the visual axes.
+	if outcome.Width != metadata.Size.Width || outcome.Height != metadata.Size.Height {
+		t.Fatalf("expected stored axes %dx%d, got %dx%d", metadata.Size.Width, metadata.Size.Height, outcome.Width, outcome.Height)
+	}
+
+	size, sizeErr := bimg.NewImage(output).Size()
+	if sizeErr != nil {
+		t.Fatalf("read returned bytes size: %v", sizeErr)
+	}
+	if outcome.Width != size.Width || outcome.Height != size.Height {
+		t.Fatalf("expected the outcome to describe the returned bytes, got %dx%d from %dx%d", outcome.Width, outcome.Height, size.Width, size.Height)
+	}
+}
+
+func TestCompressStripMetadataKeepsOriginalWhenCandidateIsLarger(t *testing.T) {
+	input := injectCompressEXIFOrientation(t, encodeCompressNoiseJPEG(t, 120, 80, 90))
+
+	output, outcome, err := CompressToTarget(input, CompressOptions{
+		TargetSizeBytes: 1024 * 1024,
+		Format:          "jpeg",
+		StripMetadata:   true,
+	})
+	if err != nil {
+		t.Fatalf("compress oriented jpeg: %v", err)
+	}
+
+	if !bytes.Equal(output, input) {
+		t.Fatal("expected the original bytes when stripping would grow the file")
+	}
+	if !outcome.AlreadyUnderTarget || !outcome.TargetMet {
+		t.Fatalf("expected an already satisfied target, got %+v", outcome)
+	}
+	if !outcome.MetadataPreserved {
+		t.Fatalf("expected MetadataPreserved when the stripped candidate is larger, got %+v", outcome)
+	}
+	if outcome.Quality != 0 {
+		t.Fatalf("expected no encoder quality for the kept original, got %d", outcome.Quality)
+	}
+	if outcome.SizeBytes != int64(len(input)) {
+		t.Fatalf("expected size %d, got %d", len(input), outcome.SizeBytes)
+	}
+}
+
+func TestCompressStripMetadataCandidateWins(t *testing.T) {
+	// The source is encoded at Go quality 100 (4:4:4), so a libvips q95
+	// re-encode is smaller. Setting the target to the input size keeps the
+	// request copy-eligible and forces the stripped candidate to compete with
+	// the original instead of taking the general downscale path.
+	input := injectCompressEXIFOrientation(t, encodeCompressNoiseJPEG(t, 120, 80, 100))
+	target := int64(len(input))
+	if target <= 0 {
+		t.Fatal("expected a non-empty fixture")
+	}
+
+	output, outcome, err := CompressToTarget(input, CompressOptions{
+		TargetSizeBytes: target,
+		Format:          "jpeg",
+		StripMetadata:   true,
+	})
+	if err != nil {
+		t.Fatalf("compress oriented jpeg: %v", err)
+	}
+
+	// Copy eligibility precondition: the input itself already meets the target
+	// and keeps its format, so the copy branch is the one under test.
+	if int64(len(input)) > target {
+		t.Fatalf("expected a copy-eligible fixture, got %d bytes for a %d-byte target", len(input), target)
+	}
+
+	if bytes.Equal(output, input) {
+		t.Fatal("expected a stripped candidate to replace the original")
+	}
+	if outcome.AlreadyUnderTarget {
+		t.Fatalf("expected AlreadyUnderTarget to stay false, got %+v", outcome)
+	}
+	if outcome.MetadataPreserved {
+		t.Fatal("expected MetadataPreserved to stay false for a stripped candidate")
+	}
+	if !outcome.TargetMet {
+		t.Fatalf("expected the target to be met, got %+v", outcome)
+	}
+	if outcome.Quality <= 0 {
+		t.Fatalf("expected a real encoder quality, got %d", outcome.Quality)
+	}
+	if outcome.SizeBytes > target {
+		t.Fatalf("expected <= %d bytes, got %d", target, outcome.SizeBytes)
+	}
+	if outcome.SizeBytes >= int64(len(input)) {
+		t.Fatalf("expected the candidate to be smaller than the %d-byte original, got %d", len(input), outcome.SizeBytes)
+	}
+
+	size, sizeErr := bimg.NewImage(output).Size()
+	if sizeErr != nil {
+		t.Fatalf("read candidate size: %v", sizeErr)
+	}
+	if outcome.Width != size.Width || outcome.Height != size.Height {
+		t.Fatalf("expected the outcome to describe the encoded bytes, got %dx%d from %dx%d", outcome.Width, outcome.Height, size.Width, size.Height)
+	}
+}
+
+func TestCompressPNGSelectsSmallestLadderCandidate(t *testing.T) {
+	if !compressPaletteSupported() {
+		t.Skip("libvips build ignores png palette options")
+	}
+
+	var buffer bytes.Buffer
+	if err := png.Encode(&buffer, compressNoiseNRGBA(500, 400)); err != nil {
+		t.Fatalf("encode noise png: %v", err)
+	}
+	input := buffer.Bytes()
+
+	output, outcome, err := CompressToTarget(input, CompressOptions{
+		TargetSizeBytes: 1,
+		Format:          "png",
+		AllowDownscale:  false,
+		StripMetadata:   true,
+	})
+	if err != nil {
+		t.Fatalf("compress unreachable png: %v", err)
+	}
+
+	type rung struct {
+		palette bool
+		quality int
+	}
+	rungs := []rung{
+		{palette: false, quality: compressLosslessQuality},
+		{palette: true, quality: 80},
+		{palette: true, quality: 60},
+		{palette: true, quality: 40},
+	}
+
+	sizes := make(map[int]int64, len(rungs))
+	smallestSize := int64(-1)
+	for _, rung := range rungs {
+		options := bimg.Options{
+			Type:          bimg.PNG,
+			Quality:       rung.quality,
+			Compression:   9,
+			StripMetadata: true,
+		}
+		if rung.palette {
+			options.Palette = true
+			options.Speed = 3
+		}
+
+		control, controlErr := bimg.NewImage(input).Process(options)
+		if controlErr != nil {
+			t.Fatalf("encode control rung %d: %v", rung.quality, controlErr)
+		}
+		sizes[rung.quality] = int64(len(control))
+		if smallestSize < 0 || int64(len(control)) < smallestSize {
+			smallestSize = int64(len(control))
+		}
+	}
+
+	if smallestSize <= 1 {
+		t.Fatalf("expected the 1-byte target to be unreachable, got a %d-byte rung", smallestSize)
+	}
+	if outcome.TargetMet {
+		t.Fatalf("expected an unreachable target, got %+v", outcome)
+	}
+	if outcome.SizeBytes != smallestSize {
+		t.Fatalf("expected the smallest rung %d, got %d", smallestSize, outcome.SizeBytes)
+	}
+	if int64(len(output)) != outcome.SizeBytes {
+		t.Fatalf("expected the returned bytes to match the outcome, got %d vs %d", len(output), outcome.SizeBytes)
+	}
+
+	smallestQualities := make([]int, 0, len(rungs))
+	for quality, size := range sizes {
+		if size == smallestSize {
+			smallestQualities = append(smallestQualities, quality)
+		}
+	}
+	if !slices.Contains(smallestQualities, outcome.Quality) {
+		t.Fatalf("expected a rung tied for smallest (%v), got quality %d", smallestQualities, outcome.Quality)
+	}
+}
+
+func TestCompressDownscaleStopsAtFloor(t *testing.T) {
+	input := encodeCompressNoiseJPEG(t, 400, 300, 90)
+
+	output, outcome, err := CompressToTarget(input, CompressOptions{
+		TargetSizeBytes: 1,
+		Format:          "jpeg",
+		AllowDownscale:  true,
+		StripMetadata:   true,
+	})
+	if err != nil {
+		t.Fatalf("compress with floor clamp: %v", err)
+	}
+
+	if outcome.TargetMet {
+		t.Fatalf("expected the 1-byte target to stay unreachable, got %+v", outcome)
+	}
+	if outcome.DownscaleRounds != 1 {
+		t.Fatalf("expected one clamped downscale round, got %d", outcome.DownscaleRounds)
+	}
+	if outcome.DownscaleRounds > compressMaxDownscale {
+		t.Fatalf("expected at most %d rounds, got %d", compressMaxDownscale, outcome.DownscaleRounds)
+	}
+	if outcome.Width != compressDownscaleFloor || outcome.Height != 240 {
+		t.Fatalf("expected the 320x240 floor clamp, got %dx%d", outcome.Width, outcome.Height)
+	}
+	if len(output) == 0 {
+		t.Fatal("expected the best-effort bytes")
+	}
+}
+
+func TestCompressContextCancelledBeforeEncoding(t *testing.T) {
+	input := encodeCompressNoiseJPEG(t, 120, 90, 90)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	output, outcome, err := CompressToTargetContext(ctx, input, CompressOptions{
+		TargetSizeBytes: 1024,
+		Format:          "jpeg",
+		StripMetadata:   true,
+	})
+	if err == nil {
+		t.Fatal("expected a cancellation error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected the error to wrap context.Canceled, got %v", err)
+	}
+	if output != nil {
+		t.Fatal("expected no bytes on cancellation")
+	}
+	if outcome != (CompressOutcome{}) {
+		t.Fatalf("expected an empty outcome, got %+v", outcome)
+	}
+}
+
+func TestCompressPlainReencodeSkipsResample(t *testing.T) {
+	input := encodeCompressNoiseJPEG(t, 320, 240, 90)
+	target := int64(len(input) * 3 / 4)
+
+	output, outcome, err := CompressToTarget(input, CompressOptions{
+		TargetSizeBytes: target,
+		Format:          "jpeg",
+		StripMetadata:   true,
+	})
+	if err != nil {
+		t.Fatalf("compress plain re-encode: %v", err)
+	}
+
+	// A plain re-encode must not request width/height: the bytes have to match
+	// the same bimg call without a resize.
+	control, controlErr := bimg.NewImage(input).Process(bimg.Options{
+		Type:          bimg.JPEG,
+		Quality:       outcome.Quality,
+		StripMetadata: true,
+		Interlace:     true,
+	})
+	if controlErr != nil {
+		t.Fatalf("encode control: %v", controlErr)
+	}
+	if !bytes.Equal(output, control) {
+		t.Fatal("expected a plain re-encode without a scale-1 resample")
 	}
 }

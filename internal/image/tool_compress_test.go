@@ -3,9 +3,13 @@ package image
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/gif"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +20,7 @@ import (
 
 	"github.com/h2non/bimg"
 	"golang.org/x/image/bmp"
+	"golang.org/x/image/tiff"
 )
 
 func compressTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
@@ -68,6 +73,44 @@ func writeCompressBMP(t *testing.T, path string, width, height int) {
 	}
 }
 
+func writeCompressGrayTIFF(t *testing.T, path string) {
+	t.Helper()
+
+	img := image.NewGray(image.Rect(0, 0, 40, 30))
+	for y := 0; y < 30; y++ {
+		for x := 0; x < 40; x++ {
+			img.SetGray(x, y, color.Gray{Y: uint8((x + y) % 256)})
+		}
+	}
+
+	var buffer bytes.Buffer
+	if err := tiff.Encode(&buffer, img, nil); err != nil {
+		t.Fatalf("encode gray tiff fixture: %v", err)
+	}
+	if err := writeCompressBytes(path, buffer.Bytes()); err != nil {
+		t.Fatalf("write gray tiff fixture %s: %v", path, err)
+	}
+}
+
+func writeCompressAlphaTIFF(t *testing.T, path string) {
+	t.Helper()
+
+	img := image.NewNRGBA(image.Rect(0, 0, 40, 30))
+	for y := 0; y < 30; y++ {
+		for x := 0; x < 40; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), B: 80, A: 0})
+		}
+	}
+
+	var buffer bytes.Buffer
+	if err := tiff.Encode(&buffer, img, nil); err != nil {
+		t.Fatalf("encode alpha tiff fixture: %v", err)
+	}
+	if err := writeCompressBytes(path, buffer.Bytes()); err != nil {
+		t.Fatalf("write alpha tiff fixture %s: %v", path, err)
+	}
+}
+
 func TestCompressToolManifest(t *testing.T) {
 	tool := NewCompressTool()
 	manifest := tool.Manifest()
@@ -84,11 +127,11 @@ func TestCompressToolManifest(t *testing.T) {
 	if manifest.Domain != "image" {
 		t.Fatalf("expected domain image, got %q", manifest.Domain)
 	}
-	if manifest.Capability != "image.compress" {
-		t.Fatalf("expected capability image.compress, got %q", manifest.Capability)
+	if manifest.Capability != ToolIDImageCompressV1 {
+		t.Fatalf("expected capability %q, got %q", ToolIDImageCompressV1, manifest.Capability)
 	}
-	if manifest.Version != "1.0.0" {
-		t.Fatalf("expected version 1.0.0, got %q", manifest.Version)
+	if manifest.Version != "v1" {
+		t.Fatalf("expected version v1, got %q", manifest.Version)
 	}
 	if !manifest.SupportsSingle || !manifest.SupportsBatch {
 		t.Fatalf("expected single and batch support, got %+v", manifest)
@@ -155,6 +198,20 @@ func TestCompressPlanSingleAutoOutput(t *testing.T) {
 			},
 			wantFormat: "jpeg",
 			wantExt:    ".jpeg",
+		},
+		{
+			name:       "tiff without alpha becomes jpeg",
+			extension:  ".tif",
+			write:      writeCompressGrayTIFF,
+			wantFormat: "jpeg",
+			wantExt:    ".jpeg",
+		},
+		{
+			name:       "tiff with alpha becomes png",
+			extension:  ".tiff",
+			write:      writeCompressAlphaTIFF,
+			wantFormat: "png",
+			wantExt:    ".png",
 		},
 	}
 
@@ -545,6 +602,41 @@ func TestCompressPlanBatchRejectsMissingOutputDir(t *testing.T) {
 	if planErr.DetailCode != "IMAGE_COMPRESS_OUTPUT_DIR_INVALID" {
 		t.Fatalf("expected IMAGE_COMPRESS_OUTPUT_DIR_INVALID, got %q", planErr.DetailCode)
 	}
+	if planErr.Message != "The output folder cannot be used." {
+		t.Fatalf("expected a clean output folder message, got %q", planErr.Message)
+	}
+	if planErr.Details["error"] == nil || planErr.Details["error"] == "" {
+		t.Fatalf("expected the raw cause in details, got %v", planErr.Details)
+	}
+}
+
+// parseCompressMessage extracts the three displayed sizes from a success
+// message so tests can compare them with the real file sizes and target.
+func parseCompressMessage(t *testing.T, message string) (string, string, string) {
+	t.Helper()
+
+	const arrow = " → "
+	arrowIndex := strings.Index(message, arrow)
+	if arrowIndex < 0 {
+		t.Fatalf("message is missing the size arrow: %q", message)
+	}
+	inputSize := strings.TrimSpace(message[:arrowIndex])
+
+	rest := message[arrowIndex+len(arrow):]
+	const targetMarker = " (target "
+	targetIndex := strings.Index(rest, targetMarker)
+	if targetIndex < 0 {
+		t.Fatalf("message is missing the target: %q", message)
+	}
+	outputSize := strings.TrimSpace(rest[:targetIndex])
+
+	tail := rest[targetIndex+len(targetMarker):]
+	closeIndex := strings.Index(tail, ")")
+	if closeIndex < 0 {
+		t.Fatalf("message has an unterminated target: %q", message)
+	}
+
+	return inputSize, outputSize, tail[:closeIndex]
 }
 
 func TestCompressExecutionSingleWritesPlannedOutput(t *testing.T) {
@@ -579,12 +671,6 @@ func TestCompressExecutionSingleWritesPlannedOutput(t *testing.T) {
 	if item.OutputCount != 1 || len(item.Outputs) != 1 || item.Outputs[0] != plannedPath {
 		t.Fatalf("expected one declared output, got %+v", item)
 	}
-	if !strings.Contains(item.Message, "→") {
-		t.Fatalf("expected a size arrow in the message, got %q", item.Message)
-	}
-	if !strings.Contains(item.Message, "target 40 KB") {
-		t.Fatalf("expected the target in the message, got %q", item.Message)
-	}
 	if strings.Contains(item.Message, "target not reached") {
 		t.Fatalf("expected a reached target, got %q", item.Message)
 	}
@@ -598,6 +684,24 @@ func TestCompressExecutionSingleWritesPlannedOutput(t *testing.T) {
 	}
 	if info.Size() > target {
 		t.Fatalf("expected output <= %d bytes, got %d", target, info.Size())
+	}
+
+	inputInfo, inputStatErr := os.Stat(input)
+	if inputStatErr != nil {
+		t.Fatalf("stat input: %v", inputStatErr)
+	}
+	displayedInput, displayedOutput, displayedTarget := parseCompressMessage(t, item.Message)
+	if displayedInput != compressFormatBytes(inputInfo.Size()) {
+		t.Fatalf("expected the message input size %q, got %q", compressFormatBytes(inputInfo.Size()), displayedInput)
+	}
+	if displayedOutput != compressFormatBytes(info.Size()) {
+		t.Fatalf("expected the message output size %q, got %q", compressFormatBytes(info.Size()), displayedOutput)
+	}
+	if displayedTarget != compressFormatBytes(target) {
+		t.Fatalf("expected the message target %q, got %q", compressFormatBytes(target), displayedTarget)
+	}
+	if displayedInput == "0 B" || displayedOutput == "0 B" {
+		t.Fatalf("expected real sizes in the message, got %q", item.Message)
 	}
 
 	size, sizeErr := bimg.NewImage(readCompressFile(t, plannedPath)).Size()
@@ -638,6 +742,25 @@ func TestCompressExecutionSingleBestEffortMessage(t *testing.T) {
 	if !strings.Contains(item.Message, "target not reached (best effort)") {
 		t.Fatalf("expected an honest best-effort warning, got %q", item.Message)
 	}
+
+	inputInfo, inputStatErr := os.Stat(input)
+	if inputStatErr != nil {
+		t.Fatalf("stat input: %v", inputStatErr)
+	}
+	outputInfo, outputStatErr := os.Stat(item.OutputPath)
+	if outputStatErr != nil {
+		t.Fatalf("stat output: %v", outputStatErr)
+	}
+	displayedInput, displayedOutput, displayedTarget := parseCompressMessage(t, item.Message)
+	if displayedInput != compressFormatBytes(inputInfo.Size()) {
+		t.Fatalf("expected the message input size %q, got %q", compressFormatBytes(inputInfo.Size()), displayedInput)
+	}
+	if displayedOutput != compressFormatBytes(outputInfo.Size()) {
+		t.Fatalf("expected the message output size %q, got %q", compressFormatBytes(outputInfo.Size()), displayedOutput)
+	}
+	if displayedTarget != compressFormatBytes(1024) {
+		t.Fatalf("expected the message target 1 KB, got %q", displayedTarget)
+	}
 }
 
 func TestCompressExecutionSingleAlreadyUnderTargetMessage(t *testing.T) {
@@ -646,7 +769,10 @@ func TestCompressExecutionSingleAlreadyUnderTargetMessage(t *testing.T) {
 	writePlanPNG(t, input, 40, 30)
 
 	tool := NewCompressTool()
-	request := compressTestRequest("single", []string{input}, compressTargetOptions(1024*1024))
+	request := compressTestRequest("single", []string{input}, map[string]any{
+		"targetSizeBytes": 1024 * 1024,
+		"stripMetadata":   false,
+	})
 
 	item, execErr := tool.ExecuteSingle(context.Background(), request)
 	if execErr != nil {
@@ -655,11 +781,33 @@ func TestCompressExecutionSingleAlreadyUnderTargetMessage(t *testing.T) {
 	if !strings.Contains(item.Message, "already under target") {
 		t.Fatalf("expected the already-under-target note, got %q", item.Message)
 	}
+	if strings.Contains(item.Message, "metadata kept") {
+		t.Fatalf("expected no metadata note when stripping was not requested, got %q", item.Message)
+	}
 
 	source := readCompressFile(t, input)
 	output := readCompressFile(t, item.OutputPath)
 	if !bytes.Equal(source, output) {
 		t.Fatal("expected the original bytes to be copied unchanged")
+	}
+
+	sourceInfo, sourceStatErr := os.Stat(input)
+	if sourceStatErr != nil {
+		t.Fatalf("stat input: %v", sourceStatErr)
+	}
+	outputInfo, outputStatErr := os.Stat(item.OutputPath)
+	if outputStatErr != nil {
+		t.Fatalf("stat output: %v", outputStatErr)
+	}
+	displayedInput, displayedOutput, displayedTarget := parseCompressMessage(t, item.Message)
+	if displayedInput != compressFormatBytes(sourceInfo.Size()) {
+		t.Fatalf("expected the message input size %q, got %q", compressFormatBytes(sourceInfo.Size()), displayedInput)
+	}
+	if displayedOutput != compressFormatBytes(outputInfo.Size()) {
+		t.Fatalf("expected the message output size %q, got %q", compressFormatBytes(outputInfo.Size()), displayedOutput)
+	}
+	if displayedTarget != compressFormatBytes(1024*1024) {
+		t.Fatalf("expected the message target 1 MB, got %q", displayedTarget)
 	}
 }
 
@@ -802,6 +950,15 @@ func TestCompressExecutionBatchReportsItemFailures(t *testing.T) {
 	if items[1].Error == nil || !strings.HasPrefix(items[1].Error.DetailCode, "IMAGE_COMPRESS_") {
 		t.Fatalf("expected a prefixed item error, got %+v", items[1].Error)
 	}
+	if items[1].Error.Message != "Could not compress the image." {
+		t.Fatalf("expected a clean item message, got %q", items[1].Error.Message)
+	}
+	if items[1].Error.Details["error"] == nil || items[1].Error.Details["error"] == "" {
+		t.Fatalf("expected the raw cause in details, got %v", items[1].Error.Details)
+	}
+	if strings.Contains(items[1].Message, "decode image") {
+		t.Fatalf("expected no raw libvips text in the item message, got %q", items[1].Message)
+	}
 	if len(events) != 2 {
 		t.Fatalf("expected progress for both items, got %+v", events)
 	}
@@ -836,6 +993,12 @@ func TestCompressExecutionBatchCancellation(t *testing.T) {
 	}
 	if len(items) != 1 || !items[0].Success {
 		t.Fatalf("expected one successful item before cancellation, got %+v", items)
+	}
+	if items[0].InputPath != first {
+		t.Fatalf("expected the first input to complete, got %+v", items[0])
+	}
+	if len(items) == len(request.InputPaths) {
+		t.Fatal("expected the last item to be cancelled before execution")
 	}
 }
 
@@ -894,4 +1057,553 @@ func readCompressFile(t *testing.T, path string) []byte {
 	}
 
 	return data
+}
+
+func writeCompressAnimatedGIF(t *testing.T, path string) {
+	t.Helper()
+
+	palette := color.Palette{color.NRGBA{R: 30, G: 160, B: 220, A: 255}, color.NRGBA{R: 240, G: 30, B: 20, A: 255}}
+	first := image.NewPaletted(image.Rect(0, 0, 20, 20), palette)
+	second := image.NewPaletted(image.Rect(0, 0, 20, 20), palette)
+	for x := 0; x < 20; x++ {
+		first.SetColorIndex(x, 0, 1)
+		second.SetColorIndex(x, 19, 1)
+	}
+
+	var buffer bytes.Buffer
+	if err := gif.EncodeAll(&buffer, &gif.GIF{
+		Image: []*image.Paletted{first, second},
+		Delay: []int{6, 6},
+	}); err != nil {
+		t.Fatalf("encode animated gif: %v", err)
+	}
+	if err := writeCompressBytes(path, buffer.Bytes()); err != nil {
+		t.Fatalf("write animated gif %s: %v", path, err)
+	}
+}
+
+func TestCompressPlanAnimatedInputWarning(t *testing.T) {
+	dir := t.TempDir()
+	animated := filepath.Join(dir, "animated.gif")
+	static := filepath.Join(dir, "static.gif")
+	writeCompressAnimatedGIF(t, animated)
+	writeCompressTransparentGIF(t, static)
+
+	tool := NewCompressTool()
+
+	plan, planErr := tool.Plan(context.Background(), compressTestRequest("single", []string{animated}, compressTargetOptions(1024*1024)))
+	if planErr != nil {
+		t.Fatalf("expected the animated plan to succeed, got %v", planErr)
+	}
+	wantWarning := "animated.gif: " + compressAnimatedWarning
+	if !slices.Contains(plan.Warnings, wantWarning) {
+		t.Fatalf("expected the animated warning %q, got %v", wantWarning, plan.Warnings)
+	}
+
+	staticPlan, staticErr := tool.Plan(context.Background(), compressTestRequest("single", []string{static}, compressTargetOptions(1024*1024)))
+	if staticErr != nil {
+		t.Fatalf("expected the static plan to succeed, got %v", staticErr)
+	}
+	for _, warning := range staticPlan.Warnings {
+		if strings.Contains(warning, compressAnimatedWarning) {
+			t.Fatalf("expected no animated warning for a single-frame gif, got %q", warning)
+		}
+	}
+}
+
+func TestCompressPlanEffectiveQuality(t *testing.T) {
+	dir := t.TempDir()
+	jpegInput := filepath.Join(dir, "photo.jpg")
+	pngInput := filepath.Join(dir, "photo.png")
+	webpInput := filepath.Join(dir, "photo.webp")
+	writeCompressNoiseJPEG(t, jpegInput, 120, 90, 90)
+	writePlanPNG(t, pngInput, 40, 30)
+	// Planning never decodes webp, so a placeholder keeps this test focused on
+	// the effective quality echo.
+	writePlanFixture(t, webpInput)
+
+	cases := []struct {
+		name        string
+		mode        string
+		inputs      []string
+		quality     any
+		wantQuality any
+		wantFormat  string
+		wantWarning bool
+	}{
+		{
+			name:        "jpeg keeps a quality below the ceiling",
+			mode:        "single",
+			inputs:      []string{jpegInput},
+			quality:     70,
+			wantQuality: 70,
+			wantFormat:  "jpeg",
+		},
+		{
+			name:        "jpeg clamps quality above the ceiling",
+			mode:        "single",
+			inputs:      []string{jpegInput},
+			quality:     100,
+			wantQuality: compressMaxQuality,
+			wantFormat:  "jpeg",
+		},
+		{
+			name:        "webp clamps quality above the ceiling",
+			mode:        "single",
+			inputs:      []string{webpInput},
+			quality:     100,
+			wantQuality: compressMaxQuality,
+			wantFormat:  "webp",
+		},
+		{
+			name:        "jpeg without quality echoes the ceiling",
+			mode:        "single",
+			inputs:      []string{jpegInput},
+			quality:     nil,
+			wantQuality: compressMaxQuality,
+			wantFormat:  "jpeg",
+		},
+		{
+			name:        "png keeps the clamped quality and warns",
+			mode:        "single",
+			inputs:      []string{pngInput},
+			quality:     80,
+			wantQuality: 80,
+			wantFormat:  "png",
+			wantWarning: true,
+		},
+		{
+			name:        "png without quality echoes the ceiling quietly",
+			mode:        "single",
+			inputs:      []string{pngInput},
+			quality:     nil,
+			wantQuality: compressMaxQuality,
+			wantFormat:  "png",
+		},
+		{
+			name:        "mixed png and jpeg keeps the clamped quality and warns",
+			mode:        "batch",
+			inputs:      []string{jpegInput, pngInput},
+			quality:     80,
+			wantQuality: 80,
+			wantWarning: true,
+		},
+		{
+			name:        "mixed jpeg and webp keeps the clamped quality",
+			mode:        "batch",
+			inputs:      []string{jpegInput, webpInput},
+			quality:     100,
+			wantQuality: compressMaxQuality,
+		},
+	}
+
+	tool := NewCompressTool()
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			options := compressTargetOptions(1024 * 1024)
+			if testCase.quality != nil {
+				options["quality"] = testCase.quality
+			}
+
+			plan, planErr := tool.Plan(context.Background(), compressTestRequest(testCase.mode, testCase.inputs, options))
+			if planErr != nil {
+				t.Fatalf("expected the plan to succeed, got %v", planErr)
+			}
+
+			echoed, hasQuality := plan.EffectiveOptions["quality"]
+			if testCase.wantQuality == nil {
+				if hasQuality {
+					t.Fatalf("expected no effective quality, got %v", echoed)
+				}
+			} else {
+				if !hasQuality {
+					t.Fatalf("expected effective quality %v, got none", testCase.wantQuality)
+				}
+				if echoed != testCase.wantQuality {
+					t.Fatalf("expected effective quality %v, got %v", testCase.wantQuality, echoed)
+				}
+			}
+
+			if testCase.wantFormat != "" {
+				if got := plan.EffectiveOptions["format"]; got != testCase.wantFormat {
+					t.Fatalf("expected effective format %q, got %v", testCase.wantFormat, got)
+				}
+			} else if _, exists := plan.EffectiveOptions["format"]; exists {
+				t.Fatalf("expected mixed formats to leave the effective format unset, got %v", plan.EffectiveOptions["format"])
+			}
+
+			hasWarning := slices.Contains(plan.Warnings, compressPNGQualityWarning)
+			if hasWarning != testCase.wantWarning {
+				t.Fatalf("expected warning=%v, got warnings %v", testCase.wantWarning, plan.Warnings)
+			}
+		})
+	}
+}
+
+func TestCompressPlanExplicitOutputExtensionMustMatch(t *testing.T) {
+	dir := t.TempDir()
+	jpegInput := filepath.Join(dir, "photo.jpg")
+	pngInput := filepath.Join(dir, "photo.png")
+	writeCompressNoiseJPEG(t, jpegInput, 120, 90, 90)
+	writePlanPNG(t, pngInput, 40, 30)
+
+	cases := []struct {
+		name       string
+		input      string
+		outputName string
+		wantCode   string
+	}{
+		{name: "jpeg rejects png extension", input: jpegInput, outputName: "custom.png", wantCode: "IMAGE_COMPRESS_OUTPUT_EXTENSION_MISMATCH"},
+		{name: "jpeg rejects webp extension", input: jpegInput, outputName: "custom.webp", wantCode: "IMAGE_COMPRESS_OUTPUT_EXTENSION_MISMATCH"},
+		{name: "jpeg rejects a missing extension", input: jpegInput, outputName: "custom", wantCode: "IMAGE_COMPRESS_OUTPUT_EXTENSION_MISMATCH"},
+		{name: "png rejects jpeg extension", input: pngInput, outputName: "custom.jpg", wantCode: "IMAGE_COMPRESS_OUTPUT_EXTENSION_MISMATCH"},
+		{name: "jpeg accepts jpeg extension", input: jpegInput, outputName: "custom.jpeg"},
+		{name: "jpeg accepts the jpg alias", input: jpegInput, outputName: "custom.jpg"},
+		{name: "jpeg accepts an uppercase extension", input: jpegInput, outputName: "custom.JPG"},
+		{name: "png accepts png extension", input: pngInput, outputName: "custom.png"},
+	}
+
+	tool := NewCompressTool()
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			output := filepath.Join(dir, testCase.outputName)
+			options := compressTargetOptions(1024 * 1024)
+			options["outputPath"] = output
+
+			plan, planErr := tool.Plan(context.Background(), compressTestRequest("single", []string{testCase.input}, options))
+			if testCase.wantCode == "" {
+				if planErr != nil {
+					t.Fatalf("expected the plan to succeed, got %v", planErr)
+				}
+				if plan.Outputs[0].OutputPath != output {
+					t.Fatalf("expected output %q, got %q", output, plan.Outputs[0].OutputPath)
+				}
+				return
+			}
+
+			if planErr == nil {
+				t.Fatalf("expected %s", testCase.wantCode)
+			}
+			if planErr.DetailCode != testCase.wantCode {
+				t.Fatalf("expected %s, got %q", testCase.wantCode, planErr.DetailCode)
+			}
+			if plan.Success {
+				t.Fatal("expected the plan to report failure")
+			}
+			if !strings.Contains(planErr.Message, "does not match") {
+				t.Fatalf("expected a clear mismatch message, got %q", planErr.Message)
+			}
+		})
+	}
+}
+
+func TestCompressTargetSizeParsing(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "photo.png")
+	writePlanPNG(t, input, 40, 30)
+
+	valid := []struct {
+		name  string
+		value any
+		want  int64
+	}{
+		{name: "int", value: int(4096), want: 4096},
+		{name: "int8", value: int8(8), want: 8},
+		{name: "int16", value: int16(4096), want: 4096},
+		{name: "int32", value: int32(4096), want: 4096},
+		{name: "int64", value: int64(4096), want: 4096},
+		{name: "uint", value: uint(4096), want: 4096},
+		{name: "uint8", value: uint8(8), want: 8},
+		{name: "uint16", value: uint16(4096), want: 4096},
+		{name: "uint32", value: uint32(4096), want: 4096},
+		{name: "uint64", value: uint64(4096), want: 4096},
+		{name: "float32 whole", value: float32(4096), want: 4096},
+		{name: "float64 whole", value: float64(4096), want: 4096},
+		{name: "json.Number integer", value: json.Number("4096"), want: 4096},
+		{name: "json.Number whole float", value: json.Number("4096.0"), want: 4096},
+	}
+
+	tool := NewCompressTool()
+	for _, testCase := range valid {
+		t.Run(testCase.name, func(t *testing.T) {
+			options := map[string]any{"targetSizeBytes": testCase.value}
+			plan, planErr := tool.Plan(context.Background(), compressTestRequest("single", []string{input}, options))
+			if planErr != nil {
+				t.Fatalf("expected the target to parse, got %v", planErr)
+			}
+			if got := plan.EffectiveOptions["targetSizeBytes"]; got != testCase.want {
+				t.Fatalf("expected target %d, got %v (%T)", testCase.want, got, got)
+			}
+		})
+	}
+
+	invalid := []struct {
+		name  string
+		value any
+	}{
+		{name: "string", value: "4096"},
+		{name: "fractional float", value: 1.5},
+		{name: "fractional json.Number", value: json.Number("1.5")},
+		{name: "NaN", value: math.NaN()},
+		{name: "positive infinity", value: math.Inf(1)},
+		{name: "negative infinity", value: math.Inf(-1)},
+		{name: "negative int", value: int64(-1)},
+		{name: "negative float", value: float64(-4096)},
+		{name: "zero uint", value: uint(0)},
+		{name: "zero float", value: float64(0)},
+		{name: "bool", value: true},
+	}
+
+	for _, testCase := range invalid {
+		t.Run("invalid "+testCase.name, func(t *testing.T) {
+			options := map[string]any{"targetSizeBytes": testCase.value}
+			_, planErr := tool.Plan(context.Background(), compressTestRequest("single", []string{input}, options))
+			if planErr == nil {
+				t.Fatalf("expected %v to be rejected", testCase.value)
+			}
+			if planErr.DetailCode != "IMAGE_COMPRESS_TARGET_INVALID" {
+				t.Fatalf("expected IMAGE_COMPRESS_TARGET_INVALID, got %q", planErr.DetailCode)
+			}
+		})
+	}
+
+	t.Run("invalid nil value", func(t *testing.T) {
+		options := map[string]any{"targetSizeBytes": nil}
+		_, planErr := tool.Plan(context.Background(), compressTestRequest("single", []string{input}, options))
+		if planErr == nil {
+			t.Fatal("expected a nil target to be rejected")
+		}
+		if planErr.DetailCode != "IMAGE_COMPRESS_TARGET_REQUIRED" {
+			t.Fatalf("expected IMAGE_COMPRESS_TARGET_REQUIRED, got %q", planErr.DetailCode)
+		}
+	})
+}
+
+func TestCompressExecutionMetadataPreservedMessage(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "photo.jpg")
+	writeCompressNoiseJPEG(t, input, 120, 80, 60)
+
+	tool := NewCompressTool()
+	request := compressTestRequest("single", []string{input}, compressTargetOptions(1024*1024))
+
+	item, execErr := tool.ExecuteSingle(context.Background(), request)
+	if execErr != nil {
+		t.Fatalf("expected the compression to succeed, got %v", execErr)
+	}
+	if !strings.Contains(item.Message, "already under target") {
+		t.Fatalf("expected the already-under-target note, got %q", item.Message)
+	}
+	if !strings.Contains(item.Message, "metadata kept (stripping would exceed the target or grow the file)") {
+		t.Fatalf("expected the metadata-preserved note, got %q", item.Message)
+	}
+
+	source := readCompressFile(t, input)
+	output := readCompressFile(t, item.OutputPath)
+	if !bytes.Equal(source, output) {
+		t.Fatal("expected the original bytes to be kept")
+	}
+}
+
+func TestCompressExecutionCollisionDoesNotOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "photo.png")
+	writeCompressNoisePNG(t, input, 120, 90)
+
+	sentinel := []byte("do not overwrite me")
+	existing := filepath.Join(dir, "photo_compressed.png")
+	if err := os.WriteFile(existing, sentinel, 0o644); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	tool := NewCompressTool()
+	request := compressTestRequest("single", []string{input}, map[string]any{
+		"targetSizeBytes": 1024 * 1024,
+		"stripMetadata":   false,
+	})
+
+	item, execErr := tool.ExecuteSingle(context.Background(), request)
+	if execErr != nil {
+		t.Fatalf("expected the compression to succeed, got %v", execErr)
+	}
+	if !item.Success {
+		t.Fatalf("expected a success item, got %+v", item)
+	}
+
+	wantOutput := filepath.Join(dir, "photo_compressed-2.png")
+	if item.OutputPath != wantOutput {
+		t.Fatalf("expected the collision-safe output %q, got %q", wantOutput, item.OutputPath)
+	}
+	if kept := readCompressFile(t, existing); !bytes.Equal(kept, sentinel) {
+		t.Fatal("expected the existing file to stay untouched")
+	}
+	if _, statErr := os.Stat(wantOutput); statErr != nil {
+		t.Fatalf("expected the collision-safe output to exist: %v", statErr)
+	}
+}
+
+func TestCompressExecutionErrorClassification(t *testing.T) {
+	cancelledCause := fmt.Errorf("compress failed: %w", context.Canceled)
+	jobErr, cancelled := compressExecutionError(context.Background(), "IMAGE_COMPRESS_BATCH_ITEM", "photo.jpg", cancelledCause)
+	if !cancelled {
+		t.Fatal("expected the wrapped cancellation to be classified")
+	}
+	if jobErr.DetailCode != "IMAGE_COMPRESS_CANCELLED" {
+		t.Fatalf("expected IMAGE_COMPRESS_CANCELLED, got %q", jobErr.DetailCode)
+	}
+	if !strings.Contains(jobErr.Message, "operation cancelled") {
+		t.Fatalf("expected the cancellation message, got %q", jobErr.Message)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	jobErr, cancelled = compressExecutionError(ctx, "IMAGE_COMPRESS_EXECUTION", "photo.jpg", errors.New("boom"))
+	if !cancelled || jobErr.DetailCode != "IMAGE_COMPRESS_CANCELLED" {
+		t.Fatalf("expected a cancelled context to win over the detail code, got %+v (cancelled=%v)", jobErr, cancelled)
+	}
+
+	rawCause := fmt.Errorf("read input failed: %w", os.ErrNotExist)
+	jobErr, cancelled = compressExecutionError(context.Background(), "IMAGE_COMPRESS_BATCH_ITEM", "photo.jpg", rawCause)
+	if cancelled {
+		t.Fatal("expected a plain failure to stay a batch item")
+	}
+	if jobErr.DetailCode != "IMAGE_COMPRESS_BATCH_ITEM" {
+		t.Fatalf("expected IMAGE_COMPRESS_BATCH_ITEM, got %q", jobErr.DetailCode)
+	}
+	if jobErr.Message != "Could not compress the image." {
+		t.Fatalf("expected a clean message, got %q", jobErr.Message)
+	}
+	if strings.Contains(jobErr.Message, "read input failed") {
+		t.Fatalf("expected no raw error text in the message, got %q", jobErr.Message)
+	}
+	if jobErr.Details["error"] != rawCause.Error() {
+		t.Fatalf("expected the raw cause in details, got %v", jobErr.Details["error"])
+	}
+}
+
+// compressControlJPEG encodes the source with the same options the compressor
+// uses for a plain re-encode at an explicit quality.
+func compressControlJPEG(t *testing.T, input []byte, quality int) []byte {
+	t.Helper()
+
+	output, err := bimg.NewImage(input).Process(bimg.Options{
+		Type:          bimg.JPEG,
+		Quality:       quality,
+		StripMetadata: true,
+		Interlace:     true,
+	})
+	if err != nil {
+		t.Fatalf("control jpeg at quality %d: %v", quality, err)
+	}
+
+	return output
+}
+
+// TestCompressExecutionBatchMixedQualityAppliesToJPEG guards the mixed-batch
+// regression: a PNG in the batch must not erase the requested JPEG ceiling.
+func TestCompressExecutionBatchMixedQualityAppliesToJPEG(t *testing.T) {
+	dir := t.TempDir()
+	jpegInput := filepath.Join(dir, "photo.jpg")
+	pngInput := filepath.Join(dir, "scan.png")
+	// A quality-100 source keeps a libvips quality-95 re-encode smaller than
+	// the original, so a regression that loses the ceiling would surface as the
+	// exact q95 control instead of the requested q80 output.
+	writeCompressNoiseJPEG(t, jpegInput, 400, 300, 100)
+	writePlanPNG(t, pngInput, 40, 30)
+
+	const quality = 80
+	const target int64 = 1024 * 1024
+
+	tool := NewCompressTool()
+	request := compressTestRequest("batch", []string{jpegInput, pngInput}, map[string]any{
+		"targetSizeBytes": target,
+		"quality":         quality,
+	})
+
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the plan to succeed, got %v", planErr)
+	}
+	if got := plan.EffectiveOptions["quality"]; got != quality {
+		t.Fatalf("expected the mixed batch to keep the clamped quality %d, got %v", quality, got)
+	}
+	if !slices.Contains(plan.Warnings, compressPNGQualityWarning) {
+		t.Fatalf("expected the png quality warning to stay, got %v", plan.Warnings)
+	}
+
+	items, execErr := tool.ExecuteBatch(context.Background(), request, nil)
+	if execErr != nil {
+		t.Fatalf("expected the mixed batch to succeed, got %v", execErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if !items[0].Success || !items[1].Success {
+		t.Fatalf("expected both items to succeed, got %+v", items)
+	}
+
+	jpegSource := readCompressFile(t, jpegInput)
+	q80Control := compressControlJPEG(t, jpegSource, quality)
+	q95Control := compressControlJPEG(t, jpegSource, compressMaxQuality)
+	if bytes.Equal(q80Control, q95Control) {
+		t.Fatal("expected distinct control outputs for the q80/q95 check")
+	}
+
+	jpegOutput := readCompressFile(t, items[0].OutputPath)
+	if !bytes.Equal(jpegOutput, q80Control) {
+		t.Fatalf("expected the jpeg item at quality %d (%d bytes), got %d bytes", quality, len(q80Control), len(jpegOutput))
+	}
+	if bytes.Equal(jpegOutput, q95Control) {
+		t.Fatalf("expected the jpeg item to differ from the quality-%d control (%d bytes)", compressMaxQuality, len(q95Control))
+	}
+
+	pngInfo, pngStatErr := os.Stat(items[1].OutputPath)
+	if pngStatErr != nil {
+		t.Fatalf("expected the png output: %v", pngStatErr)
+	}
+	if pngInfo.Size() > target {
+		t.Fatalf("expected the png output <= %d bytes, got %d", target, pngInfo.Size())
+	}
+
+	_, pngFormat, pngDecodeErr := image.DecodeConfig(bytes.NewReader(readCompressFile(t, items[1].OutputPath)))
+	if pngDecodeErr != nil {
+		t.Fatalf("decode png output: %v", pngDecodeErr)
+	}
+	if pngFormat != "png" {
+		t.Fatalf("expected a png output, got %s", pngFormat)
+	}
+}
+
+// TestCompressExecutionMessageLiteralBytes pins the exact user-facing text for
+// a fixed fixture so a formatter regression cannot hide behind the shared
+// compressor formatter.
+func TestCompressExecutionMessageLiteralBytes(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "tiny.png")
+	writePlanPNG(t, input, 8, 8)
+
+	const expectedFixtureSize = 82
+	info, statErr := os.Stat(input)
+	if statErr != nil {
+		t.Fatalf("stat fixture: %v", statErr)
+	}
+	if info.Size() != expectedFixtureSize {
+		t.Fatalf("fixture drifted: expected %d bytes, got %d", expectedFixtureSize, info.Size())
+	}
+
+	tool := NewCompressTool()
+	request := compressTestRequest("single", []string{input}, map[string]any{
+		"targetSizeBytes": 1024 * 1024,
+		"stripMetadata":   false,
+	})
+
+	item, execErr := tool.ExecuteSingle(context.Background(), request)
+	if execErr != nil {
+		t.Fatalf("expected the copy to succeed, got %v", execErr)
+	}
+
+	want := "82 B → 82 B (target 1 MB), already under target"
+	if item.Message != want {
+		t.Fatalf("expected the literal message %q, got %q", want, item.Message)
+	}
 }
