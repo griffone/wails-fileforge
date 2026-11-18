@@ -9,10 +9,12 @@ func init() {
 	adapter := NewImageToolAdapter(NewImageConverter())
 	cropTool := NewCropTool()
 	annotateTool := NewAnnotateTool()
+	compressTool := NewCompressTool()
 
 	registry.GetGlobalRegistry().SafeRegisterToolV2(adapter)
 	registry.GetGlobalRegistry().SafeRegisterToolV2(cropTool)
 	registry.GetGlobalRegistry().SafeRegisterToolV2(annotateTool)
+	registry.GetGlobalRegistry().SafeRegisterToolV2(compressTool)
 
 	// Optionally log any initialization errors (non-blocking)
 	go func() {
