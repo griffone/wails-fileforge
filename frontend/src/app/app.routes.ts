@@ -9,6 +9,7 @@ import { PdfSplit } from './components/pdf-split/pdf-split';
 import { PdfCrop } from './components/pdf-crop/pdf-crop';
 import { PdfOptimize } from './components/pdf-optimize/pdf-optimize';
 import { PdfOcr } from './components/pdf-ocr/pdf-ocr';
+import { PdfToDocx } from './components/pdf-to-docx/pdf-to-docx';
 import { PdfFromImages } from './components/pdf-from-images/pdf-from-images';
 import { DocMdToPdf } from './components/doc-md-to-pdf/doc-md-to-pdf';
 import { DocDocxToPdf } from './components/doc-docx-to-pdf/doc-docx-to-pdf';
@@ -33,6 +34,7 @@ export const routes: Routes = [
   { path: 'pdf-crop', component: PdfCrop },
   { path: 'pdf-optimize', component: PdfOptimize },
   { path: 'pdf-ocr', component: PdfOcr },
+  { path: 'pdf-to-docx', component: PdfToDocx },
   { path: 'pdf-from-images', component: PdfFromImages },
   { path: 'doc-md-to-pdf', component: DocMdToPdf },
   { path: 'doc-docx-to-pdf', component: DocDocxToPdf },

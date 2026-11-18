@@ -113,6 +113,7 @@ export function recommendDropTools(
     routes.add('/pdf-split');
     routes.add('/pdf-crop');
     routes.add('/pdf-optimize');
+    routes.add('/pdf-to-docx');
   }
 
   if (markdownCount > 0) {

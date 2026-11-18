@@ -112,7 +112,7 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
-/** The fifteen conversion tools. Ids mirror the backend toolId contract. */
+/** The sixteen conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -297,9 +297,20 @@ export const TOOLS: readonly ToolDefinition[] = [
     formats: ['PDF'],
     keywords: ['images', 'photos', 'pdf', 'grid', 'layout', 'album'],
   },
+  {
+    id: 'tool.pdf.to_docx',
+    name: 'PDF to DOCX',
+    navName: 'To DOCX',
+    description: 'Convert a PDF into an editable DOCX while preserving fonts, weight, colors, images, tables and page layout.',
+    route: '/pdf-to-docx',
+    category: 'pdf',
+    icon: FileType,
+    formats: ['DOCX'],
+    keywords: ['pdf', 'docx', 'word', 'layout', 'fidelity', 'editable'],
+  },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 19-entry navigation model. */
+/** Home, every tool, then System Status, Automations and Settings: the full 20-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,

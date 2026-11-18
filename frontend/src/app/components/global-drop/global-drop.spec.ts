@@ -61,7 +61,12 @@ describe('GlobalDrop', () => {
 
   it('only offers PDF Merge when there are at least two PDFs', () => {
     show(['/tmp/one.pdf']);
-    expect(cardNames()).toEqual(['PDF Split', 'PDF Crop', 'PDF Optimize']);
+    expect(cardNames()).toEqual([
+      'PDF Split',
+      'PDF Crop',
+      'PDF Optimize',
+      'PDF to DOCX',
+    ]);
 
     show(['/tmp/one.pdf', '/tmp/two.pdf']);
     expect(cardNames()).toEqual([
@@ -69,6 +74,7 @@ describe('GlobalDrop', () => {
       'PDF Split',
       'PDF Crop',
       'PDF Optimize',
+      'PDF to DOCX',
     ]);
   });
 
@@ -102,6 +108,7 @@ describe('GlobalDrop', () => {
       'Video Convert',
       'Video Trim',
       'Images to PDF',
+      'PDF to DOCX',
     ]);
   });
 
