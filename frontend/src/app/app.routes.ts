@@ -6,6 +6,8 @@ import { ImageCrop } from './components/image-crop/image-crop';
 import { ImageAnnotate } from './components/image-annotate/image-annotate';
 import { ImageCompress } from './components/image-compress/image-compress';
 import { ImageWatermark } from './components/image-watermark/image-watermark';
+import { ImageOcr } from './components/image-ocr/image-ocr';
+import { ImageBackground } from './components/image-background/image-background';
 import { PdfMerge } from './components/pdf-merge/pdf-merge';
 import { PdfSplit } from './components/pdf-split/pdf-split';
 import { PdfCrop } from './components/pdf-crop/pdf-crop';
@@ -33,6 +35,8 @@ export const routes: Routes = [
   { path: 'image-annotate', component: ImageAnnotate },
   { path: 'image-compress', component: ImageCompress },
   { path: 'image-watermark', component: ImageWatermark },
+  { path: 'image-ocr', component: ImageOcr },
+  { path: 'image-background', component: ImageBackground },
   { path: 'pdf-merge', component: PdfMerge },
   { path: 'pdf-split', component: PdfSplit },
   { path: 'pdf-crop', component: PdfCrop },

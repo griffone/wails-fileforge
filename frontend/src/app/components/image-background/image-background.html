@@ -1,0 +1,358 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">IMAGE</p>
+        <h1 class="page-title">Remove <em>Background</em></h1>
+        <p class="page-sub">
+          Cut the background out of photos and product shots locally. Save a
+          transparent PNG or fill the background with a color.
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon
+          [img]="shieldIcon"
+          [size]="12"
+          [strokeWidth]="2"
+          aria-hidden="true"
+        ></lucide-icon>
+        Local only
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    @if (packBanner(); as banner) {
+      <section
+        class="banner banner-warning pack-banner"
+        role="alert"
+        aria-labelledby="background-pack-title"
+      >
+        <lucide-icon
+          [img]="alertIcon"
+          [size]="16"
+          [strokeWidth]="1.75"
+          aria-hidden="true"
+        ></lucide-icon>
+        <div class="pack-banner-copy">
+          <strong id="background-pack-title">{{ banner.title }}</strong>
+          <span>{{ banner.detail }}</span>
+
+          @if (missingPackComponents().length > 0) {
+            <ul class="pack-components">
+              @for (component of missingPackComponents(); track component.id) {
+                <li>
+                  <strong>{{ component.label }}</strong>
+                  @if (component.detail) {
+                    <span> — {{ component.detail }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+
+          <div class="pack-actions">
+            <a class="btn btn-secondary btn-sm" routerLink="/settings"
+              >Open Settings and run Install / repair</a
+            >
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              [disabled]="toolchainChecking()"
+              (click)="refreshToolchain()"
+            >
+              <lucide-icon
+                [img]="recheckIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              {{ toolchainChecking() ? "Rechecking…" : "Recheck" }}
+            </button>
+          </div>
+        </div>
+      </section>
+    }
+
+    <div class="flow-grid">
+      <section class="panel intake-panel" aria-labelledby="background-input-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="background-input-title" class="panel-title">Images</h2>
+            <p class="panel-sub">
+              Drop images or choose them from your computer.
+            </p>
+          </div>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+        </div>
+
+        <div class="panel-body">
+          <app-file-drop
+            accept="image/*"
+            title="Drop images here"
+            hint="PNG · JPG · WebP · BMP · TIFF · GIF"
+            ariaLabel="Drop or choose images to remove the background from"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
+          <div
+            class="toolbar"
+            role="group"
+            aria-label="Image selection actions"
+          >
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              (click)="chooseFiles()"
+            >
+              <lucide-icon
+                [img]="folderIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              Choose files
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
+            >
+              <lucide-icon
+                [img]="closeIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              Clear
+            </button>
+          </div>
+
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span>{{ note.text }}</span>
+            </div>
+          }
+
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
+
+          @if (selectedPaths().length > 1) {
+            <p class="batch-note">
+              The same background choice applies to every image.
+            </p>
+          }
+        </div>
+      </section>
+
+      <section
+        class="panel outcome-panel"
+        aria-labelledby="background-output-title"
+      >
+        <div class="panel-head">
+          <div>
+            <h2 id="background-output-title" class="panel-title">Output</h2>
+            <p class="panel-sub">
+              Choose the background, then check where the PNG files go.
+            </p>
+          </div>
+          <div class="panel-head-badges">
+            <span
+              class="badge"
+              [class.badge-success]="packReady()"
+              [class.badge-warning]="!packReady()"
+              >{{ packBadge() }}</span
+            >
+            <span class="badge badge-neutral">{{ backgroundLabel() }}</span>
+          </div>
+        </div>
+
+        <div class="panel-body">
+          <div class="field">
+            <label class="label" for="background-mode">Background</label>
+            <select
+              id="background-mode"
+              class="select"
+              aria-describedby="background-mode-help"
+              (change)="onModeChange($event)"
+            >
+              <option
+                value="transparent"
+                [selected]="backgroundMode() === 'transparent'"
+              >
+                Transparent
+              </option>
+              <option value="color" [selected]="backgroundMode() === 'color'">
+                Solid color
+              </option>
+            </select>
+            <p id="background-mode-help" class="field-help">
+              Transparent keeps the alpha channel; a solid color fills the cut
+              area.
+            </p>
+          </div>
+
+          @if (backgroundMode() === "color") {
+            <div class="field">
+              <label class="label" for="background-color">Color</label>
+              <div class="color-row">
+                <input
+                  id="background-color"
+                  class="color-input"
+                  type="color"
+                  aria-label="Background color"
+                  [value]="color()"
+                  (input)="onColorInput($event)"
+                />
+                <span class="color-value mono">{{ normalizedColor() || "Invalid color" }}</span>
+              </div>
+              @if (!colorValid()) {
+                <p class="field-help field-help-error" role="alert">
+                  Choose a color in the #rrggbb format.
+                </p>
+              } @else {
+                <p class="field-help">The output keeps this color behind the subject.</p>
+              }
+            </div>
+          }
+
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                (click)="useOriginalFolders()"
+              >
+                Use original folders
+              </button>
+            </div>
+          }
+
+          <div class="banner banner-info output-note">
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <div class="banner-copy">
+              <strong>Always a PNG</strong>
+              <span
+                >Each image becomes &lt;name&gt;_nobg.png. The first frame is
+                used for animated images.</span
+              >
+            </div>
+          </div>
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (actionHelper(); as helper) {
+            <p class="action-helper" role="status">{{ helper }}</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">
+                Cancel
+              </button>
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" aria-label="Background removal progress">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (processedSummary(); as summary) {
+      <div class="banner banner-success processed-summary" role="status">
+        <lucide-icon
+          [img]="shieldIcon"
+          [size]="16"
+          [strokeWidth]="1.75"
+          aria-hidden="true"
+        ></lucide-icon>
+        <span>{{ summary }}</span>
+      </div>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        toolLabel="image"
+        verbPast="processed"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+      ></app-result-card>
+    }
+  </div>
+</div>

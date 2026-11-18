@@ -55,6 +55,8 @@ describe('GlobalDrop', () => {
       'Image Annotate',
       'Image Compress',
       'Image Watermark',
+      'Image OCR',
+      'Remove Background',
       'Images to PDF',
     ]);
     expect(text('.drop-files-count')).toBe('2 files');
@@ -105,6 +107,8 @@ describe('GlobalDrop', () => {
       'Image Annotate',
       'Image Compress',
       'Image Watermark',
+      'Image OCR',
+      'Remove Background',
       'PDF Split',
       'PDF Crop',
       'PDF Optimize',

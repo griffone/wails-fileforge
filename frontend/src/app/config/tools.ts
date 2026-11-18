@@ -4,6 +4,7 @@ import {
   Captions,
   Combine,
   Crop,
+  Eraser,
   FileText,
   FileType,
   Frame,
@@ -114,7 +115,7 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
-/** The eighteen conversion tools. Ids mirror the backend toolId contract. */
+/** The twenty conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -188,6 +189,47 @@ export const TOOLS: readonly ToolDefinition[] = [
       'tile',
       'tiled',
       'brand',
+    ],
+  },
+  {
+    id: 'tool.image.ocr',
+    name: 'Image OCR',
+    navName: 'Image OCR',
+    description:
+      'Extract text from images with local Tesseract and optionally write a searchable PDF.',
+    route: '/image-ocr',
+    category: 'image',
+    icon: ScanText,
+    formats: ['TXT', 'PDF'],
+    keywords: [
+      'image',
+      'text',
+      'extract text',
+      'screenshot',
+      'scan',
+      'tesseract',
+      'searchable',
+    ],
+  },
+  {
+    id: 'tool.image.background',
+    name: 'Remove Background',
+    navName: 'Remove BG',
+    description:
+      'Remove image backgrounds locally and save a transparent PNG or a chosen color.',
+    route: '/image-background',
+    category: 'image',
+    icon: Eraser,
+    formats: ['PNG'],
+    keywords: [
+      'image',
+      'background',
+      'remove background',
+      'transparent',
+      'cutout',
+      'subject',
+      'product photo',
+      'rembg',
     ],
   },
   {
@@ -353,7 +395,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 22-entry navigation model. */
+/** Home, every tool, then System Status, Automations and Settings: the full 24-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,
