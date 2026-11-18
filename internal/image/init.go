@@ -11,12 +11,14 @@ func init() {
 	annotateTool := NewAnnotateTool()
 	compressTool := NewCompressTool()
 	watermarkTool := NewWatermarkTool()
+	ocrTool := NewImageOCRTool()
 
 	registry.GetGlobalRegistry().SafeRegisterToolV2(adapter)
 	registry.GetGlobalRegistry().SafeRegisterToolV2(cropTool)
 	registry.GetGlobalRegistry().SafeRegisterToolV2(annotateTool)
 	registry.GetGlobalRegistry().SafeRegisterToolV2(compressTool)
 	registry.GetGlobalRegistry().SafeRegisterToolV2(watermarkTool)
+	registry.GetGlobalRegistry().SafeRegisterToolV2(ocrTool)
 
 	// Optionally log any initialization errors (non-blocking)
 	go func() {
