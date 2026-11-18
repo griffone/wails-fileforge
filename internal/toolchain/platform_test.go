@@ -379,6 +379,9 @@ func TestManagedBinaryPathUnixLayout(t *testing.T) {
 
 func TestRembgModelMetadata(t *testing.T) {
 	spec := defaultRembgModelSpec()
+	if got := DefaultRembgModelSpec(); got != spec {
+		t.Fatalf("exported model spec = %+v, want %+v", got, spec)
+	}
 	if spec.Model != "isnet-general-use" {
 		t.Fatalf("default model = %q, want isnet-general-use", spec.Model)
 	}
@@ -498,6 +501,55 @@ func TestRembgRuntimeStateWindowsLayout(t *testing.T) {
 	}
 	if ready, _ := rembgRuntimeState(root, "linux"); ready {
 		t.Fatal("the Unix layout must not accept the Windows tree even with a marker")
+	}
+}
+
+func TestManagedRembgRuntimeState(t *testing.T) {
+	dataDir := t.TempDir()
+	root := ToolchainDir(dataDir)
+	venv := filepath.Join(root, "rembg-venv")
+	python := rembgVenvPythonPath(root, runtime.GOOS)
+	sitePackages := filepath.Join(venv, "Lib", "site-packages")
+	if runtime.GOOS != "windows" {
+		sitePackages = filepath.Join(venv, "lib", "python3.11", "site-packages")
+	}
+
+	ready, reason := ManagedRembgRuntimeState(dataDir)
+	if ready {
+		t.Fatal("a missing engine must not be ready")
+	}
+	if !strings.Contains(reason, "not installed") || !strings.Contains(reason, "Open Settings and run Install / repair") {
+		t.Fatalf("expected an installed/Settings reason, got %q", reason)
+	}
+
+	writeLayoutFixture(t, python)
+	ready, reason = ManagedRembgRuntimeState(dataDir)
+	if ready {
+		t.Fatal("a venv without packages must not be ready")
+	}
+	if !strings.Contains(reason, "incomplete") || !strings.Contains(reason, "Open Settings and run Install / repair") {
+		t.Fatalf("expected an incomplete/Settings reason, got %q", reason)
+	}
+
+	writeLayoutFixture(t, filepath.Join(sitePackages, "rembg", "__init__.py"))
+	if err := os.MkdirAll(filepath.Join(sitePackages, "onnxruntime-1.32.0.dist-info"), 0o755); err != nil {
+		t.Fatalf("create the onnxruntime dist-info directory: %v", err)
+	}
+	ready, reason = ManagedRembgRuntimeState(dataDir)
+	if ready {
+		t.Fatal("an unverified venv must not be ready")
+	}
+	if !strings.Contains(reason, "not verified") || !strings.Contains(reason, "Open Settings and run Install / repair") {
+		t.Fatalf("expected a not-verified/Settings reason, got %q", reason)
+	}
+
+	writeLayoutFixture(t, rembgReadyFilePath(root))
+	ready, reason = ManagedRembgRuntimeState(dataDir)
+	if !ready {
+		t.Fatalf("expected the verified engine to be ready, got %q", reason)
+	}
+	if reason != "Local background removal engine" {
+		t.Fatalf("unexpected ready reason %q", reason)
 	}
 }
 

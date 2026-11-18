@@ -361,6 +361,18 @@ func rembgRuntimeState(root, goos string) (bool, string) {
 	return true, "Local background removal engine"
 }
 
+// ManagedRembgRuntimeState reports whether the managed background removal engine
+// is installed and verified: interpreter, pinned packages and the post-import
+// marker. The reason is user-facing and points the user at Settings.
+func ManagedRembgRuntimeState(dataDir string) (bool, string) {
+	ready, reason := rembgRuntimeState(ToolchainDir(dataDir), runtime.GOOS)
+	if ready {
+		return true, reason
+	}
+
+	return false, strings.Replace(reason, "Run Install / repair.", "Open Settings and run Install / repair.", 1)
+}
+
 // rembgModelState verifies the pinned model by its exact size. The checksum is
 // only verified during install because hashing ~179 MB on every status poll
 // would be wasteful.

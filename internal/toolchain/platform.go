@@ -279,6 +279,13 @@ func defaultRembgModelSpec() RembgModelSpec {
 	}
 }
 
+// DefaultRembgModelSpec returns the metadata of the pinned background removal
+// model. Callers use it to gate readiness on the exact size the installer
+// verifies instead of duplicating the constant.
+func DefaultRembgModelSpec() RembgModelSpec {
+	return defaultRembgModelSpec()
+}
+
 // rembgModelSpec is the model the installer manages. It is a variable so tests
 // can substitute a small fake payload and its checksum; production never
 // overwrites it.
