@@ -52,8 +52,8 @@ The installer bundles:
 - shortcuts and the uninstaller
 
 The installer does **not** bundle the OCR/transcription toolchain (Tesseract,
-Whisper, FFmpeg, models). The app downloads that on first run into the current
-user's LocalAppData.
+Whisper, FFmpeg, models) or the optional background removal pack. The app
+downloads that on first run into the current user's LocalAppData.
 
 ## Native Windows build
 
@@ -114,11 +114,19 @@ The app installs its local tools under the current user's LocalAppData:
     Scripts\python.exe
     Scripts\pdf2docx.exe
     Lib\site-packages\pdf2docx\
+  rembg-venv\
+    Scripts\python.exe
+    Lib\site-packages\rembg\
   whisper\
     whisper-cli.exe
     ...DLLs
   models\
     ggml-medium.bin        (default)
+  rembg\
+    .ready
+    models\
+      isnet-general-use\
+        isnet-general-use.onnx
   tessdata\
     eng.traineddata
     spa.traineddata
@@ -150,6 +158,24 @@ Notes:
 - pdf2docx is MIT-licensed; its PDF parser PyMuPDF is AGPL-3.0 (or a commercial
   Artifex license). The dependency is downloaded into the user's toolchain at
   install time, not embedded in the application binary.
+- The background removal pack is optional and downloaded at runtime; the
+  installer bundles neither Python/rembg nor the model. Installed, it is about
+  630 MB (roughly 450-550 MB for the venv plus the 171 MB model). A missing pack
+  degrades only Remove Background.
+- The `rembg-venv` uses the conda Python 3.11 only as its base interpreter. The
+  pinned `rembg[cpu]==2.0.87`, `onnxruntime==1.32.0` and their transitive pins
+  live only in that venv, never in the conda environment.
+- Background removal child processes receive `REMBG_HOME` and `U2NET_HOME`
+  pointing at the managed `rembg` folder, overriding inherited values. The
+  engine forces `CPUExecutionProvider` and refuses to start without the managed
+  model, so rembg/pooch cannot download weights at run time.
+- The default `isnet-general-use` model is Apache-2.0. The non-commercial
+  `bria-rmbg` model is deliberately not used.
+- `onnxruntime` requires the Microsoft Visual C++ 2019+ redistributable on
+  Windows.
+- Readiness requires the venv interpreter, the rembg package, onnxruntime, a
+  non-empty `.ready` marker and the exact model size. Settings Install/repair
+  removes only the venv and keeps the model.
 - The toolchain is per user. On a shared machine each Windows user downloads
   their own copy.
 
@@ -176,11 +202,13 @@ needs internet access and downloads:
 - micromamba
 - the conda environment with FFmpeg, Tesseract, Poppler, Ghostscript and Python 3.11
 - the isolated pdf2docx venv
+- the optional background removal venv and pinned model
 - whisper.cpp and the default model
 - the Tesseract language data
 
-Expect roughly 3 GB of disk usage, mostly the medium Whisper model and the
-Python environment. After that, conversion and transcription run locally.
+Expect roughly 3 GB of disk usage, or about 3.6 GB with the background removal
+pack; most of it is the medium Whisper model and the Python environments. After
+that, conversion and transcription run locally.
 
 ## Uninstall and cleanup
 
@@ -213,6 +241,11 @@ The toolchain is large; deleting it is the way to reclaim the space.
 - **PDF to DOCX output differs from the PDF**: text-based PDFs reconstruct
   paragraphs, styles, images and tables. Scanned PDFs need PDF OCR first;
   multi-column layouts, equations and forms may need manual cleanup.
+- **Remove Background is disabled**: open Settings → Tools & Models and read the
+  `rembg` and `rembg-model` component details. Run Install / repair. If the
+  engine installs but cannot start, install the Microsoft Visual C++ 2019+
+  redistributable and check that antivirus/EDR is not quarantining the
+  `onnxruntime` DLLs under `rembg-venv\Lib\site-packages\onnxruntime\`.
 - **First-run downloads fail**: check the proxy/firewall. The downloads come
   from GitHub, conda-forge and Hugging Face. Re-run Install / repair.
 - **SmartScreen warns**: the installer is unsigned. For distribution, sign the

@@ -106,19 +106,18 @@ Drop files, choose a result, get a verified bundle: one step, multiple tools, mu
 ### Architecture
 
 - Shared option `targetSizeBytes int64` on relevant job requests.
-- New `internal/targetsize` helper with per-media strategies:
-  - **Images** (`image.convert`, later crop/annotate):
-    * binary-search quality (95 → 30, 6 iterations) for the best quality under target;
-    * if even the floor is too large, downscale the longest edge by 10% (max 5 rounds, min 320 px);
-    * PNG has no quality knob: downscale and report "best effort";
-    * report chosen quality/dimensions and the actual size.
+- Per-media strategies (image target-size compression shipped as
+  `tool.image.compress`; video target size is still pending):
+  - **Images** (shipped as `tool.image.compress`): quality search plus bounded
+    downscale; PNG has no quality knob, so it downscales and reports "best
+    effort"; the chosen quality, dimensions and actual size are reported.
   - **PDF** (`pdf.optimize`, optionally merge):
     * try pdfcpu optimize;
     * if still over target, try Ghostscript `-dPDFSETTINGS=/ebook`, then `/screen`; stop at the first result under target;
     * warn that aggressive PDF compression can downsample images and affect fidelity;
     * if Ghostscript is missing, show a clear runtime dependency message;
     * do not rasterize pages by default; if added later, require explicit consent and verify searchability.
-  - **Video** (`video.convert`, `video.trim`, `video.merge`):
+  - **Video** (`video.convert`, `video.trim`, `video.merge`, pending):
     * compute total bitrate from target bytes and duration, subtract audio bitrate (AAC 128k / Opus 96k);
     * use two-pass encoding for x264/VP9;
     * retry up to 2 times at 90% bitrate if the output is still over target;
@@ -317,7 +316,7 @@ Drop files, choose a result, get a verified bundle: one step, multiple tools, mu
 | Area | New code |
 | --- | --- |
 | Recipes | `internal/recipes`, `recipes/progress/v1`, `ListRecipesV1`, `PlanRecipeV1`, `RunRecipeV1`, `GetRecipeStatusV1`, `CancelRecipeV1` |
-| Target size | `internal/targetsize`, `targetSizeBytes` option, tool-specific loops |
+| Target size | `tool.image.compress` (quality search + bounded downscale), `targetSizeBytes` in `tool.pdf.optimize`; video target size pending |
 | Verification | `internal/verify`, `VerifyJobV1`, `VerificationReportV1` |
 | Undo/history | `internal/jobhistory`, `UndoJobV1`, `RestoreJobV1`, `EmptyTrashV1`, completion hook |
 | Automation | `internal/automation`, fsnotify, rule store, `automation/run/v1`, `/automations` |
@@ -331,7 +330,8 @@ Drop files, choose a result, get a verified bundle: one step, multiple tools, mu
 - Recipe model + RecipeRunner + plan/run/status endpoints + progress event.
 - Verification service + `VerifyJobV1`.
 - Job history store + undo/restore + trash.
-- `internal/targetsize` image/video support.
+- Image target-size compression shipped as `tool.image.compress` (quality search
+  + bounded downscale); video target size remains pending.
 - Tests and docs.
 
 ### Phase 1 — Differentiator MVP (8–12 days)
