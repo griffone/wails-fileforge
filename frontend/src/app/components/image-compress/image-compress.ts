@@ -51,7 +51,13 @@ const SETTINGS_PLAN_DEBOUNCE_MS = 200;
 const THUMBNAIL_SIZE = 160;
 const BYTES_PER_MB = 1024 * 1024;
 const MIN_QUALITY = 40;
-const MAX_QUALITY = 100;
+// The compressor's quality search ceiling is 95, so the UI must not advertise
+// more than the encoder can use.
+const MAX_QUALITY = 95;
+// int64 can hold far more, but anything above ~1 TB per image is not a real
+// target and would only produce an unusable request.
+const MAX_TARGET_MB = 1_000_000;
+const MAX_TARGET_MB_LABEL = '1,000,000';
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'jpg',
@@ -132,7 +138,6 @@ export class ImageCompress implements OnDestroy, OnInit {
   readonly advancedOpen = signal(false);
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
-  readonly planError = signal<JobErrorV1 | null>(null);
   readonly planLoading = signal(false);
 
   readonly jobResult = signal<JobResultV1 | null>(null);
@@ -150,13 +155,43 @@ export class ImageCompress implements OnDestroy, OnInit {
 
   readonly targetSizeBytes = computed(() => {
     const target = this.targetMb();
-    if (target === null || !Number.isFinite(target) || target <= 0) {
+    if (
+      target === null ||
+      !Number.isFinite(target) ||
+      target <= 0 ||
+      target > MAX_TARGET_MB
+    ) {
       return 0;
     }
-    return Math.max(1, Math.round(target * BYTES_PER_MB));
+
+    const bytes = target * BYTES_PER_MB;
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return 0;
+    }
+
+    return Math.max(1, Math.round(bytes));
   });
 
   readonly targetValid = computed(() => this.targetSizeBytes() > 0);
+
+  /**
+   * The specific reason the target cannot be used. Kept separate from
+   * `targetValid` so the UI never has to guess why the run is disabled or show
+   * a bogus `0 B` target.
+   */
+  readonly targetError = computed<string | null>(() => {
+    const target = this.targetMb();
+    if (target === null || !Number.isFinite(target) || target <= 0) {
+      return 'Enter a target size greater than 0 MB.';
+    }
+    if (target > MAX_TARGET_MB) {
+      return `Enter a target size of ${MAX_TARGET_MB_LABEL} MB or less.`;
+    }
+    if (!this.targetValid()) {
+      return 'The target size is too large to use.';
+    }
+    return null;
+  });
 
   readonly targetLabel = computed(() =>
     this.targetValid() ? formatBytes(this.targetSizeBytes()) : 'No target',
@@ -280,7 +315,7 @@ export class ImageCompress implements OnDestroy, OnInit {
       return 'Add at least one image to compress.';
     }
     if (!this.targetValid()) {
-      return 'Enter a target size greater than 0 MB.';
+      return this.targetError() ?? 'Enter a target size greater than 0 MB.';
     }
     return '';
   });
@@ -635,7 +670,6 @@ export class ImageCompress implements OnDestroy, OnInit {
     this.selectedPaths.set([]);
     this.fileItems.set([]);
     this.plan.set(null);
-    this.planError.set(null);
     this.planLoading.set(false);
     this.jobResult.set(null);
     this.jobError.set(null);
@@ -685,7 +719,6 @@ export class ImageCompress implements OnDestroy, OnInit {
     const token = (this.planToken += 1);
     this.planLoading.set(true);
     this.plan.set(null);
-    this.planError.set(null);
 
     const response: PlanJobResponseV1 = await this.wailsService
       .planJobV1(this.buildRequest())
@@ -718,14 +751,12 @@ export class ImageCompress implements OnDestroy, OnInit {
     // Keep the failed plan so the shared plan card can show the problem next
     // to the destination it belongs to.
     this.plan.set({ ...response, success: false, error });
-    this.planError.set(error);
     return false;
   }
 
   private clearPlanState(): void {
     this.planToken += 1;
     this.plan.set(null);
-    this.planError.set(null);
     this.planLoading.set(false);
     this.clearPlanRefreshTimer();
   }

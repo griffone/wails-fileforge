@@ -145,7 +145,11 @@ interface TilePreview {
   height: number;
   fontSize: number;
   padding: number;
-  rotation: number;
+  /**
+   * SVG pattern transform with the negated rotation angle and the stamp centre
+   * as its origin. See the comment in `tilePreview` for the sign convention.
+   */
+  transform: string;
   lines: TextLinePreview[];
 }
 
@@ -200,7 +204,12 @@ export class ImageWatermark implements OnDestroy, OnInit {
   readonly kind = signal<WatermarkKind>('text');
   readonly text = signal('');
   readonly logoPath = signal('');
+  /** Small thumbnail for the logo picker. */
   readonly logoThumbnailUrl = signal('');
+  /** Full logo preview source, used for the overlay and its intrinsic size. */
+  readonly logoPreviewUrl = signal('');
+  /** EXIF-normalized intrinsic width of the logo, in pixels. */
+  readonly logoNaturalWidth = signal(0);
   readonly logoAspect = signal(1);
   readonly logoLoading = signal(false);
   readonly logoError = signal('');
@@ -225,7 +234,6 @@ export class ImageWatermark implements OnDestroy, OnInit {
   readonly previewError = signal('');
 
   readonly plan = signal<PlanJobResponseV1 | null>(null);
-  readonly planError = signal<JobErrorV1 | null>(null);
   readonly planLoading = signal(false);
 
   readonly jobResult = signal<JobResultV1 | null>(null);
@@ -324,8 +332,9 @@ export class ImageWatermark implements OnDestroy, OnInit {
     const maxWidth = Math.max(1, width - 2 * margin);
     const maxHeight = Math.max(1, height - 2 * margin);
     const shortEdge = Math.min(width, height);
+    // The backend clamps the drawn font size to a 12 px legibility floor.
     const requested = Math.max(
-      1,
+      MIN_PREVIEW_FONT_SIZE,
       Math.round((shortEdge * this.scalePercent()) / 100),
     );
 
@@ -358,12 +367,23 @@ export class ImageWatermark implements OnDestroy, OnInit {
     const anchorY = margin + (height - 2 * margin) * anchor.ay;
     const top = anchorY - anchor.ay * blockHeight;
     const lineHeight = fontSize * TEXT_LINE_HEIGHT;
+    // The backend left-aligns every line of a multi-line block at one edge
+    // computed from the anchor and the measured block width. Mirror that with
+    // the estimated width so lines do not fan out around the anchor.
+    const multiLine = lines.length > 1;
+    const blockLeft = multiLine ? anchorX - anchor.ax * blockWidth : anchorX;
 
     return {
-      x: anchorX,
+      x: blockLeft,
       fontSize,
       fontWeight: this.bold() ? 700 : 400,
-      anchor: anchor.ax === 0 ? 'start' : anchor.ax === 1 ? 'end' : 'middle',
+      anchor: multiLine
+        ? 'start'
+        : anchor.ax === 0
+          ? 'start'
+          : anchor.ax === 1
+            ? 'end'
+            : 'middle',
       lines: lines.map((line, index) => ({
         text: line,
         y: top + fontSize * FONT_ASCENT + index * lineHeight,
@@ -387,20 +407,31 @@ export class ImageWatermark implements OnDestroy, OnInit {
     }
 
     const shortEdge = Math.min(width, height);
+    // The backend clamps the drawn font size to a 12 px legibility floor.
     const fontSize = Math.max(
-      1,
+      MIN_PREVIEW_FONT_SIZE,
       Math.round((shortEdge * this.scalePercent()) / 100),
     );
     const lineHeight = fontSize * TEXT_LINE_HEIGHT;
     const padding = Math.max(2, fontSize / 2);
     const blockWidth = this.estimateBlockWidth(lines, fontSize);
+    const tileWidth = blockWidth + 2 * padding;
+    const tileHeight = lines.length * lineHeight + 2 * padding;
+    const rotation = this.rotationDegrees();
+    // Backend `imaging.Rotate` treats positive angles as counter-clockwise,
+    // while SVG `rotate()` turns clockwise. Negate the angle so the preview
+    // matches the output, and rotate around the stamp centre instead of the
+    // pattern origin.
+    const transform = `rotate(${-rotation} ${Number(
+      (tileWidth / 2).toFixed(2),
+    )} ${Number((tileHeight / 2).toFixed(2))})`;
 
     return {
-      width: blockWidth + 2 * padding,
-      height: lines.length * lineHeight + 2 * padding,
+      width: tileWidth,
+      height: tileHeight,
       fontSize,
       padding,
-      rotation: this.rotationDegrees(),
+      transform,
       lines: lines.map((line, index) => ({
         text: line,
         y: padding + fontSize * FONT_ASCENT + index * lineHeight,
@@ -412,7 +443,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
     if (this.kind() !== 'logo') {
       return null;
     }
-    const href = this.logoThumbnailUrl();
+    const href = this.logoPreviewUrl() || this.logoThumbnailUrl();
     if (!href || !this.logoPath().trim()) {
       return null;
     }
@@ -425,10 +456,13 @@ export class ImageWatermark implements OnDestroy, OnInit {
 
     const margin = this.marginPixels();
     const anchor = this.activeAnchor();
-    const logoWidth = Math.max(
-      1,
-      Math.min(width, Math.round((width * this.scalePercent()) / 100)),
-    );
+    const targetWidth = Math.round((width * this.scalePercent()) / 100);
+    // Mirrors the backend: never upscale past the logo's natural width, and
+    // never draw wider than the image itself.
+    const naturalWidth = this.logoNaturalWidth();
+    const cappedWidth =
+      naturalWidth > 0 ? Math.min(targetWidth, naturalWidth) : targetWidth;
+    const logoWidth = Math.max(1, Math.min(width, cappedWidth));
     const aspect = this.logoAspect() > 0 ? this.logoAspect() : 1;
     const logoHeight = logoWidth / aspect;
     const anchorX = margin + (width - 2 * margin) * anchor.ax;
@@ -688,7 +722,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
     if (kind === 'logo') {
       this.tile.set(false);
       if (this.logoPath().trim()) {
-        void this.refreshLogoThumbnail();
+        void this.refreshLogoPreview();
       }
     }
     this.actionMessage.set('');
@@ -826,7 +860,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
     this.logoPath.set(path);
     this.logoError.set('');
     this.actionMessage.set('');
-    void this.refreshLogoThumbnail();
+    void this.refreshLogoPreview();
     void this.refreshPlan();
   }
 
@@ -837,6 +871,8 @@ export class ImageWatermark implements OnDestroy, OnInit {
     this.logoToken += 1;
     this.logoPath.set('');
     this.logoThumbnailUrl.set('');
+    this.logoPreviewUrl.set('');
+    this.logoNaturalWidth.set(0);
     this.logoAspect.set(1);
     this.logoLoading.set(false);
     this.logoError.set('');
@@ -852,7 +888,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
   }
 
   onLogoPreviewError(): void {
-    this.logoThumbnailUrl.set('');
+    this.logoPreviewUrl.set('');
     this.logoError.set('The logo preview could not be displayed.');
   }
 
@@ -1013,7 +1049,6 @@ export class ImageWatermark implements OnDestroy, OnInit {
     this.previewLoading.set(false);
     this.previewError.set('');
     this.plan.set(null);
-    this.planError.set(null);
     this.planLoading.set(false);
     this.jobResult.set(null);
     this.jobError.set(null);
@@ -1066,7 +1101,6 @@ export class ImageWatermark implements OnDestroy, OnInit {
     const token = (this.planToken += 1);
     this.planLoading.set(true);
     this.plan.set(null);
-    this.planError.set(null);
 
     const response: PlanJobResponseV1 = await this.wailsService
       .planJobV1(this.buildRequest())
@@ -1099,14 +1133,12 @@ export class ImageWatermark implements OnDestroy, OnInit {
     // Keep the failed plan so the shared plan card can show the problem next
     // to the destination it belongs to.
     this.plan.set({ ...response, success: false, error });
-    this.planError.set(error);
     return false;
   }
 
   private clearPlanState(): void {
     this.planToken += 1;
     this.plan.set(null);
-    this.planError.set(null);
     this.planLoading.set(false);
     this.clearPlanRefreshTimer();
   }
@@ -1210,10 +1242,12 @@ export class ImageWatermark implements OnDestroy, OnInit {
     this.previewUrl.set(`data:${mimeType};base64,${response.dataBase64}`);
   }
 
-  private async refreshLogoThumbnail(): Promise<void> {
+  private async refreshLogoPreview(): Promise<void> {
     const path = this.logoPath().trim();
     const token = (this.logoToken += 1);
     this.logoThumbnailUrl.set('');
+    this.logoPreviewUrl.set('');
+    this.logoNaturalWidth.set(0);
     this.logoAspect.set(1);
     this.logoError.set('');
 
@@ -1223,21 +1257,45 @@ export class ImageWatermark implements OnDestroy, OnInit {
     }
 
     this.logoLoading.set(true);
-    const thumbnailUrl = await this.wailsService
-      .getThumbnail(path, LOGO_THUMBNAIL_SIZE)
-      .catch(() => null);
+    const [thumbnailUrl, source] = await Promise.all([
+      this.wailsService
+        .getThumbnail(path, LOGO_THUMBNAIL_SIZE)
+        .catch(() => null),
+      this.wailsService.getImagePreviewSourceV1(path).catch(() => null),
+    ]);
     if (token !== this.logoToken) {
       return;
     }
 
     this.logoLoading.set(false);
-    if (!thumbnailUrl) {
-      this.logoError.set('The logo thumbnail could not be loaded.');
+    if (thumbnailUrl) {
+      this.logoThumbnailUrl.set(thumbnailUrl);
+    }
+
+    if (source?.success && source.dataBase64) {
+      const mimeType = source.mimeType || 'image/png';
+      this.logoPreviewUrl.set(`data:${mimeType};base64,${source.dataBase64}`);
+      const width = source.width ?? 0;
+      const height = source.height ?? 0;
+      if (width > 0 && height > 0) {
+        this.logoNaturalWidth.set(width);
+        this.logoAspect.set(width / height);
+      }
+    }
+
+    if (!this.logoThumbnailUrl() && this.logoPreviewUrl()) {
+      this.logoThumbnailUrl.set(this.logoPreviewUrl());
+    }
+    if (!this.logoThumbnailUrl() && !this.logoPreviewUrl()) {
+      this.logoError.set('The logo preview could not be loaded.');
       return;
     }
 
-    this.logoThumbnailUrl.set(thumbnailUrl);
-    this.measureLogo(thumbnailUrl, token);
+    // The full source supplies the intrinsic size; the thumbnail is only a
+    // fallback for the visible preview and its aspect ratio.
+    if (!this.logoPreviewUrl() && this.logoThumbnailUrl()) {
+      this.measureLogo(this.logoThumbnailUrl(), token);
+    }
   }
 
   private measureLogo(url: string, token: number): void {
@@ -1252,6 +1310,9 @@ export class ImageWatermark implements OnDestroy, OnInit {
         image.naturalHeight > 0
       ) {
         this.logoAspect.set(image.naturalWidth / image.naturalHeight);
+        if (this.logoNaturalWidth() <= 0) {
+          this.logoNaturalWidth.set(image.naturalWidth);
+        }
       }
     };
     image.src = url;

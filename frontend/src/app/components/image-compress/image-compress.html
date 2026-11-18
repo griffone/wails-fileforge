@@ -161,7 +161,7 @@
                 class="field-help field-help-error"
                 role="alert"
               >
-                Enter a target size greater than 0 MB.
+                {{ targetError() }}
               </p>
             }
           </div>
@@ -269,14 +269,14 @@
 
                 <div class="field">
                   <label class="label" for="compress-quality"
-                    >Quality ceiling</label
+                    >Quality ceiling (40–95)</label
                   >
                   <input
                     id="compress-quality"
                     class="input"
                     type="number"
                     min="40"
-                    max="100"
+                    max="95"
                     step="1"
                     inputmode="numeric"
                     placeholder="Encoder default"
@@ -284,8 +284,8 @@
                     (input)="onQualityInput($event)"
                   />
                   <p class="field-help">
-                    40–100. Caps the encoder search; PNG ignores it and
-                    quantises instead.
+                    40–95. Caps the encoder search; PNG ignores it and quantises
+                    instead.
                   </p>
                 </div>
 

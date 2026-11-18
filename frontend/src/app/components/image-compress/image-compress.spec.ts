@@ -289,7 +289,36 @@ describe('ImageCompress', () => {
     component.onQualityInput(inputEvent('120'));
     tick(200);
     flushMicrotasks();
-    expect(component.quality()).toBe(100);
+    expect(component.quality()).toBe(95);
+    expect(lastPlanRequest().options['quality']).toBe(95);
+  }));
+
+  it('rejects an extreme target that would break the byte conversion', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJobV1.calls.count();
+
+    component.onTargetInput(inputEvent('1e308'));
+    tick(200);
+    flushMicrotasks();
+
+    expect(component.targetMb()).toBe(1e308);
+    expect(component.targetSizeBytes()).toBe(0);
+    expect(component.targetValid()).toBeFalse();
+    expect(component.targetLabel()).toBe('No target');
+    expect(component.targetSummary()).toBe('');
+    expect(component.targetError()).toBe(
+      'Enter a target size of 1,000,000 MB or less.',
+    );
+    expect(component.canRun()).toBeFalse();
+    expect(component.actionHelper()).toBe(
+      'Enter a target size of 1,000,000 MB or less.',
+    );
+    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls);
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
   }));
 
   it('sends format, downscale and metadata toggles', fakeAsync(() => {

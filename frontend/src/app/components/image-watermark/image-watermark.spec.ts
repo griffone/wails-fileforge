@@ -148,7 +148,20 @@ describe('ImageWatermark', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(`data:image/png;base64,${PIXEL_PNG}`);
-    wailsSpy.getImagePreviewSourceV1.and.resolveTo(previewResponse());
+    wailsSpy.getImagePreviewSourceV1.and.callFake((path: string) =>
+      Promise.resolve(
+        path === '/tmp/logo-small.png'
+          ? {
+              success: true,
+              message: 'ok',
+              dataBase64: PIXEL_PNG,
+              mimeType: 'image/png',
+              width: 100,
+              height: 50,
+            }
+          : previewResponse(),
+      ),
+    );
     wailsSpy.runJobV1.and.resolveTo({
       success: true,
       message: 'queued',
@@ -328,11 +341,15 @@ describe('ImageWatermark', () => {
     expect(lastPlanRequest().options['tile']).toBeTrue();
     expect(lastPlanRequest().options['rotationDegrees']).toBe(-30);
     expect(component.tilePreview()).not.toBeNull();
+    // The backend rotates counter-clockwise for positive angles while SVG
+    // rotates clockwise, so the preview negates the angle.
+    expect(component.tilePreview()?.transform).toContain('rotate(30 ');
 
     component.onRotationInput(inputEvent('45'));
     tick(200);
     flushMicrotasks();
     expect(lastPlanRequest().options['rotationDegrees']).toBe(45);
+    expect(component.tilePreview()?.transform).toContain('rotate(-45 ');
 
     fixture.detectChanges();
     const logoButton = Array.from(
@@ -365,8 +382,74 @@ describe('ImageWatermark', () => {
     flushMicrotasks();
 
     expect(wailsSpy.getThumbnail).toHaveBeenCalledWith('/tmp/logo.png', 256);
+    expect(wailsSpy.getImagePreviewSourceV1).toHaveBeenCalledWith(
+      '/tmp/logo.png',
+    );
     expect(component.logoThumbnailUrl()).toContain('data:image/png;base64,');
+    expect(component.logoNaturalWidth()).toBe(800);
     expect(component.logoPreview()?.width).toBe(160);
+  }));
+
+  it('caps the preview logo at its natural width instead of upscaling it', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/first.png']);
+    flushMicrotasks();
+    tick(150);
+    flushMicrotasks();
+
+    component.onLogoSelected(['/tmp/logo-small.png']);
+    flushMicrotasks();
+
+    expect(component.logoNaturalWidth()).toBe(100);
+    expect(component.logoAspect()).toBe(2);
+    expect(component.logoPreview()?.width).toBe(100);
+    expect(component.logoPreview()?.height).toBe(50);
+
+    // 60% of the 800 px image is 480 px, still above the natural 100 px.
+    component.onScaleInput(inputEvent('60'));
+    tick(200);
+    flushMicrotasks();
+    expect(component.logoPreview()?.width).toBe(100);
+
+    // 5% of the image is 40 px, below the natural width, so it scales down.
+    component.onScaleInput(inputEvent('5'));
+    tick(200);
+    flushMicrotasks();
+    expect(component.logoPreview()?.width).toBe(40);
+    expect(component.logoPreview()?.height).toBe(20);
+  }));
+
+  it('left-aligns multi-line text at one block edge', fakeAsync(() => {
+    component.onTextInput(inputEvent('WIDE LINE\nX'));
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+    tick(150);
+    flushMicrotasks();
+
+    const preview = component.textPreview();
+    expect(preview?.fontSize).toBe(30);
+    expect(preview?.anchor).toBe('start');
+    // 9 chars * 30 px * 0.58 = 156.6 px estimated block width, left of the
+    // bottom-right anchor at 782 px.
+    expect(preview?.x).toBeCloseTo(625.4, 1);
+    expect(preview?.lines.map((line) => line.text)).toEqual(['WIDE LINE', 'X']);
+  }));
+
+  it('applies the backend 12 px font floor to the preview', fakeAsync(() => {
+    component.onTextInput(inputEvent('Hi'));
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+    tick(150);
+    flushMicrotasks();
+
+    component.imageWidth.set(100);
+    component.imageHeight.set(100);
+    flushMicrotasks();
+
+    expect(component.textPreview()?.fontSize).toBe(12);
+
+    component.onTileToggle(checkedEvent(true));
+    flushMicrotasks();
+    expect(component.tilePreview()?.fontSize).toBe(12);
   }));
 
   it('blocks the run while the text is empty or too long', fakeAsync(() => {
@@ -435,7 +518,7 @@ describe('ImageWatermark', () => {
     flushMicrotasks();
 
     expect(component.planBlocked()).toBeTrue();
-    expect(component.planError()?.message).toBe(
+    expect(component.plan()?.error?.message).toBe(
       'The watermark text contains an unsupported character.',
     );
     expect(component.canRun()).toBeFalse();

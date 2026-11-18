@@ -267,6 +267,9 @@ export class ImageBackground implements OnDestroy, OnInit {
     if (this.selectedPaths().length === 0) {
       return 'Add at least one image.';
     }
+    if (this.toolchainState() === 'loading' || this.toolchainChecking()) {
+      return 'Checking the background removal pack…';
+    }
     if (!this.packReady()) {
       return 'The background removal pack is not ready. Install it in Settings first.';
     }

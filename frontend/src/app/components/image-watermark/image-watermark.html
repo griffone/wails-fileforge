@@ -155,9 +155,7 @@
                             [attr.width]="tile.width"
                             [attr.height]="tile.height"
                             patternUnits="userSpaceOnUse"
-                            [attr.patternTransform]="
-                              'rotate(' + tile.rotation + ')'
-                            "
+                            [attr.patternTransform]="tile.transform"
                           >
                             @for (line of tile.lines; track $index) {
                               <text
@@ -222,8 +220,8 @@
                   </p>
                 } @else if (kind() === "logo") {
                   <p class="preview-note">
-                    Logo preview uses a thumbnail. The output scales the
-                    original logo to the same width.
+                    Logo preview uses the selected logo. The output never
+                    upscales a logo beyond its natural width.
                   </p>
                 } @else {
                   <p class="preview-note">
