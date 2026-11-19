@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 // PDF to DOCX conversion runs pdf2docx inside the managed virtual environment.
@@ -273,7 +275,7 @@ func ValidatePDFToDOCXRequest(req PDFToDOCXRequest) *PDFToDOCXError {
 			Details: map[string]any{"outputPath": outputPath},
 		}
 	}
-	if normalizePathKey(inputPath) == normalizePathKey(outputPath) {
+	if fsx.NormalizePathKey(inputPath) == fsx.NormalizePathKey(outputPath) {
 		return &PDFToDOCXError{
 			Code:    PDFToDOCXErrorInvalidInput,
 			Message: fmt.Sprintf("outputPath collides with input path: %s", inputPath),

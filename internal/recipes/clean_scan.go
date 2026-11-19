@@ -15,6 +15,7 @@ import (
 	"fileforge-desktop/internal/outputplan"
 	"fileforge-desktop/internal/pdf"
 	"fileforge-desktop/internal/pdf/engine"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/tools"
 	"fileforge-desktop/internal/verify"
 )
@@ -449,7 +450,7 @@ func (s *Service) runCleanScanOCRStep(ctx context.Context, tracked *recipeJob, s
 		*created = append(*created, textPath)
 	}
 
-	if !fileExists(pdfPath) {
+	if !fsx.IsRegularFile(pdfPath) {
 		return "", "", "", newRecipeError(
 			"RECIPE_OUTPUT_MISSING",
 			fmt.Sprintf("The OCR step finished but the output is missing: %s", filepath.Base(pdfPath)),

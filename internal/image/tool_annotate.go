@@ -20,6 +20,7 @@ import (
 
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/utils"
 
 	"github.com/disintegration/imaging"
@@ -602,7 +603,7 @@ func planExplicitAnnotateOutput(inputPath, explicitOutput string) (models.Planne
 		OutputKind: imageOutputKindFile,
 	}
 
-	if sameFilePath(inputPath, planned.OutputPath) {
+	if fsx.SameFile(inputPath, planned.OutputPath) {
 		return planned, models.NewCanonicalJobError("IMAGE_ANNOTATE_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
 	}
 

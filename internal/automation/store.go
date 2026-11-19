@@ -11,13 +11,13 @@ import (
 	"sync"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
 	defaultMaxRules = 100
 	maxLastOutputs  = 10
 
-	dirPermissions  = 0o755
 	filePermissions = 0o644
 
 	rulesFileName = "automation_rules_v1.json"
@@ -273,45 +273,12 @@ func (s *Store) saveLocked() error {
 		return errors.New("automation: rules path is not configured")
 	}
 
-	directory := filepath.Dir(s.path)
-	if err := os.MkdirAll(directory, dirPermissions); err != nil {
-		return fmt.Errorf("automation: create rules directory: %w", err)
-	}
-
 	payload, err := json.MarshalIndent(s.rules, "", "  ")
 	if err != nil {
 		return fmt.Errorf("automation: encode rules: %w", err)
 	}
-
-	temp, err := os.CreateTemp(directory, ".automation_rules_v1-*.tmp")
-	if err != nil {
-		return fmt.Errorf("automation: create rules temp file: %w", err)
-	}
-	tempPath := temp.Name()
-	discard := func() {
-		_ = temp.Close()
-		_ = os.Remove(tempPath)
-	}
-
-	if _, err := temp.Write(payload); err != nil {
-		discard()
-		return fmt.Errorf("automation: write rules temp file: %w", err)
-	}
-	if err := temp.Chmod(filePermissions); err != nil {
-		discard()
-		return fmt.Errorf("automation: set rules permissions: %w", err)
-	}
-	if err := temp.Sync(); err != nil {
-		discard()
-		return fmt.Errorf("automation: sync rules temp file: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("automation: close rules temp file: %w", err)
-	}
-	if err := os.Rename(tempPath, s.path); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("automation: replace rules file: %w", err)
+	if err := fsx.WriteAtomic(s.path, payload, filePermissions); err != nil {
+		return fmt.Errorf("automation: persist rules: %w", err)
 	}
 
 	return nil

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 // InstallEventNameV1 is the Wails event emitted while the toolchain installs.
@@ -501,7 +502,10 @@ func (s *Service) installMicromamba(ctx context.Context, staging string, force b
 	if err := os.Chmod(tempPath, 0o755); err != nil {
 		return fmt.Errorf("prepare micromamba: %w", err)
 	}
-	if err := replaceFile(tempPath, target); err != nil {
+	if err := fsx.EnsureDir(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("install micromamba: %w", err)
+	}
+	if err := fsx.ReplaceFile(tempPath, target); err != nil {
 		return fmt.Errorf("install micromamba: %w", err)
 	}
 
@@ -518,7 +522,7 @@ func (s *Service) installEnvironment(ctx context.Context, force bool) error {
 	s.progress(PhaseEnvironment, micromambaDownloadEndPercent, condaPackagesMessage, true)
 
 	micromamba := micromambaPath(s.root, s.platform)
-	if !fileExists(micromamba) {
+	if !fsx.IsRegularFile(micromamba) {
 		return fmt.Errorf("micromamba is missing at %s", micromamba)
 	}
 
@@ -642,7 +646,10 @@ func (s *Service) installModel(ctx context.Context, staging, model string, force
 		return fmt.Errorf("download the Whisper model: %w", err)
 	}
 
-	if err := replaceFile(tempPath, target); err != nil {
+	if err := fsx.EnsureDir(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("install the Whisper model: %w", err)
+	}
+	if err := fsx.ReplaceFile(tempPath, target); err != nil {
 		return fmt.Errorf("install the Whisper model: %w", err)
 	}
 
@@ -685,7 +692,10 @@ func (s *Service) installTessdata(ctx context.Context, staging string, languages
 			return fmt.Errorf("download Tesseract language data (%s): %w", language, err)
 		}
 
-		if err := replaceFile(tempPath, target); err != nil {
+		if err := fsx.EnsureDir(filepath.Dir(target), 0o755); err != nil {
+			return fmt.Errorf("install Tesseract language data (%s): %w", language, err)
+		}
+		if err := fsx.ReplaceFile(tempPath, target); err != nil {
 			return fmt.Errorf("install Tesseract language data (%s): %w", language, err)
 		}
 
@@ -908,7 +918,7 @@ func (s *Service) installRembgModel(ctx context.Context, force bool) error {
 	if err := verifyRembgModel(tempPath, spec); err != nil {
 		return fmt.Errorf("verify the background removal model: %w", err)
 	}
-	if err := replaceFile(tempPath, target); err != nil {
+	if err := fsx.ReplaceFile(tempPath, target); err != nil {
 		return fmt.Errorf("install the background removal model: %w", err)
 	}
 
@@ -1451,36 +1461,7 @@ func writeManifest(root, model string, languages []string, components []models.T
 	}
 	payload = append(payload, '\n')
 
-	target := manifestFilePath(root)
-	tempFile, err := os.CreateTemp(filepath.Dir(target), ".fileforge-manifest-*")
-	if err != nil {
-		return err
-	}
-	tempPath := tempFile.Name()
-	published := false
-	defer func() {
-		_ = tempFile.Close()
-		if !published {
-			_ = os.Remove(tempPath)
-		}
-	}()
-
-	if _, writeErr := tempFile.Write(payload); writeErr != nil {
-		return writeErr
-	}
-	if closeErr := tempFile.Close(); closeErr != nil {
-		return closeErr
-	}
-	if chmodErr := os.Chmod(tempPath, 0o644); chmodErr != nil {
-		return chmodErr
-	}
-	if renameErr := replaceFile(tempPath, target); renameErr != nil {
-		return renameErr
-	}
-
-	published = true
-
-	return nil
+	return fsx.WriteAtomic(manifestFilePath(root), payload, 0o644)
 }
 
 func readManifest(path string) (manifestV1, error) {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
@@ -479,45 +480,12 @@ func (s *Store) saveLocked() error {
 		return errors.New("jobhistory: history path is not configured")
 	}
 
-	directory := filepath.Dir(s.path)
-	if err := os.MkdirAll(directory, dirPermissions); err != nil {
-		return fmt.Errorf("create history directory: %w", err)
-	}
-
 	payload, err := json.MarshalIndent(s.entries, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode history: %w", err)
 	}
-
-	temp, err := os.CreateTemp(directory, ".job_history_v1-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create history temp file: %w", err)
-	}
-	tempPath := temp.Name()
-	discard := func() {
-		_ = temp.Close()
-		_ = os.Remove(tempPath)
-	}
-
-	if _, err := temp.Write(payload); err != nil {
-		discard()
-		return fmt.Errorf("write history temp file: %w", err)
-	}
-	if err := temp.Chmod(filePermissions); err != nil {
-		discard()
-		return fmt.Errorf("set history permissions: %w", err)
-	}
-	if err := temp.Sync(); err != nil {
-		discard()
-		return fmt.Errorf("sync history temp file: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("close history temp file: %w", err)
-	}
-	if err := os.Rename(tempPath, s.path); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("replace history file: %w", err)
+	if err := fsx.WriteAtomic(s.path, payload, filePermissions); err != nil {
+		return fmt.Errorf("persist history: %w", err)
 	}
 
 	return nil

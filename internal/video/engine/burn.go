@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"fileforge-desktop/internal/inspect"
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 // Burning subtitles re-encodes the video with libass so the SRT cues become
@@ -629,7 +630,7 @@ func validateBurnRequest(req BurnRequest) *BurnError {
 	if outputPath == "" {
 		return &BurnError{Code: ErrorCodeBurnValidation, Message: "outputPath is required"}
 	}
-	if normalizePathKey(inputPath) == normalizePathKey(outputPath) {
+	if fsx.NormalizePathKey(inputPath) == fsx.NormalizePathKey(outputPath) {
 		return &BurnError{Code: ErrorCodeBurnValidation, Message: "output path collides with the input path"}
 	}
 

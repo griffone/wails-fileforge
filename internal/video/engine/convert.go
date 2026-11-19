@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	pathpkg "path"
 	"path/filepath"
 	"strings"
+
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
@@ -123,7 +124,7 @@ func ValidateConvertRequest(req ConvertRequest) *VideoError {
 		return &VideoError{Code: ErrorCodeVideoFormatMismatch, Message: fmt.Sprintf("output extension .%s does not match targetFormat=%s", outputExt, targetFormat)}
 	}
 
-	if normalizePathKey(inputPath) == normalizePathKey(outputPath) {
+	if fsx.NormalizePathKey(inputPath) == fsx.NormalizePathKey(outputPath) {
 		return &VideoError{Code: ErrorCodeVideoOutputCollides, Message: "outputPath collides with inputPath"}
 	}
 
@@ -292,29 +293,4 @@ func mapExecutionError(err error) *VideoError {
 	default:
 		return &VideoError{Code: ErrorCodeVideoExecutionFailed, Message: "ffmpeg convert execution failed", Cause: err}
 	}
-}
-
-func normalizePathKey(rawPath string) string {
-	trimmed := strings.TrimSpace(rawPath)
-	if trimmed == "" {
-		return ""
-	}
-
-	normalizedSlashes := strings.ReplaceAll(trimmed, "\\", "/")
-
-	if strings.HasPrefix(normalizedSlashes, "//") {
-		uncTail := strings.TrimLeft(normalizedSlashes, "/")
-		cleanedUNC := pathpkg.Clean("/" + uncTail)
-		return "unc://" + strings.ToLower(strings.TrimPrefix(cleanedUNC, "/"))
-	}
-
-	if len(normalizedSlashes) >= 2 && normalizedSlashes[1] == ':' {
-		drive := strings.ToLower(normalizedSlashes[:1])
-		rest := normalizedSlashes[2:]
-		cleanedRest := pathpkg.Clean("/" + strings.TrimPrefix(rest, "/"))
-		return "win:" + drive + ":" + strings.ToLower(cleanedRest)
-	}
-
-	cleaned := pathpkg.Clean(normalizedSlashes)
-	return "posix:" + strings.ToLower(cleaned)
 }

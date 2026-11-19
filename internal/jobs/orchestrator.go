@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/tools"
 )
@@ -678,45 +678,12 @@ func (o *Orchestrator) loadPersistedJobs(path string) ([]models.JobResultV1, err
 }
 
 func (o *Orchestrator) savePersistedJobs(path string, persisted []models.JobResultV1) error {
-	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return fmt.Errorf("create persistence directory: %w", err)
-	}
-
 	payload, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode persisted jobs: %w", err)
 	}
-
-	temp, err := os.CreateTemp(directory, ".jobs_state_v1-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create persisted jobs temp file: %w", err)
-	}
-	tempPath := temp.Name()
-	discard := func() {
-		_ = temp.Close()
-		_ = os.Remove(tempPath)
-	}
-
-	if _, err := temp.Write(payload); err != nil {
-		discard()
-		return fmt.Errorf("write persisted jobs temp file: %w", err)
-	}
-	if err := temp.Chmod(0o644); err != nil {
-		discard()
-		return fmt.Errorf("set persisted jobs permissions: %w", err)
-	}
-	if err := temp.Sync(); err != nil {
-		discard()
-		return fmt.Errorf("sync persisted jobs temp file: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("close persisted jobs temp file: %w", err)
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("replace persisted jobs file: %w", err)
+	if err := fsx.WriteAtomic(path, payload, 0o644); err != nil {
+		return fmt.Errorf("persist jobs: %w", err)
 	}
 
 	return nil

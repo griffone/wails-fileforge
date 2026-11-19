@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"fileforge-desktop/internal/platform/fsx"
+
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
 
@@ -193,7 +195,7 @@ func ValidateOptimizeRequest(inputPath, outputPath string) *OptimizeError {
 		return &OptimizeError{Code: ErrorCodeValidation, Message: "outputPath must use .pdf extension"}
 	}
 
-	if normalizePathKey(inputPath) == normalizePathKey(outputPath) {
+	if fsx.NormalizePathKey(inputPath) == fsx.NormalizePathKey(outputPath) {
 		return &OptimizeError{Code: ErrorCodeOutputCollidesInput, Message: fmt.Sprintf("outputPath collides with input path: %s", inputPath)}
 	}
 

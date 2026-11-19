@@ -1,23 +1,18 @@
 package toolchain
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 // statFile wraps os.Stat so callers can treat "missing" uniformly.
 func statFile(path string) (os.FileInfo, error) {
 	return os.Stat(path)
-}
-
-// fileExists reports whether path is an existing regular file.
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
 }
 
 // fileWithContent reports whether path is a non-empty regular file. A zero-byte
@@ -65,31 +60,13 @@ func copyFileContent(sourcePath, destPath string) error {
 		return fmt.Errorf("prepare %s: %w", tempPath, err)
 	}
 
-	return replaceFile(tempPath, destPath)
+	return fsx.ReplaceFile(tempPath, destPath)
 }
 
 // directoryExists reports whether path is an existing directory.
 func directoryExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
-}
-
-// replaceFile renames tempPath into destPath, replacing an existing file.
-// Windows refuses a rename over an existing file, so the destination is removed
-// when the first rename fails.
-func replaceFile(tempPath, destPath string) error {
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-		return fmt.Errorf("create %s: %w", filepath.Dir(destPath), err)
-	}
-
-	if err := os.Rename(tempPath, destPath); err == nil {
-		return nil
-	}
-	if err := os.Remove(destPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("replace %s: %w", destPath, err)
-	}
-
-	return os.Rename(tempPath, destPath)
 }
 
 // moveEntry renames one extracted entry into its final location. Extraction and

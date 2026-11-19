@@ -15,6 +15,7 @@ import (
 
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/utils"
 
 	"github.com/h2non/bimg"
@@ -865,7 +866,7 @@ func planExplicitWatermarkOutput(inputPath, explicitOutput, outputFormat string)
 		)
 	}
 
-	if sameFilePath(inputPath, planned.OutputPath) {
+	if fsx.SameFile(inputPath, planned.OutputPath) {
 		return planned, models.NewCanonicalJobError("IMAGE_WATERMARK_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
 	}
 

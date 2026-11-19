@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
@@ -109,7 +111,7 @@ func (d *HTTPDownloader) Download(ctx context.Context, url, destPath string, onP
 	if err := os.Chmod(tempPath, downloadFileMode); err != nil {
 		return fmt.Errorf("prepare %s: %w", destPath, err)
 	}
-	if err := replaceFile(tempPath, destPath); err != nil {
+	if err := fsx.ReplaceFile(tempPath, destPath); err != nil {
 		return fmt.Errorf("publish %s: %w", destPath, err)
 	}
 

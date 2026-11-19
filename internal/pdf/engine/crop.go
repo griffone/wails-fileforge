@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"fileforge-desktop/internal/platform/fsx"
+
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
@@ -254,7 +256,7 @@ func buildCropPlanWithOptions(inputPath, outputPath, pageSelection, preset strin
 		return nil, nil, &CropError{Code: ErrorCodeValidation, Message: "outputPath must use .pdf extension"}
 	}
 
-	if normalizePathKey(inputPath) == normalizePathKey(outputPath) {
+	if fsx.NormalizePathKey(inputPath) == fsx.NormalizePathKey(outputPath) {
 		return nil, nil, &CropError{Code: ErrorCodeOutputCollidesInput, Message: fmt.Sprintf("outputPath collides with input path: %s", inputPath)}
 	}
 
@@ -320,7 +322,7 @@ func resolveUniqueBatchCropOutputPath(outputDir, inputPath string, reserved map[
 		}
 
 		candidatePath := filepath.Join(outputDir, candidateName)
-		candidateKey := normalizePathKey(candidatePath)
+		candidateKey := fsx.NormalizePathKey(candidatePath)
 		if _, exists := reserved[candidateKey]; exists {
 			continue
 		}

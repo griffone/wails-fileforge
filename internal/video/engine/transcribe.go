@@ -17,6 +17,7 @@ import (
 	"strings"
 	"unicode"
 
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/toolchain"
 )
 
@@ -504,7 +505,7 @@ func normalizeTranscribeRequest(req TranscribeRequest) (TranscribeRequest, *Tran
 				Message: fmt.Sprintf("output extension .%s does not match format %s", outputExtension, format),
 			}
 		}
-		if normalizePathKey(outputPath) == normalizePathKey(normalized.InputPath) {
+		if fsx.NormalizePathKey(outputPath) == fsx.NormalizePathKey(normalized.InputPath) {
 			return TranscribeRequest{}, &TranscriptionError{
 				Code:    ErrorCodeTranscribeValidation,
 				Message: "output path collides with the input path",

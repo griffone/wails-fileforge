@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"fileforge-desktop/internal/pdf/engine"
+	"fileforge-desktop/internal/platform/fsx"
 
 	"github.com/h2non/bimg"
 )
@@ -432,10 +433,10 @@ func validateImageOCRRequest(inputPath, textPath, pdfPath string) *ImageOCRError
 		return &ImageOCRError{Code: ImageOCRCodeOutputInvalid, Message: "The PDF output must use a .pdf extension."}
 	}
 
-	if sameFilePath(inputPath, textPath) || (pdfPath != "" && sameFilePath(inputPath, pdfPath)) {
+	if fsx.SameFile(inputPath, textPath) || (pdfPath != "" && fsx.SameFile(inputPath, pdfPath)) {
 		return &ImageOCRError{Code: ImageOCRCodeOutputInvalid, Message: "The OCR outputs cannot overwrite the input image."}
 	}
-	if pdfPath != "" && sameFilePath(textPath, pdfPath) {
+	if pdfPath != "" && fsx.SameFile(textPath, pdfPath) {
 		return &ImageOCRError{Code: ImageOCRCodeOutputInvalid, Message: "The text and PDF outputs must differ."}
 	}
 

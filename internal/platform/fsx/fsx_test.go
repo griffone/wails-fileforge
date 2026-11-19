@@ -233,6 +233,9 @@ func TestSameFileFollowsSymlinks(t *testing.T) {
 	if !SameFile(link, target) {
 		t.Fatal("SameFile did not resolve a symlink to its target")
 	}
+	if !IsRegularFile(link) {
+		t.Fatal("IsRegularFile did not follow a symlink to a regular file")
+	}
 }
 
 func TestSameFileDetectsHardLinks(t *testing.T) {
@@ -250,37 +253,78 @@ func TestSameFileDetectsHardLinks(t *testing.T) {
 }
 
 func TestNormalizePathKey(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sub", "..", "file.bin")
-
-	absolute, err := filepath.Abs(path)
+	posixPath := filepath.Join(t.TempDir(), "sub", "..", "Report.PDF")
+	absolutePosix, err := filepath.Abs(posixPath)
 	if err != nil {
-		t.Fatalf("absolute path: %v", err)
+		t.Fatalf("absolute posix path: %v", err)
 	}
-	want := filepath.Clean(absolute)
-	if runtime.GOOS == "windows" {
-		want = strings.ToLower(want)
+	relativePath := filepath.Join("sub", "..", "Report.PDF")
+	absoluteRelative, err := filepath.Abs(relativePath)
+	if err != nil {
+		t.Fatalf("absolute relative path: %v", err)
 	}
 
-	if got := NormalizePathKey("  " + path + "  "); got != want {
-		t.Fatalf("NormalizePathKey = %q, want %q", got, want)
+	cases := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "empty",
+			path: "",
+			want: "",
+		},
+		{
+			name: "blank",
+			path: "   ",
+			want: "",
+		},
+		{
+			name: "posix absolute",
+			path: "  " + posixPath + "  ",
+			want: "posix:" + strings.ToLower(filepath.ToSlash(absolutePosix)),
+		},
+		{
+			name: "posix relative resolved",
+			path: relativePath,
+			want: "posix:" + strings.ToLower(filepath.ToSlash(absoluteRelative)),
+		},
+		{
+			name: "windows drive backslashes",
+			path: `C:\Users\Ivan\..\Ivan\Report.PDF`,
+			want: "win:c:/users/ivan/report.pdf",
+		},
+		{
+			name: "windows drive forward slashes",
+			path: `d:/Data/Output.PDF`,
+			want: "win:d:/data/output.pdf",
+		},
+		{
+			name: "unc backslashes",
+			path: `\\Server\Share\Folder\File.PDF`,
+			want: "unc://server/share/folder/file.pdf",
+		},
+		{
+			name: "unc forward slashes",
+			path: `//server/share/File.PDF`,
+			want: "unc://server/share/file.pdf",
+		},
 	}
-	if got := NormalizePathKey(""); got != "" {
-		t.Fatalf("NormalizePathKey(\"\") = %q, want empty", got)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NormalizePathKey(tc.path); got != tc.want {
+				t.Fatalf("NormalizePathKey(%q) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
 	}
 }
 
-func TestNormalizePathKeyCaseFoldingIsPlatformSpecific(t *testing.T) {
-	key := NormalizePathKey("/tmp/FileForge/Report.PDF")
-	lowered := strings.ToLower(key)
-	if runtime.GOOS == "windows" {
-		if key != lowered {
-			t.Fatalf("Windows path key = %q, want lower-case %q", key, lowered)
-		}
-		return
-	}
-	if key == lowered {
-		t.Fatalf("non-Windows path key %q was case-folded", key)
+func TestNormalizePathKeyIsCaseInsensitive(t *testing.T) {
+	upper := NormalizePathKey("/tmp/FileForge/Report.PDF")
+	lower := NormalizePathKey("/tmp/fileforge/report.pdf")
+	if upper != lower {
+		t.Fatalf("NormalizePathKey is case-sensitive: %q != %q", upper, lower)
 	}
 }
 
@@ -300,6 +344,15 @@ func TestExistsAndIsDir(t *testing.T) {
 	}
 	if IsDir(file) {
 		t.Fatal("IsDir returned true for a regular file")
+	}
+	if !IsRegularFile(file) {
+		t.Fatal("IsRegularFile returned false for a regular file")
+	}
+	if IsRegularFile(dir) {
+		t.Fatal("IsRegularFile returned true for a directory")
+	}
+	if IsRegularFile(filepath.Join(dir, "missing")) {
+		t.Fatal("IsRegularFile returned true for a missing path")
 	}
 }
 

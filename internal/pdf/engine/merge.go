@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	pathpkg "path"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"fileforge-desktop/internal/platform/fsx"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
@@ -469,7 +470,7 @@ func ValidateMergePaths(inputPaths []string, outputPath string) *MergeError {
 		return &MergeError{Code: ErrorCodeValidation, Message: "outputPath must use .pdf extension"}
 	}
 
-	outputKey := normalizePathKey(outputPath)
+	outputKey := fsx.NormalizePathKey(outputPath)
 	seen := make(map[string]struct{}, len(inputPaths))
 	for _, inputPath := range inputPaths {
 		normalizedInput := strings.TrimSpace(inputPath)
@@ -477,7 +478,7 @@ func ValidateMergePaths(inputPaths []string, outputPath string) *MergeError {
 			return &MergeError{Code: ErrorCodeValidation, Message: fmt.Sprintf("input file must be .pdf: %s", inputPath)}
 		}
 
-		inputKey := normalizePathKey(normalizedInput)
+		inputKey := fsx.NormalizePathKey(normalizedInput)
 		if _, exists := seen[inputKey]; exists {
 			return &MergeError{Code: ErrorCodeDuplicateInput, Message: fmt.Sprintf("duplicate input path: %s", normalizedInput)}
 		}
@@ -558,29 +559,4 @@ func validateOutputDir(outputPath string) *MergeError {
 	}
 
 	return nil
-}
-
-func normalizePathKey(rawPath string) string {
-	trimmed := strings.TrimSpace(rawPath)
-	if trimmed == "" {
-		return ""
-	}
-
-	normalizedSlashes := strings.ReplaceAll(trimmed, "\\", "/")
-
-	if strings.HasPrefix(normalizedSlashes, "//") {
-		uncTail := strings.TrimLeft(normalizedSlashes, "/")
-		cleanedUNC := pathpkg.Clean("/" + uncTail)
-		return "unc://" + strings.ToLower(strings.TrimPrefix(cleanedUNC, "/"))
-	}
-
-	if len(normalizedSlashes) >= 2 && normalizedSlashes[1] == ':' {
-		drive := strings.ToLower(normalizedSlashes[:1])
-		rest := normalizedSlashes[2:]
-		cleanedRest := pathpkg.Clean("/" + strings.TrimPrefix(rest, "/"))
-		return "win:" + drive + ":" + strings.ToLower(cleanedRest)
-	}
-
-	cleaned := pathpkg.Clean(normalizedSlashes)
-	return "posix:" + strings.ToLower(cleaned)
 }

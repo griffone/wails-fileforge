@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
+
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 // maxSuffixAttempts bounds collision probing so an unreadable directory can
@@ -104,12 +105,5 @@ func normalizeBase(base string) string {
 }
 
 func pathKey(path string) string {
-	cleaned := filepath.Clean(strings.TrimSpace(path))
-	if abs, err := filepath.Abs(cleaned); err == nil {
-		cleaned = abs
-	}
-	if runtime.GOOS == "windows" {
-		cleaned = strings.ToLower(cleaned)
-	}
-	return cleaned
+	return fsx.NormalizePathKey(path)
 }

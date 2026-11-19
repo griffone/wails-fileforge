@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/toolchain"
 )
 
@@ -280,7 +281,7 @@ func TestBackgroundRemoveToolPlanReservesInputs(t *testing.T) {
 		t.Fatalf("expected %q, got %q", want, batchPlan.Outputs[1].OutputPath)
 	}
 	for _, output := range batchPlan.Outputs {
-		if sameFilePath(output.OutputPath, input) || sameFilePath(output.OutputPath, otherInput) {
+		if fsx.SameFile(output.OutputPath, input) || fsx.SameFile(output.OutputPath, otherInput) {
 			t.Fatalf("planned output %q collides with a batch input", output.OutputPath)
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"fileforge-desktop/internal/inspect"
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
@@ -145,7 +146,7 @@ func ValidateMergeRequest(req MergeRequest) *VideoError {
 	}
 
 	for _, inputPath := range cleanedInputs {
-		if normalizePathKey(inputPath) == normalizePathKey(outputPath) {
+		if fsx.NormalizePathKey(inputPath) == fsx.NormalizePathKey(outputPath) {
 			return &VideoError{Code: ErrorCodeVideoMergeOutputCollides, Message: "outputPath collides with one of inputPaths"}
 		}
 	}

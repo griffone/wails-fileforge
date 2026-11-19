@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"fileforge-desktop/internal/platform/fsx"
+
 	"github.com/h2non/bimg"
 	"github.com/jung-kurt/gofpdf"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -240,7 +242,7 @@ func validateImagesInputs(inputPaths []string) ([]string, *ImagesError) {
 			}
 		}
 
-		inputKey := normalizePathKey(inputPath)
+		inputKey := fsx.NormalizePathKey(inputPath)
 		if firstIndex, exists := firstIndexByKey[inputKey]; exists {
 			return nil, &ImagesError{
 				Code:    ImagesErrorDuplicateInput,
@@ -271,9 +273,9 @@ func validateImagesOutputPath(inputPaths []string, outputPath string) (string, *
 	// The collision check runs before the extension check: an input image path
 	// is never a .pdf, so this is the only place the "never overwrite an input"
 	// rule can be enforced.
-	outputKey := normalizePathKey(trimmedOutput)
+	outputKey := fsx.NormalizePathKey(trimmedOutput)
 	for _, inputPath := range inputPaths {
-		if normalizePathKey(inputPath) == outputKey {
+		if fsx.NormalizePathKey(inputPath) == outputKey {
 			// There is no dedicated collision code: overwriting an input is the
 			// same user-facing problem as writing over an existing file.
 			return "", &ImagesError{

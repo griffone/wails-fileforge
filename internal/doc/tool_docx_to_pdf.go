@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
 	"fileforge-desktop/internal/doc/engine"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const ToolIDDocDOCXToPDFV1 = "tool.doc.docx_to_pdf"
@@ -447,7 +447,7 @@ func planSingleDOCXOutput(parsed docxRequest) (models.PlannedOutputV1, *models.J
 		if dirErr := validateDOCXOutputDir(filepath.Dir(requestedPath)); dirErr != nil {
 			return planned, dirErr
 		}
-		if sameDocFile(inputPath, requestedPath) {
+		if fsx.SameFile(inputPath, requestedPath) {
 			return planned, models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
 		}
 
@@ -537,20 +537,6 @@ func docxProtectedInputError(inputPath string, err error) *models.JobErrorV1 {
 		fmt.Sprintf("%s is protected, encrypted or not a valid .docx file.", filepath.Base(inputPath)),
 		details,
 	)
-}
-
-func sameDocFile(inputPath, outputPath string) bool {
-	if strings.TrimSpace(inputPath) == "" || strings.TrimSpace(outputPath) == "" {
-		return false
-	}
-
-	left := filepath.Clean(inputPath)
-	right := filepath.Clean(outputPath)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
-	}
-
-	return left == right
 }
 
 func emitDOCXBatchProgress(onProgress func(models.JobProgressV1), current, total int) {

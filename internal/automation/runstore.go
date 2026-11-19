@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
@@ -210,45 +211,12 @@ func (s *RunStore) saveLocked() error {
 		return nil
 	}
 
-	directory := filepath.Dir(s.path)
-	if err := os.MkdirAll(directory, dirPermissions); err != nil {
-		return fmt.Errorf("automation: create runs directory: %w", err)
-	}
-
 	payload, err := json.MarshalIndent(s.runs, "", "  ")
 	if err != nil {
 		return fmt.Errorf("automation: encode runs: %w", err)
 	}
-
-	temp, err := os.CreateTemp(directory, ".automation_runs_v1-*.tmp")
-	if err != nil {
-		return fmt.Errorf("automation: create runs temp file: %w", err)
-	}
-	tempPath := temp.Name()
-	discard := func() {
-		_ = temp.Close()
-		_ = os.Remove(tempPath)
-	}
-
-	if _, err := temp.Write(payload); err != nil {
-		discard()
-		return fmt.Errorf("automation: write runs temp file: %w", err)
-	}
-	if err := temp.Chmod(filePermissions); err != nil {
-		discard()
-		return fmt.Errorf("automation: set runs permissions: %w", err)
-	}
-	if err := temp.Sync(); err != nil {
-		discard()
-		return fmt.Errorf("automation: sync runs temp file: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("automation: close runs temp file: %w", err)
-	}
-	if err := os.Rename(tempPath, s.path); err != nil {
-		_ = os.Remove(tempPath)
-		return fmt.Errorf("automation: replace runs file: %w", err)
+	if err := fsx.WriteAtomic(s.path, payload, filePermissions); err != nil {
+		return fmt.Errorf("automation: persist runs: %w", err)
 	}
 
 	return nil

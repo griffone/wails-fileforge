@@ -14,6 +14,7 @@ import (
 	"sync"
 	"unicode"
 
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/utils"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -316,13 +317,13 @@ func ValidateOCRRequest(inputPath, outputPDFPath, outputTextPath string) *OCRErr
 		return &OCRError{Code: ErrorCodeValidation, Message: "textOutputPath must use .txt extension"}
 	}
 
-	if normalizePathKey(inputPath) == normalizePathKey(outputPDFPath) {
+	if fsx.NormalizePathKey(inputPath) == fsx.NormalizePathKey(outputPDFPath) {
 		return &OCRError{Code: ErrorCodeOutputCollidesInput, Message: fmt.Sprintf("outputPath collides with input path: %s", inputPath)}
 	}
-	if outputTextPath != "" && normalizePathKey(outputTextPath) == normalizePathKey(inputPath) {
+	if outputTextPath != "" && fsx.NormalizePathKey(outputTextPath) == fsx.NormalizePathKey(inputPath) {
 		return &OCRError{Code: ErrorCodeOutputCollidesInput, Message: fmt.Sprintf("textOutputPath collides with input path: %s", inputPath)}
 	}
-	if outputTextPath != "" && normalizePathKey(outputTextPath) == normalizePathKey(outputPDFPath) {
+	if outputTextPath != "" && fsx.NormalizePathKey(outputTextPath) == fsx.NormalizePathKey(outputPDFPath) {
 		return &OCRError{Code: ErrorCodeValidation, Message: "textOutputPath must differ from outputPath"}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -208,9 +209,16 @@ func IsDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// IsRegularFile reports whether path exists and is a regular file. It follows
+// symbolic links, so a link to a regular file reports true.
+func IsRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
 // SameFile reports whether a and b resolve to the same file. It prefers the
-// operating system identity and falls back to cleaned absolute path comparison
-// when either path cannot be inspected.
+// operating system identity and falls back to path-key comparison when either
+// path cannot be inspected.
 func SameFile(a, b string) bool {
 	if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" {
 		return false
@@ -225,24 +233,37 @@ func SameFile(a, b string) bool {
 	return NormalizePathKey(a) == NormalizePathKey(b)
 }
 
-// NormalizePathKey returns an absolute, cleaned path suitable for map keys.
-// Paths are case-folded only on Windows, where the filesystem is usually
-// case-insensitive.
+// NormalizePathKey returns a stable map key for a filesystem path. The key is
+// platform-independent so callers can compare Windows drive, Windows UNC, and
+// POSIX paths on any host: separators are normalized to "/", the value is
+// cleaned, resolved to an absolute path when possible, and lower-cased.
 func NormalizePathKey(path string) string {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
 		return ""
 	}
 
-	cleaned := filepath.Clean(trimmed)
-	if absolute, err := filepath.Abs(cleaned); err == nil {
-		cleaned = absolute
-	}
-	if runtime.GOOS == "windows" {
-		cleaned = strings.ToLower(cleaned)
+	normalizedSlashes := strings.ReplaceAll(trimmed, "\\", "/")
+
+	if strings.HasPrefix(normalizedSlashes, "//") {
+		uncTail := strings.TrimLeft(normalizedSlashes, "/")
+		cleanedUNC := pathpkg.Clean("/" + uncTail)
+		return "unc://" + strings.ToLower(strings.TrimPrefix(cleanedUNC, "/"))
 	}
 
-	return cleaned
+	if len(normalizedSlashes) >= 2 && normalizedSlashes[1] == ':' {
+		drive := strings.ToLower(normalizedSlashes[:1])
+		rest := normalizedSlashes[2:]
+		cleanedRest := pathpkg.Clean("/" + strings.TrimPrefix(rest, "/"))
+		return "win:" + drive + ":" + strings.ToLower(cleanedRest)
+	}
+
+	cleaned := pathpkg.Clean(normalizedSlashes)
+	if absolute, err := filepath.Abs(cleaned); err == nil {
+		cleaned = filepath.ToSlash(absolute)
+	}
+
+	return "posix:" + strings.ToLower(cleaned)
 }
 
 // WriteProbe proves dir is writable by creating and removing a temporary file.

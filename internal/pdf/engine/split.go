@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"fileforge-desktop/internal/platform/fsx"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
@@ -506,7 +507,7 @@ func resolveSplitBatchInputs(inputPaths []string, outputDir string, perInputDir 
 		if perInputDir {
 			effectiveOutputDir = filepath.Join(outputDir, perInputSplitDirName(inputPath))
 
-			dirKey := normalizePathKey(effectiveOutputDir)
+			dirKey := fsx.NormalizePathKey(effectiveOutputDir)
 			if previous, exists := seenInputDirs[dirKey]; exists {
 				return nil, &SplitError{Code: ErrorCodeSplitBatchInputDirConflict, Message: fmt.Sprintf("batch perInputDir conflict for %s and %s", previous, inputPath)}
 			}
@@ -545,7 +546,7 @@ func planSplitBatch(inputPaths []string, outputDir, strategy, rangesExpr string,
 		}
 
 		for _, entry := range planned {
-			outputKey := normalizePathKey(entry.Output)
+			outputKey := fsx.NormalizePathKey(entry.Output)
 			if previous, exists := seenOutputs[outputKey]; exists {
 				return nil, &SplitError{Code: ErrorCodeSplitBatchOutputCollision, Message: fmt.Sprintf("batch planned outputs collide: %s and %s", previous, entry.Output)}
 			}
@@ -867,7 +868,7 @@ func IsSplitErrorCode(err error, code string) bool {
 func ensureNoOutputCollisions(planned []splitPlannedOutput) *SplitError {
 	seen := make(map[string]string, len(planned))
 	for _, entry := range planned {
-		key := normalizePathKey(entry.Output)
+		key := fsx.NormalizePathKey(entry.Output)
 		if previous, exists := seen[key]; exists {
 			return &SplitError{Code: ErrorCodeSplitOutputCollision, Message: fmt.Sprintf("planned outputs collide: %s and %s", previous, entry.Output)}
 		}

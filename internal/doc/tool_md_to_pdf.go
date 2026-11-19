@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 
 	"fileforge-desktop/internal/doc/engine"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
@@ -84,7 +84,7 @@ func (t *MDToPDFTool) Plan(_ context.Context, req models.JobRequestV1) (models.P
 	}
 
 	naturalPath := naturalMDOutputPath(prepared.inputPath, req.OutputDir, optionString(req.Options, "outputPath"))
-	adjusted := !sameFile(naturalPath, prepared.outputPath)
+	adjusted := !fsx.SameFile(naturalPath, prepared.outputPath)
 
 	planned := models.PlannedOutputV1{
 		InputPath:  prepared.inputPath,
@@ -183,7 +183,7 @@ func parseAndPrepare(req models.JobRequestV1) (preparedRequest, *models.JobError
 		return preparedRequest{}, outputErr
 	}
 
-	if sameFile(inputPath, outputPath) {
+	if fsx.SameFile(inputPath, outputPath) {
 		return preparedRequest{}, models.NewCanonicalJobError("DOC_MD_TO_PDF_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
 	}
 
@@ -661,18 +661,6 @@ func isHexColor(value string) bool {
 	}
 
 	return true
-}
-
-func sameFile(inputPath, outputPath string) bool {
-	if strings.TrimSpace(inputPath) == "" || strings.TrimSpace(outputPath) == "" {
-		return false
-	}
-	left := filepath.Clean(inputPath)
-	right := filepath.Clean(outputPath)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
-	}
-	return left == right
 }
 
 func firstPath(paths []string) string {

@@ -13,6 +13,7 @@ import (
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
 	"fileforge-desktop/internal/pdf"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/tools"
 	"fileforge-desktop/internal/verify"
 )
@@ -486,7 +487,7 @@ func (s *Service) executeEmailPDF(ctx context.Context, tracked *recipeJob, resol
 
 	s.emitProgress(tracked, models.JobStatusRunning, optimizeStep.Name, "verifying", "Verifying the output.", 90)
 
-	if !fileExists(finalPath) {
+	if !fsx.IsRegularFile(finalPath) {
 		missingErr := newRecipeError(
 			"RECIPE_OUTPUT_MISSING",
 			fmt.Sprintf("The recipe finished but the output is missing: %s", filepath.Base(finalPath)),
@@ -672,15 +673,6 @@ func recipePlanFailure(jobErr *models.JobErrorV1) models.RecipePlanResponseV1 {
 		Outputs:    []models.PlannedOutputV1{},
 		Error:      jobErr,
 	}
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-
-	return info.Mode().IsRegular()
 }
 
 func canonicalInputKey(path string) string {

@@ -13,6 +13,7 @@ import (
 
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/utils"
 )
 
@@ -322,7 +323,7 @@ func (t *ImageToolAdapter) planOutput(inputPath, outputDir, explicitOutput, form
 	}
 
 	base := stem
-	sameAsInput := sameFilePath(filepath.Join(targetDir, fmt.Sprintf("%s.%s", stem, format)), input)
+	sameAsInput := fsx.SameFile(filepath.Join(targetDir, fmt.Sprintf("%s.%s", stem, format)), input)
 	if sameAsInput {
 		base = stem + "-converted"
 	}
@@ -345,7 +346,7 @@ func (t *ImageToolAdapter) planExplicitOutput(inputPath, explicitOutput string, 
 	outputPath := filepath.Clean(strings.TrimSpace(explicitOutput))
 	planned.OutputPath = outputPath
 
-	if sameFilePath(inputPath, outputPath) {
+	if fsx.SameFile(inputPath, outputPath) {
 		return planned, models.NewCanonicalJobError(
 			"IMAGE_OUTPUT_SAME_AS_INPUT",
 			fmt.Sprintf("%s is the input file. Choose a different name.", filepath.Base(outputPath)),
@@ -709,31 +710,4 @@ func optionSupplied(options map[string]any, key string) bool {
 
 	value, ok := options[key]
 	return ok && value != nil
-}
-
-func sameFilePath(left, right string) bool {
-	if left == "" || right == "" {
-		return false
-	}
-	leftClean := filepath.Clean(left)
-	rightClean := filepath.Clean(right)
-	if leftClean == rightClean {
-		return true
-	}
-	if abs, err := filepath.Abs(leftClean); err == nil {
-		leftClean = abs
-	}
-	if abs, err := filepath.Abs(rightClean); err == nil {
-		rightClean = abs
-	}
-	if leftClean == rightClean {
-		return true
-	}
-	if eval, err := filepath.EvalSymlinks(leftClean); err == nil {
-		leftClean = eval
-	}
-	if eval, err := filepath.EvalSymlinks(rightClean); err == nil {
-		rightClean = eval
-	}
-	return leftClean == rightClean
 }
