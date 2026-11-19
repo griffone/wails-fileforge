@@ -80,6 +80,9 @@ func New(notifier *Notifier) *App {
 		allowed = append(allowed, home)
 	}
 	allowed = append(allowed, os.TempDir())
+	// Media streaming shares the preview roots: it may only register files the
+	// user could already preview.
+	media.SetAllowedRoots(allowed)
 	a.previewService = preview.NewPreviewService(preview.Config{AllowedRoots: allowed, MaxQueue: 1024})
 	a.toolchainService = newToolchainService()
 	return a
