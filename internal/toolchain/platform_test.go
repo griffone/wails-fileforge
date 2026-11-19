@@ -24,27 +24,27 @@ func TestPlatformForSupportedTargets(t *testing.T) {
 			name:          "linux amd64",
 			goos:          "linux",
 			goarch:        "amd64",
-			micromambaURL: "https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64",
+			micromambaURL: "https://github.com/mamba-org/micromamba-releases/releases/download/2.10.0-0/micromamba-linux-64",
 			micromambaBin: "micromamba",
-			whisperURL:    "https://github.com/ggerganov/whisper.cpp/releases/download/b5454/whisper-bin-ubuntu-x64.tar.gz",
+			whisperURL:    "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-ubuntu-x64.tar.gz",
 			whisperKind:   ArchiveKindTarGz,
 		},
 		{
 			name:          "linux arm64",
 			goos:          "linux",
 			goarch:        "arm64",
-			micromambaURL: "https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-aarch64",
+			micromambaURL: "https://github.com/mamba-org/micromamba-releases/releases/download/2.10.0-0/micromamba-linux-aarch64",
 			micromambaBin: "micromamba",
-			whisperURL:    "https://github.com/ggerganov/whisper.cpp/releases/download/b5454/whisper-bin-ubuntu-arm64.tar.gz",
+			whisperURL:    "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-ubuntu-arm64.tar.gz",
 			whisperKind:   ArchiveKindTarGz,
 		},
 		{
 			name:          "windows amd64",
 			goos:          "windows",
 			goarch:        "amd64",
-			micromambaURL: "https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-win-64.exe",
+			micromambaURL: "https://github.com/mamba-org/micromamba-releases/releases/download/2.10.0-0/micromamba-win-64.exe",
 			micromambaBin: "micromamba.exe",
-			whisperURL:    "https://github.com/ggerganov/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip",
+			whisperURL:    "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip",
 			whisperKind:   ArchiveKindZip,
 		},
 	}
@@ -228,10 +228,12 @@ func TestNormalizeModel(t *testing.T) {
 }
 
 func TestModelURLs(t *testing.T) {
+	const modelBaseURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/"
+
 	tests := map[string]string{
-		"small":    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-		"medium":   "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-		"large-v3": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
+		"small":    modelBaseURL + "ggml-small.bin",
+		"medium":   modelBaseURL + "ggml-medium.bin",
+		"large-v3": modelBaseURL + "ggml-large-v3.bin",
 	}
 
 	for model, want := range tests {
@@ -272,11 +274,13 @@ func TestNormalizeOCRLanguages(t *testing.T) {
 }
 
 func TestTessdataURLs(t *testing.T) {
+	const tessdataBaseURL = "https://github.com/tesseract-ocr/tessdata_fast/raw/87416418657359cb625c412a48b6e1d6d41c29bd/"
+
 	got, err := TessdataURL("eng")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata" {
+	if got != tessdataBaseURL+"eng.traineddata" {
 		t.Fatalf("unexpected eng URL: %q", got)
 	}
 
@@ -284,7 +288,7 @@ func TestTessdataURLs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata" {
+	if got != tessdataBaseURL+"spa.traineddata" {
 		t.Fatalf("unexpected spa URL: %q", got)
 	}
 
@@ -293,6 +297,52 @@ func TestTessdataURLs(t *testing.T) {
 	}
 	if _, err := TessdataURL("fra"); err == nil {
 		t.Fatal("expected an error for an unsupported language")
+	}
+}
+
+func TestPinnedArtifactURLsAreImmutable(t *testing.T) {
+	artifacts := make([]Artifact, 0, 10)
+	for _, target := range [][2]string{{"linux", "amd64"}, {"linux", "arm64"}, {"windows", "amd64"}} {
+		platform := PlatformFor(target[0], target[1])
+		if !platform.Supported {
+			t.Fatalf("%s/%s must be supported", target[0], target[1])
+		}
+		artifacts = append(artifacts, platform.MicromambaArtifact(), platform.WhisperArtifact())
+	}
+	for _, model := range SupportedModels() {
+		artifact, err := ModelArtifact(model)
+		if err != nil {
+			t.Fatalf("model artifact %q: %v", model, err)
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	for _, language := range SupportedOCRLanguages() {
+		artifact, err := TessdataArtifact(language)
+		if err != nil {
+			t.Fatalf("tessdata artifact %q: %v", language, err)
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	artifacts = append(artifacts, RembgModelArtifact())
+
+	for _, artifact := range artifacts {
+		if strings.TrimSpace(artifact.URL) == "" {
+			t.Fatal("every pinned artifact needs a URL")
+		}
+		if len(artifact.SHA256) != 64 {
+			t.Fatalf("%s: SHA-256 %q is not a 64-character digest", artifact.URL, artifact.SHA256)
+		}
+		if artifact.SizeBytes <= 0 {
+			t.Fatalf("%s: size %d is not positive", artifact.URL, artifact.SizeBytes)
+		}
+		if artifact.FileName == "" {
+			t.Fatalf("%s: missing file name", artifact.URL)
+		}
+		for _, segment := range strings.Split(artifact.URL, "/") {
+			if segment == "latest" || segment == "main" {
+				t.Fatalf("%s: mutable %q path segment in a pinned artifact URL", artifact.URL, segment)
+			}
+		}
 	}
 }
 

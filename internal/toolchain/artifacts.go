@@ -5,16 +5,37 @@ import (
 	"strings"
 )
 
-// This file is the single registry of download URLs and their pinned metadata:
-// every artifact carries the exact SHA-256 and byte size checked while
-// installing, and the service builds an Artifact here instead of assembling
-// URLs on its own. Values were captured on 2026-11-19 from the upstream release
-// metadata.
+// This file is the single registry of pinned download metadata. Every URL points
+// at an immutable release tag, commit, or asset, and every entry carries the
+// exact SHA-256 and byte size checked while installing. Values were captured on
+// 2026-11-19 from the upstream release metadata:
+//
+//   - micromamba: GitHub release asset digests for tag 2.10.0-0.
+//   - whisper.cpp: GitHub release asset digests for tag b5454.
+//   - Whisper models: Hugging Face LFS oids for commit 5359861.
+//   - tessdata_fast: SHA-256 computed from the raw files at commit 8741641.
+//   - rembg: SHA-256 computed from the v0.0.0 release asset (the release
+//     predates GitHub asset digests); the legacy MD5 still matches
+//     fc16ebd8b0c10d971d3513d564d01e29.
+
 const (
-	micromambaReleaseBaseURL = "https://github.com/mamba-org/micromamba-releases/releases/latest/download/"
-	whisperReleaseBaseURL    = "https://github.com/ggerganov/whisper.cpp/releases/download/" + WhisperReleaseTag + "/"
-	whisperModelBaseURL      = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
-	tessdataFastBaseURL      = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/"
+	// MicromambaReleaseTag pins the micromamba release. The previous code used
+	// the "latest" alias, which made installs depend on the current upstream
+	// release instead of a verified one.
+	MicromambaReleaseTag = "2.10.0-0"
+
+	// whisperModelCommit pins the Hugging Face revision of the ggml models.
+	whisperModelCommit = "5359861c739e955e79d9a303bcbc70fb988958b1"
+
+	// tessdataFastCommit pins the tessdata_fast revision of the language data.
+	tessdataFastCommit = "87416418657359cb625c412a48b6e1d6d41c29bd"
+)
+
+const (
+	micromambaReleaseBaseURL = "https://github.com/mamba-org/micromamba-releases/releases/download/" + MicromambaReleaseTag + "/"
+	whisperReleaseBaseURL    = "https://github.com/ggml-org/whisper.cpp/releases/download/" + WhisperReleaseTag + "/"
+	whisperModelBaseURL      = "https://huggingface.co/ggerganov/whisper.cpp/resolve/" + whisperModelCommit + "/"
+	tessdataFastBaseURL      = "https://github.com/tesseract-ocr/tessdata_fast/raw/" + tessdataFastCommit + "/"
 	rembgModelReleaseBaseURL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
 )
 
@@ -103,8 +124,8 @@ func platformKey(goos, goarch string) string {
 	return strings.ToLower(strings.TrimSpace(goos)) + "/" + strings.ToLower(strings.TrimSpace(goarch))
 }
 
-// MicromambaArtifact returns the micromamba artifact for the platform. An
-// unsupported platform yields an artifact with zero metadata, which the
+// MicromambaArtifact returns the pinned micromamba artifact for the platform.
+// An unsupported platform yields an artifact with the zero metadata, which the
 // installer never uses because Start rejects unsupported platforms first.
 func (p Platform) MicromambaArtifact() Artifact {
 	spec := micromambaArtifacts[platformKey(p.OS, p.Arch)]
@@ -117,7 +138,8 @@ func (p Platform) MicromambaArtifact() Artifact {
 	}
 }
 
-// WhisperArtifact returns the whisper.cpp runtime archive for the platform.
+// WhisperArtifact returns the pinned whisper.cpp runtime archive for the
+// platform.
 func (p Platform) WhisperArtifact() Artifact {
 	spec := whisperArtifacts[platformKey(p.OS, p.Arch)]
 
@@ -129,7 +151,7 @@ func (p Platform) WhisperArtifact() Artifact {
 	}
 }
 
-// ModelArtifact returns the Whisper model artifact.
+// ModelArtifact returns the pinned Whisper model artifact.
 func ModelArtifact(model string) (Artifact, error) {
 	normalized, err := NormalizeModel(model)
 	if err != nil {
@@ -147,7 +169,7 @@ func ModelArtifact(model string) (Artifact, error) {
 	}, nil
 }
 
-// TessdataArtifact returns the Tesseract language data artifact.
+// TessdataArtifact returns the pinned Tesseract language data artifact.
 func TessdataArtifact(language string) (Artifact, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(language))
 	spec, supported := tessdataArtifacts[trimmed]
@@ -165,8 +187,8 @@ func TessdataArtifact(language string) (Artifact, error) {
 	}, nil
 }
 
-// RembgModelArtifact returns the background removal model artifact. It reads
-// rembgModelSpec so tests can substitute a small fake payload.
+// RembgModelArtifact returns the pinned background removal model artifact. It
+// reads rembgModelSpec so tests can substitute a small fake payload.
 func RembgModelArtifact() Artifact {
 	spec := rembgModelSpec
 
