@@ -34,7 +34,7 @@
     "capability": "tool.doc.md_to_pdf",
     "version": "v1",
     "supportsSingle": true,
-    "supportsBatch": false,
+    "supportsBatch": true,
     "inputExtensions": [
       "md",
       "markdown"
@@ -49,7 +49,9 @@
       "pdf",
       "header",
       "footer"
-    ]
+    ],
+    "resourceClass": "cpu",
+    "maxWorkers": 2
   },
   {
     "toolId": "tool.image.annotate",

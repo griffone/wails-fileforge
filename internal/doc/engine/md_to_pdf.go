@@ -21,6 +21,8 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	ghtml "github.com/yuin/goldmark/renderer/html"
+
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
@@ -168,11 +170,50 @@ func RenderMarkdownToPDF(ctx context.Context, cfg RenderConfig) error {
 	default:
 	}
 
-	if err := pdf.OutputFileAndClose(cfg.OutputPath); err != nil {
+	tempPath, tempErr := createSiblingTemp(cfg.OutputPath, ".pdf")
+	if tempErr != nil {
+		return fmt.Errorf("prepare pdf output: %w", tempErr)
+	}
+	published := false
+	defer func() {
+		if !published {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if err := pdf.OutputFileAndClose(tempPath); err != nil {
 		return fmt.Errorf("write pdf: %w", err)
 	}
 
+	if err := fsx.ReplaceFile(tempPath, cfg.OutputPath); err != nil {
+		return fmt.Errorf("publish pdf: %w", err)
+	}
+	published = true
+
 	return nil
+}
+
+// createSiblingTemp creates a unique empty temporary file next to target with
+// the given file suffix. The caller owns the returned path and must remove it
+// when publication fails.
+func createSiblingTemp(target, suffix string) (string, error) {
+	dir := filepath.Dir(target)
+	base := strings.TrimSuffix(filepath.Base(target), filepath.Ext(target))
+	if strings.TrimSpace(base) == "" {
+		base = "output"
+	}
+
+	file, err := os.CreateTemp(dir, "."+base+"-*"+suffix)
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+
+	return path, nil
 }
 
 func markdownToHTML(markdown []byte) (string, error) {

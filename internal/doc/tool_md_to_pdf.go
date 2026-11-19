@@ -12,7 +12,9 @@ import (
 
 	"fileforge-desktop/internal/doc/engine"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/outputplan"
 	"fileforge-desktop/internal/platform/fsx"
+	"fileforge-desktop/internal/utils"
 )
 
 const (
@@ -21,6 +23,10 @@ const (
 	docPlannedOutputKindFile = "file"
 
 	mdMaxPageMarginMM = 100.0
+
+	// mdRenderWorkers bounds concurrent Markdown renders. Rendering is
+	// CPU-bound, so two workers keep the machine busy without starving the UI.
+	mdRenderWorkers = 2
 )
 
 var placeholderPattern = regexp.MustCompile(`\{([^}]+)\}`)
@@ -55,10 +61,12 @@ func (t *MDToPDFTool) Manifest() models.ToolManifestV1 {
 		Capability:       t.Capability(),
 		Version:          "v1",
 		SupportsSingle:   true,
-		SupportsBatch:    false,
+		SupportsBatch:    true,
 		InputExtensions:  []string{"md", "markdown"},
 		OutputExtensions: []string{"pdf"},
 		RuntimeDeps:      []string{},
+		ResourceClass:    "cpu",
+		MaxWorkers:       2,
 		Tags:             []string{"doc", "markdown", "pdf", "header", "footer"},
 	}
 }
@@ -72,68 +80,136 @@ func (t *MDToPDFTool) Validate(ctx context.Context, req models.JobRequestV1) *mo
 	return planErr
 }
 
-// Plan resolves the Markdown to PDF destination without writing anything.
-// Execution reuses parseAndPrepare, so the plan and the run resolve the exact
-// same collision-safe output path.
+// Plan resolves one collision-safe Markdown to PDF destination per input
+// without writing anything. An explicit options.outputPath is only accepted for
+// single mode. Execution reuses the planned request options, so the plan and
+// the run render with the exact same page setup.
 func (t *MDToPDFTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
 	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
 
-	prepared, jobErr := parseAndPrepare(req)
+	prepared, jobErr := parseAndPrepareBatch(req)
 	if jobErr != nil {
 		return docPlanFailure(plan, jobErr)
 	}
 
-	naturalPath := naturalMDOutputPath(prepared.inputPath, req.OutputDir, optionString(req.Options, "outputPath"))
-	adjusted := !fsx.SameFile(naturalPath, prepared.outputPath)
-
-	planned := models.PlannedOutputV1{
-		InputPath:  prepared.inputPath,
-		OutputPath: prepared.outputPath,
-		OutputKind: docPlannedOutputKindFile,
+	explicitOutput := ""
+	if strings.TrimSpace(req.Mode) == "single" {
+		explicitOutput = optionString(req.Options, "outputPath")
 	}
-	if adjusted {
-		planned.Adjusted = true
-		planned.Warnings = append(planned.Warnings, fmt.Sprintf(
-			"%s already exists. Saving as %s.",
-			filepath.Base(naturalPath),
-			filepath.Base(prepared.outputPath),
-		))
+
+	outputs := make([]models.PlannedOutputV1, 0, len(prepared))
+	warnings := make([]string, 0)
+	for _, item := range prepared {
+		naturalPath := naturalMDOutputPath(item.inputPath, req.OutputDir, explicitOutput)
+		planned := models.PlannedOutputV1{
+			InputPath:  item.inputPath,
+			OutputPath: item.outputPath,
+			OutputKind: docPlannedOutputKindFile,
+		}
+		if !fsx.SameFile(naturalPath, item.outputPath) {
+			planned.Adjusted = true
+			planned.Warnings = append(planned.Warnings, fmt.Sprintf(
+				"%s already exists. Saving as %s.",
+				filepath.Base(naturalPath),
+				filepath.Base(item.outputPath),
+			))
+		}
+
+		outputs = append(outputs, planned)
+		warnings = append(warnings, planned.Warnings...)
 	}
 
 	plan.Success = true
-	plan.Message = "Ready to convert 1 Markdown document."
-	plan.Outputs = []models.PlannedOutputV1{planned}
-	plan.Warnings = planned.Warnings
-	plan.EffectiveOptions = mdEffectiveOptions(req.Options, prepared.renderConfig)
+	plan.Message = mdPlanMessage(len(outputs))
+	plan.Outputs = outputs
+	plan.Warnings = warnings
+	plan.EffectiveOptions = mdEffectiveOptions(req.Options, prepared[0].renderConfig)
 
 	return plan, nil
 }
 
+// ExecuteSingle resolves the plan first and then runs that exact plan, so it
+// cannot drift from ExecutePlan.
 func (t *MDToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
-	prepared, jobErr := parseAndPrepare(req)
-	if jobErr != nil {
-		return models.JobResultItemV1{InputPath: firstPath(req.InputPaths), OutputPath: "", Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return mdFailureItem(firstPath(req.InputPaths), mdPlannedOutputPath(plan), planErr), planErr
 	}
 
-	if err := engine.RenderMarkdownToPDF(ctx, prepared.renderConfig); err != nil {
-		renderErr := models.NewCanonicalJobError("DOC_MD_TO_PDF_RENDER_FAILED", err.Error(), map[string]any{"inputPath": prepared.inputPath})
-		return models.JobResultItemV1{
-			InputPath:  prepared.inputPath,
-			OutputPath: prepared.outputPath,
-			Success:    false,
-			Message:    renderErr.Message,
-			Error:      renderErr,
-		}, renderErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	return models.JobResultItemV1{
-		InputPath:   prepared.inputPath,
-		OutputPath:  prepared.outputPath,
-		Outputs:     []string{prepared.outputPath},
-		OutputCount: 1,
-		Success:     true,
-		Message:     "markdown to pdf successful",
-	}, nil
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("DOC_MD_TO_PDF_RENDER_FAILED", "markdown render returned no result", nil)
+	}
+
+	return mdFailureItem(firstPath(req.InputPaths), mdPlannedOutputPath(plan), jobErr), jobErr
+}
+
+// ExecuteBatch plans the whole request once and then executes exactly that
+// plan. It never re-resolves output paths from the request.
+func (t *MDToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return nil, planErr
+	}
+
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan renders exactly the outputs resolved by Plan. It never re-plans
+// or re-derives output paths from req.Options, so a reduced retry plan only
+// processes its own outputs. Results keep plan order.
+func (t *MDToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	total := len(plan.Outputs)
+	if total == 0 {
+		return nil, models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_REQUIRED", "at least one markdown input is required", nil)
+	}
+
+	renderOptions, optionsErr := parseMDRenderOptions(req.Options)
+	if optionsErr != nil {
+		return nil, optionsErr
+	}
+
+	items := make([]models.JobResultItemV1, total)
+	completed := make([]bool, total)
+	progress := newDocItemProgress(total, onProgress)
+
+	runErr := utils.ParallelForIndex(ctx, total, mdRenderWorkers, func(ctx context.Context, index int) error {
+		planned := plan.Outputs[index]
+		config := renderOptions.renderConfig(planned.InputPath, planned.OutputPath)
+
+		if err := engine.RenderMarkdownToPDF(ctx, config); err != nil {
+			jobErr := models.NewCanonicalJobError("DOC_MD_TO_PDF_RENDER_FAILED", err.Error(), map[string]any{"inputPath": planned.InputPath})
+			items[index] = mdFailureItem(planned.InputPath, planned.OutputPath, jobErr)
+		} else {
+			items[index] = models.JobResultItemV1{
+				InputPath:   planned.InputPath,
+				OutputPath:  planned.OutputPath,
+				Outputs:     []string{planned.OutputPath},
+				OutputCount: 1,
+				Success:     true,
+				Message:     "markdown to pdf successful",
+			}
+		}
+
+		completed[index] = true
+		progress.itemCompleted()
+
+		return nil
+	})
+
+	if docBatchCancelled(ctx, runErr) {
+		return collectCompletedDocItems(items, completed), models.NewCanonicalJobError("DOC_MD_TO_PDF_CANCELLED", docBatchCancellationCause(ctx, runErr).Error(), nil)
+	}
+	if runErr != nil {
+		return collectCompletedDocItems(items, completed), models.NewCanonicalJobError("DOC_MD_TO_PDF_RENDER_FAILED", runErr.Error(), nil)
+	}
+
+	return items, firstFailedDocItemError(items)
 }
 
 type preparedRequest struct {
@@ -142,67 +218,111 @@ type preparedRequest struct {
 	renderConfig engine.RenderConfig
 }
 
-func parseAndPrepare(req models.JobRequestV1) (preparedRequest, *models.JobErrorV1) {
-	if strings.TrimSpace(req.Mode) != "single" {
-		return preparedRequest{}, models.NewCanonicalJobError("DOC_MD_TO_PDF_MODE_INVALID", "mode must be single", nil)
+// mdRenderOptions holds the request options shared by every render. They are
+// parsed once per request, never per input.
+type mdRenderOptions struct {
+	pageSetup mdPageSetup
+	header    engine.HeaderFooterConfig
+	footer    engine.HeaderFooterConfig
+}
+
+// renderConfig builds the engine configuration for one planned output. The
+// input and output paths always come from the plan.
+func (o mdRenderOptions) renderConfig(inputPath, outputPath string) engine.RenderConfig {
+	return engine.RenderConfig{
+		InputPath:      inputPath,
+		OutputPath:     outputPath,
+		PageSize:       o.pageSetup.PageSize,
+		Orientation:    o.pageSetup.Orientation,
+		MarginTopMM:    o.pageSetup.MarginTopMM,
+		MarginRightMM:  o.pageSetup.MarginRightMM,
+		MarginBottomMM: o.pageSetup.MarginBottomMM,
+		MarginLeftMM:   o.pageSetup.MarginLeftMM,
+		Header:         o.header,
+		Footer:         o.footer,
 	}
+}
 
-	// NOTE(stage-5): Batch execution intentionally out of scope for Stage 4.
-	// TODO(stage-5): add batch mode for per-file markdown -> pdf jobs.
-
-	if len(req.InputPaths) != 1 {
-		return preparedRequest{}, models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_COUNT_INVALID", "single mode requires exactly one markdown input", nil)
-	}
-
-	inputPath := strings.TrimSpace(req.InputPaths[0])
-	if inputPath == "" {
-		return preparedRequest{}, models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_REQUIRED", "inputPath is required", nil)
-	}
-
-	if err := validateInputPath(inputPath); err != nil {
-		return preparedRequest{}, err
-	}
-
-	header, err := parseHeaderFooterOption(req.Options, "header")
+func parseMDRenderOptions(options map[string]any) (mdRenderOptions, *models.JobErrorV1) {
+	header, err := parseHeaderFooterOption(options, "header")
 	if err != nil {
-		return preparedRequest{}, err
+		return mdRenderOptions{}, err
 	}
 
-	footer, err := parseHeaderFooterOption(req.Options, "footer")
+	footer, err := parseHeaderFooterOption(options, "footer")
 	if err != nil {
-		return preparedRequest{}, err
+		return mdRenderOptions{}, err
 	}
 
-	pageSetup, setupErr := parsePageSetupOption(req.Options)
+	pageSetup, setupErr := parsePageSetupOption(options)
 	if setupErr != nil {
-		return preparedRequest{}, setupErr
+		return mdRenderOptions{}, setupErr
 	}
 
-	outputPath, outputErr := resolveOutputPath(inputPath, req.OutputDir, optionString(req.Options, "outputPath"))
-	if outputErr != nil {
-		return preparedRequest{}, outputErr
+	return mdRenderOptions{pageSetup: pageSetup, header: header, footer: footer}, nil
+}
+
+// parseAndPrepareBatch validates the request and resolves one collision-safe
+// output per input. In single mode an explicit options.outputPath is honored;
+// batch mode always derives per-input names.
+func parseAndPrepareBatch(req models.JobRequestV1) ([]preparedRequest, *models.JobErrorV1) {
+	mode := strings.TrimSpace(req.Mode)
+	if mode != "single" && mode != "batch" {
+		return nil, models.NewCanonicalJobError("DOC_MD_TO_PDF_MODE_INVALID", "mode must be single or batch", nil)
 	}
 
-	if fsx.SameFile(inputPath, outputPath) {
-		return preparedRequest{}, models.NewCanonicalJobError("DOC_MD_TO_PDF_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
+	if mode == "single" && len(req.InputPaths) != 1 {
+		return nil, models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_COUNT_INVALID", "single mode requires exactly one markdown input", nil)
+	}
+	if mode == "batch" && len(req.InputPaths) < 1 {
+		return nil, models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_COUNT_INVALID", "batch mode requires at least one markdown input", nil)
 	}
 
-	return preparedRequest{
-		inputPath:  inputPath,
-		outputPath: outputPath,
-		renderConfig: engine.RenderConfig{
-			InputPath:      inputPath,
-			OutputPath:     outputPath,
-			PageSize:       pageSetup.PageSize,
-			Orientation:    pageSetup.Orientation,
-			MarginTopMM:    pageSetup.MarginTopMM,
-			MarginRightMM:  pageSetup.MarginRightMM,
-			MarginBottomMM: pageSetup.MarginBottomMM,
-			MarginLeftMM:   pageSetup.MarginLeftMM,
-			Header:         header,
-			Footer:         footer,
-		},
-	}, nil
+	explicitOutput := optionString(req.Options, "outputPath")
+	if mode == "batch" && explicitOutput != "" {
+		return nil, models.NewCanonicalJobError("DOC_MD_TO_PDF_OUTPUT_INVALID", "options.outputPath is only supported in single mode", nil)
+	}
+
+	renderOptions, optionsErr := parseMDRenderOptions(req.Options)
+	if optionsErr != nil {
+		return nil, optionsErr
+	}
+
+	inputs := make([]string, 0, len(req.InputPaths))
+	// Reserve every input path so an auto-derived output can never overwrite a
+	// different input of the same batch.
+	used := make(map[string]struct{}, len(req.InputPaths))
+	for _, raw := range req.InputPaths {
+		inputPath := strings.TrimSpace(raw)
+		if inputPath == "" {
+			return nil, models.NewCanonicalJobError("DOC_MD_TO_PDF_INPUT_REQUIRED", "inputPath is required", nil)
+		}
+		if err := validateInputPath(inputPath); err != nil {
+			return nil, err
+		}
+		inputs = append(inputs, inputPath)
+		outputplan.MarkUsed(used, inputPath)
+	}
+
+	prepared := make([]preparedRequest, 0, len(inputs))
+	for _, inputPath := range inputs {
+		outputPath, outputErr := resolveBatchOutputPath(inputPath, req.OutputDir, explicitOutput, used)
+		if outputErr != nil {
+			return nil, outputErr
+		}
+
+		if fsx.SameFile(inputPath, outputPath) {
+			return nil, models.NewCanonicalJobError("DOC_MD_TO_PDF_OUTPUT_COLLIDES_INPUT", "output path cannot match input path", nil)
+		}
+
+		prepared = append(prepared, preparedRequest{
+			inputPath:    inputPath,
+			outputPath:   outputPath,
+			renderConfig: renderOptions.renderConfig(inputPath, outputPath),
+		})
+	}
+
+	return prepared, nil
 }
 
 // mdPageSetup is the resolved page configuration for one Markdown render.
@@ -498,26 +618,27 @@ func validatePlaceholders(text string) error {
 	return nil
 }
 
-func resolveOutputPath(inputPath, outputDir, rawOutputPath string) (string, *models.JobErrorV1) {
-	if strings.TrimSpace(rawOutputPath) != "" {
-		outputPath := strings.TrimSpace(rawOutputPath)
-		if strings.ToLower(filepath.Ext(outputPath)) != ".pdf" {
+// resolveBatchOutputPath resolves the destination for one input. It reserves
+// the chosen name in used so parallel inputs never share an output path.
+func resolveBatchOutputPath(inputPath, outputDir, explicitOutput string, used map[string]struct{}) (string, *models.JobErrorV1) {
+	if strings.TrimSpace(explicitOutput) != "" {
+		requestedPath := filepath.Clean(strings.TrimSpace(explicitOutput))
+		if strings.ToLower(filepath.Ext(requestedPath)) != ".pdf" {
 			return "", models.NewCanonicalJobError("DOC_MD_TO_PDF_OUTPUT_INVALID", "outputPath must use .pdf extension", nil)
 		}
-		if dirErr := validateOutputDir(filepath.Dir(outputPath)); dirErr != nil {
+
+		targetDir := filepath.Dir(requestedPath)
+		if dirErr := validateOutputDir(targetDir); dirErr != nil {
 			return "", dirErr
 		}
-		if isOutputAvailable(outputPath) {
-			return outputPath, nil
+
+		stem := strings.TrimSuffix(filepath.Base(requestedPath), filepath.Ext(requestedPath))
+		if strings.TrimSpace(stem) == "" {
+			stem = "document"
 		}
 
-		base := strings.TrimSuffix(outputPath, filepath.Ext(outputPath))
-		for i := 2; ; i++ {
-			candidate := fmt.Sprintf("%s-%d.pdf", base, i)
-			if isOutputAvailable(candidate) {
-				return candidate, nil
-			}
-		}
+		outputPath, _ := outputplan.UniqueFilePath(targetDir, stem, "pdf", used)
+		return outputPath, nil
 	}
 
 	targetDir := strings.TrimSpace(outputDir)
@@ -534,18 +655,40 @@ func resolveOutputPath(inputPath, outputDir, rawOutputPath string) (string, *mod
 		base = "document"
 	}
 
-	prefix := filepath.Join(targetDir, fmt.Sprintf("%s_md2pdf", base))
-	first := prefix + ".pdf"
-	if isOutputAvailable(first) {
-		return first, nil
+	outputPath, _ := outputplan.UniqueFilePath(targetDir, base+"_md2pdf", "pdf", used)
+	return outputPath, nil
+}
+
+func mdPlanMessage(count int) string {
+	if count == 1 {
+		return "Ready to convert 1 Markdown document."
 	}
 
-	for i := 2; ; i++ {
-		candidate := fmt.Sprintf("%s-%d.pdf", prefix, i)
-		if isOutputAvailable(candidate) {
-			return candidate, nil
-		}
+	return fmt.Sprintf("Ready to convert %d Markdown documents.", count)
+}
+
+func mdFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
+	item := models.JobResultItemV1{
+		InputPath:  inputPath,
+		OutputPath: outputPath,
+		Success:    false,
+		Message:    jobErr.Message,
+		Error:      jobErr,
 	}
+	if outputPath != "" {
+		item.Outputs = []string{outputPath}
+		item.OutputCount = 1
+	}
+
+	return item
+}
+
+func mdPlannedOutputPath(plan models.PlanJobResponseV1) string {
+	if len(plan.Outputs) == 0 {
+		return ""
+	}
+
+	return plan.Outputs[0].OutputPath
 }
 
 func validateOutputDir(dir string) *models.JobErrorV1 {
@@ -562,11 +705,6 @@ func validateOutputDir(dir string) *models.JobErrorV1 {
 	}
 
 	return nil
-}
-
-func isOutputAvailable(outputPath string) bool {
-	_, err := os.Stat(outputPath)
-	return err != nil
 }
 
 func optionString(options map[string]any, key string) string {

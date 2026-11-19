@@ -461,3 +461,208 @@ func TestMDExecuteSingleKeepsHeaderFooterWithCustomPageSetup(t *testing.T) {
 	assertFloat(t, "Legal width", dims[0].Width, 612)
 	assertFloat(t, "Legal height", dims[0].Height, 1008)
 }
+
+func mdBatchRequest(inputPaths []string, outputDir string, options map[string]any) models.JobRequestV1 {
+	return models.JobRequestV1{
+		ToolID:     ToolIDDocMDToPDFV1,
+		Mode:       "batch",
+		InputPaths: inputPaths,
+		OutputDir:  outputDir,
+		Options:    options,
+	}
+}
+
+func TestMDPlanBatchResolvesOneOutputPerInput(t *testing.T) {
+	root := t.TempDir()
+	outDir := filepath.Join(root, "exports")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("mkdir output dir: %v", err)
+	}
+
+	first := filepath.Join(root, "one", "notes.md")
+	second := filepath.Join(root, "two", "notes.md")
+	writeDocFixture(t, first, "# First\n")
+	writeDocFixture(t, second, "# Second\n")
+
+	tool := NewMDToPDFTool()
+	plan, planErr := tool.Plan(context.Background(), mdBatchRequest([]string{first, second}, outDir, nil))
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+	if !plan.Success {
+		t.Fatal("expected success plan")
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected 2 planned outputs, got %d", len(plan.Outputs))
+	}
+
+	if want := filepath.Join(outDir, "notes_md2pdf.pdf"); plan.Outputs[0].OutputPath != want {
+		t.Fatalf("expected first output %q, got %q", want, plan.Outputs[0].OutputPath)
+	}
+	if want := filepath.Join(outDir, "notes_md2pdf-2.pdf"); plan.Outputs[1].OutputPath != want {
+		t.Fatalf("expected second output %q, got %q", want, plan.Outputs[1].OutputPath)
+	}
+	if plan.Outputs[0].InputPath != first || plan.Outputs[1].InputPath != second {
+		t.Fatalf("expected plan inputs to keep request order, got %+v", plan.Outputs)
+	}
+	if plan.Outputs[0].Adjusted {
+		t.Fatalf("expected the natural first output to stay unadjusted, got %+v", plan.Outputs[0])
+	}
+	if !plan.Outputs[1].Adjusted {
+		t.Fatalf("expected the duplicate name to be adjusted, got %+v", plan.Outputs[1])
+	}
+	if len(plan.Warnings) != 1 {
+		t.Fatalf("expected one plan warning, got %v", plan.Warnings)
+	}
+	if plan.Message != "Ready to convert 2 Markdown documents." {
+		t.Fatalf("unexpected plan message %q", plan.Message)
+	}
+	for _, output := range plan.Outputs {
+		if _, statErr := os.Stat(output.OutputPath); !os.IsNotExist(statErr) {
+			t.Fatalf("plan must not create %q", output.OutputPath)
+		}
+	}
+}
+
+func TestMDPlanBatchRejectsExplicitOutputPath(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first.md")
+	second := filepath.Join(root, "second.md")
+	writeDocFixture(t, first, "# First\n")
+	writeDocFixture(t, second, "# Second\n")
+
+	tool := NewMDToPDFTool()
+	plan, planErr := tool.Plan(context.Background(), mdBatchRequest([]string{first, second}, "", map[string]any{"outputPath": filepath.Join(root, "custom.pdf")}))
+	if planErr == nil {
+		t.Fatal("expected batch mode to reject options.outputPath")
+	}
+	if planErr.DetailCode != "DOC_MD_TO_PDF_OUTPUT_INVALID" {
+		t.Fatalf("expected DOC_MD_TO_PDF_OUTPUT_INVALID, got %q", planErr.DetailCode)
+	}
+	if plan.Success {
+		t.Fatal("expected plan to report failure")
+	}
+}
+
+func TestMDExecutePlanRendersEveryPlannedOutputAndHonorsMutation(t *testing.T) {
+	root := t.TempDir()
+	outDir := filepath.Join(root, "exports")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("mkdir output dir: %v", err)
+	}
+	first := filepath.Join(root, "one", "notes.md")
+	second := filepath.Join(root, "two", "notes.md")
+	writeDocFixture(t, first, "# First\n\nHello one.\n")
+	writeDocFixture(t, second, "# Second\n\nHello two.\n")
+
+	tool := NewMDToPDFTool()
+	req := mdBatchRequest([]string{first, second}, outDir, nil)
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+
+	// A mutated plan output must win over anything the request implies.
+	mutated := filepath.Join(root, "mutated-first.pdf")
+	plan.Outputs[0].OutputPath = mutated
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected batch execution to succeed, got %v", execErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 result items, got %d", len(items))
+	}
+	for index, item := range items {
+		if !item.Success {
+			t.Fatalf("expected item %d to succeed, got %q", index, item.Message)
+		}
+		if item.OutputPath != plan.Outputs[index].OutputPath {
+			t.Fatalf("item %d wrote %q but the plan promised %q", index, item.OutputPath, plan.Outputs[index].OutputPath)
+		}
+		if _, statErr := os.Stat(item.OutputPath); statErr != nil {
+			t.Fatalf("expected planned output %q to exist: %v", item.OutputPath, statErr)
+		}
+	}
+	if _, statErr := os.Stat(mutated); statErr != nil {
+		t.Fatalf("expected the mutated output path to be honored: %v", statErr)
+	}
+}
+
+func TestMDExecutePlanProcessesOnlyPlannedOutputs(t *testing.T) {
+	root := t.TempDir()
+	outDir := filepath.Join(root, "exports")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("mkdir output dir: %v", err)
+	}
+	first := filepath.Join(root, "first.md")
+	second := filepath.Join(root, "second.md")
+	writeDocFixture(t, first, "# First\n")
+	writeDocFixture(t, second, "# Second\n")
+
+	tool := NewMDToPDFTool()
+	req := mdBatchRequest([]string{first, second}, outDir, nil)
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+
+	subset := plan
+	subset.Outputs = plan.Outputs[1:]
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, subset, nil)
+	if execErr != nil {
+		t.Fatalf("expected subset execution to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one result item, got %d", len(items))
+	}
+	if items[0].InputPath != second {
+		t.Fatalf("expected the subset input %q, got %q", second, items[0].InputPath)
+	}
+	if _, statErr := os.Stat(plan.Outputs[1].OutputPath); statErr != nil {
+		t.Fatalf("expected subset output to exist: %v", statErr)
+	}
+	if _, statErr := os.Stat(plan.Outputs[0].OutputPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected the unplanned output to stay absent, got %v", statErr)
+	}
+}
+
+func TestMDExecutePlanFailedRenderLeavesNoOutput(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.md")
+	writeDocFixture(t, input, "# Notes\n")
+
+	tool := NewMDToPDFTool()
+	req := mdPlanRequest(input, "", nil)
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	if err := os.Remove(input); err != nil {
+		t.Fatalf("remove planned input: %v", err)
+	}
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr == nil {
+		t.Fatal("expected the render to fail")
+	}
+	if execErr.DetailCode != "DOC_MD_TO_PDF_RENDER_FAILED" {
+		t.Fatalf("expected DOC_MD_TO_PDF_RENDER_FAILED, got %q", execErr.DetailCode)
+	}
+	if len(items) != 1 || items[0].Success {
+		t.Fatalf("expected one failed item, got %+v", items)
+	}
+	if _, statErr := os.Stat(plan.Outputs[0].OutputPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no final output, got %v", statErr)
+	}
+
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatalf("read output dir: %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected no leftover files in %s, got %v", dir, entries)
+	}
+}
