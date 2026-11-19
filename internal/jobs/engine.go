@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/platform/jsonstore"
 	"fileforge-desktop/internal/platform/progress"
 	"fileforge-desktop/internal/tools"
@@ -165,6 +166,50 @@ func (e *Engine) SetBaseContext(ctx context.Context) {
 	e.baseMu.Lock()
 	e.baseCtx = ctx
 	e.baseMu.Unlock()
+}
+
+// SetPersistencePath switches the persistence target. An empty path is a no-op.
+// The previous store is closed before the new one is opened. When jobs already
+// exist, the current snapshot is written once so a restart can recover them.
+// Recovery itself stays the caller's responsibility; see Recover.
+func (e *Engine) SetPersistencePath(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+
+	e.persistMu.Lock()
+	var firstErr error
+	if e.store != nil {
+		if err := e.store.Close(context.Background()); err != nil {
+			firstErr = err
+		}
+		e.store = nil
+	}
+	e.opts.PersistencePath = path
+	e.store = jsonstore.New(path, jsonstore.Options{
+		Debounce: e.opts.Debounce,
+		OnError: func(err error) {
+			e.logger.Warn("jobs persistence write failed", "path", path, "error", err)
+		},
+	})
+	hasJobs := e.hasJobs()
+	e.persistMu.Unlock()
+
+	if hasJobs {
+		if err := e.saveSnapshot(true); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
+}
+
+func (e *Engine) hasJobs() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return len(e.jobs) > 0
 }
 
 func (e *Engine) jobParentContext(ctx context.Context) context.Context {
@@ -602,44 +647,65 @@ func (e *Engine) emitState(result models.JobResultV1) {
 
 // persistDebounced schedules a full snapshot with the store's debounce window.
 func (e *Engine) persistDebounced() {
-	if e.store == nil {
-		return
-	}
-
-	e.persistMu.Lock()
-	defer e.persistMu.Unlock()
-
-	payload, err := e.marshalSnapshot()
-	if err != nil {
-		e.logger.Warn("jobs persistence encode failed", "error", err)
-		return
-	}
-	if err := e.store.Save(payload); err != nil && !errors.Is(err, jsonstore.ErrClosed) {
+	if err := e.saveSnapshot(false); err != nil && !errors.Is(err, jsonstore.ErrClosed) {
 		e.logger.Warn("jobs persistence enqueue failed", "error", err)
 	}
 }
 
 // persistNow writes a full snapshot immediately.
 func (e *Engine) persistNow() {
-	if e.store == nil {
-		return
-	}
-
-	e.persistMu.Lock()
-	defer e.persistMu.Unlock()
-
-	payload, err := e.marshalSnapshot()
-	if err != nil {
-		e.logger.Warn("jobs persistence encode failed", "error", err)
-		return
-	}
-	if err := e.store.SaveNow(payload); err != nil && !errors.Is(err, jsonstore.ErrClosed) {
+	if err := e.saveSnapshot(true); err != nil && !errors.Is(err, jsonstore.ErrClosed) {
 		e.logger.Warn("jobs persistence write failed", "error", err)
 	}
 }
 
+// saveSnapshot serializes one full snapshot and hands it to the store.
+func (e *Engine) saveSnapshot(immediate bool) error {
+	e.persistMu.Lock()
+	defer e.persistMu.Unlock()
+
+	return e.saveSnapshotLocked(immediate)
+}
+
+// saveSnapshotLocked writes the current snapshot. The caller holds persistMu.
+func (e *Engine) saveSnapshotLocked(immediate bool) error {
+	if e.store == nil {
+		return nil
+	}
+
+	payload, err := e.marshalSnapshot()
+	if err != nil {
+		return fmt.Errorf("encode jobs snapshot: %w", err)
+	}
+	if immediate {
+		return e.store.SaveNow(payload)
+	}
+
+	return e.store.Save(payload)
+}
+
 func (e *Engine) marshalSnapshot() ([]byte, error) {
-	return json.MarshalIndent(e.jobSnapshot(), "", "  ")
+	return encodeJobsSnapshot(e.jobSnapshot())
+}
+
+// encodeJobsSnapshot renders a job list in the persisted shape.
+func encodeJobsSnapshot(jobs []models.JobResultV1) ([]byte, error) {
+	return json.MarshalIndent(jobs, "", "  ")
+}
+
+// saveJobsSnapshot writes one full job snapshot atomically. The engine writes
+// the same payload through its debounced store; this synchronous helper backs
+// the persistence tests and benchmark.
+func saveJobsSnapshot(path string, jobs []models.JobResultV1) error {
+	payload, err := encodeJobsSnapshot(jobs)
+	if err != nil {
+		return fmt.Errorf("encode jobs snapshot: %w", err)
+	}
+	if err := fsx.WriteAtomic(path, payload, 0o644); err != nil {
+		return fmt.Errorf("persist jobs: %w", err)
+	}
+
+	return nil
 }
 
 // jobSnapshot mirrors the old engine shape: active jobs plus the newest

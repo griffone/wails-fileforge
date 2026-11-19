@@ -16,6 +16,8 @@ type historyFakeTool struct {
 	id         string
 	outputPath string
 	fail       bool
+	started    chan<- struct{}
+	release    <-chan struct{}
 }
 
 func (t *historyFakeTool) ID() string {
@@ -39,6 +41,13 @@ func (t *historyFakeTool) Validate(_ context.Context, _ models.JobRequestV1) *mo
 }
 
 func (t *historyFakeTool) ExecuteSingle(_ context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+	if t.started != nil {
+		t.started <- struct{}{}
+	}
+	if t.release != nil {
+		<-t.release
+	}
+
 	inputPath := ""
 	if len(req.InputPaths) > 0 {
 		inputPath = req.InputPaths[0]

@@ -651,6 +651,95 @@ func TestEnginePersistenceRecoveryMarksInterrupted(t *testing.T) {
 	gates[engineInput("blocked")].close()
 }
 
+func TestEngineSetPersistencePathEmptyIsNoOp(t *testing.T) {
+	tool := &engineFakeTool{
+		id: "tool.fake.persist.empty",
+		single: func(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	if err := engine.SetPersistencePath("   "); err != nil {
+		t.Fatalf("SetPersistencePath with an empty path: %v", err)
+	}
+	engine.persistMu.Lock()
+	store := engine.store
+	path := engine.opts.PersistencePath
+	engine.persistMu.Unlock()
+	if store != nil || path != "" {
+		t.Fatalf("empty path configured persistence: store=%v path=%q", store, path)
+	}
+
+	response := submitTestJob(t, engine, models.JobRequestV1{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{engineInput("no-persistence")},
+	})
+	if result := awaitEngineJob(t, engine, response.JobID); result.Status != StatusSuccess {
+		t.Fatalf("job status = %s, want success", result.Status)
+	}
+}
+
+func TestEngineSetPersistencePathPersistsExistingJobs(t *testing.T) {
+	tool := &engineFakeTool{
+		id: "tool.fake.persist.switch",
+		single: func(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	response := submitTestJob(t, engine, models.JobRequestV1{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{engineInput("persist-switch")},
+	})
+	if result := awaitEngineJob(t, engine, response.JobID); result.Status != StatusSuccess {
+		t.Fatalf("job status = %s, want success", result.Status)
+	}
+
+	firstPath := filepath.Join(t.TempDir(), "first", "jobs.json")
+	if err := engine.SetPersistencePath(firstPath); err != nil {
+		t.Fatalf("set first persistence path: %v", err)
+	}
+	persisted := readEnginePersistedJobs(t, firstPath)
+	if len(persisted) != 1 || persisted[0].JobID != response.JobID {
+		t.Fatalf("first snapshot = %+v, want job %s", persisted, response.JobID)
+	}
+
+	secondPath := filepath.Join(t.TempDir(), "second", "jobs.json")
+	if err := engine.SetPersistencePath(secondPath); err != nil {
+		t.Fatalf("set second persistence path: %v", err)
+	}
+	persisted = readEnginePersistedJobs(t, secondPath)
+	if len(persisted) != 1 || persisted[0].JobID != response.JobID {
+		t.Fatalf("second snapshot = %+v, want job %s", persisted, response.JobID)
+	}
+}
+
+func readEnginePersistedJobs(t *testing.T, path string) []models.JobResultV1 {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read persisted jobs: %v", err)
+	}
+
+	var persisted []models.JobResultV1
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatalf("decode persisted jobs: %v", err)
+	}
+
+	return persisted
+}
+
 func TestEngineSubmitRejectsInvalidRequest(t *testing.T) {
 	validationErr := models.NewCanonicalJobError("VALIDATION_INVALID_INPUT", "input missing", nil)
 	tool := &engineFakeTool{

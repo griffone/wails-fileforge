@@ -172,8 +172,11 @@ func (a *App) Shutdown(ctx context.Context) error {
 	if err := media.CloseServer(); err != nil && firstErr == nil {
 		firstErr = fmt.Errorf("app media server: %w", err)
 	}
-	// shutdown tooling service if it exposes a shutdown (none currently)
-	// TODO: if toolingService implements Shutdown(ctx) call it here
+	if a.toolingService != nil {
+		if err := a.toolingService.Shutdown(ctx); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("app: %w", err)
+		}
+	}
 	return firstErr
 }
 

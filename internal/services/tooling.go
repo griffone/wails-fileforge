@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"fileforge-desktop/internal/jobhistory"
 	"fileforge-desktop/internal/jobs"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/logx"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/verify"
 
@@ -26,10 +29,10 @@ const (
 )
 
 type ToolingService struct {
-	ctx          context.Context
-	registry     *registry.Registry
-	orchestrator *jobs.Orchestrator
-	history      *jobhistory.Store
+	ctx      context.Context
+	registry *registry.Registry
+	engine   *jobs.Engine
+	history  *jobhistory.Store
 }
 
 func NewToolingService(reg *registry.Registry) *ToolingService {
@@ -47,29 +50,56 @@ func newToolingService(reg *registry.Registry, history *jobhistory.Store) *Tooli
 	service := &ToolingService{
 		registry: reg,
 		history:  history,
-		orchestrator: jobs.NewOrchestratorWithProgressEmitter(reg, 2, func(evt models.JobProgressEventV1) {
-			app := application.Get()
-			if app == nil {
-				return
-			}
-			app.Event.Emit(JobProgressEventNameV1, evt)
-		}),
 	}
-	service.orchestrator.SetOnJobComplete(service.recordTerminalJob)
+	service.engine = jobs.NewEngine(reg, jobs.Options{
+		Limits:          jobs.DefaultLimits(),
+		PersistencePath: "", // configured by SetContext once the app context exists
+		Emitter:         service,
+		OnJobComplete:   service.recordTerminalJob,
+		Logger:          logx.New(slog.LevelInfo),
+	})
 
 	return service
 }
 
+// SetContext binds the tooling service to the Wails application lifecycle.
+// Persistence and interrupted-job recovery only become active here, so service
+// tests that never call SetContext never touch the user config directory.
 func (s *ToolingService) SetContext(ctx context.Context) {
 	s.ctx = ctx
+	s.engine.SetBaseContext(ctx)
 
 	storePath := defaultJobsPersistencePath()
-	s.orchestrator.SetPersistencePath(storePath)
-	if err := s.orchestrator.RecoverInterruptedJobs(); err != nil {
+	if err := s.engine.SetPersistencePath(storePath); err != nil {
+		log.Printf("tooling.persistence.failed path=%s err=%v", storePath, err)
+	}
+	if err := s.engine.Recover(ctx); err != nil {
 		log.Printf("tooling.recovery.failed path=%s err=%v", storePath, err)
 	} else {
 		log.Printf("tooling.recovery.ok path=%s", storePath)
 	}
+}
+
+// Shutdown stops the job engine, cancelling queued and running jobs and
+// flushing the persisted snapshot.
+func (s *ToolingService) Shutdown(ctx context.Context) error {
+	return s.engine.Shutdown(ctx)
+}
+
+// JobProgress emits a coalesced progress event. It implements jobs.Emitter.
+func (s *ToolingService) JobProgress(evt models.JobProgressEventV1) {
+	app := application.Get()
+	if app == nil {
+		return
+	}
+
+	app.Event.Emit(JobProgressEventNameV1, evt)
+}
+
+// JobState emits a full job snapshot so the frontend can merge it into the
+// activity list without polling. It implements jobs.Emitter.
+func (s *ToolingService) JobState(job models.JobResultV1) {
+	s.emitJobState(job)
 }
 
 func defaultJobsPersistencePath() string {
@@ -100,7 +130,7 @@ func (s *ToolingService) ListToolsV1() models.ListToolsResponseV1 {
 }
 
 func (s *ToolingService) ValidateJobV1(req models.JobRequestV1) models.ValidateJobResponseV1 {
-	res := s.orchestrator.Validate(s.contextOrBackground(), req)
+	res := s.engine.Validate(s.contextOrBackground(), req)
 	if !res.Valid {
 		code := ""
 		if res.Error != nil {
@@ -112,7 +142,7 @@ func (s *ToolingService) ValidateJobV1(req models.JobRequestV1) models.ValidateJ
 }
 
 func (s *ToolingService) PlanJobV1(req models.JobRequestV1) models.PlanJobResponseV1 {
-	plan := s.orchestrator.Plan(s.contextOrBackground(), req)
+	plan := s.engine.Plan(s.contextOrBackground(), req)
 	if !plan.Success {
 		code := ""
 		if plan.Error != nil {
@@ -124,12 +154,16 @@ func (s *ToolingService) PlanJobV1(req models.JobRequestV1) models.PlanJobRespon
 }
 
 func (s *ToolingService) RunJobV1(req models.JobRequestV1) models.RunJobResponseV1 {
-	res, err := s.orchestrator.Submit(s.contextOrBackground(), req)
+	res, err := s.engine.Submit(s.contextOrBackground(), req)
 	if err != nil {
 		log.Printf("tooling.run.submit_failed toolId=%s mode=%s err=%v", req.ToolID, req.Mode, err)
+		message := "job submission failed"
+		if errors.Is(err, jobs.ErrQueueFull) {
+			message = "job queue is full; wait for running jobs to finish and retry"
+		}
 		return models.RunJobResponseV1{
 			Success: false,
-			Message: "job submission failed",
+			Message: message,
 			Status:  jobs.StatusFailed,
 			Error:   models.NewCanonicalJobError("SUBMIT_ERROR", err.Error(), nil),
 		}
@@ -152,7 +186,7 @@ func (s *ToolingService) RunJobV1(req models.JobRequestV1) models.RunJobResponse
 // ListJobsV1 returns every tracked job snapshot, newest first. The UI uses it
 // to rebuild the activity list after navigation or reload.
 func (s *ToolingService) ListJobsV1(limit int) models.JobListResponseV1 {
-	jobs := s.orchestrator.ListJobs(limit)
+	jobs := s.engine.List(limit)
 	if jobs == nil {
 		jobs = []models.JobResultV1{}
 	}
@@ -167,7 +201,7 @@ func (s *ToolingService) ListJobsV1(limit int) models.JobListResponseV1 {
 // emitJobSnapshot emits the current full snapshot of one job. A missing job is
 // silently skipped.
 func (s *ToolingService) emitJobSnapshot(jobID string) {
-	job, found := s.orchestrator.GetJob(jobID)
+	job, found := s.engine.Get(jobID)
 	if !found {
 		return
 	}
@@ -187,7 +221,7 @@ func (s *ToolingService) emitJobState(job models.JobResultV1) {
 }
 
 func (s *ToolingService) CancelJobV1(jobID string) models.CancelJobResponseV1 {
-	if err := s.orchestrator.Cancel(jobID); err != nil {
+	if err := s.engine.Cancel(jobID); err != nil {
 		log.Printf("tooling.cancel.failed jobId=%s err=%v", jobID, err)
 		return models.CancelJobResponseV1{
 			Success: false,
@@ -206,7 +240,7 @@ func (s *ToolingService) CancelJobV1(jobID string) models.CancelJobResponseV1 {
 }
 
 func (s *ToolingService) GetJobStatusV1(jobID string) models.JobStatusResponseV1 {
-	job, found := s.orchestrator.GetJob(jobID)
+	job, found := s.engine.Get(jobID)
 	if !found {
 		log.Printf("tooling.status.not_found jobId=%s", jobID)
 		return models.JobStatusResponseV1{
@@ -230,7 +264,7 @@ func (s *ToolingService) GetJobStatusV1(jobID string) models.JobStatusResponseV1
 // report.
 func (s *ToolingService) VerifyJobV1(jobID string) models.VerificationReportV1 {
 	trimmedID := strings.TrimSpace(jobID)
-	job, found := s.orchestrator.GetJob(trimmedID)
+	job, found := s.engine.Get(trimmedID)
 	if !found {
 		log.Printf("tooling.verify.not_found jobId=%s", trimmedID)
 		return models.VerificationReportV1{
@@ -287,13 +321,9 @@ func jobOutputPaths(job models.JobResultV1) []string {
 	return paths
 }
 
-// recordTerminalJob is the orchestrator completion hook. Every terminal job is
-// fingerprinted into the undo history from the backend; the frontend is never
-// responsible for recording. The full snapshot is emitted before history
-// recording so the activity list updates even when history is unavailable.
+// recordTerminalJob records a terminal job in the undo history. The engine
+// already emitted the terminal state before running this hook.
 func (s *ToolingService) recordTerminalJob(job models.JobResultV1) {
-	s.emitJobState(job)
-
 	if s.history == nil {
 		return
 	}
