@@ -26,6 +26,7 @@ type JobProgressV1 struct {
 
 type JobProgressEventV1 struct {
 	JobID    string        `json:"jobId"`
+	Kind     string        `json:"kind,omitempty"`
 	ToolID   string        `json:"toolId"`
 	Status   string        `json:"status"`
 	Progress JobProgressV1 `json:"progress"`
@@ -45,6 +46,7 @@ type JobResultItemV1 struct {
 
 type JobResultV1 struct {
 	JobID     string            `json:"jobId"`
+	Kind      string            `json:"kind,omitempty"`
 	Success   bool              `json:"success"`
 	Message   string            `json:"message"`
 	ToolID    string            `json:"toolId"`

@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,6 +62,7 @@ func newJobState(engine *Engine, req models.JobRequestV1, tool tools.Tool, opts 
 		done:        make(chan struct{}),
 		result: models.JobResultV1{
 			JobID:     newJobID(seq),
+			Kind:      resultKind(opts.Kind),
 			Success:   false,
 			Message:   "job queued",
 			ToolID:    req.ToolID,
@@ -88,6 +90,17 @@ func newJobState(engine *Engine, req models.JobRequestV1, tool tools.Tool, opts 
 
 func newJobID(seq uint64) string {
 	return fmt.Sprintf("job_%d_%d", time.Now().UnixNano(), seq)
+}
+
+// resultKind keeps the wire field empty for normal tool jobs while preserving
+// explicit internal kinds such as recipe steps.
+func resultKind(kind string) string {
+	kind = strings.TrimSpace(kind)
+	if kind == "" || kind == KindTool {
+		return ""
+	}
+
+	return kind
 }
 
 func (j *jobState) isTerminal() bool {
@@ -122,6 +135,7 @@ func (j *jobState) updateProgress(value models.JobProgressV1) {
 	}
 	event := models.JobProgressEventV1{
 		JobID:    j.result.JobID,
+		Kind:     j.result.Kind,
 		ToolID:   j.result.ToolID,
 		Status:   j.result.Status,
 		Progress: j.result.Progress,
@@ -169,6 +183,7 @@ func (j *jobState) complete(status, message string, items []models.JobResultItem
 	result := cloneJobResult(j.result)
 	event := models.JobProgressEventV1{
 		JobID:    j.result.JobID,
+		Kind:     j.result.Kind,
 		ToolID:   j.result.ToolID,
 		Status:   j.result.Status,
 		Progress: j.result.Progress,

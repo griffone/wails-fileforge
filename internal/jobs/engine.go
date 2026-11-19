@@ -26,6 +26,15 @@ const (
 	defaultMaxAttempts  = 3
 	enginePanicDetail   = "PANIC"
 	defaultEngineDetail = "EXECUTION_FAILED"
+
+	// KindTool is the default job kind for direct tool runs submitted through
+	// the public job API.
+	KindTool = "tool"
+
+	// KindRecipeStep marks a job submitted by the recipe service for one step.
+	// These jobs are internal: the user-facing job list, events, and undo
+	// history hide them, while the recipe run records their final outputs once.
+	KindRecipeStep = "recipe-step"
 )
 
 // Emitter receives engine events. Implementations must be safe for concurrent
@@ -342,7 +351,7 @@ func newRecoveredJobState(engine *Engine, result models.JobResultV1) *jobState {
 // Submit enqueues a tool job with interactive priority and the tool's class.
 func (e *Engine) Submit(ctx context.Context, req models.JobRequestV1) (models.RunJobResponseV1, error) {
 	return e.SubmitWithOptions(ctx, req, SubmitOptions{
-		Kind:     "tool",
+		Kind:     KindTool,
 		Priority: PriorityInteractive,
 	})
 }
@@ -413,7 +422,7 @@ func (e *Engine) planRequest(ctx context.Context, tool tools.Tool, req models.Jo
 func (e *Engine) normalizeSubmitOptions(tool tools.Tool, toolID string, opts SubmitOptions) SubmitOptions {
 	opts.Kind = strings.TrimSpace(opts.Kind)
 	if opts.Kind == "" {
-		opts.Kind = "tool"
+		opts.Kind = KindTool
 	}
 
 	manifest := tool.Manifest()

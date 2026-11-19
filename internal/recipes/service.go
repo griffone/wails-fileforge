@@ -445,7 +445,7 @@ func (x *engineStepExecutor) ExecuteSingleWithProgress(ctx context.Context, req 
 	}
 
 	response, submitErr := x.engine.SubmitWithOptions(ctx, req, jobs.SubmitOptions{
-		Kind:       "recipe-step",
+		Kind:       jobs.KindRecipeStep,
 		Priority:   jobs.PriorityInteractive,
 		Class:      jobs.ClassForTool(req.ToolID),
 		OnProgress: onProgress,

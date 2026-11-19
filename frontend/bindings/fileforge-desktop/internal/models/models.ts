@@ -241,6 +241,7 @@ export interface JobOutputRecordV1 {
 
 export interface JobProgressEventV1 {
     "jobId": string;
+    "kind"?: string;
     "toolId": string;
     "status": string;
     "progress": JobProgressV1;
@@ -281,6 +282,7 @@ export interface JobResultItemV1 {
 
 export interface JobResultV1 {
     "jobId": string;
+    "kind"?: string;
     "success": boolean;
     "message": string;
     "toolId": string;

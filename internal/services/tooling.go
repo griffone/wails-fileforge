@@ -33,6 +33,10 @@ type ToolingService struct {
 	registry *registry.Registry
 	engine   *jobs.Engine
 	history  *jobhistory.Store
+
+	// eventSink overrides the Wails event emitter in tests. Production leaves
+	// it nil so events go through application.Get.
+	eventSink func(name string, payload any)
 }
 
 func NewToolingService(reg *registry.Registry) *ToolingService {
@@ -97,19 +101,40 @@ func (s *ToolingService) Engine() *jobs.Engine {
 }
 
 // JobProgress emits a coalesced progress event. It implements jobs.Emitter.
+// Recipe-step jobs are internal and never reach the user-facing event stream.
 func (s *ToolingService) JobProgress(evt models.JobProgressEventV1) {
+	if evt.Kind == jobs.KindRecipeStep {
+		return
+	}
+
+	s.emitEvent(JobProgressEventNameV1, evt)
+}
+
+// JobState emits a full job snapshot so the frontend can merge it into the
+// activity list without polling. It implements jobs.Emitter. Recipe-step jobs
+// are internal and never reach the user-facing event stream.
+func (s *ToolingService) JobState(job models.JobResultV1) {
+	if job.Kind == jobs.KindRecipeStep {
+		return
+	}
+
+	s.emitJobState(job)
+}
+
+// emitEvent forwards one typed event to the Wails application. A missing
+// application (headless tests, early startup) skips emission.
+func (s *ToolingService) emitEvent(name string, payload any) {
+	if sink := s.eventSink; sink != nil {
+		sink(name, payload)
+		return
+	}
+
 	app := application.Get()
 	if app == nil {
 		return
 	}
 
-	app.Event.Emit(JobProgressEventNameV1, evt)
-}
-
-// JobState emits a full job snapshot so the frontend can merge it into the
-// activity list without polling. It implements jobs.Emitter.
-func (s *ToolingService) JobState(job models.JobResultV1) {
-	s.emitJobState(job)
+	app.Event.Emit(name, payload)
 }
 
 func defaultJobsPersistencePath() string {
@@ -194,25 +219,30 @@ func (s *ToolingService) RunJobV1(req models.JobRequestV1) models.RunJobResponse
 }
 
 // ListJobsV1 returns every tracked job snapshot, newest first. The UI uses it
-// to rebuild the activity list after navigation or reload.
+// to rebuild the activity list after navigation or reload. Internal recipe-step
+// jobs are filtered out; the recipe run that owns them is the visible unit.
 func (s *ToolingService) ListJobsV1(limit int) models.JobListResponseV1 {
-	jobs := s.engine.List(limit)
-	if jobs == nil {
-		jobs = []models.JobResultV1{}
+	engineJobs := s.engine.List(limit)
+	visible := make([]models.JobResultV1, 0, len(engineJobs))
+	for _, job := range engineJobs {
+		if job.Kind == jobs.KindRecipeStep {
+			continue
+		}
+		visible = append(visible, job)
 	}
 
 	return models.JobListResponseV1{
 		Success: true,
 		Message: "jobs listed",
-		Jobs:    jobs,
+		Jobs:    visible,
 	}
 }
 
-// emitJobSnapshot emits the current full snapshot of one job. A missing job is
-// silently skipped.
+// emitJobSnapshot emits the current full snapshot of one job. A missing job or
+// an internal recipe-step job is silently skipped.
 func (s *ToolingService) emitJobSnapshot(jobID string) {
 	job, found := s.engine.Get(jobID)
-	if !found {
+	if !found || job.Kind == jobs.KindRecipeStep {
 		return
 	}
 
@@ -222,12 +252,11 @@ func (s *ToolingService) emitJobSnapshot(jobID string) {
 // emitJobState publishes a full job snapshot so the frontend can merge it into
 // the activity list without polling.
 func (s *ToolingService) emitJobState(job models.JobResultV1) {
-	app := application.Get()
-	if app == nil {
+	if job.Kind == jobs.KindRecipeStep {
 		return
 	}
 
-	app.Event.Emit(JobStateEventNameV1, job)
+	s.emitEvent(JobStateEventNameV1, job)
 }
 
 func (s *ToolingService) CancelJobV1(jobID string) models.CancelJobResponseV1 {
@@ -332,9 +361,14 @@ func jobOutputPaths(job models.JobResultV1) []string {
 }
 
 // recordTerminalJob records a terminal job in the undo history. The engine
-// already emitted the terminal state before running this hook.
+// already emitted the terminal state before running this hook. Recipe-step jobs
+// are internal: the owning recipe run records its final outputs once.
 func (s *ToolingService) recordTerminalJob(job models.JobResultV1) {
 	if s.history == nil {
+		return
+	}
+	if job.Kind == jobs.KindRecipeStep {
+		log.Printf("tooling.history.skipped_recipe_step jobId=%s toolId=%s", job.JobID, job.ToolID)
 		return
 	}
 
