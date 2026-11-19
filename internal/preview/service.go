@@ -2,6 +2,8 @@ package preview
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	cachepkg "fileforge-desktop/internal/utils/cache"
 	"fmt"
@@ -10,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // Config holds preview service configuration used at construction.
@@ -34,6 +34,12 @@ type PreviewService struct {
 	cache *PreviewCache
 	// cleanupStop stops the background janitor
 	cleanupStop chan struct{}
+
+	// Processors are stateless and shared by every job of their media type so a
+	// burst of preview requests does not allocate one processor per job.
+	imageProc JobProcessor
+	pdfProc   JobProcessor
+	videoProc JobProcessor
 }
 
 // NewPreviewService constructs a PreviewService with provided config.
@@ -54,12 +60,35 @@ func NewPreviewService(cfg Config) *PreviewService {
 		svc.cache.StartJanitor(0, 0)
 	}
 	svc.startJobJanitor()
+	// Build the processors once. They are stateless, so sharing them across
+	// workers is safe.
+	runner := NewLocalExecRunner()
+	svc.imageProc = NewBimgProcessor()
+	svc.pdfProc = NewPDFProcessor(runner)
+	svc.videoProc = NewVideoProcessor(runner)
 	// start worker pool with handler bound to this service
 	svc.wp.Start(func(job *previewJob) {
 		// ensure we don't block the worker forever
 		_ = svc.handleJob(job)
 	})
 	return svc
+}
+
+// newJobID returns a dependency-free, unpredictable job identifier.
+func newJobID() (string, error) {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", fmt.Errorf("preview: generate job id: %w", err)
+	}
+	return hex.EncodeToString(buf[:]), nil
+}
+
+// contextError returns the context error when ctx is already done.
+func contextError(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
 }
 
 func applyPreviewDefaults(cfg Config) Config {
@@ -78,7 +107,9 @@ func applyPreviewDefaults(cfg Config) Config {
 	return cfg
 }
 
-// Enqueue validates the request and registers a new job. Worker execution is TODO.
+// Enqueue validates the request and registers a new job. The job context is
+// derived from the caller context so callers keep control over the job's
+// lifetime.
 func (s *PreviewService) Enqueue(ctx context.Context, req PreviewRequest) (string, error) {
 	// basic validation
 	if err := req.Validate(); err != nil {
@@ -90,8 +121,14 @@ func (s *PreviewService) Enqueue(ctx context.Context, req PreviewRequest) (strin
 
 	s.cleanupExpiredJobs()
 
-	// create job id (use UUID for stable identifiers)
-	id := uuid.NewString()
+	id, err := newJobID()
+	if err != nil {
+		return "", err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	jobCtx, jobCancel := context.WithCancel(ctx)
 	job := &previewJob{
 		ID:        id,
 		Req:       req,
@@ -99,14 +136,16 @@ func (s *PreviewService) Enqueue(ctx context.Context, req PreviewRequest) (strin
 		Progress:  0,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
+		Ctx:       jobCtx,
+		Cancel:    jobCancel,
 	}
-	jobCtx, jobCancel := context.WithCancel(context.Background())
-	job.Ctx = jobCtx
-	job.Cancel = jobCancel
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.cfg.MaxQueue > 0 && len(s.jobs) >= s.cfg.MaxQueue {
+	// MaxQueue bounds jobs that still need work. Completed jobs wait for TTL
+	// cleanup and must not consume queue capacity.
+	if s.cfg.MaxQueue > 0 && s.activeJobsLocked() >= s.cfg.MaxQueue {
+		s.mu.Unlock()
+		jobCancel()
 		return "", fmt.Errorf("preview: queue full")
 	}
 	s.jobs[id] = job
@@ -114,32 +153,56 @@ func (s *PreviewService) Enqueue(ctx context.Context, req PreviewRequest) (strin
 	// enqueue to worker pool if available
 	if s.wp != nil {
 		if err := s.wp.Enqueue(job); err != nil {
-			// keep job registered but mark as rejected
-			job.State = JobStateFailed
-			job.Result = &PreviewResult{Success: false, Message: "queue full"}
-			job.Err = err
-			job.UpdatedAt = time.Now()
-			return "", fmt.Errorf("preview: %w", err)
+			// Do not leave a failed registration behind: the caller has no way
+			// to cancel a job that was never scheduled.
+			delete(s.jobs, id)
+			s.mu.Unlock()
+			jobCancel()
+			return "", err
 		}
 	}
-	// TODO: (image-preview) worker execution will update job.Result when done
+	s.mu.Unlock()
 	return id, nil
+}
+
+// activeJobsLocked reports how many jobs are queued or running. The caller
+// must hold s.mu.
+func (s *PreviewService) activeJobsLocked() int {
+	active := 0
+	for _, job := range s.jobs {
+		if job.State == JobStateQueued || job.State == JobStateRunning {
+			active++
+		}
+	}
+	return active
 }
 
 // Fetch returns the result for a job if available.
 func (s *PreviewService) Fetch(ctx context.Context, jobID string) (PreviewResult, error) {
+	if err := contextError(ctx); err != nil {
+		return PreviewResult{Success: false, Message: err.Error()}, err
+	}
+
 	s.mu.RLock()
 	job, ok := s.jobs[jobID]
-	s.mu.RUnlock()
 	if !ok {
+		s.mu.RUnlock()
 		return PreviewResult{Success: false, Message: "job not found"}, fmt.Errorf("preview: job not found")
 	}
+	var result *PreviewResult
 	if job.Result != nil {
-		return *job.Result, nil
+		copied := *job.Result
+		result = &copied
+	}
+	cacheKey := job.CacheKey
+	s.mu.RUnlock()
+
+	if result != nil {
+		return *result, nil
 	}
 	// attempt to read from cache by cacheKey
-	if job.CacheKey != "" && s.cache != nil {
-		if data, mime, ok, err := s.cache.Get(job.CacheKey); err == nil && ok {
+	if cacheKey != "" && s.cache != nil {
+		if data, mime, ok, err := s.cache.Get(cacheKey); err == nil && ok {
 			return PreviewResult{Success: true, Data: data, ContentType: mime, Message: "ok (from cache)"}, nil
 		} else if err != nil {
 			// log but continue to indicate not ready
@@ -215,26 +278,27 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 		}
 	}
 
-	// use processor; switch to a tool-specific processor by file extension
-	var proc JobProcessor
-	ext := strings.ToLower(filepath.Ext(job.Req.Path))
-	switch {
-	case ext == ".pdf":
-		// use the PDF processor backed by external tools
-		// inject a LocalExecRunner by default
-		proc = NewPDFProcessor(NewLocalExecRunner())
-	case isVideoPreviewExtension(ext):
-		proc = NewVideoProcessor(NewLocalExecRunner())
-	default:
-		proc = NewBimgProcessor()
+	// use the shared processor for this media type
+	proc := s.processorFor(job.Req.Path)
+	if proc == nil {
+		err := fmt.Errorf("preview: no processor for %s", filepath.Ext(job.Req.Path))
+		s.markJobFailed(job, err)
+		return err
 	}
 	data, ct, perr := proc.Process(ctx, job.Req)
 	if perr != nil {
 		// retry once on non-validation errors
 		var vErr *ValidationError
-		if !errors.As(perr, &vErr) && job.Attempts == 0 && ctx.Err() == nil {
-			job.Attempts++
-			data, ct, perr = proc.Process(ctx, job.Req)
+		if !errors.As(perr, &vErr) && ctx.Err() == nil {
+			s.mu.Lock()
+			retry := job.Attempts == 0
+			if retry {
+				job.Attempts++
+			}
+			s.mu.Unlock()
+			if retry {
+				data, ct, perr = proc.Process(ctx, job.Req)
+			}
 		}
 	}
 	if ctx.Err() != nil || s.isJobCanceled(job) {
@@ -259,6 +323,19 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 	job.UpdatedAt = time.Now()
 	s.mu.Unlock()
 	return nil
+}
+
+// processorFor selects the shared processor for a request path.
+func (s *PreviewService) processorFor(path string) JobProcessor {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch {
+	case ext == ".pdf":
+		return s.pdfProc
+	case isVideoPreviewExtension(ext):
+		return s.videoProc
+	default:
+		return s.imageProc
+	}
 }
 
 func (s *PreviewService) markJobFailed(job *previewJob, err error) {
@@ -306,6 +383,14 @@ func (s *PreviewService) Status(jobID string) (JobStatus, bool) {
 	}
 
 	return JobStatus{Status: job.State, Progress: job.Progress, Message: message}, true
+}
+
+// StatusContext is Status with a caller context check.
+func (s *PreviewService) StatusContext(ctx context.Context, jobID string) (JobStatus, bool) {
+	if err := contextError(ctx); err != nil {
+		return JobStatus{Status: JobStateFailed, Progress: 0, Message: err.Error()}, false
+	}
+	return s.Status(jobID)
 }
 
 // Cancel marks a job canceled if possible.

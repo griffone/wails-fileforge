@@ -501,8 +501,11 @@ func (a *App) OpenDirectoryDialog() (string, error) {
 }
 
 // StartPreview enqueues a preview job and returns a job id.
-func (a *App) StartPreview(ctx context.Context, req preview.PreviewRequest) preview.PreviewStartResponse {
-	id, err := a.previewService.Enqueue(ctx, req)
+func (a *App) StartPreview(_ context.Context, req preview.PreviewRequest) preview.PreviewStartResponse {
+	// Wails cancels the bound-method context as soon as the RPC returns, so it
+	// cannot parent a background job. Use the app lifetime context instead; the
+	// job is cancelled when the application shuts down.
+	id, err := a.previewService.Enqueue(a.contextOrBackground(), req)
 	if err != nil {
 		return preview.PreviewStartResponse{Success: false, Message: err.Error()}
 	}
@@ -511,7 +514,7 @@ func (a *App) StartPreview(ctx context.Context, req preview.PreviewRequest) prev
 
 // GetPreviewStatus returns the job status for a preview job.
 func (a *App) GetPreviewStatus(ctx context.Context, jobID string) preview.JobStatus {
-	status, ok := a.previewService.Status(jobID)
+	status, ok := a.previewService.StatusContext(ctx, jobID)
 	if !ok {
 		return preview.JobStatus{Status: preview.JobStateFailed, Progress: 0, Message: "not found"}
 	}
