@@ -1,6 +1,8 @@
 import { Injectable, NgZone, inject } from '@angular/core';
-import { Call, Events } from '@wailsio/runtime';
+import { Events } from '@wailsio/runtime';
 import { Subject, Subscription, ReplaySubject, Observable } from 'rxjs';
+
+import { WailsIpc } from './wails-ipc';
 
 export type ToolRuntimeStatusV1 = 'enabled' | 'disabled' | 'degraded';
 export type JobModeV1 = 'single' | 'batch';
@@ -658,6 +660,9 @@ export class Wails {
   // run their emissions inside it so signal consumers re-render reliably.
   private readonly zone = inject(NgZone);
 
+  // Every RPC goes through the generated bindings; no numeric method IDs.
+  private readonly ipc = inject(WailsIpc);
+
   // Job progress Subject / registration tracking to ensure we only register
   // the Wails Events.On handler once and avoid duplicate listeners.
   // We expose a public Observable that replays the last event for late
@@ -848,13 +853,11 @@ export class Wails {
       };
     });
 
-  private callByID(id: number, ...args: unknown[]): Promise<any> {
-    return Call.ByID(id, ...args);
-  }
-
   async listToolsV1(): Promise<ListToolsResponseV1> {
     try {
-      return await this.callByID(517184612);
+      return this.asLegacyDto<ListToolsResponseV1>(
+        await this.ipc.listToolsV1(),
+      );
     } catch (error) {
       return {
         success: false,
@@ -866,7 +869,9 @@ export class Wails {
 
   async validateJobV1(request: JobRequestV1): Promise<ValidateJobResponseV1> {
     try {
-      return await this.callByID(1505194326, request);
+      return this.asLegacyDto<ValidateJobResponseV1>(
+        await this.ipc.validateJobV1(request),
+      );
     } catch (error) {
       return {
         success: false,
@@ -883,7 +888,9 @@ export class Wails {
 
   async runJobV1(request: JobRequestV1): Promise<RunJobResponseV1> {
     try {
-      return await this.callByID(162380599, request);
+      return this.asLegacyDto<RunJobResponseV1>(
+        await this.ipc.runJobV1(request),
+      );
     } catch (error) {
       return {
         success: false,
@@ -897,7 +904,9 @@ export class Wails {
 
   async cancelJobV1(jobId: string): Promise<CancelJobResponseV1> {
     try {
-      return await this.callByID(3378080914, jobId);
+      return this.asLegacyDto<CancelJobResponseV1>(
+        await this.ipc.cancelJobV1(jobId),
+      );
     } catch (error) {
       return {
         success: false,
@@ -914,7 +923,9 @@ export class Wails {
 
   async getJobStatusV1(jobId: string): Promise<JobStatusResponseV1> {
     try {
-      return await this.callByID(1961277890, jobId);
+      return this.asLegacyDto<JobStatusResponseV1>(
+        await this.ipc.getJobStatusV1(jobId),
+      );
     } catch (error) {
       return {
         success: false,
@@ -931,7 +942,9 @@ export class Wails {
 
   async listJobsV1(limit = 50): Promise<JobListResponseV1> {
     try {
-      return await this.callByID(3118322683, limit);
+      return this.asLegacyDto<JobListResponseV1>(
+        await this.ipc.listJobsV1(limit),
+      );
     } catch (error) {
       return {
         success: false,
@@ -943,7 +956,9 @@ export class Wails {
 
   async verifyJobV1(jobId: string): Promise<VerificationReportV1> {
     try {
-      return await this.callByID(1020044031, jobId);
+      return this.asLegacyDto<VerificationReportV1>(
+        await this.ipc.verifyJobV1(jobId),
+      );
     } catch (error) {
       return {
         success: false,
@@ -955,7 +970,9 @@ export class Wails {
 
   async listJobHistoryV1(): Promise<JobHistoryEntryV1[]> {
     try {
-      return await this.callByID(2396679858);
+      return this.asLegacyDto<JobHistoryEntryV1[]>(
+        await this.ipc.listJobHistoryV1(),
+      );
     } catch {
       return [];
     }
@@ -963,7 +980,9 @@ export class Wails {
 
   async undoJobV1(jobId: string): Promise<UndoResultV1> {
     try {
-      return await this.callByID(2249209138, jobId);
+      return this.asLegacyDto<UndoResultV1>(
+        await this.ipc.undoJobV1(jobId),
+      );
     } catch (error) {
       return {
         success: false,
@@ -976,7 +995,9 @@ export class Wails {
 
   async restoreJobV1(jobId: string): Promise<UndoResultV1> {
     try {
-      return await this.callByID(666662266, jobId);
+      return this.asLegacyDto<UndoResultV1>(
+        await this.ipc.restoreJobV1(jobId),
+      );
     } catch (error) {
       return {
         success: false,
@@ -989,7 +1010,7 @@ export class Wails {
 
   async emptyTrashV1(): Promise<PathActionResponseV1> {
     try {
-      return await this.callByID(1508461378);
+      return await this.ipc.emptyTrashV1();
     } catch (error) {
       return {
         success: false,
@@ -1002,7 +1023,9 @@ export class Wails {
     inputPath: string,
   ): Promise<PDFPreviewSourceResponseV1> {
     try {
-      return await this.callByID(632882064, inputPath);
+      return this.asLegacyDto<PDFPreviewSourceResponseV1>(
+        await this.ipc.getPdfPreviewSource(inputPath),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1018,7 +1041,9 @@ export class Wails {
 
   async registerMediaPath(path: string): Promise<MediaSourceResponseV1> {
     try {
-      return await this.callByID(1853528726, path);
+      return this.asLegacyDto<MediaSourceResponseV1>(
+        await this.ipc.registerMediaPath(path),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1039,8 +1064,7 @@ export class Wails {
     pageOffset?: number;
   }): Promise<any> {
     try {
-      // bindings use a generated ID; Call.ByID will resolve to the preview model
-      return await this.callByID(1123038030, req);
+      return await this.ipc.startPreview(req);
     } catch (error) {
       return {
         success: false,
@@ -1051,7 +1075,7 @@ export class Wails {
 
   async GetPreviewStatus(jobID: string): Promise<any> {
     try {
-      return await this.callByID(1885578308, jobID);
+      return await this.ipc.getPreviewStatus(jobID);
     } catch (error) {
       return {
         status: 'failed',
@@ -1063,7 +1087,7 @@ export class Wails {
 
   async GetPreview(jobID: string): Promise<any> {
     try {
-      return await this.callByID(1152353978, jobID);
+      return await this.ipc.getPreview(jobID);
     } catch (error) {
       return {
         success: false,
@@ -1074,7 +1098,7 @@ export class Wails {
 
   async CancelPreview(jobID: string): Promise<any> {
     try {
-      return await this.callByID(2053488540, jobID);
+      return await this.ipc.cancelPreview(jobID);
     } catch (error) {
       return {
         success: false,
@@ -1087,7 +1111,9 @@ export class Wails {
     inputPath: string,
   ): Promise<ImagePreviewSourceResponseV1> {
     try {
-      return await this.callByID(2617279209, inputPath);
+      return this.asLegacyDto<ImagePreviewSourceResponseV1>(
+        await this.ipc.getImagePreviewSource(inputPath),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1105,7 +1131,9 @@ export class Wails {
     request: ImageCropPreviewRequestV1,
   ): Promise<ImageCropPreviewResponseV1> {
     try {
-      return await this.callByID(4006508154, request);
+      return this.asLegacyDto<ImageCropPreviewResponseV1>(
+        await this.ipc.getImageCropPreview(request),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1123,7 +1151,9 @@ export class Wails {
     request: ImageAnnotatePreviewRequestV1,
   ): Promise<ImageAnnotatePreviewResponseV1> {
     try {
-      return await this.callByID(372302096, request);
+      return this.asLegacyDto<ImageAnnotatePreviewResponseV1>(
+        await this.ipc.getImageAnnotatePreview(request),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1139,7 +1169,9 @@ export class Wails {
 
   async planJobV1(request: JobRequestV1): Promise<PlanJobResponseV1> {
     try {
-      return await this.callByID(254724065, request);
+      return this.asLegacyDto<PlanJobResponseV1>(
+        await this.ipc.planJobV1(request),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1152,7 +1184,9 @@ export class Wails {
 
   async inspectFilesV1(paths: string[]): Promise<InspectFilesResponseV1> {
     try {
-      return await this.callByID(3131092044, paths);
+      return this.asLegacyDto<InspectFilesResponseV1>(
+        await this.ipc.inspectFilesV1(paths),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1164,7 +1198,9 @@ export class Wails {
 
   async getOCRCapabilitiesV1(): Promise<OCRCapabilitiesResponseV1> {
     try {
-      return await this.callByID(1480104889);
+      return this.asLegacyDto<OCRCapabilitiesResponseV1>(
+        await this.ipc.getOcrCapabilitiesV1(),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1184,7 +1220,9 @@ export class Wails {
     modelPath: string,
   ): Promise<TranscriptionCapabilitiesResponseV1> {
     try {
-      return await this.callByID(4175229221, whisperPath, modelPath);
+      return this.asLegacyDto<TranscriptionCapabilitiesResponseV1>(
+        await this.ipc.getTranscriptionCapabilitiesV1(whisperPath, modelPath),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1204,7 +1242,9 @@ export class Wails {
 
   async getLocalCapabilitiesV1(): Promise<LocalCapabilitiesResponseV1> {
     try {
-      return await this.callByID(3724439350);
+      return this.asLegacyDto<LocalCapabilitiesResponseV1>(
+        await this.ipc.getLocalCapabilitiesV1(),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1217,7 +1257,9 @@ export class Wails {
 
   async getToolchainStatusV1(): Promise<ToolchainStatusV1> {
     try {
-      return await this.callByID(4112443058);
+      return this.asLegacyDto<ToolchainStatusV1>(
+        await this.ipc.getToolchainStatusV1(),
+      );
     } catch (error) {
       return this.toolchainFallback('Get toolchain status failed', error);
     }
@@ -1225,7 +1267,9 @@ export class Wails {
 
   async getToolchainInstallStateV1(): Promise<ToolchainStatusV1> {
     try {
-      return await this.callByID(1567166124);
+      return this.asLegacyDto<ToolchainStatusV1>(
+        await this.ipc.getToolchainInstallStateV1(),
+      );
     } catch (error) {
       return this.toolchainFallback('Get toolchain install state failed', error);
     }
@@ -1235,7 +1279,9 @@ export class Wails {
     options: ToolchainInstallOptionsV1,
   ): Promise<ToolchainStatusV1> {
     try {
-      return await this.callByID(3242097449, options);
+      return this.asLegacyDto<ToolchainStatusV1>(
+        await this.ipc.startToolchainInstallV1(options),
+      );
     } catch (error) {
       return this.toolchainFallback('Start toolchain install failed', error);
     }
@@ -1243,7 +1289,9 @@ export class Wails {
 
   async cancelToolchainInstallV1(): Promise<ToolchainStatusV1> {
     try {
-      return await this.callByID(299826451);
+      return this.asLegacyDto<ToolchainStatusV1>(
+        await this.ipc.cancelToolchainInstallV1(),
+      );
     } catch (error) {
       return this.toolchainFallback('Cancel toolchain install failed', error);
     }
@@ -1251,7 +1299,9 @@ export class Wails {
 
   async listRecipesV1(): Promise<ListRecipesResponseV1> {
     try {
-      return await this.callByID(388441352);
+      return this.asLegacyDto<ListRecipesResponseV1>(
+        await this.ipc.listRecipesV1(),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1265,7 +1315,9 @@ export class Wails {
     request: RecipeRequestV1,
   ): Promise<RecipePlanResponseV1> {
     try {
-      return await this.callByID(2840622370, request);
+      return this.asLegacyDto<RecipePlanResponseV1>(
+        await this.ipc.planRecipeV1(request),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1284,7 +1336,9 @@ export class Wails {
 
   async runRecipeV1(request: RecipeRequestV1): Promise<RunRecipeResponseV1> {
     try {
-      return await this.callByID(1732206072, request);
+      return this.asLegacyDto<RunRecipeResponseV1>(
+        await this.ipc.runRecipeV1(request),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1302,7 +1356,9 @@ export class Wails {
 
   async getRecipeStatusV1(jobId: string): Promise<RecipeStatusResponseV1> {
     try {
-      return await this.callByID(938816715, jobId);
+      return this.asLegacyDto<RecipeStatusResponseV1>(
+        await this.ipc.getRecipeStatusV1(jobId),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1314,7 +1370,9 @@ export class Wails {
 
   async listRecipeRunsV1(limit = 50): Promise<RecipeResultV1[]> {
     try {
-      return await this.callByID(438729619, limit);
+      return this.asLegacyDto<RecipeResultV1[]>(
+        await this.ipc.listRecipeRunsV1(limit),
+      );
     } catch {
       return [];
     }
@@ -1322,7 +1380,9 @@ export class Wails {
 
   async cancelRecipeV1(jobId: string): Promise<RecipeStatusResponseV1> {
     try {
-      return await this.callByID(2728388739, jobId);
+      return this.asLegacyDto<RecipeStatusResponseV1>(
+        await this.ipc.cancelRecipeV1(jobId),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1334,7 +1394,9 @@ export class Wails {
 
   async listAutomationRulesV1(): Promise<ListAutomationRulesResponseV1> {
     try {
-      return await this.callByID(3321976981);
+      return this.asLegacyDto<ListAutomationRulesResponseV1>(
+        await this.ipc.listAutomationRulesV1(),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1348,7 +1410,9 @@ export class Wails {
     rule: AutomationRuleV1,
   ): Promise<AutomationRuleActionResponseV1> {
     try {
-      return await this.callByID(3106325659, rule);
+      return this.asLegacyDto<AutomationRuleActionResponseV1>(
+        await this.ipc.saveAutomationRuleV1(rule),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1366,7 +1430,9 @@ export class Wails {
     id: string,
   ): Promise<AutomationRuleActionResponseV1> {
     try {
-      return await this.callByID(873633805, id);
+      return this.asLegacyDto<AutomationRuleActionResponseV1>(
+        await this.ipc.deleteAutomationRuleV1(id),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1385,7 +1451,9 @@ export class Wails {
     enabled: boolean,
   ): Promise<AutomationRuleActionResponseV1> {
     try {
-      return await this.callByID(524410001, id, enabled);
+      return this.asLegacyDto<AutomationRuleActionResponseV1>(
+        await this.ipc.setAutomationRuleEnabledV1(id, enabled),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1401,7 +1469,7 @@ export class Wails {
 
   async getAutomationStatusV1(): Promise<AutomationStatusResponseV1> {
     try {
-      return await this.callByID(2297309282);
+      return await this.ipc.getAutomationStatusV1();
     } catch (error) {
       return {
         success: false,
@@ -1416,7 +1484,9 @@ export class Wails {
     limit: number,
   ): Promise<ListAutomationRunsResponseV1> {
     try {
-      return await this.callByID(546598670, limit);
+      return this.asLegacyDto<ListAutomationRunsResponseV1>(
+        await this.ipc.listAutomationRunsV1(limit),
+      );
     } catch (error) {
       return {
         success: false,
@@ -1428,7 +1498,7 @@ export class Wails {
 
   async clearAutomationRunsV1(): Promise<AutomationRunsActionResponseV1> {
     try {
-      return await this.callByID(1108054243);
+      return await this.ipc.clearAutomationRunsV1();
     } catch (error) {
       return {
         success: false,
@@ -1439,7 +1509,7 @@ export class Wails {
 
   async openPath(path: string): Promise<PathActionResponseV1> {
     try {
-      return await this.callByID(12694641, path);
+      return await this.ipc.openPath(path);
     } catch (error) {
       return {
         success: false,
@@ -1450,7 +1520,7 @@ export class Wails {
 
   async revealInFolder(path: string): Promise<PathActionResponseV1> {
     try {
-      return await this.callByID(1778953856, path);
+      return await this.ipc.revealInFolder(path);
     } catch (error) {
       return {
         success: false,
@@ -1461,7 +1531,7 @@ export class Wails {
 
   async notifyV1(title: string, body: string): Promise<PathActionResponseV1> {
     try {
-      return await this.callByID(3871142726, title, body);
+      return await this.ipc.notifyV1(title, body);
     } catch (error) {
       return {
         success: false,
@@ -1564,7 +1634,7 @@ export class Wails {
 
   async openFileDialog(): Promise<string> {
     try {
-      return (await this.callByID(2246342916)) ?? '';
+      return (await this.ipc.openFileDialog()) ?? '';
     } catch {
       return '';
     }
@@ -1572,7 +1642,7 @@ export class Wails {
 
   async openMultipleFilesDialog(): Promise<string[]> {
     try {
-      return (await this.callByID(3029276213)) ?? [];
+      return (await this.ipc.openMultipleFilesDialog()) ?? [];
     } catch {
       return [];
     }
@@ -1580,7 +1650,7 @@ export class Wails {
 
   async openDirectoryDialog(): Promise<string> {
     try {
-      return (await this.callByID(261105429)) ?? '';
+      return (await this.ipc.openDirectoryDialog()) ?? '';
     } catch {
       return '';
     }
@@ -2116,11 +2186,14 @@ export class Wails {
   }
 
   isRuntimeAvailable(): boolean {
-    return (
-      typeof window !== 'undefined' &&
-      (window as any)._wails &&
-      typeof Call?.ByID === 'function'
-    );
+    return typeof window !== 'undefined' && !!(window as any)._wails;
+  }
+
+  // The generated bindings model nullable slices and string-typed enums, while
+  // the legacy DTO layer keeps the narrower shapes it shipped with. Phase 6
+  // deletes the DTO layer; until then the wire value is asserted here.
+  private asLegacyDto<T>(value: unknown): T {
+    return value as T;
   }
 
   private formatMessage(prefix: string, error: unknown): string {

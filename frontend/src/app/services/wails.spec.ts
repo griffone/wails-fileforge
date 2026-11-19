@@ -1,13 +1,16 @@
 import { TestBed } from '@angular/core/testing';
 
 import { Wails } from './wails';
+import { WailsIpc } from './wails-ipc';
 
 describe('Wails', () => {
   let service: Wails;
+  let ipc: WailsIpc;
 
   beforeEach(() => {
     TestBed.configureTestingModule({});
     service = TestBed.inject(Wails);
+    ipc = TestBed.inject(WailsIpc);
   });
 
   it('should be created', () => {
@@ -15,7 +18,7 @@ describe('Wails', () => {
   });
 
   it('should return safe fallback when listToolsV1 fails', async () => {
-    spyOn<any>(service, 'callByID').and.rejectWith(new Error('ipc unavailable'));
+    spyOn(ipc, 'listToolsV1').and.rejectWith(new Error('ipc unavailable'));
 
     const result = await service.listToolsV1();
 
@@ -25,7 +28,7 @@ describe('Wails', () => {
   });
 
   it('should return canonical coded fallback when runJobV1 fails', async () => {
-    spyOn<any>(service, 'callByID').and.rejectWith(new Error('timeout'));
+    spyOn(ipc, 'runJobV1').and.rejectWith(new Error('timeout'));
 
     const result = await service.runJobV1({
       toolId: 'tool.pdf.merge',
@@ -43,7 +46,7 @@ describe('Wails', () => {
   });
 
   it('should return canonical coded fallback when getPdfPreviewSource fails', async () => {
-    spyOn<any>(service, 'callByID').and.rejectWith(new Error('ipc down'));
+    spyOn(ipc, 'getPdfPreviewSource').and.rejectWith(new Error('ipc down'));
 
     const result = await service.getPdfPreviewSource('/tmp/in.pdf');
 
@@ -54,7 +57,10 @@ describe('Wails', () => {
   });
 
   it('should return safe fallbacks for the plan and inspect calls', async () => {
-    spyOn<any>(service, 'callByID').and.rejectWith(new Error('ipc down'));
+    spyOn(ipc, 'planJobV1').and.rejectWith(new Error('ipc down'));
+    spyOn(ipc, 'inspectFilesV1').and.rejectWith(new Error('ipc down'));
+    spyOn(ipc, 'openPath').and.rejectWith(new Error('ipc down'));
+    spyOn(ipc, 'revealInFolder').and.rejectWith(new Error('ipc down'));
 
     const plan = await service.planJobV1({
       toolId: 'tool.image.convert',
@@ -81,7 +87,7 @@ describe('Wails', () => {
   });
 
   it('registers a media path and falls back safely when IPC fails', async () => {
-    const call = spyOn<any>(service, 'callByID').and.resolveTo({
+    const call = spyOn(ipc, 'registerMediaPath').and.resolveTo({
       success: true,
       url: '/media/abc',
       message: 'ok',
@@ -90,7 +96,7 @@ describe('Wails', () => {
     const registered = await service.registerMediaPath('/tmp/a.mp4');
     expect(registered.success).toBeTrue();
     expect(registered.url).toBe('/media/abc');
-    expect(call).toHaveBeenCalledWith(1853528726, '/tmp/a.mp4');
+    expect(call).toHaveBeenCalledWith('/tmp/a.mp4');
 
     call.and.rejectWith(new Error('ipc down'));
     const failed = await service.registerMediaPath('/tmp/a.mp4');
