@@ -185,71 +185,22 @@ func BuildConvertArgs(req ConvertRequest) ([]string, *VideoError) {
 	inputPath := strings.TrimSpace(req.InputPath)
 	outputPath := strings.TrimSpace(req.OutputPath)
 
-	videoCRF := "23"
-	videoBitrate := "2500k"
-	if targetFormat == TargetFormatWebM {
-		videoCRF = "32"
-		videoBitrate = "1800k"
+	encoding, encodingErr := resolveVideoEncoding(targetFormat, qualityPreset)
+	if encodingErr != nil {
+		return nil, &VideoError{Code: ErrorCodeVideoValidation, Message: encodingErr.Error()}
 	}
-
-	switch qualityPreset {
-	case QualityPresetHigh:
-		if targetFormat == TargetFormatWebM {
-			videoCRF = "28"
-			videoBitrate = "2600k"
-		} else {
-			videoCRF = "20"
-			videoBitrate = "4500k"
-		}
-	case QualityPresetMedium:
-		// defaults
-	case QualityPresetLow:
-		if targetFormat == TargetFormatWebM {
-			videoCRF = "36"
-			videoBitrate = "1200k"
-		} else {
-			videoCRF = "28"
-			videoBitrate = "1400k"
-		}
-	}
-
-	explicitBitrate := req.BitrateKbps > 0
-	if explicitBitrate {
-		videoBitrate = fmt.Sprintf("%dk", req.BitrateKbps)
+	if req.BitrateKbps > 0 {
+		encoding = encoding.withBitrateOnly(req.BitrateKbps)
 	}
 
 	args := []string{
 		"-y",
 		"-i", inputPath,
-		"-c:v",
 	}
-
-	if targetFormat == TargetFormatWebM {
-		args = append(args, "libvpx-vp9", "-b:v", videoBitrate)
-		if !explicitBitrate {
-			args = append(args, "-crf", videoCRF)
-		}
-		if !req.RemoveAudio {
-			args = append(args, "-c:a", "libopus")
-		}
-	} else {
-		args = append(args, "libx264", "-b:v", videoBitrate)
-		if !explicitBitrate {
-			args = append(args, "-crf", videoCRF)
-		}
-		args = append(args, "-preset", "medium")
-		if !req.RemoveAudio {
-			args = append(args, "-c:a", "aac")
-		}
-		args = append(args, "-movflags", "+faststart")
-	}
+	args = appendVideoEncodingArgs(args, encoding, req.RemoveAudio)
 
 	if scaleHeight, _ := convertResolutionHeight(req.Resolution); scaleHeight > 0 {
 		args = append(args, "-vf", fmt.Sprintf("scale=-2:%d", scaleHeight))
-	}
-
-	if req.RemoveAudio {
-		args = append(args, "-an")
 	}
 
 	args = append(args, outputPath)
