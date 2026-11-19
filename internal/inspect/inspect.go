@@ -135,13 +135,14 @@ func InspectFile(path string) models.FileInfoV1 {
 	}
 
 	if info.Kind == kindPDF {
-		if pages, pageErr := api.PageCountFile(info.Path); pageErr == nil {
-			info.PageCount = pages
-		}
-
-		if dims, dimsErr := api.PageDimsFile(info.Path); dimsErr == nil && len(dims) > 0 {
-			info.PageWidthPoints = dims[0].Width
-			info.PageHeightPoints = dims[0].Height
+		// One validated read gives both the page count and the dimensions.
+		// PageCountFile plus PageDimsFile parsed the same document twice.
+		if pdfCtx, ctxErr := api.ReadContextFile(info.Path); ctxErr == nil {
+			info.PageCount = pdfCtx.PageCount
+			if dims, dimsErr := pdfCtx.PageDims(); dimsErr == nil && len(dims) > 0 {
+				info.PageWidthPoints = dims[0].Width
+				info.PageHeightPoints = dims[0].Height
+			}
 		}
 	}
 
