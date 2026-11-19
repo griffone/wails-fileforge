@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -930,7 +931,9 @@ func TestWatermarkExecutionBatchCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	var progress []int
 	items, execErr := tool.ExecuteBatch(ctx, request, func(event models.JobProgressV1) {
+		progress = append(progress, event.Current)
 		if event.Current == 1 {
 			cancel()
 		}
@@ -944,11 +947,32 @@ func TestWatermarkExecutionBatchCancellation(t *testing.T) {
 	if !strings.Contains(execErr.Message, "operation cancelled") {
 		t.Fatalf("expected the cancellation message, got %q", execErr.Message)
 	}
-	if len(items) != 1 || !items[0].Success {
-		t.Fatalf("expected one successful item before cancellation, got %+v", items)
+
+	// Workers run in parallel, so in-flight items may finish or report the
+	// cancellation after the first completion. Every returned item must still
+	// be either a success or a cancellation failure, in input order.
+	if len(items) == 0 || len(items) > len(request.InputPaths) {
+		t.Fatalf("expected between 1 and %d completed items, got %+v", len(request.InputPaths), items)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "second_watermarked.png")); !os.IsNotExist(statErr) {
-		t.Fatal("expected the last item not to run")
+	previousIndex := -1
+	for _, item := range items {
+		index := slices.Index(request.InputPaths, item.InputPath)
+		if index <= previousIndex {
+			t.Fatalf("expected input order to be preserved, got %+v", items)
+		}
+		previousIndex = index
+
+		if item.Success {
+			continue
+		}
+		if item.Error == nil || item.Error.Code != models.ErrorCodeCancelledByUser {
+			t.Fatalf("expected only cancellation failures, got %+v", item)
+		}
+	}
+	for index, current := range progress {
+		if current != index+1 {
+			t.Fatalf("expected monotonic progress counts, got %v", progress)
+		}
 	}
 }
 
@@ -1348,9 +1372,11 @@ func TestWatermarkExecutionReportsAutoFitFontSize(t *testing.T) {
 }
 
 // watermarkLateCancelContext closes its Done channel on the Nth check so a test
-// can deterministically cancel the last batch item mid-execution, after the
-// engine encoded but before any output is written.
+// can deterministically cancel one batch item mid-execution, after the engine
+// encoded but before any output is written. Done and Err are safe to call from
+// concurrent workers.
 type watermarkLateCancelContext struct {
+	mu          sync.Mutex
 	done        chan struct{}
 	checks      int
 	cancelAfter int
@@ -1359,6 +1385,9 @@ type watermarkLateCancelContext struct {
 func (c *watermarkLateCancelContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 
 func (c *watermarkLateCancelContext) Done() <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.checks++
 	if c.checks >= c.cancelAfter {
 		select {
@@ -1372,6 +1401,9 @@ func (c *watermarkLateCancelContext) Done() <-chan struct{} {
 }
 
 func (c *watermarkLateCancelContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	select {
 	case <-c.done:
 		return context.Canceled
@@ -1392,14 +1424,14 @@ func TestWatermarkBatchLastItemMidExecutionCancellation(t *testing.T) {
 	tool := NewWatermarkTool()
 	request := watermarkTestRequest("batch", []string{first, second}, watermarkRequestOptions())
 
-	// Each item performs four context checks: one loop pre-check plus three
-	// inside executeWatermarkToPath. The eighth check is the last item's
-	// post-encode check, so cancellation happens mid-execution.
+	// Two launches plus three checks inside executeWatermarkToPath per item:
+	// the eighth check is the last worker's post-encode check, so exactly one
+	// item is cancelled after encoding but before it writes its output.
 	ctx := &watermarkLateCancelContext{done: make(chan struct{}), cancelAfter: 8}
 
 	items, execErr := tool.ExecuteBatch(ctx, request, nil)
 	if execErr == nil {
-		t.Fatal("expected the last item to be reclassified as cancelled")
+		t.Fatal("expected the cancelled item to be reclassified as cancelled")
 	}
 	if execErr.DetailCode != "IMAGE_WATERMARK_CANCELLED" {
 		t.Fatalf("expected IMAGE_WATERMARK_CANCELLED, got %q", execErr.DetailCode)
@@ -1407,17 +1439,24 @@ func TestWatermarkBatchLastItemMidExecutionCancellation(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(items))
 	}
-	if !items[0].Success {
-		t.Fatalf("expected the first item to complete, got %+v", items[0])
+
+	var succeeded, cancelled int
+	for _, item := range items {
+		if item.Success {
+			succeeded++
+			continue
+		}
+
+		cancelled++
+		if item.Error == nil || item.Error.DetailCode != "IMAGE_WATERMARK_CANCELLED" {
+			t.Fatalf("expected the cancelled item error, got %+v", item.Error)
+		}
+		if _, statErr := os.Stat(item.OutputPath); !os.IsNotExist(statErr) {
+			t.Fatalf("expected the cancelled item not to write an output, got %v", statErr)
+		}
 	}
-	if items[1].Success {
-		t.Fatalf("expected the last item to fail, got %+v", items[1])
-	}
-	if items[1].Error == nil || items[1].Error.DetailCode != "IMAGE_WATERMARK_CANCELLED" {
-		t.Fatalf("expected the cancelled item error, got %+v", items[1].Error)
-	}
-	if _, statErr := os.Stat(filepath.Join(dir, "second_watermarked.png")); !os.IsNotExist(statErr) {
-		t.Fatal("expected the cancelled last item not to write an output")
+	if succeeded != 1 || cancelled != 1 {
+		t.Fatalf("expected one completed and one cancelled item, got %+v", items)
 	}
 }
 

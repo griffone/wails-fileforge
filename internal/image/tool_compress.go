@@ -12,6 +12,7 @@ import (
 
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
+	"fileforge-desktop/internal/utils"
 
 	"github.com/h2non/bimg"
 )
@@ -236,40 +237,41 @@ func (t *CompressTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 		return nil, planErr
 	}
 
-	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
-	var firstErr *models.JobErrorV1
-
-	for idx, planned := range plan.Outputs {
-		select {
-		case <-ctx.Done():
-			return items, compressCancelledError(ctx)
-		default:
-		}
-
-		prepared := preparedCompressFromPlan(planned, plan.EffectiveOptions)
-		execution, execErr := executeCompressToPath(ctx, prepared)
-		if execErr != nil {
-			itemErr, cancelled := compressExecutionError(ctx, "IMAGE_COMPRESS_BATCH_ITEM", prepared.inputPath, execErr)
-			if cancelled {
-				// A cancelled item must not be reported as a retryable batch
-				// failure, especially when it is the last item.
-				items = append(items, imageFailureItem(prepared.inputPath, prepared.outputPath, itemErr))
-				return items, itemErr
-			}
-			if firstErr == nil {
-				firstErr = itemErr
-			}
-			items = append(items, imageFailureItem(prepared.inputPath, prepared.outputPath, itemErr))
-		} else {
-			items = append(items, compressSuccessItem(prepared, execution))
-		}
-
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{Current: idx + 1, Total: len(plan.Outputs), Stage: models.JobStatusRunning, Message: fmt.Sprintf("processed %d/%d", idx+1, len(plan.Outputs))})
-		}
+	// Resolve every prepared item sequentially; execution is what runs in
+	// parallel.
+	preparedItems := make([]preparedCompress, len(plan.Outputs))
+	for index, planned := range plan.Outputs {
+		preparedItems[index] = preparedCompressFromPlan(planned, plan.EffectiveOptions)
 	}
 
-	return items, firstErr
+	total := len(preparedItems)
+	items := make([]models.JobResultItemV1, total)
+	completed := make([]bool, total)
+	progress := newParallelProgress(total, onProgress)
+
+	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
+		prepared := preparedItems[index]
+		execution, execErr := executeCompressToPath(ctx, prepared)
+		if execErr != nil {
+			// A cancelled item must not be reported as a retryable batch
+			// failure; the post-loop cancellation check returns the canonical
+			// cancellation error instead.
+			itemErr, _ := compressExecutionError(ctx, "IMAGE_COMPRESS_BATCH_ITEM", prepared.inputPath, execErr)
+			items[index] = imageFailureItem(prepared.inputPath, prepared.outputPath, itemErr)
+		} else {
+			items[index] = compressSuccessItem(prepared, execution)
+		}
+		completed[index] = true
+		progress.itemCompleted()
+
+		return nil
+	})
+
+	if batchRunCancelled(ctx, runErr) {
+		return collectCompletedItems(items, completed), compressCancelledError(ctx)
+	}
+
+	return items, firstFailedItemError(items)
 }
 
 func parseCompressRequest(req models.JobRequestV1) (compressRequest, *models.JobErrorV1) {

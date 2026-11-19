@@ -12,6 +12,7 @@ import (
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
 	"fileforge-desktop/internal/pdf/engine"
+	"fileforge-desktop/internal/utils"
 )
 
 const ToolIDImageOCRV1 = "tool.image.ocr"
@@ -340,44 +341,34 @@ func (t *ImageOCRTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 		return nil, planErr
 	}
 
-	items := make([]models.JobResultItemV1, 0, len(prepared))
-	var firstErr *models.JobErrorV1
+	total := len(prepared)
+	items := make([]models.JobResultItemV1, total)
+	completed := make([]bool, total)
+	progress := newParallelProgress(total, onProgress)
 
-	for idx, item := range prepared {
-		select {
-		case <-ctx.Done():
-			return items, imageOCRCancelledJobError(ctx)
-		default:
-		}
-
+	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
+		item := prepared[index]
 		outcome, execErr := t.recognize(ctx, item)
 		if execErr != nil {
-			itemErr, cancelled := imageOCRExecutionError(ctx, "IMAGE_OCR_BATCH_ITEM", item.inputPath, execErr)
-			if cancelled {
-				// A cancelled item must not be reported as a retryable batch
-				// failure, especially when it is the last item.
-				items = append(items, imageFailureItem(item.inputPath, item.textPath, itemErr))
-				return items, itemErr
-			}
-			if firstErr == nil {
-				firstErr = itemErr
-			}
-			items = append(items, imageFailureItem(item.inputPath, item.textPath, itemErr))
+			// A cancelled item must not be reported as a retryable batch
+			// failure; the post-loop cancellation check returns the canonical
+			// cancellation error instead.
+			itemErr, _ := imageOCRExecutionError(ctx, "IMAGE_OCR_BATCH_ITEM", item.inputPath, execErr)
+			items[index] = imageFailureItem(item.inputPath, item.textPath, itemErr)
 		} else {
-			items = append(items, imageOCRSuccessItem(item, outcome))
+			items[index] = imageOCRSuccessItem(item, outcome)
 		}
+		completed[index] = true
+		progress.itemCompleted()
 
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{
-				Current: idx + 1,
-				Total:   len(prepared),
-				Stage:   models.JobStatusRunning,
-				Message: fmt.Sprintf("processed %d/%d", idx+1, len(prepared)),
-			})
-		}
+		return nil
+	})
+
+	if batchRunCancelled(ctx, runErr) {
+		return collectCompletedItems(items, completed), imageOCRCancelledJobError(ctx)
 	}
 
-	return items, firstErr
+	return items, firstFailedItemError(items)
 }
 
 func parseImageOCRRequest(req models.JobRequestV1) (imageOCRRequest, *models.JobErrorV1) {

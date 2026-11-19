@@ -977,7 +977,9 @@ func TestCompressExecutionBatchCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	var progress []int
 	items, execErr := tool.ExecuteBatch(ctx, request, func(event models.JobProgressV1) {
+		progress = append(progress, event.Current)
 		if event.Current == 1 {
 			cancel()
 		}
@@ -991,14 +993,32 @@ func TestCompressExecutionBatchCancellation(t *testing.T) {
 	if !strings.Contains(execErr.Message, "operation cancelled") {
 		t.Fatalf("expected the cancellation message, got %q", execErr.Message)
 	}
-	if len(items) != 1 || !items[0].Success {
-		t.Fatalf("expected one successful item before cancellation, got %+v", items)
+
+	// Workers run in parallel, so in-flight items may finish or report the
+	// cancellation after the first completion. Every returned item must still
+	// be either a success or a cancellation failure, in input order.
+	if len(items) == 0 || len(items) > len(request.InputPaths) {
+		t.Fatalf("expected between 1 and %d completed items, got %+v", len(request.InputPaths), items)
 	}
-	if items[0].InputPath != first {
-		t.Fatalf("expected the first input to complete, got %+v", items[0])
+	previousIndex := -1
+	for _, item := range items {
+		index := slices.Index(request.InputPaths, item.InputPath)
+		if index <= previousIndex {
+			t.Fatalf("expected input order to be preserved, got %+v", items)
+		}
+		previousIndex = index
+
+		if item.Success {
+			continue
+		}
+		if item.Error == nil || item.Error.Code != models.ErrorCodeCancelledByUser {
+			t.Fatalf("expected only cancellation failures, got %+v", item)
+		}
 	}
-	if len(items) == len(request.InputPaths) {
-		t.Fatal("expected the last item to be cancelled before execution")
+	for index, current := range progress {
+		if current != index+1 {
+			t.Fatalf("expected monotonic progress counts, got %v", progress)
+		}
 	}
 }
 
