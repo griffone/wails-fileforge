@@ -37,3 +37,26 @@ tasks:
     summary: Runs the application in development mode
     cmds:
       - /home/ivan/go/bin/wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  verify:
+    desc: Builds, vets, and tests the Go backend
+    summary: Runs the backend verification gate
+    cmds:
+      - go build ./...
+      - go vet ./...
+      - go test ./... -count=1
+
+  verify:frontend:
+    desc: Builds and tests the Angular frontend
+    summary: Runs the frontend verification gate
+    dir: frontend
+    cmds:
+      - npm run build
+      - npx ng test --watch=false
+
+  verify:all:
+    desc: Runs backend and frontend verification
+    summary: Runs the complete verification gate
+    deps:
+      - verify
+      - "verify:frontend"
