@@ -296,36 +296,35 @@ func (t *ImageOCRTool) ExecuteSingle(ctx context.Context, req models.JobRequestV
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
-// ExecuteSingleWithProgress recognizes the planned image and reports stage
-// level progress for the one-item job.
+// ExecuteSingleWithProgress resolves the plan once, executes exactly that plan
+// and reports stage level progress for the one-item job.
 func (t *ImageOCRTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
 	inputPath := firstInputPath(req.InputPaths)
 
-	plan, prepared, planErr := t.planImageOCRRequest(ctx, req)
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return imageFailureItem(inputPath, plannedOutputPath(plan), planErr), planErr
 	}
 
-	item := prepared[0]
 	if onProgress != nil {
 		onProgress(models.JobProgressV1{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "recognizing 1/1"})
 	}
 
-	outcome, execErr := t.recognize(ctx, item)
-	if execErr != nil {
-		jobErr, _ := imageOCRExecutionError(ctx, "IMAGE_OCR_EXECUTION", item.inputPath, execErr)
-		return imageFailureItem(item.inputPath, item.textPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 1, Total: 1, Stage: models.JobStatusRunning, Message: "processed 1/1"})
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("IMAGE_OCR_EXECUTION", "OCR returned no result", nil)
 	}
 
-	return imageOCRSuccessItem(item, outcome), nil
+	return imageFailureItem(inputPath, plannedOutputPath(plan), jobErr), jobErr
 }
 
-// ExecuteBatch recognizes every planned input with per-item progress and
-// per-item errors, mirroring the other image batch tools.
+// ExecuteBatch plans the request once and then executes exactly that plan. It
+// never re-resolves output paths from the request.
 func (t *ImageOCRTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, parseErr := parseImageOCRRequest(req)
 	if parseErr != nil {
@@ -336,29 +335,76 @@ func (t *ImageOCRTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 		return nil, models.NewCanonicalJobError("IMAGE_OCR_MODE_INVALID", "mode must be batch", nil)
 	}
 
-	_, prepared, planErr := t.planParsedImageOCRRequest(ctx, parsed)
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return nil, planErr
 	}
 
-	total := len(prepared)
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan recognizes exactly the outputs resolved by Plan. OCR writes a
+// text file and, when writePdf is set, a PDF sidecar for the same input; the
+// plan emits them adjacently, so they are grouped into one Tesseract run per
+// input. Capabilities are detected once for the whole plan, never per item.
+func (t *ImageOCRTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	parsed, parseErr := parseImageOCRRequest(req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	total := len(plan.Outputs)
+	if total == 0 {
+		return nil, models.NewCanonicalJobError(ImageOCRCodeInputRequired, "Choose at least one image to OCR.", nil)
+	}
+
+	language := parsed.language
+	if value := convertOptionString(plan.EffectiveOptions, "language"); value != "" {
+		language = value
+	}
+	dpi := parsed.dpi
+	if value, ok := numericOption(plan.EffectiveOptions, "dpi"); ok && value > 0 {
+		dpi = value
+	}
+	writePDF := parsed.writePDF
+	if value, ok := boolOption(plan.EffectiveOptions, "writePdf"); ok {
+		writePDF = value
+	}
+
+	capabilities := t.detectCapabilities(ctx)
+	groups := imageOCRPlanGroups(plan.Outputs, writePDF, preparedImageOCRJob{
+		language:     language,
+		dpi:          dpi,
+		capabilities: capabilities,
+	})
+
+	detailCode := "IMAGE_OCR_BATCH_ITEM"
+	if req.Mode == "single" {
+		detailCode = "IMAGE_OCR_EXECUTION"
+	}
+
 	items := make([]models.JobResultItemV1, total)
 	completed := make([]bool, total)
-	progress := newParallelProgress(total, onProgress)
+	progress := newParallelProgress(len(groups), onProgress)
 
-	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
-		item := prepared[index]
-		outcome, execErr := t.recognize(ctx, item)
+	runErr := utils.ParallelForIndex(ctx, len(groups), utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
+		group := groups[index]
+		outcome, execErr := t.recognize(ctx, group.job)
 		if execErr != nil {
 			// A cancelled item must not be reported as a retryable batch
 			// failure; the post-loop cancellation check returns the canonical
 			// cancellation error instead.
-			itemErr, _ := imageOCRExecutionError(ctx, "IMAGE_OCR_BATCH_ITEM", item.inputPath, execErr)
-			items[index] = imageFailureItem(item.inputPath, item.textPath, itemErr)
+			itemErr, _ := imageOCRExecutionError(ctx, detailCode, group.job.inputPath, execErr)
+			for _, outputIndex := range group.outputIndices {
+				items[outputIndex] = imageFailureItem(group.job.inputPath, plan.Outputs[outputIndex].OutputPath, itemErr)
+				completed[outputIndex] = true
+			}
 		} else {
-			items[index] = imageOCRSuccessItem(item, outcome)
+			for _, outputIndex := range group.outputIndices {
+				items[outputIndex] = imageOCRPlannedSuccessItem(group.job, plan.Outputs[outputIndex], outcome)
+				completed[outputIndex] = true
+			}
 		}
-		completed[index] = true
 		progress.itemCompleted()
 
 		return nil
@@ -369,6 +415,75 @@ func (t *ImageOCRTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 	}
 
 	return items, firstFailedItemError(items)
+}
+
+// imageOCRPlanGroup is one Tesseract run plus the plan outputs it satisfies: the
+// text file and, when requested, its adjacent PDF sidecar.
+type imageOCRPlanGroup struct {
+	job           preparedImageOCRJob
+	outputIndices []int
+}
+
+// imageOCRPlanGroups rebuilds the executor input from the planned outputs in
+// plan order. A missing sidecar leaves the text output as a standalone job; an
+// orphan sidecar keeps its own output so it fails gracefully instead of being
+// dropped.
+func imageOCRPlanGroups(outputs []models.PlannedOutputV1, writePDF bool, template preparedImageOCRJob) []imageOCRPlanGroup {
+	groups := make([]imageOCRPlanGroup, 0, len(outputs))
+
+	for index := 0; index < len(outputs); index++ {
+		planned := outputs[index]
+		job := template
+		job.inputPath = planned.InputPath
+		job.textPath = ""
+		job.pdfPath = ""
+
+		if imageOCRIsPDFOutput(planned.OutputPath) {
+			// Sidecar without its text output (a reduced plan): keep it so the
+			// failure is reported per planned output.
+			job.pdfPath = planned.OutputPath
+			groups = append(groups, imageOCRPlanGroup{job: job, outputIndices: []int{index}})
+			continue
+		}
+
+		job.textPath = planned.OutputPath
+		indices := []int{index}
+
+		if writePDF && index+1 < len(outputs) {
+			sidecar := outputs[index+1]
+			if sidecar.InputPath == planned.InputPath && imageOCRIsPDFOutput(sidecar.OutputPath) {
+				job.pdfPath = sidecar.OutputPath
+				indices = append(indices, index+1)
+				index++
+			}
+		}
+
+		groups = append(groups, imageOCRPlanGroup{job: job, outputIndices: indices})
+	}
+
+	return groups
+}
+
+func imageOCRIsPDFOutput(outputPath string) bool {
+	return strings.EqualFold(filepath.Ext(outputPath), "."+imageOCRPDFExtension)
+}
+
+// imageOCRPlannedSuccessItem reports one planned output. The text output keeps
+// the existing result shape with both declared outputs; the PDF sidecar
+// reports its own file.
+func imageOCRPlannedSuccessItem(job preparedImageOCRJob, planned models.PlannedOutputV1, outcome ImageOCRResult) models.JobResultItemV1 {
+	if strings.EqualFold(planned.OutputPath, job.textPath) {
+		return imageOCRSuccessItem(job, outcome)
+	}
+
+	return models.JobResultItemV1{
+		InputPath:   job.inputPath,
+		OutputPath:  planned.OutputPath,
+		Outputs:     []string{planned.OutputPath},
+		OutputCount: 1,
+		Success:     true,
+		Message:     imageOCRResultMessage(outcome),
+	}
 }
 
 func parseImageOCRRequest(req models.JobRequestV1) (imageOCRRequest, *models.JobErrorV1) {

@@ -961,3 +961,181 @@ func TestBackgroundRemoveToolPlanMissingPackDoesNotRunEngine(t *testing.T) {
 		t.Fatal("expected the failed plan to report failure")
 	}
 }
+
+func TestBackgroundRemoveToolExecutePlanHonorsResolvedPlan(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "photo.png")
+	writePlanPNG(t, input, 120, 90)
+
+	stubBackgroundRemoveRuntime(t, backgroundRemoveTestRuntime(), nil)
+	captures := stubBackgroundRemoveEngine(t, func(_ context.Context, _ RembgCommandRunner, _, _, _ string, items []BackgroundRemoveItem, _ BackgroundRemoveOptions, _ func(int, int)) ([]BackgroundRemoveOutcome, error) {
+		return []BackgroundRemoveOutcome{{OutputPath: items[0].OutputPath, Width: 120, Height: 90}}, nil
+	})
+	tool := NewBackgroundRemoveTool()
+
+	request := backgroundRemoveTestRequest("single", []string{input}, nil)
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the plan to succeed, got %v", planErr)
+	}
+
+	requestOutput := plan.Outputs[0].OutputPath
+	plannedOutput := filepath.Join(dir, "resolved-plan.png")
+	plan.Outputs[0].OutputPath = plannedOutput
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected the planned run to succeed, got %v", execErr)
+	}
+	if len(items) != 1 || !items[0].Success || items[0].OutputPath != plannedOutput {
+		t.Fatalf("expected a success item at %q, got %+v", plannedOutput, items)
+	}
+	if len(*captures) != 1 || len((*captures)[0].Items) != 1 {
+		t.Fatalf("expected one engine call with one item, got %+v", *captures)
+	}
+	if got := (*captures)[0].Items[0].OutputPath; got != plannedOutput {
+		t.Fatalf("expected the engine to run the planned output %q, got %q", plannedOutput, got)
+	}
+	if requestOutput == plannedOutput {
+		t.Fatal("test must mutate the planned output path")
+	}
+}
+
+func TestBackgroundRemoveToolExecutePlanBatchSubset(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.png")
+	second := filepath.Join(dir, "second.png")
+	writePlanPNG(t, first, 40, 30)
+	writePlanPNG(t, second, 40, 30)
+
+	stubBackgroundRemoveRuntime(t, backgroundRemoveTestRuntime(), nil)
+	captures := stubBackgroundRemoveEngine(t, func(_ context.Context, _ RembgCommandRunner, _, _, _ string, items []BackgroundRemoveItem, _ BackgroundRemoveOptions, _ func(int, int)) ([]BackgroundRemoveOutcome, error) {
+		outcomes := make([]BackgroundRemoveOutcome, 0, len(items))
+		for _, item := range items {
+			outcomes = append(outcomes, BackgroundRemoveOutcome{OutputPath: item.OutputPath, Width: 40, Height: 30})
+		}
+		return outcomes, nil
+	})
+	tool := NewBackgroundRemoveTool()
+
+	request := backgroundRemoveTestRequest("batch", []string{first, second}, nil)
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+
+	subset := plan
+	subset.Outputs = plan.Outputs[1:]
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, subset, nil)
+	if execErr != nil {
+		t.Fatalf("expected the subset to succeed, got %v", execErr)
+	}
+	if len(items) != 1 || !items[0].Success || items[0].InputPath != second || items[0].OutputPath != plan.Outputs[1].OutputPath {
+		t.Fatalf("expected only the second planned output, got %+v", items)
+	}
+	if len(*captures) != 1 || len((*captures)[0].Items) != 1 {
+		t.Fatalf("expected one engine call with only the subset, got %+v", *captures)
+	}
+	if got := (*captures)[0].Items[0].InputPath; got != second {
+		t.Fatalf("expected the engine to run %q, got %q", second, got)
+	}
+}
+
+func TestBackgroundRemoveToolExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
+	dir := t.TempDir()
+	inputs := []string{
+		filepath.Join(dir, "first.png"),
+		filepath.Join(dir, "second.png"),
+		filepath.Join(dir, "third.png"),
+	}
+	for _, input := range inputs {
+		writePlanPNG(t, input, 40, 30)
+	}
+
+	stubBackgroundRemoveRuntime(t, backgroundRemoveTestRuntime(), nil)
+	stubBackgroundRemoveEngine(t, func(_ context.Context, _ RembgCommandRunner, _, _, _ string, items []BackgroundRemoveItem, _ BackgroundRemoveOptions, _ func(int, int)) ([]BackgroundRemoveOutcome, error) {
+		return []BackgroundRemoveOutcome{
+			{OutputPath: items[0].OutputPath, Width: 40, Height: 30},
+			{OutputPath: items[2].OutputPath, Width: 40, Height: 30},
+		}, &BackgroundRemoveError{
+			Code:    BackgroundRemoveCodeBatchFailed,
+			Message: "1 of 3 images could not be processed.",
+			Failures: []BackgroundRemoveItemFailure{{
+				Index:      1,
+				InputPath:  inputs[1],
+				OutputPath: strings.Replace(inputs[1], "second.png", "second_nobg.png", 1),
+				Code:       BackgroundRemoveCodeProcessFailed,
+				Message:    "Could not remove the background from second.png.",
+			}},
+		}
+	})
+	tool := NewBackgroundRemoveTool()
+
+	request := backgroundRemoveTestRequest("batch", inputs, nil)
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, nil)
+	if execErr == nil {
+		t.Fatal("expected the item failure")
+	}
+	if execErr.DetailCode != BackgroundRemoveCodeProcessFailed {
+		t.Fatalf("expected %s, got %q", BackgroundRemoveCodeProcessFailed, execErr.DetailCode)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expected three result items, got %d", len(items))
+	}
+	for index, item := range items {
+		if item.InputPath != inputs[index] {
+			t.Fatalf("expected plan order at %d, got %+v", index, item)
+		}
+	}
+	if !items[0].Success || !items[2].Success || items[1].Success {
+		t.Fatalf("expected isolated per-item failures, got %+v", items)
+	}
+}
+
+func TestBackgroundRemoveToolExecutePlanResolvesRuntimeOnce(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.png")
+	second := filepath.Join(dir, "second.png")
+	writePlanPNG(t, first, 40, 30)
+	writePlanPNG(t, second, 40, 30)
+
+	runtime := backgroundRemoveTestRuntime()
+	resolutionCalls := 0
+	previous := resolveBackgroundRemoveRuntime
+	resolveBackgroundRemoveRuntime = func() (backgroundRemoveRuntime, *BackgroundRemoveError) {
+		resolutionCalls++
+		return runtime, nil
+	}
+	t.Cleanup(func() {
+		resolveBackgroundRemoveRuntime = previous
+	})
+
+	stubBackgroundRemoveEngine(t, func(_ context.Context, _ RembgCommandRunner, _, _, _ string, items []BackgroundRemoveItem, _ BackgroundRemoveOptions, _ func(int, int)) ([]BackgroundRemoveOutcome, error) {
+		outcomes := make([]BackgroundRemoveOutcome, 0, len(items))
+		for _, item := range items {
+			outcomes = append(outcomes, BackgroundRemoveOutcome{OutputPath: item.OutputPath, Width: 40, Height: 30})
+		}
+		return outcomes, nil
+	})
+	tool := NewBackgroundRemoveTool()
+
+	request := backgroundRemoveTestRequest("batch", []string{first, second}, nil)
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+
+	resolutionCalls = 0
+	if _, execErr := tool.ExecutePlan(context.Background(), request, plan, nil); execErr != nil {
+		t.Fatalf("expected the planned run to succeed, got %v", execErr)
+	}
+	if resolutionCalls != 1 {
+		t.Fatalf("expected one runtime resolution per plan, got %d", resolutionCalls)
+	}
+}

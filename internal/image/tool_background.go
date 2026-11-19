@@ -260,63 +260,35 @@ func (t *BackgroundRemoveTool) ExecuteSingle(ctx context.Context, req models.Job
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
-// ExecuteSingleWithProgress removes the background of the planned image and
-// maps bridge progress to job progress.
+// ExecuteSingleWithProgress resolves the plan once and executes exactly that
+// plan, mapping bridge progress to job progress.
 func (t *BackgroundRemoveTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
 	inputPath := firstInputPath(req.InputPaths)
 
-	plan, prepared, planErr := t.planBackgroundRemoveRequest(ctx, req)
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return imageFailureItem(inputPath, plannedOutputPath(plan), planErr), planErr
 	}
 
-	item := prepared[0]
 	if onProgress != nil {
 		onProgress(models.JobProgressV1{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "removing background 1/1"})
 	}
 
-	outcomes, execErr := runBackgroundRemove(
-		ctx,
-		t.runner,
-		item.runtime.PythonPath,
-		item.runtime.ModelPath,
-		"",
-		[]BackgroundRemoveItem{{InputPath: item.inputPath, OutputPath: item.outputPath}},
-		item.options,
-		func(current, total int) {
-			if onProgress == nil {
-				return
-			}
-			onProgress(models.JobProgressV1{
-				Current: current,
-				Total:   total,
-				Stage:   models.JobStatusRunning,
-				Message: fmt.Sprintf("processed %d/%d", current, total),
-			})
-		},
-	)
-	if execErr != nil {
-		jobErr := backgroundRemoveExecutionError(ctx, "IMAGE_BACKGROUND_EXECUTION", item, execErr)
-		return imageFailureItem(item.inputPath, item.outputPath, jobErr), jobErr
-	}
-	if len(outcomes) == 0 {
-		jobErr := models.NewCanonicalJobError(
-			BackgroundRemoveCodeProcessFailed,
-			fmt.Sprintf("The background removal engine produced no result for %s.", filepath.Base(item.inputPath)),
-			map[string]any{"inputPath": item.inputPath, "outputPath": item.outputPath},
-		)
-		return imageFailureItem(item.inputPath, item.outputPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 1, Total: 1, Stage: models.JobStatusRunning, Message: "processed 1/1"})
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("IMAGE_BACKGROUND_EXECUTION", "background removal returned no result", nil)
 	}
 
-	return backgroundRemoveSuccessItem(item, outcomes[0]), nil
+	return imageFailureItem(inputPath, plannedOutputPath(plan), jobErr), jobErr
 }
 
-// ExecuteBatch removes backgrounds for every planned input with one bridge
-// process, per-item errors and aggregated failures.
+// ExecuteBatch plans the request once and then executes exactly that plan. It
+// never re-resolves output paths from the request.
 func (t *BackgroundRemoveTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, parseErr := parseBackgroundRemoveRequest(req)
 	if parseErr != nil {
@@ -326,9 +298,62 @@ func (t *BackgroundRemoveTool) ExecuteBatch(ctx context.Context, req models.JobR
 		return nil, models.NewCanonicalJobError("IMAGE_BACKGROUND_MODE_INVALID", "mode must be batch", nil)
 	}
 
-	_, prepared, planErr := t.planParsedBackgroundRemoveRequest(parsed)
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return nil, planErr
+	}
+
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan removes backgrounds for exactly the outputs resolved by Plan. The
+// runtime is resolved once and the bridge runs once for the whole plan, so a
+// reduced retry plan only processes the failed items.
+func (t *BackgroundRemoveTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	parsed, parseErr := parseBackgroundRemoveRequest(req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	total := len(plan.Outputs)
+	if total == 0 {
+		return nil, models.NewCanonicalJobError("IMAGE_BACKGROUND_INPUT_INVALID", "Choose at least one image to process.", nil)
+	}
+
+	runtime, runtimeErr := resolveBackgroundRemoveRuntime()
+	if runtimeErr != nil {
+		return nil, backgroundRemoveEngineJobError(runtimeErr, nil)
+	}
+
+	backgroundColor := parsed.options.BackgroundColor
+	if value, ok := plan.EffectiveOptions["backgroundColor"].(string); ok {
+		backgroundColor = value
+	}
+
+	options := BackgroundRemoveOptions{
+		Model:           runtime.Model,
+		BackgroundColor: backgroundColor,
+	}
+
+	prepared := make([]preparedBackgroundRemove, total)
+	for index, planned := range plan.Outputs {
+		prepared[index] = preparedBackgroundRemove{
+			inputPath:  planned.InputPath,
+			outputPath: planned.OutputPath,
+			runtime:    runtime,
+			options:    options,
+		}
+	}
+
+	return t.executePreparedBackgroundRemove(ctx, req.Mode, prepared, onProgress)
+}
+
+// executePreparedBackgroundRemove runs one bridge process for the prepared
+// items and maps its outcomes, progress, cancellations and per-item failures.
+func (t *BackgroundRemoveTool) executePreparedBackgroundRemove(ctx context.Context, mode string, prepared []preparedBackgroundRemove, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	detailCode := "IMAGE_BACKGROUND_BATCH_ITEM"
+	if mode == "single" {
+		detailCode = "IMAGE_BACKGROUND_EXECUTION"
 	}
 
 	items := make([]BackgroundRemoveItem, len(prepared))
@@ -370,6 +395,16 @@ func (t *BackgroundRemoveTool) ExecuteBatch(ctx context.Context, req models.JobR
 		return results, cancelled
 	}
 
+	if execErr == nil && len(outcomes) == 0 && mode == "single" {
+		item := prepared[0]
+		jobErr := models.NewCanonicalJobError(
+			BackgroundRemoveCodeProcessFailed,
+			fmt.Sprintf("The background removal engine produced no result for %s.", filepath.Base(item.inputPath)),
+			map[string]any{"inputPath": item.inputPath, "outputPath": item.outputPath},
+		)
+		return []models.JobResultItemV1{imageFailureItem(item.inputPath, item.outputPath, jobErr)}, jobErr
+	}
+
 	outcomeByPath := make(map[string]BackgroundRemoveOutcome, len(outcomes))
 	for _, outcome := range outcomes {
 		outcomeByPath[rembgPathKey(outcome.OutputPath)] = outcome
@@ -406,7 +441,7 @@ func (t *BackgroundRemoveTool) ExecuteBatch(ctx context.Context, req models.JobR
 			continue
 		}
 
-		jobErr := backgroundRemoveExecutionError(ctx, "IMAGE_BACKGROUND_BATCH_ITEM", item, execErr)
+		jobErr := backgroundRemoveExecutionError(ctx, detailCode, item, execErr)
 		if firstErr == nil {
 			firstErr = jobErr
 		}

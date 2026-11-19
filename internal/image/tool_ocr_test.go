@@ -570,8 +570,10 @@ func TestImageOCRToolExecuteSingleProgressAndMessage(t *testing.T) {
 	if item.Message != "1,234 characters recognized" {
 		t.Fatalf("unexpected result message %q", item.Message)
 	}
-	if *detectionCalls != 1 {
-		t.Fatalf("expected one capability detection, got %d", *detectionCalls)
+	if *detectionCalls != 2 {
+		// Plan detects once to validate the language and the executor detects
+		// once for the whole job, never once per image.
+		t.Fatalf("expected plan and execution detections, got %d", *detectionCalls)
 	}
 
 	if len(progress) != 2 {
@@ -638,8 +640,10 @@ func TestImageOCRToolExecuteBatchProgress(t *testing.T) {
 	if !slices.Equal(progress, []string{"processed 1/3", "processed 2/3", "processed 3/3"}) {
 		t.Fatalf("unexpected progress %v", progress)
 	}
-	if *detectionCalls != 1 {
-		t.Fatalf("expected capabilities detected once for the batch, got %d", *detectionCalls)
+	if *detectionCalls != 2 {
+		// Plan detects once and the whole batch detects once at execution; it
+		// must not scale with the number of images.
+		t.Fatalf("expected plan and execution detections, got %d", *detectionCalls)
 	}
 	if len(runner.snapshotCalls()) != 3 {
 		t.Fatalf("expected one tesseract process per image, got %d", len(runner.snapshotCalls()))
@@ -757,5 +761,257 @@ func TestImageOCRToolExecuteSingleCancellation(t *testing.T) {
 	}
 	if item.Success || item.Error == nil {
 		t.Fatalf("expected a failed item, got %+v", item)
+	}
+}
+
+func TestImageOCRToolExecutePlanHonorsResolvedPlan(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "photo.png")
+	writePlanPNG(t, input, 40, 30)
+
+	runner := imageOCRToolSuccessfulRunner(t, "hello\n")
+	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
+	tool := NewImageOCRToolWithRunner(runner)
+
+	request := imageOCRTestRequest("single", []string{input}, map[string]any{"writePdf": true})
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected the text and PDF outputs, got %d", len(plan.Outputs))
+	}
+
+	requestText := plan.Outputs[0].OutputPath
+	requestPDF := plan.Outputs[1].OutputPath
+	plannedText := filepath.Join(dir, "resolved-plan.txt")
+	plannedPDF := filepath.Join(dir, "resolved-plan.pdf")
+	plan.Outputs[0].OutputPath = plannedText
+	plan.Outputs[1].OutputPath = plannedPDF
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected the planned OCR to succeed, got %v", execErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected one item per planned output, got %d", len(items))
+	}
+	if !items[0].Success || items[0].OutputPath != plannedText {
+		t.Fatalf("expected the planned text output, got %+v", items[0])
+	}
+	if !items[1].Success || items[1].OutputPath != plannedPDF {
+		t.Fatalf("expected the planned PDF sidecar, got %+v", items[1])
+	}
+	for _, path := range []string{plannedText, plannedPDF} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("expected %s on disk: %v", path, statErr)
+		}
+	}
+	for _, path := range []string{requestText, requestPDF} {
+		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("expected the request-resolved output %q to be unused, got %v", path, statErr)
+		}
+	}
+}
+
+func TestImageOCRToolExecutePlanBatchSubset(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.png")
+	second := filepath.Join(dir, "second.png")
+	writePlanPNG(t, first, 40, 30)
+	writePlanPNG(t, second, 40, 30)
+
+	runner := imageOCRToolSuccessfulRunner(t, "hello\n")
+	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
+	tool := NewImageOCRToolWithRunner(runner)
+
+	request := imageOCRTestRequest("batch", []string{first, second}, nil)
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected 2 planned outputs, got %d", len(plan.Outputs))
+	}
+
+	subset := plan
+	subset.Outputs = plan.Outputs[1:]
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, subset, nil)
+	if execErr != nil {
+		t.Fatalf("expected the subset to succeed, got %v", execErr)
+	}
+	if len(items) != 1 || items[0].InputPath != second || items[0].OutputPath != plan.Outputs[1].OutputPath {
+		t.Fatalf("expected only the second planned output, got %+v", items)
+	}
+	if calls := runner.snapshotCalls(); len(calls) != 1 {
+		t.Fatalf("expected one Tesseract run for the subset, got %d", len(calls))
+	}
+	if _, statErr := os.Stat(plan.Outputs[1].OutputPath); statErr != nil {
+		t.Fatalf("expected the subset output to exist: %v", statErr)
+	}
+	if _, statErr := os.Stat(plan.Outputs[0].OutputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the excluded output %q to stay untouched, got %v", plan.Outputs[0].OutputPath, statErr)
+	}
+}
+
+func TestImageOCRToolExecutePlanGroupsPDFSidecars(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.png")
+	second := filepath.Join(dir, "second.png")
+	writePlanPNG(t, first, 40, 30)
+	writePlanPNG(t, second, 40, 30)
+
+	runner := imageOCRToolSuccessfulRunner(t, "hello\n")
+	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
+	tool := NewImageOCRToolWithRunner(runner)
+
+	request := imageOCRTestRequest("batch", []string{first, second}, map[string]any{"writePdf": true})
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 4 {
+		t.Fatalf("expected text and PDF outputs for both inputs, got %d", len(plan.Outputs))
+	}
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected the planned OCR to succeed, got %v", execErr)
+	}
+	if len(items) != 4 {
+		t.Fatalf("expected one item per planned output, got %d", len(items))
+	}
+	if calls := runner.snapshotCalls(); len(calls) != 2 {
+		t.Fatalf("expected one Tesseract run per input, got %d", len(calls))
+	}
+
+	for index, inputPath := range []string{first, second} {
+		textItem := items[index*2]
+		pdfItem := items[index*2+1]
+		if textItem.InputPath != inputPath || pdfItem.InputPath != inputPath {
+			t.Fatalf("expected plan order for %s, got %+v", inputPath, items)
+		}
+		if !textItem.Success || !pdfItem.Success {
+			t.Fatalf("expected both outputs to succeed for %s, got %+v", inputPath, items)
+		}
+		if !slices.Equal(textItem.Outputs, []string{plan.Outputs[index*2].OutputPath, plan.Outputs[index*2+1].OutputPath}) {
+			t.Fatalf("expected the text item to declare both outputs, got %+v", textItem)
+		}
+		if pdfItem.OutputPath != plan.Outputs[index*2+1].OutputPath {
+			t.Fatalf("expected the PDF sidecar item, got %+v", pdfItem)
+		}
+	}
+}
+
+func TestImageOCRToolExecutePlanDetectsCapabilitiesOnce(t *testing.T) {
+	dir := t.TempDir()
+	inputs := make([]string, 0, 3)
+	for _, name := range []string{"one.png", "two.png", "three.png"} {
+		input := filepath.Join(dir, name)
+		writePlanPNG(t, input, 40, 30)
+		inputs = append(inputs, input)
+	}
+
+	runner := imageOCRToolSuccessfulRunner(t, "hello\n")
+	detectionCalls := stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
+	tool := NewImageOCRToolWithRunner(runner)
+
+	request := imageOCRTestRequest("batch", inputs, nil)
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+	before := *detectionCalls
+
+	if _, execErr := tool.ExecutePlan(context.Background(), request, plan, nil); execErr != nil {
+		t.Fatalf("expected the planned OCR to succeed, got %v", execErr)
+	}
+	if got := *detectionCalls - before; got != 1 {
+		t.Fatalf("expected one execution detection for the whole plan, got %d", got)
+	}
+	if calls := runner.snapshotCalls(); len(calls) != len(inputs) {
+		t.Fatalf("expected one Tesseract run per input, got %d", len(calls))
+	}
+}
+
+func TestImageOCRToolExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
+	dir := t.TempDir()
+	valid := filepath.Join(dir, "valid.png")
+	broken := filepath.Join(dir, "broken.png")
+	writePlanPNG(t, valid, 40, 30)
+	if err := os.WriteFile(broken, []byte("not an image"), 0o644); err != nil {
+		t.Fatalf("write broken fixture: %v", err)
+	}
+
+	runner := imageOCRToolSuccessfulRunner(t, "hello\n")
+	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
+	tool := NewImageOCRToolWithRunner(runner)
+
+	request := imageOCRTestRequest("batch", []string{valid, broken}, nil)
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+
+	var progress []int
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgressV1) {
+		progress = append(progress, event.Current)
+	})
+	if execErr == nil {
+		t.Fatal("expected the failed item to report a batch error")
+	}
+	if execErr.DetailCode != ImageOCRCodeNormalizeFailed {
+		t.Fatalf("expected %s, got %q", ImageOCRCodeNormalizeFailed, execErr.DetailCode)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected both planned items, got %d", len(items))
+	}
+	if !items[0].Success || items[0].InputPath != valid || items[0].OutputPath != plan.Outputs[0].OutputPath {
+		t.Fatalf("expected the first planned item to succeed, got %+v", items[0])
+	}
+	if items[1].Success || items[1].Error == nil || items[1].InputPath != broken {
+		t.Fatalf("expected the broken planned item to fail, got %+v", items[1])
+	}
+	if len(progress) != 2 || progress[0] != 1 || progress[1] != 2 {
+		t.Fatalf("expected monotonic plan-order progress, got %v", progress)
+	}
+}
+
+func TestImageOCRToolExecutePlanCancellation(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.png")
+	second := filepath.Join(dir, "second.png")
+	writePlanPNG(t, first, 40, 30)
+	writePlanPNG(t, second, 40, 30)
+
+	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
+	tool := NewImageOCRToolWithRunner(imageOCRToolSuccessfulRunner(t, "hello\n"))
+
+	request := imageOCRTestRequest("batch", []string{first, second}, nil)
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	items, execErr := tool.ExecutePlan(ctx, request, plan, nil)
+	if execErr == nil {
+		t.Fatal("expected cancellation")
+	}
+	if execErr.Code != models.ErrorCodeCancelledByUser || execErr.DetailCode != ImageOCRCodeCancelled {
+		t.Fatalf("expected a canonical cancellation, got %+v", execErr)
+	}
+	for _, item := range items {
+		if item.Success {
+			t.Fatalf("expected no successful item after cancel, got %+v", item)
+		}
+	}
+	for _, planned := range plan.Outputs {
+		if _, statErr := os.Stat(planned.OutputPath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("expected no output after cancel, got %v for %q", statErr, planned.OutputPath)
+		}
 	}
 }
