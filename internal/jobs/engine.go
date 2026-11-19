@@ -1,0 +1,716 @@
+package jobs
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/jsonstore"
+	"fileforge-desktop/internal/platform/progress"
+	"fileforge-desktop/internal/tools"
+)
+
+const (
+	defaultMaxQueue     = 256
+	defaultMaxAttempts  = 3
+	enginePanicDetail   = "PANIC"
+	defaultEngineDetail = "EXECUTION_FAILED"
+)
+
+// Emitter receives engine events. Implementations must be safe for concurrent
+// use: running jobs report progress from their own goroutines.
+type Emitter interface {
+	JobProgress(models.JobProgressEventV1)
+	JobState(models.JobResultV1)
+}
+
+// ToolResolver looks up a tool by its stable ID.
+type ToolResolver interface {
+	GetToolV2(toolID string) (tools.Tool, error)
+}
+
+// RetryPolicy decides whether a failed attempt may be retried.
+type RetryPolicy interface {
+	Retryable(toolID string, err *models.JobErrorV1) bool
+}
+
+// Options configures an Engine. Zero values select the documented defaults.
+type Options struct {
+	Limits           Limits
+	MaxQueue         int
+	PersistencePath  string
+	Emitter          Emitter
+	Logger           *slog.Logger
+	OnJobComplete    func(models.JobResultV1)
+	Retry            RetryPolicy
+	ProgressInterval time.Duration
+	Debounce         time.Duration
+	Retention        int
+}
+
+// SubmitOptions describes scheduling metadata for a submitted job.
+type SubmitOptions struct {
+	Kind        string
+	Priority    Priority
+	Class       Class
+	Workers     int
+	ParentID    string
+	MaxAttempts int
+}
+
+// Engine is a priority-aware, class-limited job scheduler. One dispatcher
+// goroutine owns scheduling; execution goroutines are bounded by Limits.
+type Engine struct {
+	resolver ToolResolver
+	opts     Options
+	logger   *slog.Logger
+	retry    RetryPolicy
+	store    *jsonstore.Store
+
+	mu   sync.RWMutex
+	jobs map[string]*jobState
+
+	queueMu      sync.Mutex
+	queue        []*jobState
+	totalRunning int
+	running      map[Class]int
+
+	wake           chan struct{}
+	stopCh         chan struct{}
+	dispatcherDone chan struct{}
+	stopOnce       sync.Once
+	closed         atomic.Bool
+	seq            atomic.Uint64
+	wg             sync.WaitGroup
+
+	persistMu sync.Mutex
+	baseMu    sync.RWMutex
+	baseCtx   context.Context
+}
+
+type defaultRetryPolicy struct{}
+
+func (defaultRetryPolicy) Retryable(toolID string, jobErr *models.JobErrorV1) bool {
+	return isRetryableError(toolID, jobErr)
+}
+
+// NewEngine creates an engine, normalizes defaults, and starts its dispatcher.
+func NewEngine(resolver ToolResolver, opts Options) *Engine {
+	opts = normalizeEngineOptions(opts)
+
+	engine := &Engine{
+		resolver:       resolver,
+		opts:           opts,
+		logger:         opts.Logger,
+		retry:          opts.Retry,
+		jobs:           make(map[string]*jobState),
+		running:        make(map[Class]int),
+		wake:           make(chan struct{}, 1),
+		stopCh:         make(chan struct{}),
+		dispatcherDone: make(chan struct{}),
+	}
+
+	if path := strings.TrimSpace(opts.PersistencePath); path != "" {
+		engine.opts.PersistencePath = path
+		engine.store = jsonstore.New(path, jsonstore.Options{
+			Debounce: opts.Debounce,
+			OnError: func(err error) {
+				engine.logger.Warn("jobs persistence write failed", "path", path, "error", err)
+			},
+		})
+	}
+
+	go engine.dispatchLoop()
+
+	return engine
+}
+
+func normalizeEngineOptions(opts Options) Options {
+	opts.Limits = normalizeLimits(opts.Limits)
+	if opts.MaxQueue <= 0 {
+		opts.MaxQueue = defaultMaxQueue
+	}
+	if opts.Retention <= 0 {
+		opts.Retention = retainedTerminalJobs
+	}
+	if opts.ProgressInterval <= 0 {
+		opts.ProgressInterval = progress.DefaultInterval
+	}
+	if opts.Debounce <= 0 {
+		opts.Debounce = jsonstore.DefaultDebounce
+	}
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
+	if opts.Retry == nil {
+		opts.Retry = defaultRetryPolicy{}
+	}
+
+	return opts
+}
+
+// SetBaseContext sets the parent context for subsequently submitted jobs. The
+// engine never cancels it; callers use it to bind jobs to app lifecycle.
+func (e *Engine) SetBaseContext(ctx context.Context) {
+	e.baseMu.Lock()
+	e.baseCtx = ctx
+	e.baseMu.Unlock()
+}
+
+func (e *Engine) jobParentContext(ctx context.Context) context.Context {
+	e.baseMu.RLock()
+	base := e.baseCtx
+	e.baseMu.RUnlock()
+
+	if base != nil {
+		return base
+	}
+
+	return contextOrBackground(ctx)
+}
+
+func contextOrBackground(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+
+	return ctx
+}
+
+func (e *Engine) resolveTool(toolID string) (tools.Tool, error) {
+	if e.resolver == nil {
+		return nil, fmt.Errorf("tool registry is not configured")
+	}
+
+	return e.resolver.GetToolV2(toolID)
+}
+
+// Recover loads the persisted snapshot, restores terminal jobs, marks every
+// non-terminal job as interrupted, and persists the recovered state.
+func (e *Engine) Recover(ctx context.Context) error {
+	if e.store == nil {
+		return nil
+	}
+	ctx = contextOrBackground(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	path := e.opts.PersistencePath
+	if info, err := os.Stat(path); err == nil && info.Size() == 0 {
+		return nil
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat persisted jobs: %w", err)
+	}
+
+	var persisted []models.JobResultV1
+	if err := jsonstore.Load(path, &persisted); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+
+	now := time.Now().UnixMilli()
+
+	e.mu.Lock()
+	for _, result := range persisted {
+		if strings.TrimSpace(result.JobID) == "" {
+			continue
+		}
+		restored := cloneJobResult(result)
+		if !isTerminalJobStatus(restored.Status) {
+			restored.Success = false
+			restored.Status = StatusInterrupted
+			restored.Message = "job interrupted after restart"
+			restored.EndedAt = now
+			restored.Error = models.NewCanonicalJobError("JOB_INTERRUPTED", "job interrupted after restart", nil)
+			restored.Progress.Stage = StatusInterrupted
+			if restored.Progress.Total > 0 && restored.Progress.Current > restored.Progress.Total {
+				restored.Progress.Current = restored.Progress.Total
+			}
+			if restored.Progress.Message == "" {
+				restored.Progress.Message = "interrupted"
+			}
+		}
+		e.jobs[restored.JobID] = newRecoveredJobState(e, restored)
+	}
+	e.pruneTerminalLocked()
+	e.mu.Unlock()
+
+	e.persistNow()
+
+	return nil
+}
+
+func newRecoveredJobState(engine *Engine, result models.JobResultV1) *jobState {
+	state := &jobState{
+		engine:   engine,
+		result:   result,
+		terminal: true,
+		done:     make(chan struct{}),
+	}
+	close(state.done)
+
+	return state
+}
+
+// Submit enqueues a tool job with interactive priority and the tool's class.
+func (e *Engine) Submit(ctx context.Context, req models.JobRequestV1) (models.RunJobResponseV1, error) {
+	class := classForTool(req.ToolID)
+
+	return e.SubmitWithOptions(ctx, req, SubmitOptions{
+		Kind:     "tool",
+		Priority: PriorityInteractive,
+		Class:    class,
+	})
+}
+
+// SubmitWithOptions validates and enqueues a job, returning immediately. The
+// engine dispatcher decides when it actually starts.
+func (e *Engine) SubmitWithOptions(ctx context.Context, req models.JobRequestV1, opts SubmitOptions) (models.RunJobResponseV1, error) {
+	ctx = contextOrBackground(ctx)
+	opts = e.normalizeSubmitOptions(req.ToolID, opts)
+
+	tool, err := e.resolveTool(req.ToolID)
+	if err != nil {
+		return models.RunJobResponseV1{}, fmt.Errorf("tool lookup failed: %w", err)
+	}
+
+	if validationErr := tool.Validate(ctx, req); validationErr != nil {
+		return models.RunJobResponseV1{
+			Success: false,
+			Message: "job validation failed",
+			Status:  StatusFailed,
+			Error:   normalizeJobError(validationErr),
+		}, nil
+	}
+
+	state := newJobState(e, req, tool, opts)
+	state.ctx, state.cancel = context.WithCancel(e.jobParentContext(ctx))
+
+	if err := e.enqueueNewJob(state); err != nil {
+		state.cancel()
+		return models.RunJobResponseV1{}, err
+	}
+
+	return models.RunJobResponseV1{
+		Success: true,
+		Message: "job submitted",
+		JobID:   state.result.JobID,
+		Status:  StatusQueued,
+	}, nil
+}
+
+func (e *Engine) normalizeSubmitOptions(toolID string, opts SubmitOptions) SubmitOptions {
+	opts.Kind = strings.TrimSpace(opts.Kind)
+	if opts.Kind == "" {
+		opts.Kind = "tool"
+	}
+	if opts.Class == "" {
+		opts.Class = classForTool(toolID)
+	}
+	switch opts.Class {
+	case ClassCPU, ClassExternal, ClassIO:
+	default:
+		opts.Class = ClassCPU
+	}
+	if opts.Priority < PriorityInteractive {
+		opts.Priority = PriorityInteractive
+	}
+	if opts.Priority > PriorityPreview {
+		opts.Priority = PriorityPreview
+	}
+	if opts.MaxAttempts <= 0 {
+		opts.MaxAttempts = defaultMaxAttempts
+	}
+	if opts.Workers <= 0 {
+		opts.Workers = e.defaultWorkers(opts.Class)
+	}
+
+	return opts
+}
+
+func (e *Engine) defaultWorkers(class Class) int {
+	workers := e.opts.Limits.capacity(class)
+	if cpus := runtime.NumCPU(); cpus < workers {
+		workers = cpus
+	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	return workers
+}
+
+func (e *Engine) enqueueNewJob(state *jobState) error {
+	e.mu.Lock()
+	e.jobs[state.result.JobID] = state
+	e.mu.Unlock()
+
+	if err := e.enqueue(state); err != nil {
+		e.mu.Lock()
+		delete(e.jobs, state.result.JobID)
+		e.mu.Unlock()
+		return err
+	}
+
+	// Persist the queued snapshot before the dispatcher can complete the job,
+	// so a crash right after submission still leaves a recoverable record.
+	e.persistNow()
+	e.signal()
+
+	return nil
+}
+
+// Cancel removes a queued job and completes it as cancelled. Running jobs get
+// their context cancelled and finish through their normal cancellation path.
+func (e *Engine) Cancel(jobID string) error {
+	state := e.lookup(jobID)
+	if state == nil {
+		return fmt.Errorf("job '%s' not found", jobID)
+	}
+
+	if e.removeQueued(state) {
+		state.complete(StatusCancelled, "job cancelled", nil, cancelledJobError(state.ctx, 0, nil), time.Now().UnixMilli())
+		return nil
+	}
+
+	state.cancelContext()
+
+	return nil
+}
+
+// Get returns one job snapshot.
+func (e *Engine) Get(jobID string) (models.JobResultV1, bool) {
+	state := e.lookup(jobID)
+	if state == nil {
+		return models.JobResultV1{}, false
+	}
+
+	return state.snapshot(), true
+}
+
+func (e *Engine) lookup(jobID string) *jobState {
+	e.mu.RLock()
+	state := e.jobs[jobID]
+	e.mu.RUnlock()
+
+	return state
+}
+
+// List returns job snapshots newest first, capped to limit. A non-positive
+// limit uses 100.
+func (e *Engine) List(limit int) []models.JobResultV1 {
+	if limit <= 0 {
+		limit = defaultJobListLimit
+	}
+
+	e.mu.RLock()
+	states := make([]*jobState, 0, len(e.jobs))
+	for _, state := range e.jobs {
+		states = append(states, state)
+	}
+	e.mu.RUnlock()
+
+	jobs := make([]models.JobResultV1, 0, len(states))
+	for _, state := range states {
+		jobs = append(jobs, state.snapshot())
+	}
+
+	sortJobResults(jobs)
+	if len(jobs) > limit {
+		jobs = jobs[:limit]
+	}
+
+	return jobs
+}
+
+// Wait blocks until the job reaches a terminal state or ctx ends.
+func (e *Engine) Wait(ctx context.Context, jobID string) (models.JobResultV1, error) {
+	state := e.lookup(jobID)
+	if state == nil {
+		return models.JobResultV1{}, fmt.Errorf("job '%s' not found", jobID)
+	}
+
+	ctx = contextOrBackground(ctx)
+	select {
+	case <-state.done:
+		return state.snapshot(), nil
+	case <-ctx.Done():
+		return state.snapshot(), ctx.Err()
+	}
+}
+
+// Validate delegates to the tool's validation contract.
+func (e *Engine) Validate(ctx context.Context, req models.JobRequestV1) models.ValidateJobResponseV1 {
+	ctx = contextOrBackground(ctx)
+
+	tool, err := e.resolveTool(req.ToolID)
+	if err != nil {
+		return models.ValidateJobResponseV1{
+			Success: false,
+			Message: "tool not found",
+			Valid:   false,
+			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", err.Error(), nil),
+		}
+	}
+
+	if validationErr := tool.Validate(ctx, req); validationErr != nil {
+		return models.ValidateJobResponseV1{
+			Success: false,
+			Message: "validation failed",
+			Valid:   false,
+			Error:   normalizeJobError(validationErr),
+		}
+	}
+
+	return models.ValidateJobResponseV1{
+		Success: true,
+		Message: "job request is valid",
+		Valid:   true,
+	}
+}
+
+// Plan delegates to the tool's optional planner.
+func (e *Engine) Plan(ctx context.Context, req models.JobRequestV1) models.PlanJobResponseV1 {
+	ctx = contextOrBackground(ctx)
+
+	tool, err := e.resolveTool(req.ToolID)
+	if err != nil {
+		return models.PlanJobResponseV1{
+			Success: false,
+			Message: "tool not found",
+			Outputs: []models.PlannedOutputV1{},
+			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", err.Error(), nil),
+		}
+	}
+
+	planner, ok := tool.(tools.Planner)
+	if !ok {
+		message := "planning is not available for this tool"
+		return models.PlanJobResponseV1{
+			Success: false,
+			Message: message,
+			Outputs: []models.PlannedOutputV1{},
+			Error:   models.NewCanonicalJobError("PLAN_UNSUPPORTED", message, nil),
+		}
+	}
+
+	plan, planErr := planner.Plan(ctx, req)
+	if plan.Outputs == nil {
+		plan.Outputs = []models.PlannedOutputV1{}
+	}
+	if planErr == nil {
+		return plan
+	}
+
+	plan.Success = false
+	if plan.Message == "" {
+		plan.Message = planErr.Message
+	}
+	plan.Error = normalizeJobError(planErr)
+
+	return plan
+}
+
+// Shutdown stops the dispatcher, cancels queued and running jobs, waits for
+// workers within ctx, and closes the store. Repeated calls are safe.
+func (e *Engine) Shutdown(ctx context.Context) error {
+	ctx = contextOrBackground(ctx)
+
+	e.stopOnce.Do(func() {
+		e.closed.Store(true)
+		close(e.stopCh)
+		e.signal()
+	})
+
+	for _, state := range e.drainQueue() {
+		state.complete(StatusCancelled, "job cancelled", nil, cancelledJobError(state.ctx, 0, nil), time.Now().UnixMilli())
+	}
+
+	var firstErr error
+	select {
+	case <-e.dispatcherDone:
+	case <-ctx.Done():
+		firstErr = ctx.Err()
+	}
+
+	e.mu.RLock()
+	states := make([]*jobState, 0, len(e.jobs))
+	for _, state := range e.jobs {
+		states = append(states, state)
+	}
+	e.mu.RUnlock()
+
+	for _, state := range states {
+		state.cancelContext()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		e.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		if firstErr == nil {
+			firstErr = ctx.Err()
+		}
+	}
+
+	if e.store != nil {
+		closeCtx := ctx
+		if closeCtx.Err() != nil {
+			// A expired deadline must not leave the store unusable: flushing the
+			// pending snapshot is still safe and keeps recovery consistent.
+			closeCtx = context.WithoutCancel(ctx)
+		}
+		if err := e.store.Close(closeCtx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
+}
+
+func (e *Engine) emitProgress(event models.JobProgressEventV1) {
+	if e.opts.Emitter == nil {
+		return
+	}
+	e.opts.Emitter.JobProgress(event)
+}
+
+func (e *Engine) emitState(result models.JobResultV1) {
+	if e.opts.Emitter == nil {
+		return
+	}
+	e.opts.Emitter.JobState(result)
+}
+
+// persistDebounced schedules a full snapshot with the store's debounce window.
+func (e *Engine) persistDebounced() {
+	if e.store == nil {
+		return
+	}
+
+	e.persistMu.Lock()
+	defer e.persistMu.Unlock()
+
+	payload, err := e.marshalSnapshot()
+	if err != nil {
+		e.logger.Warn("jobs persistence encode failed", "error", err)
+		return
+	}
+	if err := e.store.Save(payload); err != nil && !errors.Is(err, jsonstore.ErrClosed) {
+		e.logger.Warn("jobs persistence enqueue failed", "error", err)
+	}
+}
+
+// persistNow writes a full snapshot immediately.
+func (e *Engine) persistNow() {
+	if e.store == nil {
+		return
+	}
+
+	e.persistMu.Lock()
+	defer e.persistMu.Unlock()
+
+	payload, err := e.marshalSnapshot()
+	if err != nil {
+		e.logger.Warn("jobs persistence encode failed", "error", err)
+		return
+	}
+	if err := e.store.SaveNow(payload); err != nil && !errors.Is(err, jsonstore.ErrClosed) {
+		e.logger.Warn("jobs persistence write failed", "error", err)
+	}
+}
+
+func (e *Engine) marshalSnapshot() ([]byte, error) {
+	return json.MarshalIndent(e.jobSnapshot(), "", "  ")
+}
+
+// jobSnapshot mirrors the old engine shape: active jobs plus the newest
+// Retention terminal jobs, all sorted newest first.
+func (e *Engine) jobSnapshot() []models.JobResultV1 {
+	e.mu.RLock()
+	states := make([]*jobState, 0, len(e.jobs))
+	for _, state := range e.jobs {
+		states = append(states, state)
+	}
+	e.mu.RUnlock()
+
+	active := make([]models.JobResultV1, 0, len(states))
+	terminal := make([]models.JobResultV1, 0, len(states))
+	for _, state := range states {
+		snapshot := state.snapshot()
+		if isTerminalJobStatus(snapshot.Status) {
+			terminal = append(terminal, snapshot)
+			continue
+		}
+		active = append(active, snapshot)
+	}
+
+	sortJobResults(terminal)
+	if len(terminal) > e.opts.Retention {
+		terminal = terminal[:e.opts.Retention]
+	}
+
+	jobs := make([]models.JobResultV1, 0, len(active)+len(terminal))
+	jobs = append(jobs, active...)
+	jobs = append(jobs, terminal...)
+	sortJobResults(jobs)
+
+	return jobs
+}
+
+// pruneTerminalJobs drops the oldest in-memory terminal jobs beyond Retention.
+func (e *Engine) pruneTerminalJobs() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.pruneTerminalLocked()
+}
+
+// pruneTerminalLocked requires Engine.mu to be held for writing.
+func (e *Engine) pruneTerminalLocked() {
+	type terminalRef struct {
+		jobID     string
+		startedAt int64
+	}
+
+	terminal := make([]terminalRef, 0, len(e.jobs))
+	for jobID, state := range e.jobs {
+		snapshot := state.snapshot()
+		if !isTerminalJobStatus(snapshot.Status) {
+			continue
+		}
+		terminal = append(terminal, terminalRef{jobID: jobID, startedAt: snapshot.StartedAt})
+	}
+
+	if len(terminal) <= e.opts.Retention {
+		return
+	}
+
+	sort.Slice(terminal, func(i, j int) bool {
+		if terminal[i].startedAt != terminal[j].startedAt {
+			return terminal[i].startedAt > terminal[j].startedAt
+		}
+		return terminal[i].jobID > terminal[j].jobID
+	})
+	for _, ref := range terminal[e.opts.Retention:] {
+		delete(e.jobs, ref.jobID)
+	}
+}
