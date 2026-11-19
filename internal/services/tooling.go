@@ -86,6 +86,16 @@ func (s *ToolingService) Shutdown(ctx context.Context) error {
 	return s.engine.Shutdown(ctx)
 }
 
+// Engine exposes the shared job engine so other services can schedule their
+// work on the same scheduler. It is nil-safe for uninitialized services.
+func (s *ToolingService) Engine() *jobs.Engine {
+	if s == nil {
+		return nil
+	}
+
+	return s.engine
+}
+
 // JobProgress emits a coalesced progress event. It implements jobs.Emitter.
 func (s *ToolingService) JobProgress(evt models.JobProgressEventV1) {
 	app := application.Get()

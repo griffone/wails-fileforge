@@ -10,6 +10,7 @@ import (
 	"github.com/jung-kurt/gofpdf"
 
 	"fileforge-desktop/internal/jobhistory"
+	"fileforge-desktop/internal/jobs"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/pdf"
 	"fileforge-desktop/internal/recipes"
@@ -30,6 +31,13 @@ func TestAutomationRunsRealEmailPDFRecipe(t *testing.T) {
 
 	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history_v1.json"))
 	recipeService := recipes.NewService(reg, history, nil)
+	engine := jobs.NewEngine(reg, jobs.Options{Limits: jobs.DefaultLimits()})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = engine.Shutdown(ctx)
+	})
+	recipeService.SetEngine(engine)
 	store := NewStore(filepath.Join(t.TempDir(), "automation", "automation_rules_v1.json"))
 	service := NewService(store, recipeService, nil)
 	service.stabilityDelay = 50 * time.Millisecond

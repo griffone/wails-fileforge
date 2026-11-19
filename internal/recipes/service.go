@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"fileforge-desktop/internal/jobhistory"
+	"fileforge-desktop/internal/jobs"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/tools"
@@ -59,7 +60,9 @@ const (
 	cleanScanHistoryToolID       = "recipe.clean_scan"
 	burnedSubtitlesHistoryToolID = "recipe.burned_subtitles"
 
-	maxConcurrentJobs = 2
+	// recipeStepSettleTimeout bounds how long a cancelled step job may take to
+	// reach its terminal state before the recipe cleans up partial outputs.
+	recipeStepSettleTimeout = 10 * time.Second
 )
 
 // Service owns the curated recipe catalog and the in-memory run registry.
@@ -72,8 +75,7 @@ type Service struct {
 	history  *jobhistory.Store
 	emit     func(models.RecipeProgressEventV1)
 	onState  func(models.RecipeResultV1)
-
-	slots chan struct{}
+	engine   *jobs.Engine
 
 	// tempDir creates the intermediate workspace for a run. It is a field so
 	// tests can point it at a directory they can inspect.
@@ -94,12 +96,19 @@ func NewService(reg *registry.Registry, history *jobhistory.Store, emit func(mod
 		registry: reg,
 		history:  history,
 		emit:     emit,
-		slots:    make(chan struct{}, maxConcurrentJobs),
 		jobs:     make(map[string]*recipeJob),
 	}
 	service.tempDir = newRecipeTempDir
 
 	return service
+}
+
+// SetEngine routes every recipe step through the shared job engine. It is wired
+// by the composition root after the tooling service owns the engine.
+func (s *Service) SetEngine(engine *jobs.Engine) {
+	s.mu.Lock()
+	s.engine = engine
+	s.mu.Unlock()
 }
 
 // SetStateEmitter registers the callback that receives the full run snapshot
@@ -353,8 +362,9 @@ func (s *Service) toolFor(toolID string) (tools.Tool, *models.JobErrorV1) {
 	return tool, nil
 }
 
-// singleExecutor resolves a tool and asserts the optional Planner and
-// SingleExecutor capabilities the recipe chain depends on.
+// singleExecutor resolves a tool, asserts the optional Planner capability the
+// recipe chain depends on, and returns an executor that schedules the step on
+// the shared job engine.
 func (s *Service) singleExecutor(toolID string) (tools.SingleExecutor, tools.Planner, *models.JobErrorV1) {
 	tool, jobErr := s.toolFor(toolID)
 	if jobErr != nil {
@@ -370,8 +380,7 @@ func (s *Service) singleExecutor(toolID string) (tools.SingleExecutor, tools.Pla
 		)
 	}
 
-	executor, executorOK := tool.(tools.SingleExecutor)
-	if !executorOK {
+	if _, executorOK := tool.(tools.SingleExecutor); !executorOK {
 		return nil, nil, newRecipeError(
 			"RECIPE_TOOL_DEPENDENCY_MISSING",
 			fmt.Sprintf("Tool '%s' does not support single-file execution.", toolID),
@@ -379,19 +388,145 @@ func (s *Service) singleExecutor(toolID string) (tools.SingleExecutor, tools.Pla
 		)
 	}
 
-	return executor, planner, nil
+	engine := s.sharedEngine()
+	if engine == nil {
+		return nil, nil, newRecipeError(
+			"RECIPE_ENGINE_UNAVAILABLE",
+			"The recipe job engine is not available.",
+			map[string]any{"toolId": toolID},
+		)
+	}
+
+	return &engineStepExecutor{service: s, engine: engine, tool: tool}, planner, nil
+}
+
+// sharedEngine returns the engine configured by SetEngine, if any.
+func (s *Service) sharedEngine() *jobs.Engine {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.engine
 }
 
 func (s *Service) runJob(ctx context.Context, tracked *recipeJob, resolved *resolvedRecipe) {
-	select {
-	case s.slots <- struct{}{}:
-		defer func() { <-s.slots }()
-	case <-ctx.Done():
-		s.cancelJob(tracked)
-		return
+	s.execute(ctx, tracked, resolved)
+}
+
+// engineStepExecutor adapts a resolved tool to the recipe single-executor
+// contract by submitting the step to the shared job engine and waiting for its
+// result. The engine plans the request again at submission; the recipe keeps its
+// own plan for output resolution.
+type engineStepExecutor struct {
+	service *Service
+	engine  *jobs.Engine
+	tool    tools.Tool
+}
+
+// ExecuteSingle delegates to ExecuteSingleWithProgress with no progress
+// callback.
+func (x *engineStepExecutor) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+	return x.ExecuteSingleWithProgress(ctx, req, nil)
+}
+
+// ExecuteSingleWithProgress submits one recipe step as an interactive engine
+// job, waits for the step, and maps the job result back to the single-item
+// contract the recipe files use.
+func (x *engineStepExecutor) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+	if x == nil || x.service == nil || x.engine == nil || x.tool == nil {
+		jobErr := newRecipeError("RECIPE_ENGINE_UNAVAILABLE", "The recipe job engine is not available.", nil)
+		return failedEngineStepItem(req, jobErr), jobErr
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		jobErr := cancelledEngineStepError(ctx)
+		return failedEngineStepItem(req, jobErr), jobErr
 	}
 
-	s.execute(ctx, tracked, resolved)
+	response, submitErr := x.engine.SubmitWithOptions(ctx, req, jobs.SubmitOptions{
+		Kind:       "recipe-step",
+		Priority:   jobs.PriorityInteractive,
+		Class:      jobs.ClassForTool(req.ToolID),
+		OnProgress: onProgress,
+	})
+	if submitErr != nil {
+		jobErr := models.NewCanonicalJobError(
+			"RECIPE_STEP_SUBMIT_FAILED",
+			submitErr.Error(),
+			map[string]any{"toolId": req.ToolID},
+		)
+		return failedEngineStepItem(req, jobErr), jobErr
+	}
+	if !response.Success {
+		jobErr := response.Error
+		if jobErr == nil {
+			jobErr = models.NewCanonicalJobError(
+				"RECIPE_STEP_REJECTED",
+				"The recipe step was rejected.",
+				map[string]any{"toolId": req.ToolID},
+			)
+		}
+		return failedEngineStepItem(req, jobErr), jobErr
+	}
+
+	result, waitErr := x.engine.Wait(ctx, response.JobID)
+	if waitErr != nil {
+		cancelErr := cancelledEngineStepError(ctx)
+		_ = x.engine.Cancel(response.JobID)
+		// Let the step stop before the recipe removes its partial outputs.
+		settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recipeStepSettleTimeout)
+		defer cancel()
+		_, _ = x.engine.Wait(settleCtx, response.JobID)
+
+		return failedEngineStepItem(req, cancelErr), cancelErr
+	}
+
+	if len(result.Items) == 0 {
+		jobErr := result.Error
+		if jobErr == nil {
+			jobErr = models.NewCanonicalJobError(
+				"RECIPE_STEP_NO_RESULT",
+				"The recipe step returned no result.",
+				map[string]any{"toolId": req.ToolID, "jobId": response.JobID},
+			)
+		}
+		return failedEngineStepItem(req, jobErr), jobErr
+	}
+
+	return result.Items[0], result.Error
+}
+
+// failedEngineStepItem synthesizes the per-input failure item the recipe files
+// expect when a step cannot run or returns no item.
+func failedEngineStepItem(req models.JobRequestV1, jobErr *models.JobErrorV1) models.JobResultItemV1 {
+	message := "The recipe step failed."
+	if jobErr != nil && strings.TrimSpace(jobErr.Message) != "" {
+		message = jobErr.Message
+	}
+
+	inputPath := ""
+	if len(req.InputPaths) > 0 {
+		inputPath = req.InputPaths[0]
+	}
+
+	return models.JobResultItemV1{
+		InputPath: inputPath,
+		Success:   false,
+		Message:   message,
+		Error:     jobErr,
+	}
+}
+
+// cancelledEngineStepError is the canonical cancellation error returned when
+// the recipe context ends while the step job is running.
+func cancelledEngineStepError(ctx context.Context) *models.JobErrorV1 {
+	message := "Recipe step cancelled."
+	if ctx != nil && ctx.Err() != nil {
+		message = ctx.Err().Error()
+	}
+
+	return models.NewCanonicalJobError("RECIPE_STEP_CANCELLED", message, nil)
 }
 
 func (s *Service) execute(ctx context.Context, tracked *recipeJob, resolved *resolvedRecipe) {

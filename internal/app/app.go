@@ -54,6 +54,9 @@ func New(notifier *Notifier) *App {
 		}
 		app.Event.Emit(recipes.ProgressEventNameV1, evt)
 	})
+	// Recipe steps run on the same engine as direct tool jobs so one scheduler
+	// governs queueing, cancellation, and resource classes.
+	a.recipeService.SetEngine(toolingService.Engine())
 	a.recipeService.SetStateEmitter(func(result models.RecipeResultV1) {
 		app := application.Get()
 		if app == nil {

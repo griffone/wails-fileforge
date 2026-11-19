@@ -590,6 +590,26 @@ func (t *failingVideoConvertTool) ExecuteSingle(ctx context.Context, req models.
 	return t.ConvertTool.ExecuteSingle(ctx, req)
 }
 
+// ExecutePlan mirrors the failure behavior on the engine's plan-once path,
+// which the engine prefers over ExecuteSingle.
+func (t *failingVideoConvertTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	t.mu.Lock()
+	t.calls++
+	call := t.calls
+	t.mu.Unlock()
+
+	if call == t.failAt {
+		jobErr := &models.JobErrorV1{
+			Code:       "VIDEO_TEST_FAILED",
+			DetailCode: "VIDEO_TEST_FAILED",
+			Message:    fmt.Sprintf("video conversion failed for test on call %d", call),
+		}
+		return failedPlanItems(plan, jobErr), jobErr
+	}
+
+	return t.ConvertTool.ExecutePlan(ctx, req, plan, onProgress)
+}
+
 // blockingVideoConvertTool blocks in ExecuteSingle until its context is
 // cancelled so the Social clip cancel path is deterministic.
 type blockingVideoConvertTool struct {
@@ -614,4 +634,39 @@ func (t *blockingVideoConvertTool) ExecuteSingle(ctx context.Context, req models
 		DetailCode: "VIDEO_TEST_CANCELED",
 		Message:    "video conversion canceled",
 	}
+}
+
+// ExecutePlan blocks the engine's plan-once path until cancellation.
+func (t *blockingVideoConvertTool) ExecutePlan(ctx context.Context, _ models.JobRequestV1, plan models.PlanJobResponseV1, _ func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	select {
+	case t.started <- struct{}{}:
+	default:
+	}
+
+	<-ctx.Done()
+
+	jobErr := &models.JobErrorV1{
+		Code:       "CANCELED",
+		DetailCode: "VIDEO_TEST_CANCELED",
+		Message:    "video conversion canceled",
+	}
+
+	return failedPlanItems(plan, jobErr), jobErr
+}
+
+// failedPlanItems returns one failed item per planned output so the engine can
+// align a failed batch-style step result.
+func failedPlanItems(plan models.PlanJobResponseV1, jobErr *models.JobErrorV1) []models.JobResultItemV1 {
+	items := make([]models.JobResultItemV1, len(plan.Outputs))
+	for index, output := range plan.Outputs {
+		items[index] = models.JobResultItemV1{
+			InputPath:  output.InputPath,
+			OutputPath: output.OutputPath,
+			Success:    false,
+			Message:    jobErr.Message,
+			Error:      jobErr,
+		}
+	}
+
+	return items
 }

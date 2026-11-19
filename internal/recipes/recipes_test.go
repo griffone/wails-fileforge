@@ -3,6 +3,8 @@ package recipes
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +17,7 @@ import (
 
 	"fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/jobhistory"
+	"fileforge-desktop/internal/jobs"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/pdf"
 	"fileforge-desktop/internal/registry"
@@ -921,8 +924,27 @@ func newTestServiceWith(t *testing.T, setup func(*registry.Registry)) (*Service,
 	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history_v1.json"))
 	recorder := &eventRecorder{}
 	service := NewService(reg, history, recorder.record)
+	service.SetEngine(newRecipeTestEngine(t, reg))
 
 	return service, history, recorder
+}
+
+// newRecipeTestEngine builds an isolated engine over the test registry. It has
+// no completion hook so recipe tests observe only recipe-owned history entries.
+func newRecipeTestEngine(t *testing.T, reg *registry.Registry) *jobs.Engine {
+	t.Helper()
+
+	engine := jobs.NewEngine(reg, jobs.Options{
+		Limits: jobs.DefaultLimits(),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = engine.Shutdown(ctx)
+	})
+
+	return engine
 }
 
 func mustRegisterTool(t *testing.T, reg *registry.Registry, tool tools.Tool) {

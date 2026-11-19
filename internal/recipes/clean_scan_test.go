@@ -439,3 +439,18 @@ func (t *failingPartialOCRTool) ExecuteSingleWithProgress(ctx context.Context, r
 		Error:     jobErr,
 	}, jobErr
 }
+
+// ExecutePlan mirrors the partial-output failure on the engine's plan-once path,
+// which the engine prefers over ExecuteSingle.
+func (t *failingPartialOCRTool) ExecutePlan(_ context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, _ func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	for _, output := range plan.Outputs {
+		if writeErr := os.WriteFile(output.OutputPath, []byte("partial"), 0o644); writeErr != nil {
+			jobErr := models.NewJobError(models.ErrorCodeExecIOTransient, engine.OCRCodePublishFailed, "could not write the partial output", nil)
+			return failedPlanItems(plan, jobErr), jobErr
+		}
+	}
+
+	jobErr := models.NewJobError(models.ErrorCodeExecIOTransient, engine.OCRCodeRecognizeFailed, "simulated OCR failure", nil)
+
+	return failedPlanItems(plan, jobErr), jobErr
+}
