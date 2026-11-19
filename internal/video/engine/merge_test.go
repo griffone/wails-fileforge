@@ -54,7 +54,11 @@ type stubMergeRunner struct {
 
 func (r *stubMergeRunner) Run(_ context.Context, name string, args []string) error {
 	r.calls = append(r.calls, append([]string{name}, args...))
-	return nil
+	if len(args) == 0 {
+		return nil
+	}
+
+	return os.WriteFile(args[len(args)-1], []byte("fixture"), 0o644)
 }
 
 // stubMergeDuration simulates probed clip durations so crossfade tests never
@@ -381,8 +385,12 @@ func TestMergeCrossfadeForcesReencode(t *testing.T) {
 	if containsArgSequence(args, "-c", "copy") {
 		t.Fatalf("crossfade must not use stream copy, got %v", args)
 	}
-	if got := args[len(args)-1]; got != req.OutputPath {
-		t.Fatalf("expected output path %q last, got %q", req.OutputPath, got)
+	tempOutput := args[len(args)-1]
+	if tempOutput == req.OutputPath || filepath.Dir(tempOutput) != filepath.Dir(req.OutputPath) || filepath.Ext(tempOutput) != filepath.Ext(req.OutputPath) {
+		t.Fatalf("expected a sibling temp output for %q, got %q", req.OutputPath, tempOutput)
+	}
+	if _, statErr := os.Stat(req.OutputPath); statErr != nil {
+		t.Fatalf("expected the published output %q: %v", req.OutputPath, statErr)
 	}
 }
 

@@ -34,9 +34,8 @@ const (
 	ErrorCodeBurnCancelled          = "BURN_CANCELLED"
 	ErrorCodeBurnValidation         = "VALIDATION_ERROR"
 
-	burnTempDirPattern  = "fileforge-burn-*"
-	burnTempFilePattern = ".fileforge-burn-*.mp4"
-	burnSubtitleName    = "subs.srt"
+	burnTempDirPattern = "fileforge-burn-*"
+	burnSubtitleName   = "subs.srt"
 
 	// Sizes are libass SRT/ASS default PlayRes (384x288) units: libass scales
 	// them with the video height, and 18 is roughly 6% of the frame height.
@@ -338,10 +337,8 @@ func BuildBurnArgs(req BurnRequest, subtitleName string) []string {
 		style.MarginV,
 	)
 
-	args := []string{
+	args := withFFmpegGlobalArgs([]string{
 		"-y",
-		"-hide_banner",
-		"-loglevel", "warning",
 		"-i", strings.TrimSpace(req.InputPath),
 		"-map", "0:v:0",
 		"-map", "0:a?",
@@ -350,7 +347,7 @@ func BuildBurnArgs(req BurnRequest, subtitleName string) []string {
 		"-preset", x264PresetHigh,
 		"-crf", "20",
 		"-pix_fmt", "yuv420p",
-	}
+	})
 
 	if burnAudioCodecCanBeCopied(req.AudioCodec) {
 		args = append(args, "-c:a", "copy")
@@ -363,7 +360,6 @@ func BuildBurnArgs(req BurnRequest, subtitleName string) []string {
 		"-map_chapters", "0",
 		"-movflags", "+faststart",
 		"-progress", "pipe:1",
-		"-nostats",
 		strings.TrimSpace(req.OutputPath),
 	)
 
@@ -503,27 +499,22 @@ func Burn(ctx context.Context, runner BurnCommandRunner, ffmpegPath string, req 
 
 	emitBurnProgress(onProgress, BurnStagePrepare, 2, "Preparing subtitles…")
 
-	tempOutput, err := os.CreateTemp(filepath.Dir(outputPath), burnTempFilePattern)
+	tempPath, err := tempOutputPath(outputPath)
 	if err != nil {
 		return BurnResult{}, &BurnError{Code: ErrorCodeBurnOutputFailed, Message: "The subtitled video could not be saved.", Cause: err}
 	}
-	tempOutputPath := tempOutput.Name()
-	closeErr := tempOutput.Close()
 
 	published := false
 	defer func() {
 		if !published {
-			_ = os.Remove(tempOutputPath)
+			removeTempOutput(tempPath)
 		}
 	}()
-	if closeErr != nil {
-		return BurnResult{}, &BurnError{Code: ErrorCodeBurnOutputFailed, Message: "The subtitled video could not be saved.", Cause: closeErr}
-	}
 
 	renderReq := BurnRequest{
 		InputPath:    inputPath,
 		SubtitlePath: subtitlePath,
-		OutputPath:   tempOutputPath,
+		OutputPath:   tempPath,
 		AudioCodec:   req.AudioCodec,
 		Style:        resolveBurnStyle(req.Style),
 	}
@@ -590,11 +581,11 @@ func Burn(ctx context.Context, runner BurnCommandRunner, ffmpegPath string, req 
 		return BurnResult{}, cancelledBurnError(ctxErr)
 	}
 
-	if chmodErr := os.Chmod(tempOutputPath, 0o644); chmodErr != nil {
+	if chmodErr := os.Chmod(tempPath, 0o644); chmodErr != nil {
 		return BurnResult{}, &BurnError{Code: ErrorCodeBurnOutputFailed, Message: "The subtitled video could not be saved.", Cause: chmodErr}
 	}
-	if renameErr := os.Rename(tempOutputPath, outputPath); renameErr != nil {
-		return BurnResult{}, &BurnError{Code: ErrorCodeBurnOutputFailed, Message: "The subtitled video could not be saved.", Cause: renameErr}
+	if publishErr := publishOutput(tempPath, outputPath); publishErr != nil {
+		return BurnResult{}, &BurnError{Code: ErrorCodeBurnOutputFailed, Message: "The subtitled video could not be saved.", Cause: publishErr}
 	}
 	published = true
 

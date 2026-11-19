@@ -187,6 +187,31 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 		return validationErr
 	}
 
+	tempPath, tempErr := tempOutputPath(req.OutputPath)
+	if tempErr != nil {
+		return &VideoError{Code: ErrorCodeVideoMergeOutputWriteFailed, Message: "video merge output could not be prepared", Cause: tempErr}
+	}
+	published := false
+	defer func() {
+		if !published {
+			removeTempOutput(tempPath)
+		}
+	}()
+
+	tempRequest := req
+	tempRequest.OutputPath = tempPath
+
+	publish := func() *VideoError {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return mapMergeExecutionError(ctxErr)
+		}
+		if publishErr := publishOutput(tempPath, req.OutputPath); publishErr != nil {
+			return &VideoError{Code: ErrorCodeVideoMergeOutputWriteFailed, Message: "video merge output could not be published", Cause: publishErr}
+		}
+		published = true
+		return nil
+	}
+
 	mergeMode := strings.ToLower(strings.TrimSpace(req.MergeMode))
 	if mergeMode == "" {
 		mergeMode = MergeModeAuto
@@ -207,14 +232,14 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 			durations = append(durations, duration)
 		}
 
-		crossfadeArgs, argsErr := BuildMergeCrossfadeArgs(req.InputPaths, durations, req)
+		crossfadeArgs, argsErr := BuildMergeCrossfadeArgs(req.InputPaths, durations, tempRequest)
 		if argsErr != nil {
 			return argsErr
 		}
 		if err := runner.Run(ctx, "ffmpeg", crossfadeArgs); err != nil {
 			return mapMergeExecutionError(err)
 		}
-		return nil
+		return publish()
 	}
 
 	listFilePath, listErr := createConcatListFile(req.InputPaths)
@@ -227,32 +252,36 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 
 	switch mergeMode {
 	case MergeModeCopy:
-		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(req.OutputPath), req.RemoveAudio)
+		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(tempRequest.OutputPath), req.RemoveAudio)
 		if err := runner.Run(ctx, "ffmpeg", copyArgs); err != nil {
 			mapped := mapMergeExecutionError(err)
 			return &VideoError{Code: ErrorCodeVideoMergeCopyFailed, Message: "ffmpeg merge copy execution failed", Cause: mapped}
 		}
-		return nil
+		return publish()
 	case MergeModeReencode:
-		reencodeArgs, argsErr := BuildMergeArgs(listFilePath, req)
+		reencodeArgs, argsErr := BuildMergeArgs(listFilePath, tempRequest)
 		if argsErr != nil {
 			return argsErr
 		}
 		if err := runner.Run(ctx, "ffmpeg", reencodeArgs); err != nil {
 			return mapMergeExecutionError(err)
 		}
-		return nil
+		return publish()
 	case MergeModeAuto:
-		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(req.OutputPath), req.RemoveAudio)
+		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(tempRequest.OutputPath), req.RemoveAudio)
 		if err := runner.Run(ctx, "ffmpeg", copyArgs); err == nil {
-			return nil
+			return publish()
 		} else {
 			mappedCopyErr := mapMergeExecutionError(err)
 			if !isMergeFallbackEligible(mappedCopyErr) {
 				return &VideoError{Code: ErrorCodeVideoMergeCopyFailed, Message: "ffmpeg merge copy execution failed", Cause: mappedCopyErr}
 			}
 
-			reencodeArgs, argsErr := BuildMergeArgs(listFilePath, req)
+			// A failed stream copy may leave a partial temp file; discard it
+			// before the re-encode fallback writes a fresh one.
+			removeTempOutput(tempPath)
+
+			reencodeArgs, argsErr := BuildMergeArgs(listFilePath, tempRequest)
 			if argsErr != nil {
 				return argsErr
 			}
@@ -261,7 +290,7 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 				mappedReencodeErr := mapMergeExecutionError(reencodeErr)
 				return &VideoError{Code: ErrorCodeVideoMergeAutoFallbackFailed, Message: "auto merge fallback to re-encode failed", Cause: mappedReencodeErr}
 			}
-			return nil
+			return publish()
 		}
 	default:
 		return &VideoError{Code: ErrorCodeVideoMergeModeInvalid, Message: "mergeMode must be auto, copy, or reencode"}
@@ -269,13 +298,13 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 }
 
 func buildMergeCopyArgs(listFilePath string, outputPath string, removeAudio bool) []string {
-	args := []string{
+	args := withFFmpegGlobalArgs([]string{
 		"-y",
 		"-f", "concat",
 		"-safe", "0",
 		"-i", listFilePath,
 		"-c", "copy",
-	}
+	})
 
 	if removeAudio {
 		args = append(args, "-an")
@@ -303,12 +332,12 @@ func BuildMergeArgs(listFilePath string, req MergeRequest) ([]string, *VideoErro
 		return nil, encodingErr
 	}
 
-	args := []string{
+	args := withFFmpegGlobalArgs([]string{
 		"-y",
 		"-f", "concat",
 		"-safe", "0",
 		"-i", listFilePath,
-	}
+	})
 	args = appendVideoEncodingArgs(args, encoding, req.RemoveAudio)
 
 	return append(args, strings.TrimSpace(req.OutputPath)), nil
@@ -359,7 +388,7 @@ func BuildMergeCrossfadeArgs(inputPaths []string, durations []float64, req Merge
 		return nil, encodingErr
 	}
 
-	args := []string{"-y"}
+	args := withFFmpegGlobalArgs([]string{"-y"})
 	for _, inputPath := range inputPaths {
 		args = append(args, "-i", strings.TrimSpace(inputPath))
 	}

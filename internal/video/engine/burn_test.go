@@ -126,7 +126,7 @@ func burnArgIndex(args []string, target string) int {
 func assertNoBurnTempOutputs(t *testing.T, dir string) {
 	t.Helper()
 
-	matches, err := filepath.Glob(filepath.Join(dir, ".fileforge-burn-*"))
+	matches, err := filepath.Glob(filepath.Join(dir, ".fileforge-*"))
 	if err != nil {
 		t.Fatalf("glob temp outputs: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestBuildBurnArgsUsesDefaultStyleAndCopiesCompatibleAudio(t *testing.T) {
 	sequences := [][]string{
 		{"-y"},
 		{"-hide_banner"},
-		{"-loglevel", "warning"},
+		{"-loglevel", "error"},
 		{"-i", "input.mp4"},
 		{"-map", "0:v:0"},
 		{"-map", "0:a?"},
@@ -571,7 +571,7 @@ func TestBurnPublishesAtomicallyAndPreservesContent(t *testing.T) {
 	if filepath.Dir(tempOutputPath) != filepath.Dir(req.OutputPath) {
 		t.Fatalf("the temp output must live in the destination directory: %q", tempOutputPath)
 	}
-	if !strings.HasPrefix(filepath.Base(tempOutputPath), ".fileforge-burn-") {
+	if !strings.HasPrefix(filepath.Base(tempOutputPath), ".fileforge-") {
 		t.Fatalf("unexpected temp output name: %q", tempOutputPath)
 	}
 	if _, statErr := os.Stat(tempOutputPath); !errors.Is(statErr, os.ErrNotExist) {

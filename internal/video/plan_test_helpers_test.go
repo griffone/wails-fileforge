@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"fileforge-desktop/internal/models"
@@ -42,6 +43,32 @@ func writeStubCommandOutput(args []string) error {
 	}
 
 	return os.WriteFile(args[len(args)-1], []byte("fixture"), 0o644)
+}
+
+// assertAtomicallyPublished verifies the fake ffmpeg wrote a sibling temp file
+// with the final extension and the engine published it to wantPath.
+func assertAtomicallyPublished(t *testing.T, call []string, wantPath string) {
+	t.Helper()
+
+	if len(call) == 0 {
+		t.Fatal("expected a recorded ffmpeg call")
+	}
+	tempPath := call[len(call)-1]
+	if tempPath == wantPath {
+		t.Fatalf("ffmpeg must write to a temp file, not the final path %q", wantPath)
+	}
+	if filepath.Dir(tempPath) != filepath.Dir(wantPath) {
+		t.Fatalf("temp output %q must live next to %q", tempPath, wantPath)
+	}
+	if filepath.Ext(tempPath) != filepath.Ext(wantPath) {
+		t.Fatalf("temp output %q must keep the %q extension", tempPath, filepath.Ext(wantPath))
+	}
+	if !strings.HasPrefix(filepath.Base(tempPath), ".fileforge-") {
+		t.Fatalf("unexpected temp output name %q", filepath.Base(tempPath))
+	}
+	if _, statErr := os.Stat(wantPath); statErr != nil {
+		t.Fatalf("expected the published output %q: %v", wantPath, statErr)
+	}
 }
 
 // writeVideoFixture creates a placeholder file. The video tools only stat and

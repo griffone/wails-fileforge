@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -61,21 +60,6 @@ func (e *VideoError) Unwrap() error {
 		return nil
 	}
 	return e.Cause
-}
-
-type CommandRunner interface {
-	Run(ctx context.Context, name string, args []string) error
-}
-
-type ExecCommandRunner struct{}
-
-func (r *ExecCommandRunner) Run(ctx context.Context, name string, args []string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("command failed: %w (%s)", err, strings.TrimSpace(string(output)))
-	}
-
-	return nil
 }
 
 type ConvertRequest struct {
@@ -194,10 +178,10 @@ func BuildConvertArgs(req ConvertRequest) ([]string, *VideoError) {
 		encoding = encoding.withBitrateOnly(req.BitrateKbps)
 	}
 
-	args := []string{
+	args := withFFmpegGlobalArgs([]string{
 		"-y",
 		"-i", inputPath,
-	}
+	})
 	args = appendVideoEncodingArgs(args, encoding, req.RemoveAudio)
 
 	if scaleHeight, _ := convertResolutionHeight(req.Resolution); scaleHeight > 0 {
@@ -228,14 +212,39 @@ func Convert(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req 
 		return &VideoError{Code: ErrorCodeRuntimeUnavailable, Message: ErrFFmpegNotFound.Error(), Cause: runtimeErr}
 	}
 
-	args, validationErr := BuildConvertArgs(req)
-	if validationErr != nil {
+	if validationErr := ValidateConvertRequest(req); validationErr != nil {
 		return validationErr
+	}
+
+	tempPath, tempErr := tempOutputPath(req.OutputPath)
+	if tempErr != nil {
+		return &VideoError{Code: ErrorCodeVideoOutputWriteFailed, Message: "video output could not be prepared", Cause: tempErr}
+	}
+	published := false
+	defer func() {
+		if !published {
+			removeTempOutput(tempPath)
+		}
+	}()
+
+	tempRequest := req
+	tempRequest.OutputPath = tempPath
+	args, argsErr := BuildConvertArgs(tempRequest)
+	if argsErr != nil {
+		return argsErr
 	}
 
 	if runErr := runner.Run(ctx, "ffmpeg", args); runErr != nil {
 		return mapExecutionError(runErr)
 	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return mapExecutionError(ctxErr)
+	}
+
+	if publishErr := publishOutput(tempPath, req.OutputPath); publishErr != nil {
+		return &VideoError{Code: ErrorCodeVideoOutputWriteFailed, Message: "video output could not be published", Cause: publishErr}
+	}
+	published = true
 
 	return nil
 }

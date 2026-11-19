@@ -227,9 +227,7 @@ func TestTrimExecuteSingleUsesPlannedOutput(t *testing.T) {
 	if len(runner.calls) == 0 {
 		t.Fatal("expected the trim command to run")
 	}
-	if got := runner.calls[0][len(runner.calls[0])-1]; got != want {
-		t.Fatalf("expected ffmpeg output argument %q, got %q", want, got)
-	}
+	assertAtomicallyPublished(t, runner.calls[0], want)
 }
 
 func TestTrimPlanRejectsStartBeyondKnownDuration(t *testing.T) {

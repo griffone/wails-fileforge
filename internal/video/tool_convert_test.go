@@ -294,9 +294,7 @@ func TestConvertExecuteSingleUsesPlannedOutput(t *testing.T) {
 	if len(runner.calls) != 1 {
 		t.Fatalf("expected 1 ffmpeg call, got %d", len(runner.calls))
 	}
-	if got := runner.calls[0][len(runner.calls[0])-1]; got != want {
-		t.Fatalf("expected ffmpeg output argument %q, got %q", want, got)
-	}
+	assertAtomicallyPublished(t, runner.calls[0], want)
 }
 
 func TestConvertPlanMissingInput(t *testing.T) {

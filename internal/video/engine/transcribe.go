@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -54,6 +53,11 @@ const (
 	transcribeAudioFileName   = "audio.wav"
 	transcribeOutputPrefix    = "transcript"
 	transcribeMaxThreads      = 8
+
+	// transcribeMaxCapturedOutputBytes bounds the diagnostic output kept in
+	// memory. Whisper can be noisy on long inputs, and a runaway process must
+	// never exhaust memory to report an error.
+	transcribeMaxCapturedOutputBytes = 8 * 1024 * 1024
 )
 
 // TranscriptionWarningNoSpeech is added when Whisper recognized no text. Empty
@@ -130,17 +134,21 @@ type ExecTranscribeCommandRunner struct{}
 func (r *ExecTranscribeCommandRunner) Output(ctx context.Context, name string, args []string) ([]byte, error) {
 	command := exec.CommandContext(ctx, name, args...)
 
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return output, transcribeCommandError(name, output, err)
+	output := newBoundedTranscribeOutput(transcribeMaxCapturedOutputBytes)
+	command.Stdout = output
+	command.Stderr = output
+
+	if err := command.Run(); err != nil {
+		return output.Bytes(), transcribeCommandError(name, output.Bytes(), err)
 	}
 
-	return output, nil
+	return output.Bytes(), nil
 }
 
 // RunStreaming runs a command and calls onLine for every stdout/stderr line.
 // whisper.cpp only reports progress when its output is consumed while running;
-// buffering until exit would leave the UI stuck at the initial percentage.
+// buffering until exit would leave the UI stuck at the initial percentage. The
+// captured copy is bounded so a noisy engine cannot exhaust memory.
 func (r *ExecTranscribeCommandRunner) RunStreaming(ctx context.Context, name string, args []string, onLine func(string)) ([]byte, error) {
 	command := exec.CommandContext(ctx, name, args...)
 
@@ -153,15 +161,14 @@ func (r *ExecTranscribeCommandRunner) RunStreaming(ctx context.Context, name str
 		return nil, err
 	}
 
-	var buffer bytes.Buffer
+	buffer := newBoundedTranscribeOutput(transcribeMaxCapturedOutputBytes)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		scanner := bufio.NewScanner(pipeReader)
 		for scanner.Scan() {
 			line := scanner.Text()
-			buffer.WriteString(line)
-			buffer.WriteByte('\n')
+			buffer.AppendLine(line)
 			if onLine != nil {
 				onLine(line)
 			}
@@ -178,6 +185,50 @@ func (r *ExecTranscribeCommandRunner) RunStreaming(ctx context.Context, name str
 	}
 
 	return output, nil
+}
+
+// boundedTranscribeOutput keeps at most max bytes of command output while still
+// consuming the full stream, so the child never blocks on a full pipe.
+type boundedTranscribeOutput struct {
+	max  int
+	data []byte
+}
+
+func newBoundedTranscribeOutput(maxBytes int) *boundedTranscribeOutput {
+	if maxBytes <= 0 {
+		maxBytes = transcribeMaxCapturedOutputBytes
+	}
+
+	return &boundedTranscribeOutput{max: maxBytes}
+}
+
+func (b *boundedTranscribeOutput) Write(p []byte) (int, error) {
+	written := len(p)
+	if remaining := b.max - len(b.data); remaining > 0 {
+		if len(p) > remaining {
+			p = p[:remaining]
+		}
+		b.data = append(b.data, p...)
+	}
+
+	return written, nil
+}
+
+// AppendLine stores one line plus its separator within the byte budget.
+func (b *boundedTranscribeOutput) AppendLine(line string) {
+	if len(b.data) >= b.max {
+		return
+	}
+
+	payload := line + "\n"
+	if remaining := b.max - len(b.data); len(payload) > remaining {
+		payload = payload[:remaining]
+	}
+	b.data = append(b.data, payload...)
+}
+
+func (b *boundedTranscribeOutput) Bytes() []byte {
+	return b.data
 }
 
 func transcribeCommandError(name string, output []byte, err error) error {
@@ -611,7 +662,7 @@ func Transcribe(ctx context.Context, runner TranscribeCommandRunner, req Transcr
 
 	audioPath := filepath.Join(tempDir, transcribeAudioFileName)
 	emitTranscribeProgress(onProgress, TranscribeStageExtract, 10, "Extracting audio…")
-	if _, runErr := runner.Output(ctx, "ffmpeg", []string{
+	if _, runErr := runner.Output(ctx, "ffmpeg", withFFmpegGlobalArgs([]string{
 		"-y",
 		"-i", normalized.InputPath,
 		"-vn",
@@ -619,7 +670,7 @@ func Transcribe(ctx context.Context, runner TranscribeCommandRunner, req Transcr
 		"-ar", "16000",
 		"-c:a", "pcm_s16le",
 		audioPath,
-	}); runErr != nil {
+	})); runErr != nil {
 		if ctx.Err() != nil {
 			return TranscribeResult{}, cancelledTranscriptionError("transcription canceled", ctx.Err())
 		}
