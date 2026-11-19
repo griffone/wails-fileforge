@@ -34,12 +34,6 @@ const (
 const WhisperReleaseTag = "b5454"
 
 const (
-	micromambaReleaseBaseURL = "https://github.com/mamba-org/micromamba-releases/releases/latest/download/"
-	whisperReleaseBaseURL    = "https://github.com/ggerganov/whisper.cpp/releases/download/" + WhisperReleaseTag + "/"
-	whisperModelBaseURL      = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
-	tessdataFastBaseURL      = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/"
-	rembgModelReleaseBaseURL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0"
-
 	// ToolchainDirName is the managed folder inside the application data
 	// directory.
 	ToolchainDirName = "toolchain"
@@ -237,12 +231,12 @@ func ModelFileName(model string) string {
 
 // ModelURL returns the pinned Hugging Face download URL for a model.
 func ModelURL(model string) (string, error) {
-	normalized, err := NormalizeModel(model)
+	artifact, err := ModelArtifact(model)
 	if err != nil {
 		return "", err
 	}
 
-	return whisperModelBaseURL + ModelFileName(normalized), nil
+	return artifact.URL, nil
 }
 
 // DefaultRembgModel is the pinned background removal model. It is Apache-2.0
@@ -251,10 +245,12 @@ func ModelURL(model string) (string, error) {
 const DefaultRembgModel = "isnet-general-use"
 
 // Metadata for the pinned ONNX model. The size is a cheap readiness check; the
-// checksum is verified only while installing.
+// SHA-256 is verified while installing. The legacy upstream MD5
+// (fc16ebd8b0c10d971d3513d564d01e29) still matches the same bytes, but the
+// installer only needs one strong checksum.
 const (
 	rembgModelSizeBytes int64 = 178648008
-	rembgModelMD5             = "fc16ebd8b0c10d971d3513d564d01e29"
+	rembgModelSHA256          = "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a"
 )
 
 // RembgModelSpec describes one pinned background removal model.
@@ -263,7 +259,7 @@ type RembgModelSpec struct {
 	FileName  string
 	URL       string
 	SizeBytes int64
-	MD5       string
+	SHA256    string
 }
 
 // defaultRembgModelSpec returns the validated metadata of the default model.
@@ -275,7 +271,7 @@ func defaultRembgModelSpec() RembgModelSpec {
 		FileName:  RembgModelFileName(DefaultRembgModel),
 		URL:       url,
 		SizeBytes: rembgModelSizeBytes,
-		MD5:       rembgModelMD5,
+		SHA256:    rembgModelSHA256,
 	}
 }
 
@@ -305,7 +301,7 @@ func RembgModelURL(model string) (string, error) {
 		return "", fmt.Errorf("unsupported background removal model %q: use %s", model, DefaultRembgModel)
 	}
 
-	return rembgModelReleaseBaseURL + "/" + RembgModelFileName(normalized), nil
+	return rembgModelReleaseBaseURL + RembgModelFileName(normalized), nil
 }
 
 // SupportedOCRLanguages lists the downloadable Tesseract language data.
@@ -357,14 +353,12 @@ func TessdataFileName(language string) string {
 	return language + ".traineddata"
 }
 
-// TessdataURL returns the tessdata_fast download URL for a language.
+// TessdataURL returns the pinned tessdata_fast download URL for a language.
 func TessdataURL(language string) (string, error) {
-	trimmed := strings.ToLower(strings.TrimSpace(language))
-	for _, supported := range SupportedOCRLanguages() {
-		if trimmed == supported {
-			return tessdataFastBaseURL + TessdataFileName(trimmed), nil
-		}
+	artifact, err := TessdataArtifact(language)
+	if err != nil {
+		return "", err
 	}
 
-	return "", fmt.Errorf("unsupported OCR language %q: use eng or spa", language)
+	return artifact.URL, nil
 }

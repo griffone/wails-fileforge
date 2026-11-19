@@ -2,11 +2,8 @@ package toolchain
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -492,7 +489,7 @@ func (s *Service) installMicromamba(ctx context.Context, staging string, force b
 
 	s.progress(PhaseMicromamba, micromambaDownloadStartPercent, "Downloading micromamba…", false)
 	tempPath := filepath.Join(staging, "micromamba-download")
-	if err := s.downloader.Download(ctx, s.platform.MicromambaURL, tempPath, s.progressRange(
+	if err := s.downloader.DownloadArtifact(ctx, s.platform.MicromambaArtifact(), tempPath, s.progressRange(
 		PhaseMicromamba, "Downloading micromamba…",
 		micromambaDownloadStartPercent, micromambaDownloadEndPercent,
 	)); err != nil {
@@ -583,7 +580,7 @@ func (s *Service) installWhisper(ctx context.Context, staging string, force bool
 
 	s.progress(PhaseWhisper, whisperDownloadStartPercent, "Downloading whisper.cpp…", false)
 	archivePath := filepath.Join(staging, "whisper-archive")
-	if err := s.downloader.Download(ctx, s.platform.WhisperURL, archivePath, s.progressRange(
+	if err := s.downloader.DownloadArtifact(ctx, s.platform.WhisperArtifact(), archivePath, s.progressRange(
 		PhaseWhisper, "Downloading whisper.cpp…",
 		whisperDownloadStartPercent, whisperDownloadEndPercent,
 	)); err != nil {
@@ -632,14 +629,14 @@ func (s *Service) installModel(ctx context.Context, staging, model string, force
 		return nil
 	}
 
-	url, err := ModelURL(model)
+	artifact, err := ModelArtifact(model)
 	if err != nil {
 		return err
 	}
 
 	s.progress(PhaseModel, modelDownloadStartPercent, "Downloading the Whisper model…", false)
-	tempPath := filepath.Join(staging, ModelFileName(model))
-	if err := s.downloader.Download(ctx, url, tempPath, s.progressRange(
+	tempPath := filepath.Join(staging, artifact.FileName)
+	if err := s.downloader.DownloadArtifact(ctx, artifact, tempPath, s.progressRange(
 		PhaseModel, "Downloading the Whisper model…",
 		modelDownloadStartPercent, modelDownloadEndPercent,
 	)); err != nil {
@@ -679,14 +676,14 @@ func (s *Service) installTessdata(ctx context.Context, staging string, languages
 			continue
 		}
 
-		url, err := TessdataURL(language)
+		artifact, err := TessdataArtifact(language)
 		if err != nil {
 			return err
 		}
 
 		s.progress(PhaseTessdata, startPercent, message, false)
-		tempPath := filepath.Join(staging, TessdataFileName(language))
-		if err := s.downloader.Download(ctx, url, tempPath, s.progressRange(
+		tempPath := filepath.Join(staging, artifact.FileName)
+		if err := s.downloader.DownloadArtifact(ctx, artifact, tempPath, s.progressRange(
 			PhaseTessdata, message, startPercent, endPercent,
 		)); err != nil {
 			return fmt.Errorf("download Tesseract language data (%s): %w", language, err)
@@ -908,7 +905,7 @@ func (s *Service) installRembgModel(ctx context.Context, force bool) error {
 		_ = os.Remove(tempPath)
 	}()
 
-	if err := s.downloader.Download(ctx, spec.URL, tempPath, s.progressRange(
+	if err := s.downloader.DownloadArtifact(ctx, RembgModelArtifact(), tempPath, s.progressRange(
 		PhaseRembg, "Downloading the background removal model…",
 		rembgModelStartPercent, rembgModelEndPercent,
 	)); err != nil {
@@ -927,39 +924,19 @@ func (s *Service) installRembgModel(ctx context.Context, force bool) error {
 	return nil
 }
 
-// verifyRembgModel checks the exact size and MD5 checksum of a downloaded model
-// file. The shared downloader has no checksum support, so the verification
-// stays local to this pack.
+// verifyRembgModel checks the exact size and SHA-256 of a downloaded model file.
+// The shared downloader verifies pinned artifacts too; this local check keeps
+// the model contract explicit because the rembg spec is mutable in tests and
+// status reports readiness from the same pinned size.
 func verifyRembgModel(path string, spec RembgModelSpec) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", filepath.Base(path), err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("%s is a directory", filepath.Base(path))
-	}
-	if info.Size() != spec.SizeBytes {
-		return fmt.Errorf("%s has %d bytes, want %d", filepath.Base(path), info.Size(), spec.SizeBytes)
+	artifact := Artifact{
+		URL:       spec.URL,
+		SHA256:    spec.SHA256,
+		SizeBytes: spec.SizeBytes,
+		FileName:  spec.FileName,
 	}
 
-	file, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open %s: %w", filepath.Base(path), err)
-	}
-	defer func() {
-		_ = file.Close()
-	}()
-
-	hash := md5.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return fmt.Errorf("hash %s: %w", filepath.Base(path), err)
-	}
-	actual := hex.EncodeToString(hash.Sum(nil))
-	if !strings.EqualFold(actual, spec.MD5) {
-		return fmt.Errorf("%s checksum is %s, want %s", filepath.Base(path), actual, spec.MD5)
-	}
-
-	return nil
+	return artifact.Verify(path)
 }
 
 func (s *Service) finalize(model string, languages []string) error {
@@ -1118,7 +1095,9 @@ func (s *Service) progressRange(phase, message string, startPercent, endPercent 
 		if percent > endPercent {
 			percent = endPercent
 		}
-		if percent == lastPercent {
+		if percent <= lastPercent {
+			// A retried download restarts its byte count; keep the UI
+			// monotonic instead of rewinding the progress bar.
 			return
 		}
 

@@ -296,6 +296,41 @@ func TestTessdataURLs(t *testing.T) {
 	}
 }
 
+func TestPlatformArtifactMetadata(t *testing.T) {
+	linux := PlatformFor("linux", "amd64")
+	micromamba := linux.MicromambaArtifact()
+	if micromamba.URL != linux.MicromambaURL || micromamba.FileName != "micromamba-linux-64" {
+		t.Fatalf("unexpected micromamba artifact: %+v", micromamba)
+	}
+	if micromamba.SizeBytes != 19028608 || len(micromamba.SHA256) != 64 {
+		t.Fatalf("unexpected micromamba metadata: %+v", micromamba)
+	}
+
+	whisper := linux.WhisperArtifact()
+	if whisper.URL != linux.WhisperURL || whisper.FileName != "whisper-bin-ubuntu-x64.tar.gz" {
+		t.Fatalf("unexpected whisper artifact: %+v", whisper)
+	}
+	if whisper.SizeBytes != 10364195 || len(whisper.SHA256) != 64 {
+		t.Fatalf("unexpected whisper metadata: %+v", whisper)
+	}
+
+	model, err := ModelArtifact("")
+	if err != nil {
+		t.Fatalf("default model artifact: %v", err)
+	}
+	if model.FileName != ModelFileName(DefaultModel) {
+		t.Fatalf("default model file = %q", model.FileName)
+	}
+	if model.SizeBytes != 1533763059 {
+		t.Fatalf("default model size = %d", model.SizeBytes)
+	}
+
+	unsupported := PlatformFor("darwin", "arm64")
+	if artifact := unsupported.MicromambaArtifact(); artifact.URL != "" || artifact.SHA256 != "" {
+		t.Fatalf("unsupported platforms must not carry artifact metadata: %+v", artifact)
+	}
+}
+
 func TestManagedPaths(t *testing.T) {
 	dataDir := filepath.Join("tmp", "fileforge")
 	root := filepath.Join(dataDir, ToolchainDirName)
@@ -394,8 +429,8 @@ func TestRembgModelMetadata(t *testing.T) {
 	if spec.SizeBytes != 178648008 {
 		t.Fatalf("default model size = %d, want 178648008", spec.SizeBytes)
 	}
-	if spec.MD5 != "fc16ebd8b0c10d971d3513d564d01e29" {
-		t.Fatalf("default model checksum = %q", spec.MD5)
+	if spec.SHA256 != "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a" {
+		t.Fatalf("default model checksum = %q", spec.SHA256)
 	}
 
 	if got := RembgModelFileName("isnet-general-use"); got != "isnet-general-use.onnx" {

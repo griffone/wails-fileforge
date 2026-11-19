@@ -1,0 +1,179 @@
+package toolchain
+
+import (
+	"fmt"
+	"strings"
+)
+
+// This file is the single registry of download URLs and their pinned metadata:
+// every artifact carries the exact SHA-256 and byte size checked while
+// installing, and the service builds an Artifact here instead of assembling
+// URLs on its own. Values were captured on 2026-11-19 from the upstream release
+// metadata.
+const (
+	micromambaReleaseBaseURL = "https://github.com/mamba-org/micromamba-releases/releases/latest/download/"
+	whisperReleaseBaseURL    = "https://github.com/ggerganov/whisper.cpp/releases/download/" + WhisperReleaseTag + "/"
+	whisperModelBaseURL      = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
+	tessdataFastBaseURL      = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/"
+	rembgModelReleaseBaseURL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
+)
+
+// platformArtifact is the pinned metadata of one per-platform binary or archive.
+type platformArtifact struct {
+	FileName  string
+	SHA256    string
+	SizeBytes int64
+}
+
+// fileArtifact is the pinned metadata of one file shared by every platform.
+type fileArtifact struct {
+	SHA256    string
+	SizeBytes int64
+}
+
+// micromambaArtifacts pins the release assets keyed by GOOS/GOARCH.
+var micromambaArtifacts = map[string]platformArtifact{
+	"linux/amd64": {
+		FileName:  "micromamba-linux-64",
+		SHA256:    "701f39c06f8e6a670a0e186c8479b9e5c0502a2f0cda6cef65d83bdd2875e8bd",
+		SizeBytes: 19028608,
+	},
+	"linux/arm64": {
+		FileName:  "micromamba-linux-aarch64",
+		SHA256:    "3bb56786e21b9b24024f599fe9185b4a59dc3f9f59937a42311ee583adbbb23c",
+		SizeBytes: 23067984,
+	},
+	"windows/amd64": {
+		FileName:  "micromamba-win-64.exe",
+		SHA256:    "f8b4284bd4eb1134122eaf93b3ea6c7be567e596de5829e1a6f478e34e41974a",
+		SizeBytes: 11723264,
+	},
+}
+
+// whisperArtifacts pins the prebuilt whisper.cpp runtime archives.
+var whisperArtifacts = map[string]platformArtifact{
+	"linux/amd64": {
+		FileName:  "whisper-bin-ubuntu-x64.tar.gz",
+		SHA256:    "a72becf15d7917f990f6313867a52638b82b7f9ef237fb0c980dac56a135781c",
+		SizeBytes: 10364195,
+	},
+	"linux/arm64": {
+		FileName:  "whisper-bin-ubuntu-arm64.tar.gz",
+		SHA256:    "6b95ebfc60447df48e70ef00a73bdc3f41679ed2d01ef465827206a2ff325149",
+		SizeBytes: 4608377,
+	},
+	"windows/amd64": {
+		FileName:  "whisper-bin-x64.zip",
+		SHA256:    "6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb",
+		SizeBytes: 8928640,
+	},
+}
+
+// whisperModelArtifacts pins the ggml model files. The sizes and checksums are
+// the Hugging Face LFS metadata, so they match the bytes the CDN serves.
+var whisperModelArtifacts = map[string]fileArtifact{
+	ModelSmall: {
+		SHA256:    "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+		SizeBytes: 487601967,
+	},
+	ModelMedium: {
+		SHA256:    "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208",
+		SizeBytes: 1533763059,
+	},
+	ModelLargeV3: {
+		SHA256:    "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2",
+		SizeBytes: 3095033483,
+	},
+}
+
+// tessdataArtifacts pins the Tesseract language data files.
+var tessdataArtifacts = map[string]fileArtifact{
+	OCRLanguageEnglish: {
+		SHA256:    "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+		SizeBytes: 4113088,
+	},
+	OCRLanguageSpanish: {
+		SHA256:    "6f2e04d02774a18f01bed44b1111f2cd7f3ba7ac9dc4373cd3f898a40ea6b464",
+		SizeBytes: 2294433,
+	},
+}
+
+// platformKey normalizes an OS/arch pair for the metadata maps.
+func platformKey(goos, goarch string) string {
+	return strings.ToLower(strings.TrimSpace(goos)) + "/" + strings.ToLower(strings.TrimSpace(goarch))
+}
+
+// MicromambaArtifact returns the micromamba artifact for the platform. An
+// unsupported platform yields an artifact with zero metadata, which the
+// installer never uses because Start rejects unsupported platforms first.
+func (p Platform) MicromambaArtifact() Artifact {
+	spec := micromambaArtifacts[platformKey(p.OS, p.Arch)]
+
+	return Artifact{
+		URL:       p.MicromambaURL,
+		SHA256:    spec.SHA256,
+		SizeBytes: spec.SizeBytes,
+		FileName:  spec.FileName,
+	}
+}
+
+// WhisperArtifact returns the whisper.cpp runtime archive for the platform.
+func (p Platform) WhisperArtifact() Artifact {
+	spec := whisperArtifacts[platformKey(p.OS, p.Arch)]
+
+	return Artifact{
+		URL:       p.WhisperURL,
+		SHA256:    spec.SHA256,
+		SizeBytes: spec.SizeBytes,
+		FileName:  spec.FileName,
+	}
+}
+
+// ModelArtifact returns the Whisper model artifact.
+func ModelArtifact(model string) (Artifact, error) {
+	normalized, err := NormalizeModel(model)
+	if err != nil {
+		return Artifact{}, err
+	}
+
+	spec := whisperModelArtifacts[normalized]
+	fileName := ModelFileName(normalized)
+
+	return Artifact{
+		URL:       whisperModelBaseURL + fileName,
+		SHA256:    spec.SHA256,
+		SizeBytes: spec.SizeBytes,
+		FileName:  fileName,
+	}, nil
+}
+
+// TessdataArtifact returns the Tesseract language data artifact.
+func TessdataArtifact(language string) (Artifact, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(language))
+	spec, supported := tessdataArtifacts[trimmed]
+	if !supported {
+		return Artifact{}, fmt.Errorf("unsupported OCR language %q: use eng or spa", language)
+	}
+
+	fileName := TessdataFileName(trimmed)
+
+	return Artifact{
+		URL:       tessdataFastBaseURL + fileName,
+		SHA256:    spec.SHA256,
+		SizeBytes: spec.SizeBytes,
+		FileName:  fileName,
+	}, nil
+}
+
+// RembgModelArtifact returns the background removal model artifact. It reads
+// rembgModelSpec so tests can substitute a small fake payload.
+func RembgModelArtifact() Artifact {
+	spec := rembgModelSpec
+
+	return Artifact{
+		URL:       spec.URL,
+		SHA256:    spec.SHA256,
+		SizeBytes: spec.SizeBytes,
+		FileName:  spec.FileName,
+	}
+}

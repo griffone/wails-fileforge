@@ -50,7 +50,7 @@ const (
 
 	// rembgMinimumModelBytes rejects empty or truncated ONNX files before an
 	// interpreter starts. The toolchain installer verifies the exact pinned
-	// size and MD5; the engine only needs a plausibility floor so a partial
+	// size and SHA-256; the engine only needs a plausibility floor so a partial
 	// download never reaches onnxruntime (and never triggers pooch's network
 	// fallback).
 	rembgMinimumModelBytes int64 = 64 << 20

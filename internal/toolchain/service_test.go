@@ -3,7 +3,7 @@ package toolchain
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,6 +68,12 @@ func (d *fakeDownloader) Download(ctx context.Context, url, destPath string, onP
 	}
 
 	return nil
+}
+
+// DownloadArtifact delegates to Download so the install tests keep exercising
+// the service wiring with small fake payloads instead of the real checksums.
+func (d *fakeDownloader) DownloadArtifact(ctx context.Context, artifact Artifact, destPath string, onProgress func(downloaded, total int64)) error {
+	return d.Download(ctx, artifact.URL, destPath, onProgress)
 }
 
 func (d *fakeDownloader) callCount() int {
@@ -283,7 +289,7 @@ func fakeRembgModelPayload(t *testing.T) []byte {
 	payload := []byte("fake isnet-general-use onnx payload")
 	original := rembgModelSpec
 	rembgModelSpec.SizeBytes = int64(len(payload))
-	rembgModelSpec.MD5 = fmt.Sprintf("%x", md5.Sum(payload))
+	rembgModelSpec.SHA256 = fmt.Sprintf("%x", sha256.Sum256(payload))
 	t.Cleanup(func() {
 		rembgModelSpec = original
 	})
@@ -1232,7 +1238,7 @@ func TestRembgVenvIsOptionalAndRepairs(t *testing.T) {
 		t.Fatalf("read the installed model: %v", err)
 	}
 	injectedSpec := rembgModelSpec
-	rembgModelSpec.MD5 = strings.Repeat("0", 32)
+	rembgModelSpec.SHA256 = strings.Repeat("0", 64)
 	t.Cleanup(func() {
 		rembgModelSpec = injectedSpec
 	})
@@ -1392,7 +1398,7 @@ func TestRembgModelFailureKeepsPreviousModelAndCleansTemp(t *testing.T) {
 	// A checksum that does not match the installed file skips the reuse fast
 	// path, so a forced repair actually attempts the download.
 	injectedSpec := rembgModelSpec
-	rembgModelSpec.MD5 = strings.Repeat("0", 32)
+	rembgModelSpec.SHA256 = strings.Repeat("0", 64)
 	t.Cleanup(func() {
 		rembgModelSpec = injectedSpec
 	})
