@@ -57,7 +57,7 @@ tasks:
     generates:
       - frontend/bindings/**/*
     cmds:
-      - /home/ivan/go/bin/wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true
+      - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true -ts -i -names
 
   generate:icons:
     summary: Generates Windows `.ico` and Mac `.icns` files from an image
