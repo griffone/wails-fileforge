@@ -13,6 +13,10 @@ Everything runs on your machine. There are no uploads, accounts, or cloud calls.
 | Documents | Markdown → PDF (optional header/footer), DOCX → PDF (LibreOffice + Pandoc fallback) |
 | Video | Convert, Trim, Merge |
 
+## Background tasks
+
+Tool jobs and recipe runs keep running when you switch tools. The Activity button in the topbar shows how many tasks are running and opens a drawer with their stage, progress, elapsed time, ETA, cancel and open actions. When a task finishes, the app shows an in-app toast and, if the window is in the background, a desktop notification. Recently finished jobs survive an app restart.
+
 ## Stack
 
 - **Backend:** Go 1.25 + Wails v3 (alpha)
