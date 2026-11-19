@@ -11,29 +11,27 @@ import (
 	"fileforge-desktop/internal/models"
 )
 
-// BenchmarkPersistJobsSnapshot records the cost of the current full-snapshot
+// BenchmarkPersistJobsSnapshot records the cost of the full-snapshot
 // persistence path with a realistic terminal history.
 func BenchmarkPersistJobsSnapshot(b *testing.B) {
 	persisted := benchmarkPersistedJobs()
 	path := filepath.Join(b.TempDir(), "jobs_state_v1.json")
-	var orchestrator Orchestrator
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := orchestrator.savePersistedJobs(path, persisted); err != nil {
-			b.Fatalf("save persisted jobs: %v", err)
+		if err := saveJobsSnapshot(path, persisted); err != nil {
+			b.Fatalf("save jobs snapshot: %v", err)
 		}
 	}
 }
 
-func TestSavePersistedJobsWritesValidJSON(t *testing.T) {
+func TestSaveJobsSnapshotWritesValidJSON(t *testing.T) {
 	persisted := benchmarkPersistedJobs()
 	path := filepath.Join(t.TempDir(), "jobs_state_v1.json")
-	var orchestrator Orchestrator
 
-	if err := orchestrator.savePersistedJobs(path, persisted); err != nil {
-		t.Fatalf("save persisted jobs: %v", err)
+	if err := saveJobsSnapshot(path, persisted); err != nil {
+		t.Fatalf("save jobs snapshot: %v", err)
 	}
 
 	content, err := os.ReadFile(path)
@@ -54,7 +52,7 @@ func TestSavePersistedJobsWritesValidJSON(t *testing.T) {
 }
 
 // benchmarkPersistedJobs builds 25 terminal job snapshots with one completed
-// item each, the shape written by persistJobsSnapshot.
+// item each, the shape written by the engine snapshot.
 func benchmarkPersistedJobs() []models.JobResultV1 {
 	started := time.Now().Add(-time.Hour).UnixMilli()
 	ended := time.Now().UnixMilli()
