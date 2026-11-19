@@ -319,6 +319,67 @@ func TestMergeToolPlanRejectsOutOfBoundsPageRange(t *testing.T) {
 	}
 }
 
+func TestMergeToolExecutePlanHonorsResolvedPlan(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.pdf")
+	second := filepath.Join(dir, "second.pdf")
+	writeMultiPagePDFFixture(t, first, 3)
+	writeMultiPagePDFFixture(t, second, 2)
+
+	tool := NewMergeTool()
+	req := mergeTestRequest([]string{first, second}, map[string]any{
+		"inputPageRanges": []any{"2", "1-2"},
+	})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 1 {
+		t.Fatalf("expected 1 planned output, got %d", len(plan.Outputs))
+	}
+
+	// The request options resolve to the auto output and 3 merged pages. Mutate
+	// the resolved plan so the test proves ExecutePlan ignores the request.
+	requestOutput := plan.Outputs[0].OutputPath
+	plannedOutput := filepath.Join(dir, "resolved-plan.pdf")
+	plan.Outputs[0].OutputPath = plannedOutput
+	plan.EffectiveOptions[mergeInputPageRangesOption] = []string{"1", "1"}
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected planned merge to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 result item, got %d", len(items))
+	}
+
+	item := items[0]
+	if !item.Success {
+		t.Fatalf("expected successful item, got %q", item.Message)
+	}
+	if item.OutputPath != plannedOutput {
+		t.Fatalf("expected the planned output %q, got %q", plannedOutput, item.OutputPath)
+	}
+	if len(item.Outputs) != 1 || item.Outputs[0] != plannedOutput {
+		t.Fatalf("expected outputs to contain %q, got %v", plannedOutput, item.Outputs)
+	}
+	if item.OutputCount != 1 {
+		t.Fatalf("expected output count 1, got %d", item.OutputCount)
+	}
+	if _, statErr := os.Stat(requestOutput); !os.IsNotExist(statErr) {
+		t.Fatalf("expected the request-resolved output %q to be unused, got stat error %v", requestOutput, statErr)
+	}
+
+	pageCount, err := api.PageCountFile(plannedOutput)
+	if err != nil {
+		t.Fatalf("read merged page count: %v", err)
+	}
+	if pageCount != 2 {
+		t.Fatalf("expected 2 merged pages from the planned ranges, got %d", pageCount)
+	}
+}
+
 func TestMergeToolExecuteSingleWithPageRanges(t *testing.T) {
 	dir := t.TempDir()
 	first := filepath.Join(dir, "first.pdf")

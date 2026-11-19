@@ -106,29 +106,74 @@ func (t *MergeTool) Plan(_ context.Context, req models.JobRequestV1) (models.Pla
 	return plan, nil
 }
 
+// ExecuteSingle keeps the legacy single-executor contract by resolving the plan
+// first and then running that exact plan, so it cannot drift from ExecutePlan.
 func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
-	outputPath, _, _ := resolveMergeOutputPath(req.InputPaths, req.OutputDir, req.Options)
 	inputPath := strings.Join(req.InputPaths, ",")
 
-	pageRanges, rangesErr := parseMergeInputPageRanges(req)
-	if rangesErr != nil {
-		return mergeFailureItem(inputPath, outputPath, rangesErr), rangesErr
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return mergeFailureItem(inputPath, plannedOutputPath(plan), planErr), planErr
 	}
+
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
+	}
+
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("PDF_MERGE_EXECUTION_MISSING_RESULT", "merge execution returned no result", nil)
+	}
+
+	return mergeFailureItem(inputPath, plannedOutputPath(plan), jobErr), jobErr
+}
+
+// ExecutePlan merges exactly the resolved output and page ranges. It never
+// re-plans or re-resolves paths from req.Options: the engine owns planning.
+func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, _ func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	inputPath := strings.Join(req.InputPaths, ",")
+	outputPath := plannedOutputPath(plan)
+	pageRanges := plannedMergePageRanges(plan)
 
 	err := engine.MergeWithPageRanges(ctx, req.InputPaths, outputPath, pageRanges)
 	if err != nil {
 		jobErr := mapMergeError(err)
-		return mergeFailureItem(inputPath, outputPath, jobErr), jobErr
+		return []models.JobResultItemV1{mergeFailureItem(inputPath, outputPath, jobErr)}, jobErr
 	}
 
-	return models.JobResultItemV1{
+	return []models.JobResultItemV1{{
 		InputPath:   inputPath,
 		OutputPath:  outputPath,
 		Outputs:     mergeOutputs(outputPath),
 		OutputCount: mergeOutputCount(outputPath),
 		Success:     true,
 		Message:     "PDF merge successful",
-	}, nil
+	}}, nil
+}
+
+// plannedOutputPath returns the destination resolved by Plan.
+func plannedOutputPath(plan models.PlanJobResponseV1) string {
+	if len(plan.Outputs) == 0 {
+		return ""
+	}
+
+	return plan.Outputs[0].OutputPath
+}
+
+// plannedMergePageRanges returns the page ranges stored in the plan. A missing
+// or mistyped value keeps the whole file for every input.
+func plannedMergePageRanges(plan models.PlanJobResponseV1) []string {
+	if plan.EffectiveOptions == nil {
+		return nil
+	}
+
+	ranges, ok := plan.EffectiveOptions[mergeInputPageRangesOption].([]string)
+	if !ok {
+		return nil
+	}
+
+	return ranges
 }
 
 func mergeFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
