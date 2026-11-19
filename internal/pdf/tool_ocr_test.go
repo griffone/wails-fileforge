@@ -392,7 +392,7 @@ func TestOCRToolExecuteSingleWithProgress(t *testing.T) {
 		t.Fatalf("expected one progress update per page, got %+v", progress)
 	}
 	last := progress[len(progress)-1]
-	if last.Current != 2 || last.Total != 2 || last.Stage != "ocr" || !strings.Contains(last.Message, "page 2 of 2") {
+	if last.Current != 2 || last.Total != 2 || last.Stage != "ocr" || !strings.Contains(last.Message, "2 of 2 pages") {
 		t.Fatalf("unexpected final progress: %+v", last)
 	}
 }
