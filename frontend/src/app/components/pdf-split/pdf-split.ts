@@ -24,6 +24,7 @@ import {
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { ActivityService } from '../../services/activity.service';
 import {
   FileInfoV1,
   InspectFilesResponseV1,
@@ -42,6 +43,7 @@ import {
   formatBytes,
   formatCount,
 } from '../../utils/format';
+import { resumeToolJob } from '../../utils/resume-task';
 
 const PDF_SPLIT_TOOL_ID = 'tool.pdf.split';
 const STRATEGY_EVERY_PAGE = 'every_page';
@@ -131,6 +133,7 @@ export class PdfSplit implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
+  private readonly activity = inject(ActivityService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -343,6 +346,7 @@ export class PdfSplit implements OnDestroy, OnInit {
     if (pending.length > 0) {
       this.onPathsSelected(pending);
     }
+    this.resumeBackgroundJob();
   }
 
   fileCountLabel(): string {
@@ -731,6 +735,17 @@ export class PdfSplit implements OnDestroy, OnInit {
       clearTimeout(this.planRefreshTimer);
       this.planRefreshTimer = null;
     }
+  }
+
+  private resumeBackgroundJob(): void {
+    resumeToolJob({
+      activity: this.activity,
+      toolId: PDF_SPLIT_TOOL_ID,
+      activeJobId: this.activeJobId,
+      jobResult: this.jobResult,
+      jobError: this.jobError,
+      startPolling: () => this.startPolling(),
+    });
   }
 
   private startPolling(): void {

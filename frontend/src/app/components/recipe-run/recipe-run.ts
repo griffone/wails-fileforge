@@ -22,6 +22,7 @@ import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { findRecipeFallback } from '../../config/recipes';
+import { ActivityService } from '../../services/activity.service';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
   FileInfoV1,
@@ -46,6 +47,7 @@ import {
   formatCount,
   formatDuration,
 } from '../../utils/format';
+import { resumeRecipeRun } from '../../utils/resume-task';
 
 const DEFAULT_RECIPE_ID = 'recipe.email_pdf';
 const POLLING_INTERVAL_MS = 1000;
@@ -131,6 +133,7 @@ function splitTitle(name: string): TitleParts {
 export class RecipeRun implements OnDestroy, OnInit {
   private readonly wailsService = inject(Wails);
   private readonly route = inject(ActivatedRoute);
+  private readonly activity = inject(ActivityService);
   private readonly recipeId = this.resolveRecipeId();
 
   readonly shieldIcon = ShieldCheck;
@@ -509,6 +512,8 @@ export class RecipeRun implements OnDestroy, OnInit {
   private targetTouched = false;
 
   async ngOnInit(): Promise<void> {
+    this.resumeBackgroundRun();
+
     const fallback = this.resolveFallback();
     this.recipe.set(fallback);
     this.applyDefaultTarget(fallback);
@@ -973,6 +978,15 @@ export class RecipeRun implements OnDestroy, OnInit {
       clearTimeout(this.planRefreshTimer);
       this.planRefreshTimer = null;
     }
+  }
+
+  private resumeBackgroundRun(): void {
+    resumeRecipeRun({
+      activity: this.activity,
+      recipeId: this.recipeId,
+      runJobId: this.runJobId,
+      startPolling: () => this.startPolling(),
+    });
   }
 
   private startPolling(): void {

@@ -26,6 +26,7 @@ import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { ActivityService } from '../../services/activity.service';
 import {
   FileInfoV1,
   InspectFilesResponseV1,
@@ -46,6 +47,7 @@ import {
   formatCount,
   formatDuration,
 } from '../../utils/format';
+import { resumeToolJob } from '../../utils/resume-task';
 
 const TRANSCRIBE_TOOL_ID = 'tool.video.transcribe';
 const TRANSCRIBE_ROUTE = '/video-transcribe';
@@ -130,6 +132,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
+  private readonly activity = inject(ActivityService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -367,6 +370,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     if (pending.length > 0) {
       this.onPathsSelected(pending);
     }
+    this.resumeBackgroundJob();
   }
 
   ngOnDestroy(): void {
@@ -717,6 +721,17 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       clearTimeout(this.planRefreshTimer);
       this.planRefreshTimer = null;
     }
+  }
+
+  private resumeBackgroundJob(): void {
+    resumeToolJob({
+      activity: this.activity,
+      toolId: TRANSCRIBE_TOOL_ID,
+      activeJobId: this.activeJobId,
+      jobResult: this.jobResult,
+      jobError: this.jobError,
+      startPolling: () => this.startPolling(),
+    });
   }
 
   private startPolling(): void {

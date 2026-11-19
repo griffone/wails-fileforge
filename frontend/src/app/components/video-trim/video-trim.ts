@@ -31,6 +31,7 @@ import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { ActivityService } from '../../services/activity.service';
 import {
   FileInfoV1,
   InspectFilesResponseV1,
@@ -52,6 +53,7 @@ import {
   formatDuration,
   parseTimeToSeconds,
 } from '../../utils/format';
+import { resumeToolJob } from '../../utils/resume-task';
 
 const VIDEO_TRIM_TOOL_ID = 'tool.video.trim';
 const POLLING_INTERVAL_MS = 1000;
@@ -111,6 +113,7 @@ export class VideoTrim implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
+  private readonly activity = inject(ActivityService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -407,6 +410,7 @@ export class VideoTrim implements OnDestroy, OnInit {
     if (pending.length > 0) {
       this.onPathsSelected(pending);
     }
+    this.resumeBackgroundJob();
   }
 
   fileCountLabel(): string {
@@ -1249,6 +1253,17 @@ export class VideoTrim implements OnDestroy, OnInit {
       clearTimeout(this.planRefreshTimer);
       this.planRefreshTimer = null;
     }
+  }
+
+  private resumeBackgroundJob(): void {
+    resumeToolJob({
+      activity: this.activity,
+      toolId: VIDEO_TRIM_TOOL_ID,
+      activeJobId: this.activeJobId,
+      jobResult: this.jobResult,
+      jobError: this.jobError,
+      startPolling: () => this.startPolling(),
+    });
   }
 
   private startPolling(): void {

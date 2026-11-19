@@ -19,6 +19,7 @@ import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { ActivityService } from '../../services/activity.service';
 import {
   FileInfoV1,
   InspectFilesResponseV1,
@@ -32,6 +33,7 @@ import {
   Wails,
 } from '../../services/wails';
 import { fileExtension, fileName, formatBytes } from '../../utils/format';
+import { resumeToolJob } from '../../utils/resume-task';
 
 const DOCX_TO_PDF_TOOL_ID = 'tool.doc.docx_to_pdf';
 const POLLING_INTERVAL_MS = 1000;
@@ -68,6 +70,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
   private readonly destroy$ = new Subject<void>();
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
+  private readonly activity = inject(ActivityService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -194,6 +197,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     if (pending.length > 0) {
       this.onPathsSelected(pending);
     }
+    this.resumeBackgroundJob();
   }
 
   fileCountLabel(): string {
@@ -549,6 +553,17 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     this.plan.set({ ...response, success: false, error });
     this.planError.set(error);
     return false;
+  }
+
+  private resumeBackgroundJob(): void {
+    resumeToolJob({
+      activity: this.activity,
+      toolId: DOCX_TO_PDF_TOOL_ID,
+      activeJobId: this.activeJobId,
+      jobResult: this.jobResult,
+      jobError: this.jobError,
+      startPolling: () => this.startPolling(),
+    });
   }
 
   private startPolling(): void {
