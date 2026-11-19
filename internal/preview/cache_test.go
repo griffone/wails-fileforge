@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -175,6 +176,31 @@ func TestPreviewCacheCloseStopsJanitor(t *testing.T) {
 	// Repeated shutdown calls must stay safe.
 	cache.StopJanitor()
 	cache.Close()
+}
+
+func TestPreviewCacheCloseIsSafeWithConcurrentAccess(t *testing.T) {
+	cache := newTestCache(t, 1<<20, 1<<20, 1)
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_ = cache.Put("key", []byte("data"), "image/png")
+			_, _, _, _ = cache.Get("key")
+			cache.Wait()
+		}
+	}()
+
+	cache.Close()
+	close(done)
+	wg.Wait()
 }
 
 func TestDiskUsageCountsOnlySpillFiles(t *testing.T) {

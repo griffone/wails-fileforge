@@ -45,9 +45,9 @@ type PreviewCache struct {
 	maxMem   int64
 	ttl      time.Duration
 
-	// mu serializes disk admission and eviction so concurrent puts cannot
-	// overshoot the disk cap or fight over the same files.
-	mu sync.Mutex
+	// mu serializes cache mutations, disk admission, and Close. Reads take the
+	// read lock so Close never races with an in-flight ristretto operation.
+	mu sync.RWMutex
 
 	janitorMu   sync.Mutex
 	janitorStop chan struct{}
@@ -101,6 +101,8 @@ func (c *PreviewCache) Put(jobID string, data []byte, contentType string) error 
 		if c.maxMem > 0 && cost > c.maxMem {
 			return fmt.Errorf("%w: item cost %d exceeds memory limit %d", errCacheAdmission, cost, c.maxMem)
 		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		if admitted := c.mem.SetWithTTL(jobID, cacheEntry{Data: data, MIME: contentType}, cost, c.ttl); !admitted {
 			return fmt.Errorf("%w: memory entry was dropped", errCacheAdmission)
 		}
@@ -139,7 +141,9 @@ func (c *PreviewCache) Get(jobID string) ([]byte, string, bool, error) {
 	if c == nil || c.mem == nil {
 		return nil, "", false, errors.New("cache not initialized")
 	}
+	c.mu.RLock()
 	entry, ok := c.mem.Get(jobID)
+	c.mu.RUnlock()
 	if !ok {
 		return nil, "", false, nil
 	}
@@ -160,6 +164,8 @@ func (c *PreviewCache) Wait() {
 	if c == nil || c.mem == nil {
 		return
 	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	c.mem.Wait()
 }
 
@@ -190,6 +196,11 @@ func (c *PreviewCache) Close() {
 	if c == nil {
 		return
 	}
+	// Hold the write lock so no Put/Get/Wait is in flight while ristretto shuts
+	// down. StopJanitor waits for the janitor goroutine, which does not take
+	// this lock.
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.StopJanitor()
 	c.closeOnce.Do(func() {
 		if c.mem != nil {

@@ -179,6 +179,32 @@ func TestStatusContextRejectsCanceledContext(t *testing.T) {
 	}
 }
 
+func TestPreviewServiceShutdownIsIdempotent(t *testing.T) {
+	root, path := writeTestInput(t)
+	svc := NewPreviewService(Config{AllowedRoots: []string{root}, MaxQueue: 4})
+	t.Cleanup(func() {
+		_ = svc.Shutdown(context.Background())
+	})
+
+	if err := svc.Shutdown(context.Background()); err != nil {
+		t.Fatalf("first shutdown: %v", err)
+	}
+	if err := svc.Shutdown(context.Background()); err != nil {
+		t.Fatalf("second shutdown: %v", err)
+	}
+
+	if _, err := svc.Enqueue(context.Background(), testPreviewRequest(path)); !errors.Is(err, ErrWorkerPoolStopped) {
+		t.Fatalf("expected enqueue after shutdown to fail with ErrWorkerPoolStopped, got %v", err)
+	}
+
+	svc.mu.RLock()
+	remaining := len(svc.jobs)
+	svc.mu.RUnlock()
+	if remaining != 0 {
+		t.Fatalf("expected shutdown to clear the job map, got %d jobs", remaining)
+	}
+}
+
 func TestFetchRejectsCanceledContext(t *testing.T) {
 	root, path := writeTestInput(t)
 	svc := newTestService(t, Config{AllowedRoots: []string{root}, MaxQueue: 2})

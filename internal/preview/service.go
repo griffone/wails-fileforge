@@ -32,8 +32,17 @@ type PreviewService struct {
 	wp   *WorkerPool
 	// cache can be injected or a package-level default used
 	cache *PreviewCache
-	// cleanupStop stops the background janitor
+
+	// cleanupStop stops the background janitor; cleanupDone closes after the
+	// janitor goroutine exits.
 	cleanupStop chan struct{}
+	cleanupDone chan struct{}
+	janitorMu   sync.Mutex
+	// janitorCloseOnce guarantees the stop channel is closed exactly once.
+	janitorCloseOnce sync.Once
+
+	shutdownOnce sync.Once
+	shutdownErr  error
 
 	// Processors are stateless and shared by every job of their media type so a
 	// burst of preview requests does not allocate one processor per job.
@@ -418,36 +427,50 @@ func (s *PreviewService) Cancel(jobID string) error {
 	return nil
 }
 
-// Shutdown performs graceful shutdown. TODO: implement worker shutdown and cleanup.
+// Shutdown performs graceful shutdown. It is safe to call more than once; the
+// first call performs the work and later calls return the same result.
 func (s *PreviewService) Shutdown(ctx context.Context) error {
-	// signal worker pool to stop if present
+	s.shutdownOnce.Do(func() {
+		s.shutdownErr = s.shutdown(ctx)
+	})
+
+	return s.shutdownErr
+}
+
+func (s *PreviewService) shutdown(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var firstErr error
 	if s.wp != nil {
 		if err := s.wp.Stop(ctx); err != nil {
-			return fmt.Errorf("preview: workerpool stop: %w", err)
+			firstErr = fmt.Errorf("preview: workerpool stop: %w", err)
 		}
 	}
-	if s.cleanupStop != nil {
-		close(s.cleanupStop)
-		s.cleanupStop = nil
-	}
+	s.stopJobJanitor()
 	if s.cache != nil {
 		s.cache.Close()
 	}
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	// mark queued/running jobs as canceled on shutdown
-	for _, j := range s.jobs {
-		if j.State == JobStateQueued || j.State == JobStateRunning {
-			j.State = JobStateCanceled
-			j.Result = &PreviewResult{Success: false, Message: "shutdown"}
-			j.Err = context.Canceled
-			j.UpdatedAt = time.Now()
-			if j.Cancel != nil {
-				j.Cancel()
-			}
+	canceled := make([]*previewJob, 0, len(s.jobs))
+	for _, job := range s.jobs {
+		if job.State == JobStateQueued || job.State == JobStateRunning {
+			canceled = append(canceled, job)
 		}
 	}
-	return nil
+	s.jobs = make(map[string]*previewJob)
+	s.mu.Unlock()
+
+	// Cancel outside the lock: cancellation callbacks may observe job state.
+	for _, job := range canceled {
+		if job.Cancel != nil {
+			job.Cancel()
+		}
+	}
+
+	return firstErr
 }
 
 func (s *PreviewService) startJobJanitor() {
@@ -458,9 +481,21 @@ func (s *PreviewService) startJobJanitor() {
 	if interval <= 0 {
 		interval = DefaultCleanupInterval
 	}
+
 	stop := make(chan struct{})
+	done := make(chan struct{})
+
+	s.janitorMu.Lock()
+	if s.cleanupStop != nil {
+		s.janitorMu.Unlock()
+		return
+	}
 	s.cleanupStop = stop
+	s.cleanupDone = done
+	s.janitorMu.Unlock()
+
 	go func() {
+		defer close(done)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -472,6 +507,26 @@ func (s *PreviewService) startJobJanitor() {
 			}
 		}
 	}()
+}
+
+// stopJobJanitor stops the janitor and waits for its goroutine to exit, so the
+// cache is never closed while a cleanup pass is still deleting entries.
+func (s *PreviewService) stopJobJanitor() {
+	s.janitorMu.Lock()
+	stop := s.cleanupStop
+	done := s.cleanupDone
+	s.cleanupStop = nil
+	s.cleanupDone = nil
+	s.janitorMu.Unlock()
+
+	if stop != nil {
+		s.janitorCloseOnce.Do(func() {
+			close(stop)
+		})
+	}
+	if done != nil {
+		<-done
+	}
 }
 
 func (s *PreviewService) cleanupExpiredJobs() {
