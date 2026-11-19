@@ -11,7 +11,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
+
+	"fileforge-desktop/internal/utils"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
@@ -44,6 +47,10 @@ const (
 	ocrPageImagePrefix = "page-"
 	ocrTempDirPattern  = "fileforge-ocr-*"
 	ocrTempFilePattern = ".fileforge-ocr-*.tmp"
+
+	// ocrPageWorkers caps concurrent Tesseract processes. Each one can use
+	// hundreds of MB, so the batch stays well below the core count.
+	ocrPageWorkers = 4
 )
 
 const (
@@ -482,56 +489,100 @@ func convertWithCapabilities(ctx context.Context, runner CommandRunner, capabili
 		return OCRResult{}, rasterizeErr
 	}
 
-	pagePDFs := make([]string, 0, len(pageImages))
-	var sidecar strings.Builder
-	sidecarCharacters := 0
-	for index, imagePath := range pageImages {
-		if ctx.Err() != nil {
-			return OCRResult{}, cancelledOCRError("OCR canceled", ctx.Err())
-		}
+	// Pages are independent: recognize them with a small bounded pool, write
+	// results by page index, then assemble the sidecar and the PDF list in
+	// document order.
+	type ocrPageResult struct {
+		pdfPath string
+		text    string
+		chars   int
+		err     *OCRError
+	}
 
-		pageBase := filepath.Join(tempDir, fmt.Sprintf("ocr-%d", index+1))
+	pageResults := make([]ocrPageResult, len(pageImages))
+	var progressMu sync.Mutex
+	completed := 0
+
+	runErr := utils.ParallelForIndex(ctx, len(pageImages), ocrPageWorkerCount(), func(ctx context.Context, index int) error {
+		pageNumber := index + 1
+		pageBase := filepath.Join(tempDir, fmt.Sprintf("ocr-%d", pageNumber))
+
 		if _, recognizeErr := runner.Output(ctx, "tesseract", []string{
-			imagePath,
+			pageImages[index],
 			pageBase,
 			"-l", language,
 			"--dpi", strconv.Itoa(dpi),
 			"pdf", "txt",
 		}); recognizeErr != nil {
 			if ctx.Err() != nil {
-				return OCRResult{}, cancelledOCRError("OCR canceled", ctx.Err())
+				return ctx.Err()
 			}
 
-			return OCRResult{}, &OCRError{
+			pageResults[index].err = &OCRError{
 				Code:    OCRCodeRecognizeFailed,
-				Message: fmt.Sprintf("failed to recognize page %d of %d", index+1, len(pageImages)),
+				Message: fmt.Sprintf("failed to recognize page %d of %d", pageNumber, len(pageImages)),
 				Cause:   recognizeErr,
 			}
+			return nil
 		}
 
-		if outputErr := validateTesseractPageOutputs(pageBase, index+1); outputErr != nil {
-			return OCRResult{}, outputErr
+		if outputErr := validateTesseractPageOutputs(pageBase, pageNumber); outputErr != nil {
+			pageResults[index].err = outputErr
+			return nil
 		}
 
 		pageText, readErr := os.ReadFile(pageBase + ".txt")
 		if readErr != nil {
-			return OCRResult{}, &OCRError{
+			pageResults[index].err = &OCRError{
 				Code:    OCRCodeRecognizeFailed,
-				Message: fmt.Sprintf("failed to read the recognized text of page %d", index+1),
+				Message: fmt.Sprintf("failed to read the recognized text of page %d", pageNumber),
 				Cause:   readErr,
 			}
+			return nil
 		}
 
+		pageResults[index] = ocrPageResult{
+			pdfPath: pageBase + ".pdf",
+			text:    string(pageText),
+			chars:   CountTextCharacters(string(pageText)),
+		}
+
+		if onProgress != nil {
+			progressMu.Lock()
+			completed++
+			current := completed
+			onProgress(current, len(pageImages), fmt.Sprintf("Recognized %d of %d pages", current, len(pageImages)))
+			progressMu.Unlock()
+		}
+
+		return nil
+	})
+
+	if runErr != nil {
+		if ctx.Err() != nil {
+			return OCRResult{}, cancelledOCRError("OCR canceled", ctx.Err())
+		}
+
+		return OCRResult{}, &OCRError{
+			Code:    OCRCodeRecognizeFailed,
+			Message: "failed to recognize the PDF pages",
+			Cause:   runErr,
+		}
+	}
+
+	pagePDFs := make([]string, 0, len(pageResults))
+	var sidecar strings.Builder
+	sidecarCharacters := 0
+	for index, result := range pageResults {
+		if result.err != nil {
+			return OCRResult{}, result.err
+		}
 		if index > 0 {
 			sidecar.WriteString("\f")
 		}
-		sidecar.Write(pageText)
-		sidecarCharacters += CountTextCharacters(string(pageText))
-		pagePDFs = append(pagePDFs, pageBase+".pdf")
-
-		if onProgress != nil {
-			onProgress(index+1, len(pageImages), fmt.Sprintf("Recognizing page %d of %d", index+1, len(pageImages)))
-		}
+		sidecar.WriteString(result.text)
+		sidecarCharacters += result.chars
+		pagePDFs = append(pagePDFs, result.pdfPath)
 	}
 
 	if ctx.Err() != nil {
@@ -614,6 +665,19 @@ func convertWithCapabilities(ctx context.Context, runner CommandRunner, capabili
 		Optimized:      optimized,
 		Warnings:       warnings,
 	}, nil
+}
+
+// ocrPageWorkerCount bounds concurrent Tesseract processes.
+func ocrPageWorkerCount() int {
+	workers := utils.ParallelWorkerCount()
+	if workers > ocrPageWorkers {
+		workers = ocrPageWorkers
+	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	return workers
 }
 
 // validateTesseractPageOutputs catches a silent Tesseract failure. When the PDF
