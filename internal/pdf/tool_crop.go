@@ -10,6 +10,7 @@ import (
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
 	"fileforge-desktop/internal/pdf/engine"
+	"fileforge-desktop/internal/utils"
 )
 
 const (
@@ -182,16 +183,13 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 		return nil, planErr
 	}
 
-	fileErrors := make([]map[string]any, 0)
-	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
-	for i, planned := range plan.Outputs {
-		select {
-		case <-ctx.Done():
-			cancelErr := mapCropError(&engine.CropError{Code: "CANCELED", Message: "crop canceled", Cause: ctx.Err()})
-			return items, cancelErr
-		default:
-		}
+	items := make([]models.JobResultItemV1, len(plan.Outputs))
+	itemErrors := make([]*models.JobErrorV1, len(plan.Outputs))
+	completed := make([]bool, len(plan.Outputs))
+	progress := newPDFBatchProgress(len(plan.Outputs), onProgress)
 
+	runErr := utils.ParallelForIndex(ctx, len(plan.Outputs), pdfBatchWorkerCount(), func(ctx context.Context, i int) error {
+		planned := plan.Outputs[i]
 		item := models.JobResultItemV1{
 			InputPath:  planned.InputPath,
 			OutputPath: planned.OutputPath,
@@ -202,11 +200,7 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 			item.Success = false
 			item.Message = jobErr.Message
 			item.Error = jobErr
-			fileErrors = append(fileErrors, map[string]any{
-				"path":    planned.InputPath,
-				"code":    jobErr.DetailCode,
-				"message": jobErr.Message,
-			})
+			itemErrors[i] = jobErr
 		} else {
 			item.Success = true
 			item.Message = "PDF crop successful"
@@ -214,16 +208,31 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 			item.OutputCount = 1
 		}
 
-		items = append(items, item)
+		items[i] = item
+		completed[i] = true
+		progress.itemCompleted()
 
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{
-				Current: i + 1,
-				Total:   len(plan.Outputs),
-				Stage:   "running",
-				Message: fmt.Sprintf("processed %d/%d", i+1, len(plan.Outputs)),
-			})
+		return nil
+	})
+
+	if runErr != nil {
+		if ctx.Err() != nil {
+			return completedPDFBatchItems(items, completed), mapCropError(&engine.CropError{Code: "CANCELED", Message: "crop canceled", Cause: ctx.Err()})
 		}
+
+		return completedPDFBatchItems(items, completed), models.NewCanonicalJobError(engine.ErrorCodeCropFailed, "batch crop failed", map[string]any{"cause": runErr.Error()})
+	}
+
+	fileErrors := make([]map[string]any, 0)
+	for i, jobErr := range itemErrors {
+		if jobErr == nil {
+			continue
+		}
+		fileErrors = append(fileErrors, map[string]any{
+			"path":    plan.Outputs[i].InputPath,
+			"code":    jobErr.DetailCode,
+			"message": jobErr.Message,
+		})
 	}
 
 	if len(fileErrors) > 0 {
