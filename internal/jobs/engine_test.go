@@ -1548,6 +1548,340 @@ func TestEnginePlanSurfacesPlannerError(t *testing.T) {
 	}
 }
 
+func TestEnginePlanOnceExecutesStoredPlan(t *testing.T) {
+	outputs := []models.PlannedOutputV1{
+		{InputPath: engineInput("a.pdf"), OutputPath: engineInput("a-merged.pdf"), OutputKind: "file"},
+		{InputPath: engineInput("b.pdf"), OutputPath: engineInput("b-merged.pdf"), OutputKind: "file"},
+	}
+	resolved := models.PlanJobResponseV1{
+		Success: true,
+		Message: "ready",
+		Outputs: outputs,
+		EffectiveOptions: map[string]any{
+			"quality":         "high",
+			"inputPageRanges": []string{"1", ""},
+		},
+	}
+	tool := &plannedFakeTool{
+		id: "tool.fake.plan.once",
+		planHook: func(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+			return resolved, nil
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	response := submitTestJob(t, engine, models.JobRequestV1{
+		ToolID:     tool.id,
+		Mode:       "batch",
+		InputPaths: []string{engineInput("a.pdf"), engineInput("b.pdf")},
+	})
+
+	result := awaitEngineJob(t, engine, response.JobID)
+	if result.Status != StatusSuccess {
+		t.Fatalf("job status = %s, want success (%s)", result.Status, result.Message)
+	}
+	if got := tool.planCalls.Load(); got != 1 {
+		t.Fatalf("Plan calls = %d, want exactly 1", got)
+	}
+	if got := tool.execCalls.Load(); got != 1 {
+		t.Fatalf("ExecutePlan calls = %d, want exactly 1", got)
+	}
+
+	plans := tool.recordedPlans()
+	if len(plans) != 1 {
+		t.Fatalf("recorded plans = %d, want 1", len(plans))
+	}
+	received := plans[0]
+	if len(received.Outputs) != len(outputs) {
+		t.Fatalf("executed plan outputs = %d, want %d", len(received.Outputs), len(outputs))
+	}
+	for index, output := range outputs {
+		if received.Outputs[index].OutputPath != output.OutputPath {
+			t.Fatalf("output %d path = %q, want %q", index, received.Outputs[index].OutputPath, output.OutputPath)
+		}
+	}
+	if quality, _ := received.EffectiveOptions["quality"].(string); quality != "high" {
+		t.Fatalf("effective quality = %q, want high", quality)
+	}
+	ranges, ok := received.EffectiveOptions["inputPageRanges"].([]string)
+	if !ok || len(ranges) != 2 || ranges[0] != "1" || ranges[1] != "" {
+		t.Fatalf("effective inputPageRanges = %#v, want [1 \"\"]", received.EffectiveOptions["inputPageRanges"])
+	}
+}
+
+func TestEnginePlanFailureRejectsSubmission(t *testing.T) {
+	tests := []struct {
+		name       string
+		plan       models.PlanJobResponseV1
+		planErr    *models.JobErrorV1
+		wantDetail string
+	}{
+		{
+			name:       "planner error",
+			plan:       models.PlanJobResponseV1{Message: "conflict"},
+			planErr:    models.NewCanonicalJobError("PDF_MERGE_OUTPUT_ALREADY_EXISTS", "output already exists", nil),
+			wantDetail: "PDF_MERGE_OUTPUT_ALREADY_EXISTS",
+		},
+		{
+			name:       "unsuccessful plan without error",
+			plan:       models.PlanJobResponseV1{Message: "page ranges invalid"},
+			wantDetail: "VALIDATION_ERROR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tool := &plannedFakeTool{
+				id: "tool.fake.plan.reject",
+				planHook: func(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+					return tt.plan, tt.planErr
+				},
+			}
+			engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+				Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+			})
+
+			response, err := engine.Submit(context.Background(), models.JobRequestV1{
+				ToolID:     tool.id,
+				Mode:       "single",
+				InputPaths: []string{engineInput("rejected.pdf")},
+			})
+			if err != nil {
+				t.Fatalf("Submit returned error: %v", err)
+			}
+			if response.Success || response.Status != StatusFailed || response.Message != "job validation failed" {
+				t.Fatalf("response = %+v, want the canonical validation rejection", response)
+			}
+			if response.Error == nil || response.Error.DetailCode != tt.wantDetail {
+				t.Fatalf("response error = %+v, want detail %q", response.Error, tt.wantDetail)
+			}
+			if got := tool.planCalls.Load(); got != 1 {
+				t.Fatalf("Plan calls = %d, want exactly 1", got)
+			}
+			if got := tool.execCalls.Load(); got != 0 {
+				t.Fatalf("ExecutePlan calls = %d, want 0", got)
+			}
+			if jobs := engine.List(0); len(jobs) != 0 {
+				t.Fatalf("rejected job was tracked: %+v", jobs)
+			}
+		})
+	}
+}
+
+func TestEnginePlannedBatchRetriesOnlyFailedOutputs(t *testing.T) {
+	inputs := []string{engineInput("one.pdf"), engineInput("two.pdf"), engineInput("three.pdf")}
+	outputs := make([]models.PlannedOutputV1, 0, len(inputs))
+	for _, input := range inputs {
+		outputs = append(outputs, models.PlannedOutputV1{InputPath: input, OutputPath: input + ".out", OutputKind: "file"})
+	}
+
+	var tool *plannedFakeTool
+	tool = &plannedFakeTool{
+		id: "tool.image.crop",
+		planHook: func(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+			return models.PlanJobResponseV1{Success: true, Outputs: outputs}, nil
+		},
+		execHook: func(_ context.Context, _ models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+			call := tool.execCalls.Load()
+			items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
+			var batchErr *models.JobErrorV1
+			for index, output := range plan.Outputs {
+				if onProgress != nil {
+					onProgress(models.JobProgressV1{Current: index + 1, Total: len(plan.Outputs), Stage: "running"})
+				}
+				if call == 1 && output.InputPath == inputs[1] {
+					jobErr := models.NewCanonicalJobError("IMAGE_CROP_BATCH_ITEM", "transient failure", nil)
+					batchErr = jobErr
+					items = append(items, models.JobResultItemV1{
+						InputPath:  output.InputPath,
+						OutputPath: output.OutputPath,
+						Success:    false,
+						Message:    jobErr.Message,
+						Error:      jobErr,
+					})
+					continue
+				}
+				items = append(items, models.JobResultItemV1{
+					InputPath:   output.InputPath,
+					OutputPath:  output.OutputPath,
+					Outputs:     []string{output.OutputPath},
+					OutputCount: 1,
+					Success:     true,
+					Message:     "cropped",
+				})
+			}
+
+			return items, batchErr
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	response := submitTestJob(t, engine, models.JobRequestV1{
+		ToolID:     tool.id,
+		Mode:       "batch",
+		InputPaths: inputs,
+	})
+
+	result := awaitEngineJob(t, engine, response.JobID)
+	if result.Status != StatusSuccess {
+		t.Fatalf("job status = %s, want success (%s)", result.Status, result.Message)
+	}
+	if got := tool.planCalls.Load(); got != 1 {
+		t.Fatalf("Plan calls = %d, want exactly 1 across retries", got)
+	}
+
+	plans := tool.recordedPlans()
+	if len(plans) != 2 {
+		t.Fatalf("ExecutePlan calls = %d, want 2", len(plans))
+	}
+	if len(plans[0].Outputs) != len(outputs) {
+		t.Fatalf("first plan outputs = %d, want %d", len(plans[0].Outputs), len(outputs))
+	}
+	if len(plans[1].Outputs) != 1 || plans[1].Outputs[0].InputPath != inputs[1] {
+		t.Fatalf("retry plan outputs = %+v, want only %q", plans[1].Outputs, inputs[1])
+	}
+
+	if len(result.Items) != len(inputs) {
+		t.Fatalf("items = %d, want %d", len(result.Items), len(inputs))
+	}
+	wantAttempts := []int{1, 2, 1}
+	for index, want := range wantAttempts {
+		item := result.Items[index]
+		if !item.Success {
+			t.Fatalf("item %d failed: %+v", index, item)
+		}
+		if item.InputPath != inputs[index] {
+			t.Fatalf("item %d input = %q, want %q", index, item.InputPath, inputs[index])
+		}
+		if item.Attempts != want || item.RetryCount != want-1 {
+			t.Fatalf("item %d attempts/retryCount = %d/%d, want %d/%d", index, item.Attempts, item.RetryCount, want, want-1)
+		}
+	}
+}
+
+func TestEngineUsesManifestSchedulingMetadata(t *testing.T) {
+	plan := models.PlanJobResponseV1{
+		Success: true,
+		Outputs: []models.PlannedOutputV1{
+			{InputPath: engineInput("manifest.pdf"), OutputPath: engineInput("manifest-out.pdf"), OutputKind: "file"},
+		},
+	}
+	newTool := func(id, resourceClass string, maxWorkers int) *plannedFakeTool {
+		return &plannedFakeTool{
+			id: id,
+			manifest: models.ToolManifestV1{
+				ToolID:        id,
+				ResourceClass: resourceClass,
+				MaxWorkers:    maxWorkers,
+			},
+			planHook: func(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+				return plan, nil
+			},
+		}
+	}
+	request := func(tool *plannedFakeTool) models.JobRequestV1 {
+		return models.JobRequestV1{
+			ToolID:     tool.id,
+			Mode:       "single",
+			InputPaths: []string{engineInput("manifest.pdf")},
+		}
+	}
+
+	t.Run("manifest values apply when submit options are empty", func(t *testing.T) {
+		tool := newTool("tool.fake.manifest", "external", 3)
+		engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+			Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+		})
+
+		response := submitTestJobWith(t, engine, request(tool), SubmitOptions{Kind: "tool", Priority: PriorityInteractive})
+
+		state := engine.lookup(response.JobID)
+		if state == nil {
+			t.Fatalf("job %s not found", response.JobID)
+		}
+		if state.class != ClassExternal {
+			t.Fatalf("job class = %q, want %q from the manifest", state.class, ClassExternal)
+		}
+		if state.workers != 3 {
+			t.Fatalf("job workers = %d, want 3 from the manifest", state.workers)
+		}
+	})
+
+	t.Run("explicit submit options override the manifest", func(t *testing.T) {
+		tool := newTool("tool.fake.manifest.override", "external", 3)
+		engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+			Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+		})
+
+		response := submitTestJobWith(t, engine, request(tool), SubmitOptions{
+			Kind:     "tool",
+			Priority: PriorityInteractive,
+			Class:    ClassIO,
+			Workers:  1,
+		})
+
+		state := engine.lookup(response.JobID)
+		if state == nil {
+			t.Fatalf("job %s not found", response.JobID)
+		}
+		if state.class != ClassIO {
+			t.Fatalf("job class = %q, want the explicit %q", state.class, ClassIO)
+		}
+		if state.workers != 1 {
+			t.Fatalf("job workers = %d, want the explicit 1", state.workers)
+		}
+	})
+}
+
+func TestEnginePlannerWithoutPlanExecutorUsesLegacyExecution(t *testing.T) {
+	output := models.PlannedOutputV1{
+		InputPath:  engineInput("legacy.pdf"),
+		OutputPath: engineInput("legacy-out.pdf"),
+		OutputKind: "file",
+	}
+	tool := &plannerOnlyFakeTool{
+		id: "tool.fake.planner.only",
+		plan: models.PlanJobResponseV1{
+			Success: true,
+			Message: "ready",
+			Outputs: []models.PlannedOutputV1{output},
+		},
+	}
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	response := submitTestJob(t, engine, models.JobRequestV1{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{output.InputPath},
+	})
+
+	result := awaitEngineJob(t, engine, response.JobID)
+	if result.Status != StatusSuccess {
+		t.Fatalf("job status = %s, want success (%s)", result.Status, result.Message)
+	}
+	if got := tool.planCalls.Load(); got != 1 {
+		t.Fatalf("Plan calls = %d, want exactly 1 at submit", got)
+	}
+	if got := tool.calls.Load(); got != 1 {
+		t.Fatalf("legacy ExecuteSingle calls = %d, want 1", got)
+	}
+	state := engine.lookup(response.JobID)
+	if state == nil || state.plan == nil {
+		t.Fatalf("expected the resolved plan to be stored on the job state")
+	}
+	if len(result.Items) != 1 || result.Items[0].OutputPath != output.OutputPath {
+		t.Fatalf("legacy items = %+v, want the planned output %q", result.Items, output.OutputPath)
+	}
+}
+
 func seedEngineJob(t *testing.T, engine *Engine, result models.JobResultV1) {
 	t.Helper()
 

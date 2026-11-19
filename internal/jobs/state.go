@@ -27,6 +27,7 @@ type jobState struct {
 	ctx         context.Context
 	request     models.JobRequestV1
 	tool        tools.Tool
+	plan        *models.PlanJobResponseV1
 	class       Class
 	priority    Priority
 	seq         uint64
@@ -39,7 +40,7 @@ type jobState struct {
 	queued bool
 }
 
-func newJobState(engine *Engine, req models.JobRequestV1, tool tools.Tool, opts SubmitOptions) *jobState {
+func newJobState(engine *Engine, req models.JobRequestV1, tool tools.Tool, opts SubmitOptions, plan *models.PlanJobResponseV1) *jobState {
 	seq := engine.seq.Add(1)
 	startedAt := time.Now().UnixMilli()
 
@@ -47,6 +48,7 @@ func newJobState(engine *Engine, req models.JobRequestV1, tool tools.Tool, opts 
 		engine:      engine,
 		request:     req,
 		tool:        tool,
+		plan:        plan,
 		class:       opts.Class,
 		priority:    opts.Priority,
 		seq:         seq,
@@ -195,6 +197,43 @@ func (j *jobState) cancelContext() {
 		return
 	}
 	cancel()
+}
+
+// cloneJobPlan returns a plan copy that shares no slices or maps with the
+// tool-returned value, so the stored plan stays immutable after submission.
+func cloneJobPlan(in *models.PlanJobResponseV1) *models.PlanJobResponseV1 {
+	if in == nil {
+		return nil
+	}
+
+	out := *in
+	if in.Outputs != nil {
+		out.Outputs = make([]models.PlannedOutputV1, len(in.Outputs))
+		for index, output := range in.Outputs {
+			out.Outputs[index] = clonePlannedOutput(output)
+		}
+	}
+	if in.EffectiveOptions != nil {
+		out.EffectiveOptions = make(map[string]any, len(in.EffectiveOptions))
+		for key, value := range in.EffectiveOptions {
+			out.EffectiveOptions[key] = value
+		}
+	}
+	if in.Warnings != nil {
+		out.Warnings = append([]string(nil), in.Warnings...)
+	}
+	out.Error = cloneJobError(in.Error)
+
+	return &out
+}
+
+func clonePlannedOutput(in models.PlannedOutputV1) models.PlannedOutputV1 {
+	out := in
+	if in.Warnings != nil {
+		out.Warnings = append([]string(nil), in.Warnings...)
+	}
+
+	return out
 }
 
 func cloneJobResult(in models.JobResultV1) models.JobResultV1 {

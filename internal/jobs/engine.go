@@ -337,36 +337,36 @@ func newRecoveredJobState(engine *Engine, result models.JobResultV1) *jobState {
 
 // Submit enqueues a tool job with interactive priority and the tool's class.
 func (e *Engine) Submit(ctx context.Context, req models.JobRequestV1) (models.RunJobResponseV1, error) {
-	class := classForTool(req.ToolID)
-
 	return e.SubmitWithOptions(ctx, req, SubmitOptions{
 		Kind:     "tool",
 		Priority: PriorityInteractive,
-		Class:    class,
 	})
 }
 
-// SubmitWithOptions validates and enqueues a job, returning immediately. The
-// engine dispatcher decides when it actually starts.
+// SubmitWithOptions resolves the tool, plans the request once when the tool
+// supports it, and enqueues the job, returning immediately. The engine
+// dispatcher decides when it actually starts.
 func (e *Engine) SubmitWithOptions(ctx context.Context, req models.JobRequestV1, opts SubmitOptions) (models.RunJobResponseV1, error) {
 	ctx = contextOrBackground(ctx)
-	opts = e.normalizeSubmitOptions(req.ToolID, opts)
 
 	tool, err := e.resolveTool(req.ToolID)
 	if err != nil {
 		return models.RunJobResponseV1{}, fmt.Errorf("tool lookup failed: %w", err)
 	}
 
-	if validationErr := tool.Validate(ctx, req); validationErr != nil {
+	opts = e.normalizeSubmitOptions(tool, req.ToolID, opts)
+
+	plan, rejectErr := e.planRequest(ctx, tool, req)
+	if rejectErr != nil {
 		return models.RunJobResponseV1{
 			Success: false,
 			Message: "job validation failed",
 			Status:  StatusFailed,
-			Error:   normalizeJobError(validationErr),
+			Error:   normalizeJobError(rejectErr),
 		}, nil
 	}
 
-	state := newJobState(e, req, tool, opts)
+	state := newJobState(e, req, tool, opts, plan)
 	state.ctx, state.cancel = context.WithCancel(e.jobParentContext(ctx))
 
 	if err := e.enqueueNewJob(state); err != nil {
@@ -382,10 +382,39 @@ func (e *Engine) SubmitWithOptions(ctx context.Context, req models.JobRequestV1,
 	}, nil
 }
 
-func (e *Engine) normalizeSubmitOptions(toolID string, opts SubmitOptions) SubmitOptions {
+// planRequest resolves a request exactly once for planner tools and stores the
+// result on the job. Tools without a planner keep the legacy Validate contract.
+func (e *Engine) planRequest(ctx context.Context, tool tools.Tool, req models.JobRequestV1) (*models.PlanJobResponseV1, *models.JobErrorV1) {
+	planner, ok := tool.(tools.Planner)
+	if !ok {
+		return nil, tool.Validate(ctx, req)
+	}
+
+	plan, planErr := planner.Plan(ctx, req)
+	if planErr != nil {
+		return nil, planErr
+	}
+	if !plan.Success {
+		message := strings.TrimSpace(plan.Message)
+		if message == "" {
+			message = "job request could not be planned"
+		}
+
+		return nil, models.NewCanonicalJobError("VALIDATION_ERROR", message, nil)
+	}
+
+	return cloneJobPlan(&plan), nil
+}
+
+func (e *Engine) normalizeSubmitOptions(tool tools.Tool, toolID string, opts SubmitOptions) SubmitOptions {
 	opts.Kind = strings.TrimSpace(opts.Kind)
 	if opts.Kind == "" {
 		opts.Kind = "tool"
+	}
+
+	manifest := tool.Manifest()
+	if opts.Class == "" {
+		opts.Class = manifestResourceClass(manifest.ResourceClass)
 	}
 	if opts.Class == "" {
 		opts.Class = classForTool(toolID)
@@ -405,10 +434,26 @@ func (e *Engine) normalizeSubmitOptions(toolID string, opts SubmitOptions) Submi
 		opts.MaxAttempts = defaultMaxAttempts
 	}
 	if opts.Workers <= 0 {
-		opts.Workers = e.defaultWorkers(opts.Class)
+		if manifest.MaxWorkers > 0 {
+			opts.Workers = manifest.MaxWorkers
+		} else {
+			opts.Workers = e.defaultWorkers(opts.Class)
+		}
 	}
 
 	return opts
+}
+
+// manifestResourceClass maps a manifest resource class to a scheduler class.
+// Empty or unknown values return "" so the caller falls back to ClassForTool.
+func manifestResourceClass(resourceClass string) Class {
+	class := Class(strings.ToLower(strings.TrimSpace(resourceClass)))
+	switch class {
+	case ClassCPU, ClassExternal, ClassIO:
+		return class
+	default:
+		return ""
+	}
 }
 
 func (e *Engine) defaultWorkers(class Class) int {

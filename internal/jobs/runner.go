@@ -51,6 +51,13 @@ func (e *Engine) runJob(state *jobState) {
 	default:
 	}
 
+	if state.plan != nil {
+		if executor, ok := state.tool.(tools.PlanExecutor); ok {
+			e.runPlanned(state, executor)
+			return
+		}
+	}
+
 	if state.request.Mode == "single" {
 		e.runSingle(state)
 		return
@@ -194,6 +201,191 @@ func (e *Engine) runBatch(state *jobState) {
 
 	status, message := deriveBatchFinalState(items)
 	state.complete(status, message, items, nil, time.Now().UnixMilli())
+}
+
+// runPlanned executes the stored plan and never re-plans. Retries reuse the
+// original outputs, resend only the failed ones, and keep the final result in
+// original plan order with per-item attempts decorated.
+func (e *Engine) runPlanned(state *jobState, executor tools.PlanExecutor) {
+	plan := cloneJobPlan(state.plan)
+	if plan == nil {
+		state.complete(StatusFailed, "job failed", nil,
+			models.NewCanonicalJobError("PLAN_MISSING", "planned job has no stored plan", nil),
+			time.Now().UnixMilli())
+		return
+	}
+
+	planOutputs := plan.Outputs
+	originalTotal := len(planOutputs)
+	items := make([]models.JobResultItemV1, 0, originalTotal)
+	attempts := make([]int, originalTotal)
+	for index := range attempts {
+		attempts[index] = 1
+	}
+
+	currentIndices := make([]int, originalTotal)
+	for index := range currentIndices {
+		currentIndices[index] = index
+	}
+
+	currentPlan := *plan
+	currentPlan.Outputs = selectPlanOutputs(planOutputs, currentIndices)
+	retries := 0
+	var lastErr *models.JobErrorV1
+
+	for {
+		if state.ctx.Err() != nil {
+			items = decorateBatchItems(normalizeItemsErrors(items), attempts)
+			state.complete(StatusCancelled, "job cancelled", items, cancelledJobError(state.ctx, maxAttemptCount(attempts), lastErr), time.Now().UnixMilli())
+			return
+		}
+
+		retrying := retries > 0
+		plannedItems, execErr := executor.ExecutePlan(state.ctx, state.request, currentPlan, e.batchProgressHandler(state, retrying, currentIndices, originalTotal))
+		lastErr = execErr
+
+		if retrying {
+			items = mergePlannedRetryItems(items, plannedItems, currentIndices, currentPlan.Outputs)
+			for _, index := range currentIndices {
+				attempts[index]++
+			}
+		} else {
+			items = alignPlannedItems(plannedItems, planOutputs)
+		}
+
+		retryIndices := e.retryableFailedIndices(state.request.ToolID, items, originalTotal, execErr)
+		if len(retryIndices) == 0 || retries+1 >= state.maxAttempts {
+			break
+		}
+
+		if !waitRetryBackoff(state.ctx, retries+1) {
+			items = decorateBatchItems(normalizeItemsErrors(items), attempts)
+			state.complete(StatusCancelled, "job cancelled", items, cancelledJobError(state.ctx, maxAttemptCount(attempts), execErr), time.Now().UnixMilli())
+			return
+		}
+
+		retries++
+		currentIndices = retryIndices
+		currentPlan.Outputs = selectPlanOutputs(planOutputs, retryIndices)
+	}
+
+	items = decorateBatchItems(normalizeItemsErrors(items), attempts)
+	aggregateAttempts := maxAttemptCount(attempts)
+
+	if state.ctx.Err() != nil {
+		state.complete(StatusCancelled, "job cancelled", items, cancelledJobError(state.ctx, aggregateAttempts, lastErr), time.Now().UnixMilli())
+		return
+	}
+
+	if lastErr != nil {
+		status, message := deriveBatchFinalState(items)
+		jobErr := normalizeJobError(lastErr)
+		if jobErr != nil {
+			if jobErr.Details == nil {
+				jobErr.Details = map[string]any{}
+			}
+			for key, value := range retryMetadata(aggregateAttempts, lastErr) {
+				jobErr.Details[key] = value
+			}
+		}
+		state.complete(status, message, items, jobErr, time.Now().UnixMilli())
+		return
+	}
+
+	status, message := deriveBatchFinalState(items)
+	state.complete(status, message, items, nil, time.Now().UnixMilli())
+}
+
+// selectPlanOutputs returns the outputs at indices in order, cloned so a
+// reduced retry plan never aliases the stored plan.
+func selectPlanOutputs(outputs []models.PlannedOutputV1, indices []int) []models.PlannedOutputV1 {
+	selected := make([]models.PlannedOutputV1, 0, len(indices))
+	for _, index := range indices {
+		if index < 0 || index >= len(outputs) {
+			continue
+		}
+		selected = append(selected, clonePlannedOutput(outputs[index]))
+	}
+
+	return selected
+}
+
+// alignPlannedItems maps returned items onto planned outputs by input path
+// while preserving plan order. Missing outputs become PLAN_EXECUTION_MISMATCH
+// failures; unplanned items are appended unchanged in the tool's order.
+func alignPlannedItems(items []models.JobResultItemV1, outputs []models.PlannedOutputV1) []models.JobResultItemV1 {
+	aligned := make([]models.JobResultItemV1, len(outputs))
+	used := make([]bool, len(items))
+	remaining := make(map[string][]int, len(items))
+	for index, item := range items {
+		if item.InputPath == "" {
+			continue
+		}
+		remaining[item.InputPath] = append(remaining[item.InputPath], index)
+	}
+
+	for outIndex, output := range outputs {
+		if outIndex < len(items) && !used[outIndex] && items[outIndex].InputPath == output.InputPath {
+			used[outIndex] = true
+			aligned[outIndex] = items[outIndex]
+			continue
+		}
+
+		candidates := remaining[output.InputPath]
+		for len(candidates) > 0 && used[candidates[0]] {
+			candidates = candidates[1:]
+		}
+		if len(candidates) > 0 {
+			used[candidates[0]] = true
+			aligned[outIndex] = items[candidates[0]]
+			remaining[output.InputPath] = candidates[1:]
+			continue
+		}
+
+		aligned[outIndex] = plannedMismatchItem(output)
+	}
+
+	for index, item := range items {
+		if used[index] {
+			continue
+		}
+		aligned = append(aligned, item)
+	}
+
+	return aligned
+}
+
+func plannedMismatchItem(output models.PlannedOutputV1) models.JobResultItemV1 {
+	message := "tool returned no result for a planned output"
+	item := models.JobResultItemV1{
+		InputPath: output.InputPath,
+		Success:   false,
+		Message:   message,
+		Error: models.NewCanonicalJobError("PLAN_EXECUTION_MISMATCH", message, map[string]any{
+			"plannedOutputPath": output.OutputPath,
+		}),
+	}
+	if output.OutputPath != "" {
+		item.OutputPath = output.OutputPath
+		item.Outputs = []string{output.OutputPath}
+		item.OutputCount = 1
+	}
+
+	return item
+}
+
+// mergePlannedRetryItems copies retry results back onto the original output
+// positions after aligning them to the reduced retry plan.
+func mergePlannedRetryItems(items, retryItems []models.JobResultItemV1, retryIndices []int, retryOutputs []models.PlannedOutputV1) []models.JobResultItemV1 {
+	aligned := alignPlannedItems(retryItems, retryOutputs)
+	for position, index := range retryIndices {
+		if index < 0 || index >= len(items) || position >= len(retryOutputs) || position >= len(aligned) {
+			continue
+		}
+		items[index] = cloneJobItem(aligned[position])
+	}
+
+	return items
 }
 
 // batchProgressHandler maps retry-local progress back to original input
