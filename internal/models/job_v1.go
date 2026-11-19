@@ -86,9 +86,9 @@ type CancelJobResponseV1 struct {
 	Error   *JobErrorV1 `json:"error,omitempty"`
 }
 
-// JobListResponseV1 lists the active and recent orchestrator jobs, newest
-// first. It backs the background task activity view so the UI can render every
-// tracked task without polling each job id.
+// JobListResponseV1 lists the active and recent engine jobs, newest first. It
+// backs the background task activity view so the UI can render every tracked
+// task without polling each job id.
 type JobListResponseV1 struct {
 	Success bool          `json:"success"`
 	Message string        `json:"message"`

@@ -90,7 +90,7 @@ func (s *Store) RecordJob(job models.JobResultV1) {
 }
 
 // RecordOutputs records explicit outputs for jobs that do not run through the
-// orchestrator, such as recipe runs. The same fingerprint and dedupe rules as
+// job engine, such as recipe runs. The same fingerprint and dedupe rules as
 // RecordJob apply.
 func (s *Store) RecordOutputs(jobID, toolID string, outputs []string) {
 	s.record(jobID, toolID, outputs, time.Now().UnixMilli())

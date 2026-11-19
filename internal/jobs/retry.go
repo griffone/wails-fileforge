@@ -8,8 +8,6 @@ import (
 	"fileforge-desktop/internal/models"
 )
 
-const maxRetryAttempts = 3
-
 var retryBackoffSchedule = []time.Duration{
 	250 * time.Millisecond,
 	500 * time.Millisecond,

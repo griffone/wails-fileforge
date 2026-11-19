@@ -85,8 +85,8 @@ func newHistoryTestService(t *testing.T, tool *historyFakeTool) (*ToolingService
 	}
 
 	history := jobhistory.NewStore(filepath.Join(dir, "history", "job_history_v1.json"))
-	// No SetContext call: the orchestrator keeps an empty persistence path, so
-	// the test never touches the real user config directory.
+	// No SetContext call: the engine keeps an empty persistence path, so the
+	// test never touches the real user config directory.
 	return newToolingService(reg, history), dir
 }
 

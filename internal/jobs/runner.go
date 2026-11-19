@@ -366,3 +366,92 @@ func cancelledJobError(ctx context.Context, attempts int, lastErr *models.JobErr
 
 	return models.NewCanonicalJobError("JOB_CANCELLED", message, retryMetadata(attempts, lastErr))
 }
+
+func normalizeItemError(item models.JobResultItemV1) models.JobResultItemV1 {
+	if item.Error != nil {
+		item.Error = normalizeJobError(item.Error)
+	}
+
+	return item
+}
+
+func normalizeItemsErrors(items []models.JobResultItemV1) []models.JobResultItemV1 {
+	normalized := make([]models.JobResultItemV1, len(items))
+	for index := range items {
+		normalized[index] = normalizeItemError(items[index])
+	}
+
+	return normalized
+}
+
+// deriveBatchFinalState maps per-item outcomes to the job status and message.
+func deriveBatchFinalState(items []models.JobResultItemV1) (string, string) {
+	if len(items) == 0 {
+		return StatusFailed, "job failed"
+	}
+
+	successCount := 0
+	for _, item := range items {
+		if item.Success {
+			successCount++
+		}
+	}
+
+	switch {
+	case successCount == len(items):
+		return StatusSuccess, "job success"
+	case successCount == 0:
+		return StatusFailed, "job failed"
+	default:
+		return StatusPartialSuccess, "job partial success"
+	}
+}
+
+// alignBatchItems guarantees one item per input position. Missing results are
+// reported as failures and extra results are appended unchanged.
+func alignBatchItems(items []models.JobResultItemV1, inputPaths []string) []models.JobResultItemV1 {
+	aligned := make([]models.JobResultItemV1, 0, max(len(items), len(inputPaths)))
+	for index, inputPath := range inputPaths {
+		if index < len(items) {
+			aligned = append(aligned, items[index])
+			continue
+		}
+		aligned = append(aligned, models.JobResultItemV1{
+			InputPath: inputPath,
+			Success:   false,
+			Message:   "no result returned for input",
+		})
+	}
+
+	if len(items) > len(inputPaths) {
+		aligned = append(aligned, items[len(inputPaths):]...)
+	}
+
+	return aligned
+}
+
+func maxAttemptCount(attempts []int) int {
+	highest := 1
+	for _, attempt := range attempts {
+		highest = max(highest, attempt)
+	}
+
+	return highest
+}
+
+// decorateBatchItems records per-item attempts and derived retry counts.
+func decorateBatchItems(items []models.JobResultItemV1, attempts []int) []models.JobResultItemV1 {
+	decorated := make([]models.JobResultItemV1, len(items))
+	for index := range items {
+		item := items[index]
+		attempt := 1
+		if index < len(attempts) && attempts[index] > 0 {
+			attempt = attempts[index]
+		}
+		item.Attempts = attempt
+		item.RetryCount = max(0, attempt-1)
+		decorated[index] = item
+	}
+
+	return decorated
+}

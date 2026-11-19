@@ -592,7 +592,7 @@ func imageOCREngineJobError(ocrErr *ImageOCRError, extraDetails map[string]any) 
 }
 
 // imageOCRExecutionError maps a failed execution to a job error. Cancellation
-// wins over the generic execution/item code so the orchestrator reports
+// wins over the generic execution/item code so the job engine reports
 // CANCELLED_BY_USER, including when the last batch item is interrupted.
 func imageOCRExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobErrorV1, bool) {
 	if imageOCRIsCancellation(ctx, execErr) {

@@ -960,7 +960,7 @@ func compressCancelledError(ctx context.Context) *models.JobErrorV1 {
 }
 
 // compressExecutionError maps a failed execution to a job error. Cancellation
-// wins over the generic execution/item code so the orchestrator reports
+// wins over the generic execution/item code so the job engine reports
 // CANCELLED_BY_USER, including when the last batch item is interrupted. The raw
 // cause stays in Details while the message remains user-facing.
 func compressExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobErrorV1, bool) {

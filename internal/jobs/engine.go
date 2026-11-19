@@ -212,6 +212,31 @@ func (e *Engine) hasJobs() bool {
 	return len(e.jobs) > 0
 }
 
+// normalizeJobError returns a canonical copy of a tool error: the detail code
+// doubles as the canonical code and the details map is copied so callers never
+// share mutable state with a tool.
+func normalizeJobError(jobErr *models.JobErrorV1) *models.JobErrorV1 {
+	if jobErr == nil {
+		return nil
+	}
+
+	details := jobErr.Details
+	if len(details) > 0 {
+		copied := make(map[string]any, len(details))
+		for key, value := range details {
+			copied[key] = value
+		}
+		details = copied
+	}
+
+	detailCode := jobErr.DetailCode
+	if detailCode == "" {
+		detailCode = jobErr.Code
+	}
+
+	return models.NewCanonicalJobError(detailCode, jobErr.Message, details)
+}
+
 func (e *Engine) jobParentContext(ctx context.Context) context.Context {
 	e.baseMu.RLock()
 	base := e.baseCtx

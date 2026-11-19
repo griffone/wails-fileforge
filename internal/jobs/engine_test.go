@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -1049,5 +1050,573 @@ func TestEngineShutdownIdempotentAndNoGoroutineLeak(t *testing.T) {
 			t.Fatalf("goroutines before=%d after=%d, possible leak", before, after)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestEngineOnJobCompleteRunsOnceForTerminalJob(t *testing.T) {
+	tests := []struct {
+		name       string
+		fail       bool
+		wantStatus string
+	}{
+		{name: "success", wantStatus: StatusSuccess},
+		{name: "failure", fail: true, wantStatus: StatusFailed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tool := &fakeSingleFileTool{
+				id:         "tool.fake.hook." + tt.name,
+				outputPath: filepath.Join(t.TempDir(), "output.pdf"),
+				fail:       tt.fail,
+			}
+			completions := make(chan models.JobResultV1, 4)
+			engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+				Limits:        Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+				OnJobComplete: func(result models.JobResultV1) { completions <- result },
+			})
+
+			response := submitTestJob(t, engine, models.JobRequestV1{
+				ToolID:     tool.id,
+				Mode:       "single",
+				InputPaths: []string{"/tmp/fileforge-hook-input.pdf"},
+			})
+			result := awaitEngineJob(t, engine, response.JobID)
+			if result.Status != tt.wantStatus {
+				t.Fatalf("job status = %s, want %s", result.Status, tt.wantStatus)
+			}
+
+			results := awaitJobCompletions(t, completions, 1)
+			completion := results[0]
+			if completion.JobID != response.JobID || completion.ToolID != tool.id {
+				t.Fatalf("completion = %+v, want job %s of %s", completion, response.JobID, tool.id)
+			}
+			if completion.Status != tt.wantStatus {
+				t.Fatalf("completion status = %s, want %s", completion.Status, tt.wantStatus)
+			}
+			assertNoExtraCompletion(t, completions, 100*time.Millisecond)
+		})
+	}
+}
+
+func TestEngineOnJobCompleteNeverRunsForQueuedOrRunningJobs(t *testing.T) {
+	gate := newReleaseGate()
+	started := make(chan struct{}, 2)
+	tool := &fakeSingleFileTool{
+		id:         "tool.fake.hook.pending",
+		outputPath: filepath.Join(t.TempDir(), "output.pdf"),
+		started:    started,
+		waitFor:    gate.ch,
+	}
+	completions := make(chan models.JobResultV1, 4)
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits:        Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+		OnJobComplete: func(result models.JobResultV1) { completions <- result },
+	})
+	t.Cleanup(gate.close)
+
+	first := submitTestJob(t, engine, models.JobRequestV1{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{"/tmp/fileforge-hook-a.pdf"},
+	})
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the first job to start")
+	}
+
+	second := submitTestJob(t, engine, models.JobRequestV1{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{"/tmp/fileforge-hook-b.pdf"},
+	})
+
+	select {
+	case completion := <-completions:
+		t.Fatalf("completion hook ran for a queued or running job: %+v", completion)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	gate.close()
+
+	for _, jobID := range []string{first.JobID, second.JobID} {
+		if result := awaitEngineJob(t, engine, jobID); result.Status != StatusSuccess {
+			t.Fatalf("job %s status = %s, want success", jobID, result.Status)
+		}
+	}
+
+	results := awaitJobCompletions(t, completions, 2)
+	seen := make(map[string]struct{}, len(results))
+	for _, completion := range results {
+		seen[completion.JobID] = struct{}{}
+	}
+	for _, jobID := range []string{first.JobID, second.JobID} {
+		if _, found := seen[jobID]; !found {
+			t.Fatalf("missing completion callback for job %s: %+v", jobID, results)
+		}
+	}
+	assertNoExtraCompletion(t, completions, 100*time.Millisecond)
+}
+
+func TestEngineOnJobCompleteIgnoresRecoveredJobs(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "jobs.json")
+	persisted := []models.JobResultV1{{
+		JobID:   "job_interrupted",
+		ToolID:  "tool.fake.recovery",
+		Status:  StatusRunning,
+		Message: "running",
+	}}
+	payload, err := json.Marshal(persisted)
+	if err != nil {
+		t.Fatalf("encode persisted jobs: %v", err)
+	}
+	if err := os.WriteFile(storePath, payload, 0o644); err != nil {
+		t.Fatalf("write persisted jobs: %v", err)
+	}
+
+	completions := make(chan models.JobResultV1, 1)
+	engine := newTestEngine(t, newEngineResolver(t), Options{
+		PersistencePath: storePath,
+		OnJobComplete:   func(result models.JobResultV1) { completions <- result },
+	})
+
+	if err := engine.Recover(context.Background()); err != nil {
+		t.Fatalf("recover jobs: %v", err)
+	}
+
+	assertNoExtraCompletion(t, completions, 100*time.Millisecond)
+
+	job, found := engine.Get("job_interrupted")
+	if !found {
+		t.Fatal("expected the recovered job to be available")
+	}
+	if job.Status != StatusInterrupted {
+		t.Fatalf("recovered job status = %s, want interrupted", job.Status)
+	}
+}
+
+func TestEngineListSortsNewestFirstAndAppliesLimit(t *testing.T) {
+	engine := newTestEngine(t, newEngineResolver(t), Options{})
+	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_old", StartedAt: 100, Status: StatusSuccess})
+	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_tie_a", StartedAt: 200, Status: StatusSuccess})
+	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_tie_b", StartedAt: 200, Status: StatusSuccess})
+	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_stage", StartedAt: 150, Status: "ocr"})
+	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_new", StartedAt: 300, Status: StatusRunning})
+
+	t.Run("default limit returns every job newest first", func(t *testing.T) {
+		assertEngineJobOrder(t, engine.List(0), []string{"job_new", "job_tie_b", "job_tie_a", "job_stage", "job_old"})
+	})
+
+	t.Run("positive limit caps the list", func(t *testing.T) {
+		assertEngineJobOrder(t, engine.List(2), []string{"job_new", "job_tie_b"})
+	})
+}
+
+func TestEngineListReturnsEmptyNonNilSlice(t *testing.T) {
+	engine := newTestEngine(t, newEngineResolver(t), Options{})
+
+	jobs := engine.List(0)
+	if jobs == nil {
+		t.Fatal("expected an empty non-nil slice")
+	}
+	if len(jobs) != 0 {
+		t.Fatalf("expected no jobs, got %+v", jobs)
+	}
+}
+
+func TestEngineTerminalRetentionKeepsNewestTerminalJobs(t *testing.T) {
+	engine := newTestEngine(t, newEngineResolver(t), Options{})
+	for index := 1; index <= retainedTerminalJobs+5; index++ {
+		seedEngineJob(t, engine, models.JobResultV1{
+			JobID:     engineJobIDForIndex(index),
+			StartedAt: int64(index),
+			Status:    StatusSuccess,
+		})
+	}
+	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_active_old", StartedAt: 1, Status: StatusRunning})
+	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_active_stage", StartedAt: 2, Status: "processing"})
+
+	engine.pruneTerminalJobs()
+
+	ids := engineTrackedJobIDs(engine)
+	if len(ids) != retainedTerminalJobs+2 {
+		t.Fatalf("expected %d retained jobs, got %d", retainedTerminalJobs+2, len(ids))
+	}
+	for index := 1; index <= 5; index++ {
+		if _, found := ids[engineJobIDForIndex(index)]; found {
+			t.Fatalf("expected the oldest terminal job %s to be pruned", engineJobIDForIndex(index))
+		}
+	}
+	if _, found := ids[engineJobIDForIndex(retainedTerminalJobs+5)]; !found {
+		t.Fatalf("expected the newest terminal job %s to be retained", engineJobIDForIndex(retainedTerminalJobs+5))
+	}
+	for _, jobID := range []string{"job_active_old", "job_active_stage"} {
+		if _, found := ids[jobID]; !found {
+			t.Fatalf("expected the non-terminal job %s to survive pruning", jobID)
+		}
+	}
+}
+
+func TestEngineSnapshotKeepsActiveAndNewestTerminalJobs(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "state", "jobs.json")
+	engine := newTestEngine(t, newEngineResolver(t), Options{
+		PersistencePath: storePath,
+		Debounce:        10 * time.Millisecond,
+	})
+
+	for index := 1; index <= retainedTerminalJobs+5; index++ {
+		seedEngineJob(t, engine, models.JobResultV1{
+			JobID:     engineJobIDForIndex(index),
+			StartedAt: int64(index),
+			Status:    StatusSuccess,
+		})
+	}
+	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_queued", StartedAt: 500, Status: StatusQueued})
+	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_running", StartedAt: 501, Status: StatusRunning})
+
+	engine.persistNow()
+
+	persisted := readEnginePersistedJobs(t, storePath)
+	if len(persisted) != retainedTerminalJobs+2 {
+		t.Fatalf("expected %d persisted jobs, got %d", retainedTerminalJobs+2, len(persisted))
+	}
+
+	persistedIDs := make(map[string]struct{}, len(persisted))
+	for _, job := range persisted {
+		persistedIDs[job.JobID] = struct{}{}
+	}
+	for _, jobID := range []string{"job_queued", "job_running"} {
+		if _, found := persistedIDs[jobID]; !found {
+			t.Fatalf("expected the active job %s to be persisted", jobID)
+		}
+	}
+	for index := 1; index <= 5; index++ {
+		if _, found := persistedIDs[engineJobIDForIndex(index)]; found {
+			t.Fatalf("expected the oldest terminal job %s to be excluded", engineJobIDForIndex(index))
+		}
+	}
+	if _, found := persistedIDs[engineJobIDForIndex(retainedTerminalJobs+5)]; !found {
+		t.Fatalf("expected the newest terminal job %s to be persisted", engineJobIDForIndex(retainedTerminalJobs+5))
+	}
+
+	info, err := os.Stat(storePath)
+	if err != nil {
+		t.Fatalf("stat persisted jobs: %v", err)
+	}
+	if permissions := info.Mode().Perm(); permissions != 0o644 {
+		t.Fatalf("expected 0644 permissions, got %o", permissions)
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(storePath))
+	if err != nil {
+		t.Fatalf("read persistence directory: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() != filepath.Base(storePath) {
+			t.Fatalf("expected no leftover temp files, found %s", entry.Name())
+		}
+	}
+}
+
+func TestEngineRecoverRestoresTerminalAndInterruptsActive(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "jobs.json")
+	persisted := []models.JobResultV1{
+		{
+			JobID:     "job_terminal",
+			ToolID:    "tool.fake.recovery",
+			Success:   true,
+			Message:   "job success",
+			Status:    StatusSuccess,
+			StartedAt: 100,
+			EndedAt:   200,
+		},
+		{
+			JobID:     "job_running",
+			ToolID:    "tool.fake.recovery",
+			Message:   "running",
+			Status:    StatusRunning,
+			Progress:  models.JobProgressV1{Current: 3, Total: 2, Stage: StatusRunning, Message: "running"},
+			StartedAt: 300,
+		},
+		{
+			JobID:     "job_queued",
+			ToolID:    "tool.fake.recovery",
+			Message:   "job queued",
+			Status:    StatusQueued,
+			StartedAt: 400,
+		},
+		{
+			JobID:     "job_ocr",
+			ToolID:    "tool.fake.recovery",
+			Message:   "ocr in progress",
+			Status:    "ocr",
+			Progress:  models.JobProgressV1{Current: 1, Total: 4, Stage: "ocr"},
+			StartedAt: 500,
+		},
+	}
+	payload, err := json.Marshal(persisted)
+	if err != nil {
+		t.Fatalf("encode persisted jobs: %v", err)
+	}
+	if err := os.WriteFile(storePath, payload, 0o644); err != nil {
+		t.Fatalf("write persisted jobs: %v", err)
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t), Options{PersistencePath: storePath})
+	if err := engine.Recover(context.Background()); err != nil {
+		t.Fatalf("recover jobs: %v", err)
+	}
+
+	terminal, found := engine.Get("job_terminal")
+	if !found {
+		t.Fatal("expected the terminal job to be restored")
+	}
+	if terminal.Status != StatusSuccess || !terminal.Success || terminal.Message != "job success" {
+		t.Fatalf("expected the terminal job to be restored as-is, got %+v", terminal)
+	}
+	if terminal.StartedAt != 100 || terminal.EndedAt != 200 {
+		t.Fatalf("expected the terminal timestamps to be preserved, got started=%d ended=%d", terminal.StartedAt, terminal.EndedAt)
+	}
+
+	for _, jobID := range []string{"job_running", "job_queued", "job_ocr"} {
+		job, found := engine.Get(jobID)
+		if !found {
+			t.Fatalf("expected the recovered job %s to be available", jobID)
+		}
+		if job.Status != StatusInterrupted || job.Success {
+			t.Fatalf("expected %s to be interrupted, got %+v", jobID, job)
+		}
+		if job.Message != "job interrupted after restart" {
+			t.Fatalf("expected the interruption message for %s, got %q", jobID, job.Message)
+		}
+		if job.EndedAt == 0 {
+			t.Fatalf("expected an end timestamp for the interrupted job %s", jobID)
+		}
+		if job.Error == nil || job.Error.DetailCode != "JOB_INTERRUPTED" {
+			t.Fatalf("expected the JOB_INTERRUPTED error for %s, got %+v", jobID, job.Error)
+		}
+		if job.Progress.Stage != StatusInterrupted {
+			t.Fatalf("expected interrupted progress stage for %s, got %+v", jobID, job.Progress)
+		}
+		if job.Progress.Message == "" {
+			t.Fatalf("expected a progress message for %s, got %+v", jobID, job.Progress)
+		}
+		if jobID == "job_ocr" && job.Progress.Message != "interrupted" {
+			t.Fatalf("expected the empty ocr progress message to be replaced, got %q", job.Progress.Message)
+		}
+		if job.Progress.Total > 0 && job.Progress.Current > job.Progress.Total {
+			t.Fatalf("expected progress to stay within the total for %s, got %+v", jobID, job.Progress)
+		}
+	}
+
+	recovered := readEnginePersistedJobs(t, storePath)
+	if len(recovered) != len(persisted) {
+		t.Fatalf("expected %d persisted jobs after recovery, got %d", len(persisted), len(recovered))
+	}
+	for _, job := range recovered {
+		if !isTerminalJobStatus(job.Status) {
+			t.Fatalf("expected only terminal jobs after recovery, got %s (%s)", job.Status, job.JobID)
+		}
+	}
+}
+
+func TestEngineValidateResponseShapes(t *testing.T) {
+	invalidErr := models.NewCanonicalJobError("IMAGE_INPUT_MISSING", "input missing", nil)
+	validTool := &engineFakeTool{id: "tool.fake.validate.ok"}
+	invalidTool := &engineFakeTool{id: "tool.fake.validate.bad", validateErr: invalidErr}
+	engine := newTestEngine(t, newEngineResolver(t, validTool, invalidTool), Options{})
+
+	t.Run("valid request", func(t *testing.T) {
+		response := engine.Validate(context.Background(), models.JobRequestV1{ToolID: validTool.id})
+		if !response.Success || !response.Valid {
+			t.Fatalf("response = %+v, want a valid result", response)
+		}
+		if response.Message != "job request is valid" || response.Error != nil {
+			t.Fatalf("response = %+v, want the canonical valid message", response)
+		}
+	})
+
+	t.Run("invalid request", func(t *testing.T) {
+		response := engine.Validate(context.Background(), models.JobRequestV1{ToolID: invalidTool.id})
+		if response.Success || response.Valid {
+			t.Fatalf("response = %+v, want an invalid result", response)
+		}
+		if response.Message != "validation failed" {
+			t.Fatalf("message = %q, want validation failed", response.Message)
+		}
+		if response.Error == nil || response.Error.DetailCode != "IMAGE_INPUT_MISSING" {
+			t.Fatalf("error = %+v, want IMAGE_INPUT_MISSING", response.Error)
+		}
+	})
+
+	t.Run("unknown tool", func(t *testing.T) {
+		response := engine.Validate(context.Background(), models.JobRequestV1{ToolID: "tool.unknown"})
+		if response.Success || response.Valid {
+			t.Fatalf("response = %+v, want an invalid result", response)
+		}
+		if response.Message != "tool not found" {
+			t.Fatalf("message = %q, want tool not found", response.Message)
+		}
+		if response.Error == nil || response.Error.DetailCode != "TOOL_NOT_FOUND" {
+			t.Fatalf("error = %+v, want TOOL_NOT_FOUND", response.Error)
+		}
+	})
+}
+
+func TestEnginePlanDelegatesToPlannerTool(t *testing.T) {
+	planned := models.PlannedOutputV1{
+		InputPath:  "/tmp/input.png",
+		OutputPath: "/tmp/input.webp",
+		OutputKind: "file",
+	}
+	tool := &fakePlannerTool{
+		id: "tool.fake.plan",
+		plan: models.PlanJobResponseV1{
+			Success: true,
+			Message: "ready",
+			Outputs: []models.PlannedOutputV1{planned},
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{})
+	plan := engine.Plan(context.Background(), models.JobRequestV1{ToolID: tool.id, Mode: "single", InputPaths: []string{planned.InputPath}})
+
+	if !tool.called {
+		t.Fatal("expected the planner tool to be called")
+	}
+	if !plan.Success {
+		t.Fatalf("expected successful plan, got %q", plan.Message)
+	}
+	if len(plan.Outputs) != 1 || plan.Outputs[0].OutputPath != planned.OutputPath {
+		t.Fatalf("expected planned output %q, got %+v", planned.OutputPath, plan.Outputs)
+	}
+	if plan.Error != nil {
+		t.Fatalf("expected no plan error, got %+v", plan.Error)
+	}
+}
+
+func TestEnginePlanReportsUnsupportedTool(t *testing.T) {
+	batchTool := &fakeBatchTool{id: "tool.no.plan"}
+	engine := newTestEngine(t, newEngineResolver(t, batchTool), Options{})
+
+	plan := engine.Plan(context.Background(), models.JobRequestV1{ToolID: batchTool.id, Mode: "batch"})
+	if plan.Success {
+		t.Fatal("expected unsupported plan to fail")
+	}
+	if plan.Error == nil || plan.Error.DetailCode != "PLAN_UNSUPPORTED" {
+		t.Fatalf("expected PLAN_UNSUPPORTED, got %+v", plan.Error)
+	}
+	if plan.Outputs == nil {
+		t.Fatal("expected a non-nil outputs slice")
+	}
+}
+
+func TestEnginePlanReportsUnknownTool(t *testing.T) {
+	tool := &fakePlannerTool{id: "tool.known"}
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{})
+
+	plan := engine.Plan(context.Background(), models.JobRequestV1{ToolID: "tool.unknown"})
+	if plan.Success {
+		t.Fatal("expected unknown tool plan to fail")
+	}
+	if plan.Error == nil || plan.Error.DetailCode != "TOOL_NOT_FOUND" {
+		t.Fatalf("expected TOOL_NOT_FOUND, got %+v", plan.Error)
+	}
+	if plan.Outputs == nil {
+		t.Fatal("expected a non-nil outputs slice")
+	}
+}
+
+func TestEnginePlanSurfacesPlannerError(t *testing.T) {
+	tool := &fakePlannerTool{
+		id:      "tool.fake.failing",
+		plan:    models.PlanJobResponseV1{Message: "conflict"},
+		planErr: models.NewCanonicalJobError("IMAGE_OUTPUT_EXISTS", "output already exists", nil),
+	}
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{})
+
+	plan := engine.Plan(context.Background(), models.JobRequestV1{ToolID: tool.id, Mode: "single"})
+	if plan.Success {
+		t.Fatal("expected failing plan")
+	}
+	if plan.Error == nil {
+		t.Fatal("expected a plan error")
+	}
+	if plan.Error.DetailCode != "IMAGE_OUTPUT_EXISTS" {
+		t.Fatalf("expected detail code IMAGE_OUTPUT_EXISTS, got %q", plan.Error.DetailCode)
+	}
+}
+
+func seedEngineJob(t *testing.T, engine *Engine, result models.JobResultV1) {
+	t.Helper()
+
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.jobs[result.JobID] = &jobState{
+		engine:   engine,
+		result:   result,
+		terminal: isTerminalJobStatus(result.Status),
+		done:     make(chan struct{}),
+	}
+}
+
+func engineTrackedJobIDs(engine *Engine) map[string]struct{} {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+
+	ids := make(map[string]struct{}, len(engine.jobs))
+	for jobID := range engine.jobs {
+		ids[jobID] = struct{}{}
+	}
+
+	return ids
+}
+
+func assertEngineJobOrder(t *testing.T, jobs []models.JobResultV1, want []string) {
+	t.Helper()
+
+	if len(jobs) != len(want) {
+		t.Fatalf("expected %v, got %d jobs", want, len(jobs))
+	}
+	for index := range want {
+		if jobs[index].JobID != want[index] {
+			got := make([]string, len(jobs))
+			for jobIndex, job := range jobs {
+				got[jobIndex] = job.JobID
+			}
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+	}
+}
+
+func engineJobIDForIndex(index int) string {
+	return fmt.Sprintf("job_terminal_%02d", index)
+}
+
+func awaitJobCompletions(t *testing.T, completions <-chan models.JobResultV1, want int) []models.JobResultV1 {
+	t.Helper()
+
+	results := make([]models.JobResultV1, 0, want)
+	deadline := time.After(5 * time.Second)
+	for len(results) < want {
+		select {
+		case result := <-completions:
+			results = append(results, result)
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d completion callbacks, got %d", want, len(results))
+		}
+	}
+
+	return results
+}
+
+func assertNoExtraCompletion(t *testing.T, completions <-chan models.JobResultV1, window time.Duration) {
+	t.Helper()
+
+	select {
+	case extra := <-completions:
+		t.Fatalf("unexpected extra completion callback: %+v", extra)
+	case <-time.After(window):
 	}
 }
