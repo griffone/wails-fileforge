@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
@@ -59,6 +62,12 @@ type ConvertDOCXRequest struct {
 	// has no PDF/A output, so the fallback is refused instead of silently
 	// producing a non-archival PDF.
 	PDFA bool
+	// SkipProtectedCheck skips the ZIP protection scan. Callers that already
+	// ran DetectProtectedDOCX during planning set it to avoid scanning twice.
+	SkipProtectedCheck bool
+	// SkipRuntimeCheck skips the runtime probe. Callers that already validated
+	// the runtime during planning set it to avoid probing twice.
+	SkipRuntimeCheck bool
 }
 
 type ConvertDOCXResult struct {
@@ -151,12 +160,16 @@ func ConvertDOCX(ctx context.Context, probe RuntimeProbe, runner CommandRunner, 
 		runner = &ExecCommandRunner{}
 	}
 
-	if err := probe.Check(ctx); err != nil {
-		return ConvertDOCXResult{}, err
+	if !req.SkipRuntimeCheck {
+		if err := probe.Check(ctx); err != nil {
+			return ConvertDOCXResult{}, err
+		}
 	}
 
-	if err := DetectProtectedDOCX(req.InputPath); err != nil {
-		return ConvertDOCXResult{}, err
+	if !req.SkipProtectedCheck {
+		if err := DetectProtectedDOCX(req.InputPath); err != nil {
+			return ConvertDOCXResult{}, err
+		}
 	}
 
 	primaryErr := runLibreOffice(ctx, runner, req.InputPath, req.OutputPath, req.PDFA)
@@ -210,7 +223,23 @@ func runLibreOffice(ctx context.Context, runner CommandRunner, inputPath, output
 	}
 	defer func() { _ = os.RemoveAll(tmpOutDir) }()
 
-	result, execErr := runner.Run(ctx, "libreoffice", "--headless", "--convert-to", libreOfficeConvertTo(pdfa), "--outdir", tmpOutDir, inputPath)
+	// A per-conversion user profile keeps parallel conversions from sharing
+	// LibreOffice's single-instance lock and profile state.
+	profileDir, err := os.MkdirTemp("", "fileforge-docx2pdf-profile-")
+	if err != nil {
+		return &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "unable to prepare libreoffice profile dir", Cause: err}
+	}
+	defer func() { _ = os.RemoveAll(profileDir) }()
+
+	result, execErr := runner.Run(
+		ctx,
+		"libreoffice",
+		"--headless",
+		"-env:UserInstallation="+fileURL(profileDir),
+		"--convert-to", libreOfficeConvertTo(pdfa),
+		"--outdir", tmpOutDir,
+		inputPath,
+	)
 	if execErr != nil {
 		if err := mapProtectedFromExecution(result.Stdout + "\n" + result.Stderr); err != nil {
 			return err
@@ -239,7 +268,20 @@ func runLibreOffice(ctx context.Context, runner CommandRunner, inputPath, output
 }
 
 func runPandoc(ctx context.Context, runner CommandRunner, inputPath, outputPath string) error {
-	result, execErr := runner.Run(ctx, "pandoc", inputPath, "-o", outputPath)
+	// Pandoc writes to a sibling temp file first so a failure can never leave a
+	// partial file at the destination.
+	tempPath, err := createSiblingTemp(outputPath, ".pdf")
+	if err != nil {
+		return &DOCXError{Code: ErrorCodeDocxFallbackExecution, Message: "unable to prepare pandoc output", Cause: err}
+	}
+	published := false
+	defer func() {
+		if !published {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	result, execErr := runner.Run(ctx, "pandoc", inputPath, "-o", tempPath)
 	if execErr != nil {
 		if err := mapProtectedFromExecution(result.Stdout + "\n" + result.Stderr); err != nil {
 			return err
@@ -251,9 +293,14 @@ func runPandoc(ctx context.Context, runner CommandRunner, inputPath, outputPath 
 		return err
 	}
 
-	if _, err := os.Stat(outputPath); err != nil {
+	if _, err := os.Stat(tempPath); err != nil {
 		return &DOCXError{Code: ErrorCodeDocxFallbackExecution, Message: "pandoc did not produce output pdf", Cause: err}
 	}
+
+	if err := fsx.ReplaceFile(tempPath, outputPath); err != nil {
+		return &DOCXError{Code: ErrorCodeDocxFallbackExecution, Message: "unable to finalize pandoc output", Cause: err}
+	}
+	published = true
 
 	return nil
 }
@@ -333,23 +380,82 @@ func detectFontIssue(logOutput string) error {
 	return nil
 }
 
+// moveFile moves srcPath over dstPath. A same-device rename is preferred; the
+// cross-device fallback streams through a sibling temp file and publishes it
+// atomically, so a failed copy never leaves a partial destination.
 func moveFile(srcPath, dstPath string) error {
 	if err := os.Rename(srcPath, dstPath); err == nil {
 		return nil
 	}
 
-	input, err := os.ReadFile(srcPath)
+	source, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = source.Close() }()
+
+	tempPath, err := createSiblingTemp(dstPath, ".tmp")
+	if err != nil {
+		return err
+	}
+	published := false
+	defer func() {
+		if !published {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	target, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}
 
-	if writeErr := os.WriteFile(dstPath, input, 0o644); writeErr != nil {
-		return writeErr
+	if _, err := io.Copy(target, source); err != nil {
+		_ = target.Close()
+		return err
 	}
+	if err := target.Sync(); err != nil {
+		_ = target.Close()
+		return err
+	}
+	if err := target.Close(); err != nil {
+		return err
+	}
+	if err := source.Close(); err != nil {
+		return err
+	}
+
+	if err := fsx.ReplaceFile(tempPath, dstPath); err != nil {
+		return err
+	}
+	published = true
 
 	if rmErr := os.Remove(srcPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
 		return rmErr
 	}
 
 	return nil
+}
+
+// fileURL converts a filesystem path into a file:// URL that LibreOffice
+// accepts on Windows and POSIX hosts.
+func fileURL(path string) string {
+	slashPath := filepath.ToSlash(path)
+
+	// UNC paths: file://server/share/...
+	if strings.HasPrefix(slashPath, "//") {
+		rest := strings.TrimPrefix(slashPath, "//")
+		host, tail, found := strings.Cut(rest, "/")
+		if found {
+			return (&url.URL{Scheme: "file", Host: host, Path: "/" + tail}).String()
+		}
+		return (&url.URL{Scheme: "file", Host: rest}).String()
+	}
+
+	// Windows drive paths: file:///C:/...
+	if len(slashPath) >= 2 && slashPath[1] == ':' {
+		slashPath = "/" + slashPath
+	}
+
+	return (&url.URL{Scheme: "file", Path: slashPath}).String()
 }

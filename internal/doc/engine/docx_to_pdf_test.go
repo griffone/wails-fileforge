@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -294,5 +295,186 @@ func TestConvertDOCXPDFADoesNotFallbackToPandoc(t *testing.T) {
 	}
 	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("expected no non-archival output file, got %v", statErr)
+	}
+}
+
+type countingRuntimeProbe struct {
+	err   error
+	calls int
+}
+
+func (p *countingRuntimeProbe) Check(_ context.Context) error {
+	p.calls++
+	return p.err
+}
+
+func TestRunLibreOfficeUsesIsolatedProfile(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.docx")
+	outputPath := filepath.Join(dir, "output.pdf")
+	writeTestDOCX(t, inputPath)
+
+	var profileURL string
+	var profilePath string
+	runner := &fakeCommandRunner{run: func(_ context.Context, name string, args ...string) (CommandResult, error) {
+		if name != "libreoffice" {
+			t.Fatalf("expected libreoffice, got %q", name)
+		}
+
+		outDir := ""
+		for index := 0; index < len(args); index++ {
+			switch {
+			case strings.HasPrefix(args[index], "-env:UserInstallation="):
+				profileURL = strings.TrimPrefix(args[index], "-env:UserInstallation=")
+			case args[index] == "--outdir":
+				outDir = args[index+1]
+				index++
+			}
+		}
+		if profileURL == "" {
+			t.Fatalf("expected a per-conversion UserInstallation profile, got %v", args)
+		}
+
+		parsed, err := url.Parse(profileURL)
+		if err != nil {
+			t.Fatalf("parse profile URL %q: %v", profileURL, err)
+		}
+		if parsed.Scheme != "file" {
+			t.Fatalf("expected a file URL, got %q", profileURL)
+		}
+		profilePath = parsed.Path
+		if _, statErr := os.Stat(profilePath); statErr != nil {
+			t.Fatalf("expected the profile dir to exist during conversion: %v", statErr)
+		}
+
+		converted := filepath.Join(outDir, strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))+".pdf")
+		if err := os.WriteFile(converted, []byte("%PDF-1.7 libreoffice"), 0o644); err != nil {
+			t.Fatalf("write libreoffice output: %v", err)
+		}
+
+		return CommandResult{}, nil
+	}}
+
+	if err := runLibreOffice(context.Background(), runner, inputPath, outputPath, false); err != nil {
+		t.Fatalf("expected libreoffice conversion to succeed, got %v", err)
+	}
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Fatalf("expected converted output: %v", err)
+	}
+	if profilePath == "" {
+		t.Fatal("expected a captured profile path")
+	}
+	if _, err := os.Stat(profilePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected the profile dir to be removed, got %v", err)
+	}
+}
+
+func TestRunPandocFailureRemovesTemp(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.docx")
+	outputPath := filepath.Join(dir, "output.pdf")
+	writeTestDOCX(t, inputPath)
+
+	runner := &fakeCommandRunner{run: func(_ context.Context, name string, _ ...string) (CommandResult, error) {
+		if name != "pandoc" {
+			t.Fatalf("expected pandoc, got %q", name)
+		}
+		return CommandResult{Stderr: "pandoc exploded"}, errors.New("pandoc exploded")
+	}}
+
+	if err := runPandoc(context.Background(), runner, inputPath, outputPath); err == nil {
+		t.Fatal("expected pandoc to fail")
+	}
+	if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no final output, got %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read output dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".pdf") {
+			t.Fatalf("expected the temp pdf to be removed, found %q", entry.Name())
+		}
+	}
+}
+
+func TestConvertDOCXSkipsRuntimeCheckWhenRequested(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.docx")
+	outputPath := filepath.Join(dir, "output.pdf")
+	writeTestDOCX(t, inputPath)
+
+	probe := &countingRuntimeProbe{err: errors.New("runtime missing")}
+	runner := libreOfficePDFRunner(t, "pdf")
+
+	result, err := ConvertDOCX(context.Background(), probe, runner, ConvertDOCXRequest{
+		InputPath:        inputPath,
+		OutputPath:       outputPath,
+		SkipRuntimeCheck: true,
+	})
+	if err != nil {
+		t.Fatalf("expected conversion to skip the runtime probe, got %v", err)
+	}
+	if result.EngineUsed != EngineLibreOffice {
+		t.Fatalf("expected libreoffice output, got %+v", result)
+	}
+	if probe.calls != 0 {
+		t.Fatalf("expected no runtime probe calls, got %d", probe.calls)
+	}
+}
+
+func TestConvertDOCXSkipsProtectedScanWhenRequested(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.docx")
+	if err := os.WriteFile(inputPath, []byte("not a valid zip package"), 0o644); err != nil {
+		t.Fatalf("write invalid docx: %v", err)
+	}
+	outputPath := filepath.Join(dir, "output.pdf")
+
+	runner := libreOfficePDFRunner(t, "pdf")
+
+	// The default path rejects the invalid package before conversion runs.
+	if _, err := ConvertDOCX(context.Background(), &fakeRuntimeProbe{}, runner, ConvertDOCXRequest{
+		InputPath:  inputPath,
+		OutputPath: filepath.Join(dir, "rejected.pdf"),
+	}); err == nil {
+		t.Fatal("expected the default protection scan to reject an invalid package")
+	}
+
+	result, err := ConvertDOCX(context.Background(), &fakeRuntimeProbe{}, runner, ConvertDOCXRequest{
+		InputPath:          inputPath,
+		OutputPath:         outputPath,
+		SkipProtectedCheck: true,
+	})
+	if err != nil {
+		t.Fatalf("expected conversion to skip the protection scan, got %v", err)
+	}
+	if result.EngineUsed != EngineLibreOffice {
+		t.Fatalf("expected libreoffice output, got %+v", result)
+	}
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Fatalf("expected converted output: %v", err)
+	}
+}
+
+func TestConvertDOCXDefaultChecksStillRun(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.docx")
+	outputPath := filepath.Join(dir, "output.pdf")
+	writeTestDOCX(t, inputPath)
+
+	probe := &countingRuntimeProbe{}
+	runner := libreOfficePDFRunner(t, "pdf")
+
+	if _, err := ConvertDOCX(context.Background(), probe, runner, ConvertDOCXRequest{
+		InputPath:  inputPath,
+		OutputPath: outputPath,
+	}); err != nil {
+		t.Fatalf("expected default conversion to succeed, got %v", err)
+	}
+	if probe.calls != 1 {
+		t.Fatalf("expected exactly one default runtime probe call, got %d", probe.calls)
 	}
 }

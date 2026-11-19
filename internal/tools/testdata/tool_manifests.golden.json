@@ -24,7 +24,9 @@
       "pdf",
       "standard-fidelity",
       "fallback"
-    ]
+    ],
+    "resourceClass": "external",
+    "maxWorkers": 2
   },
   {
     "toolId": "tool.doc.md_to_pdf",

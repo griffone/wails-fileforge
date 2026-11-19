@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jung-kurt/gofpdf"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -731,5 +733,222 @@ func TestDOCXPDFAPlanOnlyRequiresLibreOffice(t *testing.T) {
 	}
 	if plainPlan.Success {
 		t.Fatal("expected plain plan failure")
+	}
+}
+
+func docxArgValue(args []string, flag string) string {
+	for index := 0; index < len(args); index++ {
+		if args[index] == flag && index+1 < len(args) {
+			return args[index+1]
+		}
+	}
+
+	return ""
+}
+
+func TestDOCXExecutePlanHonorsMutatedOutputPath(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, newPDFProducingDOCXRunner(t, 2))
+	req := docxPlanRequest("single", []string{input}, "", nil)
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	original := plan.Outputs[0].OutputPath
+
+	mutated := filepath.Join(dir, "mutated.pdf")
+	plan.Outputs[0].OutputPath = mutated
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected execution to succeed, got %v", execErr)
+	}
+	if len(items) != 1 || !items[0].Success {
+		t.Fatalf("expected one successful item, got %+v", items)
+	}
+	if items[0].OutputPath != mutated {
+		t.Fatalf("expected the mutated output %q, got %q", mutated, items[0].OutputPath)
+	}
+	if _, statErr := os.Stat(mutated); statErr != nil {
+		t.Fatalf("expected the mutated output to exist: %v", statErr)
+	}
+	if _, statErr := os.Stat(original); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the original planned output to stay absent, got %v", statErr)
+	}
+}
+
+func TestDOCXExecutePlanProcessesOnlyPlannedOutputs(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.docx")
+	second := filepath.Join(dir, "second.docx")
+	writePlainDOCXFixture(t, first)
+	writePlainDOCXFixture(t, second)
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, newPDFProducingDOCXRunner(t, 2))
+	req := docxPlanRequest("batch", []string{first, second}, "", nil)
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+
+	subset := plan
+	subset.Outputs = plan.Outputs[1:]
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, subset, nil)
+	if execErr != nil {
+		t.Fatalf("expected subset execution to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one result item, got %d", len(items))
+	}
+	if items[0].InputPath != second {
+		t.Fatalf("expected the subset input %q, got %q", second, items[0].InputPath)
+	}
+	if _, statErr := os.Stat(plan.Outputs[1].OutputPath); statErr != nil {
+		t.Fatalf("expected subset output to exist: %v", statErr)
+	}
+	if _, statErr := os.Stat(plan.Outputs[0].OutputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the unplanned output to stay absent, got %v", statErr)
+	}
+}
+
+func TestDOCXExecutePlanBatchRunsInParallelAndPreservesPlanOrder(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.docx")
+	second := filepath.Join(dir, "second.docx")
+	writePlainDOCXFixture(t, first)
+	writePlainDOCXFixture(t, second)
+
+	firstStarted := make(chan struct{})
+	secondStarted := make(chan struct{})
+	secondDone := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var firstOnce, secondOnce, secondDoneOnce, releaseOnce sync.Once
+
+	release := func() { releaseOnce.Do(func() { close(releaseFirst) }) }
+
+	runner := stubDOCXRunner{run: func(_ context.Context, name string, args ...string) (engine.CommandResult, error) {
+		inputPath := ""
+		if len(args) > 0 {
+			inputPath = args[len(args)-1]
+		}
+
+		switch name {
+		case "libreoffice":
+			switch filepath.Base(inputPath) {
+			case "first.docx":
+				firstOnce.Do(func() { close(firstStarted) })
+				<-releaseFirst
+				return engine.CommandResult{Stderr: "libreoffice exploded"}, errors.New("libreoffice exploded")
+			case "second.docx":
+				secondOnce.Do(func() { close(secondStarted) })
+				outDir := docxArgValue(args, "--outdir")
+				writeDOCXPDFFixture(t, filepath.Join(outDir, "second.pdf"), 1)
+				secondDoneOnce.Do(func() { close(secondDone) })
+				return engine.CommandResult{}, nil
+			}
+		case "pandoc":
+			return engine.CommandResult{Stderr: "pandoc exploded"}, errors.New("pandoc exploded")
+		}
+
+		return engine.CommandResult{}, fmt.Errorf("unexpected command %q with args %v", name, args)
+	}}
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, runner)
+	req := docxPlanRequest("batch", []string{first, second}, "", nil)
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type batchOutcome struct {
+		items []models.JobResultItemV1
+		err   *models.JobErrorV1
+	}
+	done := make(chan batchOutcome, 1)
+	go func() {
+		items, err := tool.ExecutePlan(ctx, req, plan, nil)
+		done <- batchOutcome{items: items, err: err}
+	}()
+
+	waitStarted := func(ch <-chan struct{}, label string) bool {
+		select {
+		case <-ch:
+			return true
+		case <-time.After(5 * time.Second):
+			return false
+		}
+	}
+
+	if !waitStarted(firstStarted, "first") {
+		release()
+		<-done
+		t.Fatal("first conversion never started")
+	}
+	if !waitStarted(secondStarted, "second") {
+		release()
+		<-done
+		t.Fatal("second conversion did not start while the first was running; conversions are not parallel")
+	}
+
+	// Let the second conversion finish before releasing the first one. Result
+	// order must still follow the plan, not completion order.
+	<-secondDone
+	release()
+	outcome := <-done
+
+	if outcome.err == nil {
+		t.Fatal("expected the first item failure to be reported")
+	}
+	if len(outcome.items) != 2 {
+		t.Fatalf("expected 2 result items, got %d", len(outcome.items))
+	}
+	if outcome.items[0].Success {
+		t.Fatalf("expected the first item to fail, got %+v", outcome.items[0])
+	}
+	if !outcome.items[1].Success {
+		t.Fatalf("expected the second item to succeed, got %+v", outcome.items[1])
+	}
+	if outcome.items[0].InputPath != first || outcome.items[1].InputPath != second {
+		t.Fatalf("expected plan order, got %+v", outcome.items)
+	}
+	if _, statErr := os.Stat(plan.Outputs[1].OutputPath); statErr != nil {
+		t.Fatalf("expected the successful output to exist: %v", statErr)
+	}
+	if _, statErr := os.Stat(plan.Outputs[0].OutputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the failed output to stay absent, got %v", statErr)
+	}
+}
+
+func TestDOCXExecutePlanUsesPlannedEffectiveOptions(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "report.docx")
+	writePlainDOCXFixture(t, input)
+
+	tool := NewDOCXToPDFToolWithDeps(stubDOCXRuntimeProbe{}, newPDFProducingDOCXRunner(t, 5))
+	req := docxPlanRequest("single", []string{input}, "", map[string]any{"pageSelection": "2-4"})
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+
+	// ExecutePlan must trust the plan, not the request that produced it.
+	plan.EffectiveOptions = map[string]any{"pageSelection": "1"}
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected execution to succeed, got %v", execErr)
+	}
+	if len(items) != 1 || !items[0].Success {
+		t.Fatalf("expected one successful item, got %+v", items)
+	}
+	if got := docxPDFPageCount(t, items[0].OutputPath); got != 1 {
+		t.Fatalf("expected the plan page selection to keep 1 page, got %d", got)
 	}
 }
