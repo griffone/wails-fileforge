@@ -192,8 +192,8 @@ func (t *CompressTool) ExecuteSingle(ctx context.Context, req models.JobRequestV
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
-// ExecuteSingleWithProgress compresses the planned image and reports stage
-// level progress for the one-item job.
+// ExecuteSingleWithProgress resolves the plan once and executes exactly that
+// plan, reporting stage level progress for the one-item job.
 func (t *CompressTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
 	inputPath := firstInputPath(req.InputPaths)
 
@@ -202,50 +202,60 @@ func (t *CompressTool) ExecuteSingleWithProgress(ctx context.Context, req models
 		return imageFailureItem(inputPath, plannedOutputPath(plan), planErr), planErr
 	}
 
-	prepared := preparedCompressFromPlan(plan.Outputs[0], plan.EffectiveOptions)
-
 	if onProgress != nil {
 		onProgress(models.JobProgressV1{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "compressing 1/1"})
 	}
 
-	execution, execErr := executeCompressToPath(ctx, prepared)
-	if execErr != nil {
-		jobErr, _ := compressExecutionError(ctx, "IMAGE_COMPRESS_EXECUTION", prepared.inputPath, execErr)
-		return imageFailureItem(prepared.inputPath, prepared.outputPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 1, Total: 1, Stage: models.JobStatusRunning, Message: "processed 1/1"})
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("IMAGE_COMPRESS_EXECUTION", "compression returned no result", nil)
 	}
 
-	return compressSuccessItem(prepared, execution), nil
+	return imageFailureItem(inputPath, plannedOutputPath(plan), jobErr), jobErr
 }
 
-// ExecuteBatch compresses every planned input with per-item progress and
-// per-item errors, mirroring the other image batch tools.
+// ExecuteBatch plans the whole request once and then executes exactly that
+// plan. It never re-resolves output paths from the request.
 func (t *CompressTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
-	parsed, jobErr := parseCompressRequest(req)
-	if jobErr != nil {
-		return nil, jobErr
+	mode := strings.TrimSpace(req.Mode)
+	if mode != "single" && mode != "batch" {
+		return nil, models.NewCanonicalJobError("IMAGE_COMPRESS_MODE_INVALID", "mode must be single or batch", nil)
 	}
-
-	if parsed.mode != "batch" {
+	if mode != "batch" {
 		return nil, models.NewCanonicalJobError("IMAGE_COMPRESS_MODE_INVALID", "mode must be batch", nil)
 	}
 
-	plan, planErr := planParsedCompressRequest(parsed)
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return nil, planErr
 	}
 
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan compresses exactly the outputs resolved by Plan. Options come from
+// the plan's effective values, so a reduced retry plan only processes the
+// failed items. Results keep plan order.
+func (t *CompressTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	total := len(plan.Outputs)
+
 	// Resolve every prepared item sequentially; execution is what runs in
 	// parallel.
-	preparedItems := make([]preparedCompress, len(plan.Outputs))
+	preparedItems := make([]preparedCompress, total)
 	for index, planned := range plan.Outputs {
 		preparedItems[index] = preparedCompressFromPlan(planned, plan.EffectiveOptions)
 	}
 
-	total := len(preparedItems)
+	detailCode := "IMAGE_COMPRESS_BATCH_ITEM"
+	if req.Mode == "single" {
+		detailCode = "IMAGE_COMPRESS_EXECUTION"
+	}
+
 	items := make([]models.JobResultItemV1, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
@@ -257,7 +267,7 @@ func (t *CompressTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 			// A cancelled item must not be reported as a retryable batch
 			// failure; the post-loop cancellation check returns the canonical
 			// cancellation error instead.
-			itemErr, _ := compressExecutionError(ctx, "IMAGE_COMPRESS_BATCH_ITEM", prepared.inputPath, execErr)
+			itemErr, _ := compressExecutionError(ctx, detailCode, prepared.inputPath, execErr)
 			items[index] = imageFailureItem(prepared.inputPath, prepared.outputPath, itemErr)
 		} else {
 			items[index] = compressSuccessItem(prepared, execution)

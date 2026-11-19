@@ -226,11 +226,15 @@ func planParsedCropRequest(parsed cropRequest) (models.PlanJobResponseV1, *model
 	return plan, nil
 }
 
+// ExecuteSingle keeps the legacy single-executor contract by resolving the plan
+// first and then running that exact plan, so it cannot drift from ExecutePlan.
 func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+	inputPath := firstPath(req.InputPaths)
+
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return models.JobResultItemV1{
-			InputPath:  firstPath(req.InputPaths),
+			InputPath:  inputPath,
 			OutputPath: plannedOutputPath(plan),
 			Success:    false,
 			Message:    planErr.Message,
@@ -238,45 +242,62 @@ func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (
 		}, planErr
 	}
 
-	prepared := preparedCropFromPlan(plan.Outputs[0], plan.EffectiveOptions)
-	if err := executeCropToPath(ctx, prepared); err != nil {
-		jobErr := models.NewCanonicalJobError("IMAGE_CROP_EXECUTION", err.Error(), map[string]any{"inputPath": prepared.inputPath})
-		return models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Success: false, Message: "image crop failed", Error: jobErr}, jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
+	}
+
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("IMAGE_CROP_EXECUTION", "crop returned no result", nil)
 	}
 
 	return models.JobResultItemV1{
-		InputPath:   prepared.inputPath,
-		OutputPath:  prepared.outputPath,
-		Outputs:     []string{prepared.outputPath},
-		OutputCount: 1,
-		Success:     true,
-		Message:     "image crop successful",
-	}, nil
+		InputPath:  inputPath,
+		OutputPath: plannedOutputPath(plan),
+		Success:    false,
+		Message:    "image crop failed",
+		Error:      jobErr,
+	}, jobErr
 }
 
+// ExecuteBatch plans the request once and then executes exactly that plan. It
+// never re-resolves output paths from the request.
 func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
-	parsed, jobErr := parseCropRequest(req)
-	if jobErr != nil {
-		return nil, jobErr
+	mode := strings.TrimSpace(req.Mode)
+	if mode != "single" && mode != "batch" {
+		return nil, models.NewCanonicalJobError("IMAGE_CROP_MODE_INVALID", "mode must be single or batch", nil)
 	}
-
-	if parsed.mode != "batch" {
+	if mode != "batch" {
 		return nil, models.NewCanonicalJobError("IMAGE_CROP_MODE_INVALID", "mode must be batch", nil)
 	}
 
-	plan, planErr := planParsedCropRequest(parsed)
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return nil, planErr
 	}
 
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan crops exactly the outputs resolved by Plan. Options come from the
+// plan's effective values, so a reduced retry plan only processes the failed
+// items. Results keep plan order.
+func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	total := len(plan.Outputs)
+
 	// Resolve every prepared item sequentially; execution is what runs in
 	// parallel.
-	preparedItems := make([]preparedCrop, len(plan.Outputs))
+	preparedItems := make([]preparedCrop, total)
 	for index, planned := range plan.Outputs {
 		preparedItems[index] = preparedCropFromPlan(planned, plan.EffectiveOptions)
 	}
 
-	total := len(preparedItems)
+	detailCode := "IMAGE_CROP_BATCH_ITEM"
+	if req.Mode == "single" {
+		detailCode = "IMAGE_CROP_EXECUTION"
+	}
+
 	items := make([]models.JobResultItemV1, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
@@ -284,7 +305,7 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
 		prepared := preparedItems[index]
 		if err := executeCropToPath(ctx, prepared); err != nil {
-			itemErr := models.NewCanonicalJobError("IMAGE_CROP_BATCH_ITEM", err.Error(), map[string]any{"inputPath": prepared.inputPath})
+			itemErr := models.NewCanonicalJobError(detailCode, err.Error(), map[string]any{"inputPath": prepared.inputPath})
 			items[index] = models.JobResultItemV1{
 				InputPath:  prepared.inputPath,
 				OutputPath: prepared.outputPath,
@@ -309,7 +330,12 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 	})
 
 	if batchRunCancelled(ctx, runErr) {
-		return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_CROP_CANCELLED", batchCancellationCause(ctx, runErr).Error(), nil)
+		cause := batchCancellationCause(ctx, runErr)
+		if req.Mode == "single" {
+			return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_CROP_EXECUTION", fmt.Sprintf("crop cancelled: %v", cause), map[string]any{"inputPath": firstPath(req.InputPaths)})
+		}
+
+		return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_CROP_CANCELLED", cause.Error(), nil)
 	}
 
 	return items, firstFailedItemError(items)

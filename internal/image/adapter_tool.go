@@ -141,6 +141,8 @@ func (t *ImageToolAdapter) Plan(_ context.Context, req models.JobRequestV1) (mod
 	return plan, nil
 }
 
+// ExecuteSingle keeps the legacy single-executor contract by resolving the plan
+// first and then running that exact plan, so it cannot drift from ExecutePlan.
 func (t *ImageToolAdapter) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
 	inputPath := firstInputPath(req.InputPaths)
 
@@ -149,75 +151,74 @@ func (t *ImageToolAdapter) ExecuteSingle(ctx context.Context, req models.JobRequ
 		return imageFailureItem(inputPath, plannedOutputPath(plan), planErr), planErr
 	}
 
-	inputPath = req.InputPaths[0]
-	outputPath := plan.Outputs[0].OutputPath
-
-	requestedFormat, autoFormat := t.resolveRequestedFormat(req.Options)
-	format := t.inputOutputFormat(inputPath, requestedFormat, autoFormat)
-
-	if err := t.convertSingle(ctx, inputPath, outputPath, format, req.Options); err != nil {
-		jobErr := models.NewCanonicalJobError("IMAGE_SINGLE_EXECUTION", err.Error(), nil)
-		return imageFailureItem(inputPath, outputPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	return models.JobResultItemV1{
-		InputPath:   inputPath,
-		OutputPath:  outputPath,
-		Outputs:     []string{outputPath},
-		OutputCount: 1,
-		Success:     true,
-		Message:     "conversion successful",
-	}, nil
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("IMAGE_SINGLE_EXECUTION", "conversion returned no result", nil)
+	}
+
+	return imageFailureItem(inputPath, plannedOutputPath(plan), jobErr), jobErr
 }
 
+// ExecuteBatch plans the whole request once and then executes exactly that
+// plan. It never re-resolves output paths from the request.
 func (t *ImageToolAdapter) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
-	if len(req.InputPaths) == 0 {
+	plan, planErr := t.Plan(ctx, req)
+	if planErr != nil {
+		return nil, planErr
+	}
+
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan converts exactly the outputs resolved by Plan. It never re-plans
+// or re-derives output paths from req.Options, so a reduced retry plan only
+// processes the failed items. Results keep plan order.
+func (t *ImageToolAdapter) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	total := len(plan.Outputs)
+	if total == 0 {
 		return nil, models.NewCanonicalJobError("IMAGE_INPUT_REQUIRED", "Choose at least one image to convert.", nil)
 	}
 
-	requestedFormat, autoFormat := t.resolveRequestedFormat(req.Options)
-	if !autoFormat {
-		if err := t.converter.validateOutputFormat(requestedFormat); err != nil {
-			return nil, models.NewCanonicalJobError("IMAGE_FORMAT_INVALID", err.Error(), nil)
+	// Resolve every per-item format before any worker starts. Auto keeps each
+	// planned input's own format; an explicit effective format still wins.
+	plannedItems := make([]plannedConvertItem, total)
+	for index, planned := range plan.Outputs {
+		inputPath := planned.InputPath
+		if strings.TrimSpace(inputPath) == "" && index < len(req.InputPaths) {
+			inputPath = req.InputPaths[index]
 		}
-	}
 
-	outputDir, _ := t.planDestinations(req)
-	used := make(map[string]struct{}, len(req.InputPaths))
-	for _, inputPath := range req.InputPaths {
-		outputplan.MarkUsed(used, inputPath)
-	}
+		format := plannedOutputFormat(planned, plan.EffectiveOptions)
+		if format == "" || format == imageAutoFormat {
+			format = t.inputOutputFormat(inputPath, imageAutoFormat, true)
+		}
 
-	// Planning is sequential because planOutput mutates the shared used set.
-	// Every output is resolved before any worker starts, so the parallel
-	// closure only executes already-planned work.
-	type plannedBatchItem struct {
-		inputPath string
-		format    string
-		planned   models.PlannedOutputV1
-		planErr   *models.JobErrorV1
-	}
-
-	plannedItems := make([]plannedBatchItem, len(req.InputPaths))
-	for index, inputPath := range req.InputPaths {
-		format := t.inputOutputFormat(inputPath, requestedFormat, autoFormat)
-		planned, planErr := t.planOutput(inputPath, outputDir, "", format, false, used)
-		plannedItems[index] = plannedBatchItem{
+		plannedItems[index] = plannedConvertItem{
 			inputPath: inputPath,
 			format:    format,
 			planned:   planned,
-			planErr:   planErr,
 		}
 	}
 
-	total := len(plannedItems)
+	detailCode := "IMAGE_BATCH_ITEM"
+	cancelCode := "IMAGE_BATCH_CANCELLED"
+	if req.Mode == "single" {
+		detailCode = "IMAGE_SINGLE_EXECUTION"
+		cancelCode = "IMAGE_SINGLE_EXECUTION"
+	}
+
 	items := make([]models.JobResultItemV1, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
 
 	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
 		item := plannedItems[index]
-		items[index] = t.executePlannedOutput(ctx, item.inputPath, item.planned, item.format, item.planErr, req.Options)
+		items[index] = t.executePlannedOutput(ctx, item.inputPath, item.planned, item.format, detailCode, req.Options)
 		completed[index] = true
 		progress.itemCompleted()
 
@@ -225,21 +226,24 @@ func (t *ImageToolAdapter) ExecuteBatch(ctx context.Context, req models.JobReque
 	})
 
 	if batchRunCancelled(ctx, runErr) {
-		return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_BATCH_CANCELLED", batchCancellationCause(ctx, runErr).Error(), nil)
+		return collectCompletedItems(items, completed), models.NewCanonicalJobError(cancelCode, batchCancellationCause(ctx, runErr).Error(), nil)
 	}
 
 	return items, firstFailedItemError(items)
 }
 
+// plannedConvertItem is one planned conversion resolved for parallel execution.
+type plannedConvertItem struct {
+	inputPath string
+	format    string
+	planned   models.PlannedOutputV1
+}
+
 // executePlannedOutput runs one already-planned conversion. It never touches
 // the planning set, so it is safe to run concurrently.
-func (t *ImageToolAdapter) executePlannedOutput(ctx context.Context, inputPath string, planned models.PlannedOutputV1, format string, planErr *models.JobErrorV1, options map[string]any) models.JobResultItemV1 {
-	if planErr != nil {
-		return imageFailureItem(inputPath, planned.OutputPath, planErr)
-	}
-
+func (t *ImageToolAdapter) executePlannedOutput(ctx context.Context, inputPath string, planned models.PlannedOutputV1, format, detailCode string, options map[string]any) models.JobResultItemV1 {
 	if err := t.convertSingle(ctx, inputPath, planned.OutputPath, format, options); err != nil {
-		jobErr := models.NewCanonicalJobError("IMAGE_BATCH_ITEM", err.Error(), map[string]any{"inputPath": inputPath})
+		jobErr := models.NewCanonicalJobError(detailCode, err.Error(), map[string]any{"inputPath": inputPath})
 		return imageFailureItem(inputPath, planned.OutputPath, jobErr)
 	}
 

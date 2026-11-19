@@ -492,3 +492,138 @@ func TestCropPlanBatchValidatesEveryInputBounds(t *testing.T) {
 		t.Fatalf("expected error to name the offending file, got %q", planErr.Message)
 	}
 }
+
+func TestCropExecutePlanHonorsResolvedPlan(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "photo.png")
+	writePlanPNG(t, input, 120, 90)
+
+	tool := NewCropTool()
+	request := cropTestRequest("single", []string{input}, cropOptions(10, 10, 40, 30))
+
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	requestOutput := plan.Outputs[0].OutputPath
+
+	plannedOutput := filepath.Join(dir, "resolved-plan.png")
+	plan.Outputs[0].OutputPath = plannedOutput
+	plan.EffectiveOptions["x"] = 0
+	plan.EffectiveOptions["y"] = 0
+	plan.EffectiveOptions["width"] = 20
+	plan.EffectiveOptions["height"] = 10
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected planned crop to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 result item, got %d", len(items))
+	}
+
+	item := items[0]
+	if !item.Success {
+		t.Fatalf("expected a successful item, got %+v", item)
+	}
+	if item.OutputPath != plannedOutput {
+		t.Fatalf("expected the planned output %q, got %q", plannedOutput, item.OutputPath)
+	}
+	if _, statErr := os.Stat(requestOutput); !os.IsNotExist(statErr) {
+		t.Fatalf("expected the request-resolved output %q to be unused, got %v", requestOutput, statErr)
+	}
+
+	file, openErr := os.Open(plannedOutput)
+	if openErr != nil {
+		t.Fatalf("open planned output: %v", openErr)
+	}
+	defer file.Close()
+
+	config, decodeErr := png.DecodeConfig(file)
+	if decodeErr != nil {
+		t.Fatalf("decode planned output: %v", decodeErr)
+	}
+	if config.Width != 20 || config.Height != 10 {
+		t.Fatalf("expected the planned effective crop 20x10, got %dx%d", config.Width, config.Height)
+	}
+}
+
+func TestCropExecutePlanBatchSubset(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.png")
+	second := filepath.Join(dir, "second.png")
+	writePlanPNG(t, first, 120, 90)
+	writePlanPNG(t, second, 120, 90)
+
+	tool := NewCropTool()
+	request := cropTestRequest("batch", []string{first, second}, cropOptions(0, 0, 20, 20))
+
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected 2 planned outputs, got %d", len(plan.Outputs))
+	}
+
+	subset := plan
+	subset.Outputs = plan.Outputs[1:]
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, subset, nil)
+	if execErr != nil {
+		t.Fatalf("expected the subset to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected only the planned subset item, got %+v", items)
+	}
+	if items[0].InputPath != second || items[0].OutputPath != plan.Outputs[1].OutputPath {
+		t.Fatalf("expected the second planned output, got %+v", items[0])
+	}
+	if _, statErr := os.Stat(items[0].OutputPath); statErr != nil {
+		t.Fatalf("expected the subset output to exist: %v", statErr)
+	}
+	if _, statErr := os.Stat(plan.Outputs[0].OutputPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected the excluded output %q to stay untouched, got %v", plan.Outputs[0].OutputPath, statErr)
+	}
+}
+
+func TestCropExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
+	dir := t.TempDir()
+	valid := filepath.Join(dir, "valid.png")
+	broken := filepath.Join(dir, "broken.png")
+	writePlanPNG(t, valid, 120, 90)
+	if err := os.WriteFile(broken, []byte("not an image"), 0o644); err != nil {
+		t.Fatalf("write broken fixture: %v", err)
+	}
+
+	tool := NewCropTool()
+	request := cropTestRequest("batch", []string{valid, broken}, cropOptions(0, 0, 20, 20))
+
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+
+	var progress []int
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgressV1) {
+		progress = append(progress, event.Current)
+	})
+	if execErr == nil {
+		t.Fatal("expected the first item error")
+	}
+	if execErr.DetailCode != "IMAGE_CROP_BATCH_ITEM" {
+		t.Fatalf("expected IMAGE_CROP_BATCH_ITEM, got %q", execErr.DetailCode)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 result items, got %d", len(items))
+	}
+	if !items[0].Success || items[0].InputPath != valid || items[0].OutputPath != plan.Outputs[0].OutputPath {
+		t.Fatalf("expected the first planned item to succeed, got %+v", items[0])
+	}
+	if items[1].Success || items[1].Error == nil || items[1].InputPath != broken {
+		t.Fatalf("expected the broken planned item to fail, got %+v", items[1])
+	}
+	if len(progress) != 2 || progress[0] != 1 || progress[1] != 2 {
+		t.Fatalf("expected monotonic plan-order progress, got %v", progress)
+	}
+}

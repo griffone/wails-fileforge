@@ -40,9 +40,10 @@ func commonPlannedFormat(formats []string) (string, bool) {
 
 // plannedOutputFormat resolves the encoding of one planned output. A shared
 // effective format wins so an explicit single output path keeps the requested
-// encoding; otherwise the planned extension decides.
+// encoding; otherwise the planned extension decides. The per-input "auto"
+// marker is not an encoding, so callers resolve it from the planned input.
 func plannedOutputFormat(planned models.PlannedOutputV1, effective map[string]any) string {
-	if format := convertOptionString(effective, "format"); format != "" {
+	if format := convertOptionString(effective, "format"); format != "" && format != imageAutoFormat && format != "original" {
 		return strings.ToLower(format)
 	}
 
