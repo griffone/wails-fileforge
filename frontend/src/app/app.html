@@ -95,19 +95,43 @@
         </div>
       </div>
 
-      <button
-        #paletteTrigger
-        class="palette-trigger"
-        type="button"
-        aria-haspopup="dialog"
-        [attr.aria-expanded]="paletteOpen()"
-        [attr.aria-label]="'Search tools and actions (' + shortcutLabel + ')'"
-        (click)="openPalette()"
-      >
-        <lucide-icon [img]="searchIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>
-        <span class="palette-trigger-label">Search tools</span>
-        <kbd class="kbd palette-trigger-kbd">{{ shortcutLabel }}</kbd>
-      </button>
+      <div class="topbar-actions">
+        <button
+          #paletteTrigger
+          class="palette-trigger"
+          type="button"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="paletteOpen()"
+          [attr.aria-label]="'Search tools and actions (' + shortcutLabel + ')'"
+          (click)="openPalette()"
+        >
+          <lucide-icon [img]="searchIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>
+          <span class="palette-trigger-label">Search tools</span>
+          <kbd class="kbd palette-trigger-kbd">{{ shortcutLabel }}</kbd>
+        </button>
+
+        <button
+          #activityTrigger
+          class="palette-trigger activity-trigger"
+          type="button"
+          aria-haspopup="dialog"
+          aria-controls="activity-drawer"
+          [attr.aria-expanded]="activity.panelOpen()"
+          [attr.aria-label]="
+            activity.runningCount() > 0
+              ? 'Open task activity (' + activity.runningCount() + ' running)'
+              : 'Open task activity'
+          "
+          [class.is-active]="activity.panelOpen()"
+          (click)="toggleActivity()"
+        >
+          <lucide-icon [img]="activityIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>
+          <span class="palette-trigger-label">Activity</span>
+          @if (activity.runningCount() > 0) {
+            <span class="activity-badge">{{ activity.runningCount() }}</span>
+          }
+        </button>
+      </div>
     </header>
 
     <main class="app-content" id="main-content">
@@ -129,3 +153,8 @@
   (closed)="onPaletteClosed()"
   (navigate)="onPaletteNavigate($event)"
 ></app-command-palette>
+
+<app-activity-panel></app-activity-panel>
+
+<app-toast-host></app-toast-host>
+

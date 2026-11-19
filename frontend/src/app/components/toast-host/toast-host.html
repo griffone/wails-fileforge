@@ -1,0 +1,39 @@
+<div
+  class="toast-host"
+  role="status"
+  aria-live="polite"
+  aria-atomic="false"
+>
+  @for (toast of toastService.toasts(); track toast.id) {
+    <article class="toast" [attr.data-tone]="toast.tone">
+      <span class="toast-icon" aria-hidden="true">
+        <lucide-icon [img]="iconFor(toast.tone)" [size]="17" [strokeWidth]="1.75"></lucide-icon>
+      </span>
+
+      <div class="toast-content">
+        <p class="toast-title">{{ toast.title }}</p>
+        @if (toast.body) {
+          <p class="toast-body">{{ toast.body }}</p>
+        }
+        @if (toast.actionLabel) {
+          <button
+            class="toast-action"
+            type="button"
+            (click)="runAction(toast)"
+          >
+            {{ toast.actionLabel }}
+          </button>
+        }
+      </div>
+
+      <button
+        class="icon-btn toast-close"
+        type="button"
+        aria-label="Dismiss notification"
+        (click)="dismiss(toast.id)"
+      >
+        <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>
+      </button>
+    </article>
+  }
+</div>

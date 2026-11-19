@@ -1,0 +1,174 @@
+@if (activity.panelOpen()) {
+  <ng-template #taskRow let-task>
+    <li class="activity-task">
+      <div class="activity-task-head">
+        <span
+          class="tool-icon activity-task-icon"
+          [attr.data-tone]="iconTone(task)"
+          aria-hidden="true"
+        >
+          <lucide-icon [img]="iconFor(task)" [size]="16" [strokeWidth]="1.75"></lucide-icon>
+        </span>
+
+        <div class="activity-task-main">
+          <div class="activity-task-titlerow">
+            <p class="activity-task-title">{{ task.title }}</p>
+            <span class="activity-task-status">
+              <span class="activity-chip" [attr.data-tone]="statusTone(task.status)">
+                {{ statusLabel(task.status) }}
+              </span>
+              @if (task.percent !== null) {
+                <span class="activity-percent">{{ task.percent }}%</span>
+              }
+            </span>
+          </div>
+
+          <p class="activity-task-sub">
+            <span class="activity-task-kind">{{ kindLabel(task) }}</span>
+            <span class="activity-task-sep" aria-hidden="true">·</span>
+            <span class="activity-task-stage">{{ stageLabel(task) }}</span>
+          </p>
+        </div>
+      </div>
+
+      <div
+        class="activity-progress"
+        role="progressbar"
+        [attr.aria-label]="progressLabel(task)"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        [attr.aria-valuenow]="progressNow(task)"
+        [attr.data-tone]="statusTone(task.status)"
+        [class.is-indeterminate]="isIndeterminate(task)"
+      >
+        <span class="activity-progress-fill" [style.width.%]="progressWidth(task)"></span>
+      </div>
+
+      <p class="activity-meta">{{ metaLine(task) }}</p>
+
+      @if (showMessage(task)) {
+        <p class="activity-task-message">{{ task.message }}</p>
+      }
+
+      @if (task.errorMessage) {
+        <p class="activity-task-error">{{ task.errorMessage }}</p>
+      }
+
+      <div class="activity-actions">
+        @if (!isTerminal(task)) {
+          <button
+            class="activity-action activity-cancel"
+            type="button"
+            [disabled]="isCancelling(task.id)"
+            (click)="onCancel(task)"
+          >
+            {{ isCancelling(task.id) ? 'Cancelling…' : 'Cancel' }}
+          </button>
+        }
+
+        <button
+          class="activity-action is-primary activity-open"
+          type="button"
+          (click)="openTask(task)"
+        >
+          Open
+        </button>
+
+        @if (isTerminal(task)) {
+          <button
+            class="icon-btn activity-icon-action activity-dismiss"
+            type="button"
+            [attr.aria-label]="'Dismiss ' + task.title"
+            (click)="dismissTask(task.id)"
+          >
+            <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>
+          </button>
+        }
+      </div>
+    </li>
+  </ng-template>
+
+  <div class="activity-backdrop" aria-hidden="true" (click)="onBackdropClick($event)"></div>
+
+  <aside
+    #drawer
+    id="activity-drawer"
+    class="activity-drawer"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="activity-panel-title"
+  >
+    <header class="activity-head">
+      <div class="activity-head-text">
+        <p class="activity-eyebrow">Background work</p>
+        <h2 class="activity-title" id="activity-panel-title">
+          Activity
+          <span class="activity-count-pill">{{ activity.runningCount() }} running</span>
+        </h2>
+      </div>
+
+      <button
+        #closeButton
+        class="icon-btn activity-close"
+        type="button"
+        aria-label="Close activity"
+        (click)="close()"
+      >
+        <lucide-icon [img]="closeIcon" [size]="17" [strokeWidth]="1.75"></lucide-icon>
+      </button>
+    </header>
+
+    <div class="activity-body">
+      <section class="activity-section" aria-labelledby="activity-running-title">
+        <div class="activity-section-head">
+          <h3 class="activity-section-title" id="activity-running-title">Running</h3>
+        </div>
+
+        @if (activity.activeTasks().length > 0) {
+          <ul class="activity-list">
+            @for (task of activity.activeTasks(); track taskKey(task)) {
+              <ng-container
+                *ngTemplateOutlet="taskRow; context: { $implicit: task }"
+              ></ng-container>
+            }
+          </ul>
+        } @else {
+          <div class="activity-empty">
+            <p class="activity-empty-title">Nothing is running.</p>
+            <p class="activity-empty-hint">
+              Launch a tool or recipe and it will show up here.
+            </p>
+          </div>
+        }
+      </section>
+
+      <section class="activity-section" aria-labelledby="activity-recent-title">
+        <div class="activity-section-head">
+          <h3 class="activity-section-title" id="activity-recent-title">Recent</h3>
+          <button
+            class="activity-clear"
+            type="button"
+            [disabled]="activity.recentTasks().length === 0"
+            (click)="clearFinished()"
+          >
+            Clear finished
+          </button>
+        </div>
+
+        @if (activity.recentTasks().length > 0) {
+          <ul class="activity-list">
+            @for (task of activity.recentTasks(); track taskKey(task)) {
+              <ng-container
+                *ngTemplateOutlet="taskRow; context: { $implicit: task }"
+              ></ng-container>
+            }
+          </ul>
+        } @else {
+          <div class="activity-empty">
+            <p class="activity-empty-title">Finished tasks will appear here.</p>
+          </div>
+        }
+      </section>
+    </div>
+  </aside>
+}

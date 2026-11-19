@@ -8,6 +8,7 @@ import {
   ViewChild,
   afterNextRender,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -15,12 +16,15 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { Events } from '@wailsio/runtime';
 import { filter } from 'rxjs';
-import { LucideAngularModule, Menu, Moon, Search, Sun, X } from 'lucide-angular';
+import { Activity, LucideAngularModule, Menu, Moon, Search, Sun, X } from 'lucide-angular';
 
 import { BRAND_ICON, ToolDefinition } from './config/tools';
+import { ActivityPanel } from './components/activity-panel/activity-panel';
 import { CommandPalette } from './components/command-palette/command-palette';
 import { GlobalDrop } from './components/global-drop/global-drop';
+import { ToastHost } from './components/toast-host/toast-host';
 import { ToolchainSetup } from './components/toolchain-setup/toolchain-setup';
+import { ActivityService } from './services/activity.service';
 import { GlobalDropService } from './services/global-drop.service';
 import { RecentToolsService } from './services/recent-tools.service';
 import { ThemeService } from './services/theme.service';
@@ -45,12 +49,15 @@ const LOCAL_DROP_TARGET_PREFIX = 'ff-drop-';
     CommandPalette,
     GlobalDrop,
     ToolchainSetup,
+    ActivityPanel,
+    ToastHost,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
 export class App {
   protected readonly registry = inject(ToolRegistryService);
+  readonly activity = inject(ActivityService);
   private readonly router = inject(Router);
   private readonly themeService = inject(ThemeService);
   private readonly wails = inject(Wails);
@@ -61,6 +68,7 @@ export class App {
 
   readonly brandIcon = BRAND_ICON;
   readonly searchIcon = Search;
+  readonly activityIcon = Activity;
   readonly menuIcon = Menu;
   readonly closeIcon = X;
 
@@ -82,14 +90,17 @@ export class App {
 
   @ViewChild('menuButton') private menuButton?: ElementRef<HTMLButtonElement>;
   @ViewChild('paletteTrigger') private paletteTrigger?: ElementRef<HTMLButtonElement>;
+  @ViewChild('activityTrigger') private activityTrigger?: ElementRef<HTMLButtonElement>;
   @ViewChild('railNav') private railNav?: ElementRef<HTMLElement>;
 
   private paletteNavigated = false;
+  private activityWasOpen = false;
   private nativeDropUnsubscribe: (() => void) | null = null;
 
   constructor() {
     // Keep the recents history alive from app start; it records on its own.
     inject(RecentToolsService);
+    void this.activity.refresh();
     this.syncCurrentTool(this.router.url);
     this.router.events
       .pipe(
@@ -100,6 +111,17 @@ export class App {
         this.syncCurrentTool(event.urlAfterRedirects);
         this.mobileNavOpen.set(false);
       });
+
+    // Return focus to the trigger when the drawer closes on its own; opening
+    // the palette closes the drawer first and must keep focus in the palette.
+    effect(() => {
+      const open = this.activity.panelOpen();
+      const paletteOpen = this.paletteOpen();
+      if (this.activityWasOpen && !open && !paletteOpen) {
+        this.activityTrigger?.nativeElement.focus();
+      }
+      this.activityWasOpen = open;
+    });
 
     this.listenForNativeDrops();
     this.destroyRef.onDestroy(() => this.stopNativeDropListener());
@@ -112,7 +134,14 @@ export class App {
   openPalette(): void {
     this.paletteNavigated = false;
     this.mobileNavOpen.set(false);
+    this.activity.closePanel();
     this.paletteOpen.set(true);
+  }
+
+  toggleActivity(): void {
+    this.mobileNavOpen.set(false);
+    this.activity.togglePanel();
+    void this.activity.refresh();
   }
 
   onPaletteClosed(): void {

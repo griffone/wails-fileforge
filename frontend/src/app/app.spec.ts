@@ -111,6 +111,19 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.palette')).toBeNull();
   });
 
+  it('opens the activity drawer from the topbar trigger', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    const trigger = fixture.nativeElement.querySelector(
+      '.activity-trigger',
+    ) as HTMLButtonElement;
+    trigger.click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.activity-drawer')).toBeTruthy();
+  });
+
   it('ignores a shell drop event owned by a local file drop target', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
