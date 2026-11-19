@@ -44,6 +44,7 @@ type RecipeRunner interface {
 	Plan(models.RecipeRequestV1) models.RecipePlanResponseV1
 	Run(context.Context, models.RecipeRequestV1) models.RunRecipeResponseV1
 	Status(string) models.RecipeStatusResponseV1
+	Cancel(string) models.RecipeStatusResponseV1
 }
 
 // Service owns the automation rules and their watchers.
@@ -575,16 +576,26 @@ func (s *Service) startRule(rule models.AutomationRuleV1) {
 		s.mu.Unlock()
 		return
 	}
-	if existing := s.watchers[rule.ID]; existing != nil {
-		if !existing.isDead() {
-			s.mu.Unlock()
-			return
-		}
-		// A dead watcher (stopped by fsnotify) is replaced by a fresh one.
-		delete(s.watchers, rule.ID)
+	existing := s.watchers[rule.ID]
+	if existing != nil && !existing.isDead() {
+		s.mu.Unlock()
+		return
 	}
 	parentCtx := s.ctx
 	s.mu.Unlock()
+
+	if existing != nil {
+		// A dead watcher (stopped by fsnotify) may still have goroutines
+		// unwinding. Wait for them before the replacement starts so two
+		// watcher generations never process the same file.
+		existing.stop(time.Now().Add(defaultShutdownWait))
+
+		s.mu.Lock()
+		if s.watchers[rule.ID] == existing {
+			delete(s.watchers, rule.ID)
+		}
+		s.mu.Unlock()
+	}
 
 	if reason := s.checkRuleRuntime(rule); reason != "" {
 		s.setRuntimeError(rule.ID, reason)

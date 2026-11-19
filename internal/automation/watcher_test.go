@@ -346,6 +346,9 @@ func TestShutdownDuringRunRecordsCancelled(t *testing.T) {
 	if stored.LastStatus != models.JobStatusCancelled {
 		t.Fatalf("expected a cancelled last run, got %+v", stored)
 	}
+	if runner.cancelCount() != 1 {
+		t.Fatalf("expected the stopped run to cancel its recipe job, got %+v", runner.cancelledJobs())
+	}
 	if _, err := os.Stat(source); err != nil {
 		t.Fatalf("a cancelled run must keep the source: %v", err)
 	}

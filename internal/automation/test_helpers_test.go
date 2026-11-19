@@ -42,12 +42,20 @@ type fakeRecipeRunner struct {
 	pollsBeforeTerminal int
 	missingStatus       bool
 	statusCalls         int
+
+	// runDelay slows every fake run so queue and concurrency behavior is
+	// observable in watcher tests.
+	runDelay      time.Duration
+	activeRuns    int
+	maxActiveRuns int
+	cancelled     []string
 }
 
 type fakeRecipeJob struct {
 	recipeID string
 	output   string
 	polls    int
+	finished bool
 }
 
 func newFakeRecipeRunner() *fakeRecipeRunner {
@@ -124,12 +132,22 @@ func (f *fakeRecipeRunner) Run(_ context.Context, req models.RecipeRequestV1) mo
 	failRun := f.failRun
 	runMessage := f.runMessage
 	writeOutput := f.writeOutput
+	delay := f.runDelay
+	f.activeRuns++
+	if f.activeRuns > f.maxActiveRuns {
+		f.maxActiveRuns = f.activeRuns
+	}
 	f.mu.Unlock()
+
+	if delay > 0 {
+		time.Sleep(delay)
+	}
 
 	if failRun {
 		if runMessage == "" {
 			runMessage = "The test recipe could not be started."
 		}
+		f.finishActiveRun()
 
 		return models.RunRecipeResponseV1{
 			Success: false,
@@ -192,6 +210,10 @@ func (f *fakeRecipeRunner) Status(jobID string) models.RecipeStatusResponseV1 {
 	if status == "" {
 		status = models.JobStatusSuccess
 	}
+	if !job.finished {
+		job.finished = true
+		f.finishActiveRun()
+	}
 	message := f.terminalMessage
 	if message == "" {
 		switch status {
@@ -225,6 +247,52 @@ func (f *fakeRecipeRunner) Status(jobID string) models.RecipeStatusResponseV1 {
 			StartedAt: 1,
 			EndedAt:   2,
 		},
+	}
+}
+
+// Cancel records the cancellation request and finishes the fake job so the
+// watcher can observe it. Cancelling an unknown job fails like the real
+// service does.
+func (f *fakeRecipeRunner) Cancel(jobID string) models.RecipeStatusResponseV1 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	job, found := f.jobs[jobID]
+	if !found {
+		return models.RecipeStatusResponseV1{
+			Success: false,
+			Found:   false,
+			Message: "recipe job not found",
+		}
+	}
+
+	f.cancelled = append(f.cancelled, jobID)
+	if !job.finished {
+		job.finished = true
+		f.finishActiveRun()
+	}
+
+	return models.RecipeStatusResponseV1{
+		Success: true,
+		Found:   true,
+		Message: "cancel requested",
+		Result: &models.RecipeResultV1{
+			JobID:     jobID,
+			RecipeID:  job.recipeID,
+			Status:    models.JobStatusCancelled,
+			Message:   "The test recipe was cancelled.",
+			Steps:     []models.RecipeStepResultV1{},
+			Outputs:   []string{},
+			StartedAt: 1,
+		},
+	}
+}
+
+// finishActiveRun releases the concurrency slot of one fake run. The caller
+// holds f.mu.
+func (f *fakeRecipeRunner) finishActiveRun() {
+	if f.activeRuns > 0 {
+		f.activeRuns--
 	}
 }
 
@@ -270,6 +338,27 @@ func (f *fakeRecipeRunner) statusCallCount() int {
 	defer f.mu.Unlock()
 
 	return f.statusCalls
+}
+
+func (f *fakeRecipeRunner) cancelCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.cancelled)
+}
+
+func (f *fakeRecipeRunner) cancelledJobs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.cancelled...)
+}
+
+func (f *fakeRecipeRunner) maxConcurrentRuns() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.maxActiveRuns
 }
 
 func (f *fakeRecipeRunner) runsSnapshot() []models.RecipeRequestV1 {

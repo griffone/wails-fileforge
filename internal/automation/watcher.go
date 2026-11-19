@@ -21,6 +21,10 @@ var (
 	errRunTimeout     = errors.New("automation: recipe run timed out")
 )
 
+// watcherQueueCapacity bounds the accepted files waiting behind the single
+// per-rule worker. A full queue drops new paths instead of blocking fsnotify.
+const watcherQueueCapacity = 64
+
 // fileFingerprint identifies a file version by size and modification time. A
 // source whose fingerprint changed during a run is never deleted.
 type fileFingerprint struct {
@@ -66,6 +70,9 @@ type ruleWatcher struct {
 
 	// slots caps this rule at one concurrent recipe run.
 	slots chan struct{}
+
+	// queue carries accepted, stable paths to the single per-rule worker.
+	queue chan string
 }
 
 func newRuleWatcher(service *Service, rule models.AutomationRuleV1, parentCtx context.Context) (*ruleWatcher, error) {
@@ -104,11 +111,45 @@ func newRuleWatcher(service *Service, rule models.AutomationRuleV1, parentCtx co
 		inFlight:         make(map[string]struct{}),
 		produced:         make(map[string]time.Time),
 		slots:            make(chan struct{}, 1),
+		queue:            make(chan string, watcherQueueCapacity),
 	}, nil
 }
 
 func (w *ruleWatcher) start() {
 	w.spawn(w.loop)
+	w.spawn(w.worker)
+}
+
+// worker drains the per-rule path queue sequentially so a burst of files never
+// turns into one goroutine per file.
+func (w *ruleWatcher) worker() {
+	for {
+		select {
+		case <-w.ctx.Done():
+			return
+		case path := <-w.queue:
+			w.process(path)
+		}
+	}
+}
+
+// enqueue hands one stable path to the rule worker without blocking the
+// fsnotify loop. A full queue drops the path; the next fsnotify event or a
+// later retry can pick the file up again.
+func (w *ruleWatcher) enqueue(path string) bool {
+	select {
+	case <-w.ctx.Done():
+		return false
+	default:
+	}
+
+	select {
+	case w.queue <- path:
+		return true
+	default:
+		log.Printf("automation.watcher.queue_full ruleId=%s path=%s capacity=%d", w.rule.ID, path, cap(w.queue))
+		return false
+	}
 }
 
 // stop cancels the watcher, closes fsnotify, stops pending timers and waits
@@ -385,9 +426,7 @@ func (w *ruleWatcher) onStable(path string) {
 	delete(w.fingerprints, path)
 	w.mu.Unlock()
 
-	if !w.spawn(func() {
-		w.process(path)
-	}) {
+	if !w.enqueue(path) {
 		w.endProcess(path)
 	}
 }
@@ -509,11 +548,13 @@ func (w *ruleWatcher) waitForTerminal(jobID string) (*models.RecipeResultV1, err
 	for {
 		select {
 		case <-w.ctx.Done():
+			w.cancelRecipeRun(jobID)
 			return nil, errWatcherStopped
 		default:
 		}
 
 		if time.Now().After(deadline) {
+			w.cancelRecipeRun(jobID)
 			return nil, errRunTimeout
 		}
 
@@ -529,9 +570,24 @@ func (w *ruleWatcher) waitForTerminal(jobID string) (*models.RecipeResultV1, err
 
 		select {
 		case <-w.ctx.Done():
+			w.cancelRecipeRun(jobID)
 			return nil, errWatcherStopped
 		case <-time.After(pollInterval):
 		}
+	}
+}
+
+// cancelRecipeRun asks the recipe service to stop a run the watcher is giving
+// up on, so a timed-out or disabled automation does not keep consuming engine
+// capacity in the background. Failures are logged and ignored.
+func (w *ruleWatcher) cancelRecipeRun(jobID string) {
+	if w.service.recipes == nil || strings.TrimSpace(jobID) == "" {
+		return
+	}
+
+	response := w.service.recipes.Cancel(jobID)
+	if !response.Success {
+		log.Printf("automation.run.cancel.failed ruleId=%s jobId=%s message=%s", w.rule.ID, jobID, response.Message)
 	}
 }
 
