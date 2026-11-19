@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -22,6 +23,14 @@ const (
 	StatusPartialSuccess = models.JobStatusPartialSuccess
 	StatusCancelled      = models.JobStatusCancelled
 	StatusInterrupted    = models.JobStatusInterrupted
+
+	// retainedTerminalJobs is the number of finished jobs kept in memory and in
+	// the persisted snapshot. Active jobs are always retained.
+	retainedTerminalJobs = 25
+
+	// defaultJobListLimit applies when a caller asks for ListJobs with a
+	// non-positive limit.
+	defaultJobListLimit = 100
 )
 
 type Orchestrator struct {
@@ -81,6 +90,94 @@ func (o *Orchestrator) completionCallback() func(models.JobResultV1) {
 		if onComplete != nil {
 			onComplete(result)
 		}
+
+		// Prune only after the completion hook ran so the hook can still read
+		// the just-finished job from the tracked set.
+		o.pruneTerminalJobs()
+	}
+}
+
+// isTerminalJobStatus reports whether a status is final. Running jobs expose a
+// stage name (queued, running, processing, ocr, ...) as their status, so any
+// unknown status is treated as active.
+func isTerminalJobStatus(status string) bool {
+	switch status {
+	case StatusSuccess, StatusFailed, StatusPartialSuccess, StatusCancelled, StatusInterrupted:
+		return true
+	default:
+		return false
+	}
+}
+
+// ListJobs returns every tracked job, newest first, capped to limit. A
+// non-positive limit uses defaultJobListLimit. The returned slice is never nil.
+func (o *Orchestrator) ListJobs(limit int) []models.JobResultV1 {
+	if limit <= 0 {
+		limit = defaultJobListLimit
+	}
+
+	o.mu.RLock()
+	jobs := make([]models.JobResultV1, 0, len(o.jobs))
+	for _, job := range o.jobs {
+		jobs = append(jobs, job.snapshot())
+	}
+	o.mu.RUnlock()
+
+	sortJobResults(jobs)
+	if len(jobs) > limit {
+		jobs = jobs[:limit]
+	}
+
+	return jobs
+}
+
+// sortJobResults orders job snapshots newest first, breaking ties by job id so
+// list output stays deterministic.
+func sortJobResults(jobs []models.JobResultV1) {
+	sort.Slice(jobs, func(i, j int) bool {
+		if jobs[i].StartedAt != jobs[j].StartedAt {
+			return jobs[i].StartedAt > jobs[j].StartedAt
+		}
+		return jobs[i].JobID > jobs[j].JobID
+	})
+}
+
+// pruneTerminalJobs drops the oldest terminal jobs beyond retainedTerminalJobs.
+// Non-terminal jobs are never pruned.
+func (o *Orchestrator) pruneTerminalJobs() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.pruneTerminalJobsLocked()
+}
+
+func (o *Orchestrator) pruneTerminalJobsLocked() {
+	type terminalJobRef struct {
+		jobID     string
+		startedAt int64
+	}
+
+	terminal := make([]terminalJobRef, 0, len(o.jobs))
+	for jobID, job := range o.jobs {
+		snapshot := job.snapshot()
+		if !isTerminalJobStatus(snapshot.Status) {
+			continue
+		}
+		terminal = append(terminal, terminalJobRef{jobID: jobID, startedAt: snapshot.StartedAt})
+	}
+	if len(terminal) <= retainedTerminalJobs {
+		return
+	}
+
+	sort.Slice(terminal, func(i, j int) bool {
+		if terminal[i].startedAt != terminal[j].startedAt {
+			return terminal[i].startedAt > terminal[j].startedAt
+		}
+		return terminal[i].jobID > terminal[j].jobID
+	})
+
+	for _, ref := range terminal[retainedTerminalJobs:] {
+		delete(o.jobs, ref.jobID)
 	}
 }
 
@@ -106,7 +203,10 @@ func (o *Orchestrator) RecoverInterruptedJobs() error {
 
 	o.mu.Lock()
 	for _, result := range persisted {
-		if result.Status != StatusQueued && result.Status != StatusRunning {
+		// Terminal jobs are restored as-is so the activity list still shows
+		// how the previous session ended.
+		if isTerminalJobStatus(result.Status) {
+			o.jobs[result.JobID] = &trackedJob{result: result}
 			continue
 		}
 
@@ -124,6 +224,7 @@ func (o *Orchestrator) RecoverInterruptedJobs() error {
 
 		o.jobs[result.JobID] = &trackedJob{result: result}
 	}
+	o.pruneTerminalJobsLocked()
 	o.mu.Unlock()
 
 	o.persistJobsSnapshot()
@@ -533,13 +634,24 @@ func (o *Orchestrator) persistJobsSnapshot() {
 	}
 
 	persisted := make([]models.JobResultV1, 0)
+	terminal := make([]models.JobResultV1, 0)
 	for _, job := range o.jobs {
 		snapshot := job.snapshot()
-		if snapshot.Status == StatusQueued || snapshot.Status == StatusRunning {
-			persisted = append(persisted, snapshot)
+		if isTerminalJobStatus(snapshot.Status) {
+			terminal = append(terminal, snapshot)
+			continue
 		}
+		persisted = append(persisted, snapshot)
 	}
 	o.mu.RUnlock()
+
+	sortJobResults(terminal)
+	if len(terminal) > retainedTerminalJobs {
+		terminal = terminal[:retainedTerminalJobs]
+	}
+
+	persisted = append(persisted, terminal...)
+	sortJobResults(persisted)
 
 	_ = o.savePersistedJobs(storePath, persisted)
 }
@@ -576,8 +688,35 @@ func (o *Orchestrator) savePersistedJobs(path string, persisted []models.JobResu
 		return fmt.Errorf("encode persisted jobs: %w", err)
 	}
 
-	if err := os.WriteFile(path, payload, 0o644); err != nil {
-		return fmt.Errorf("write persisted jobs: %w", err)
+	temp, err := os.CreateTemp(directory, ".jobs_state_v1-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create persisted jobs temp file: %w", err)
+	}
+	tempPath := temp.Name()
+	discard := func() {
+		_ = temp.Close()
+		_ = os.Remove(tempPath)
+	}
+
+	if _, err := temp.Write(payload); err != nil {
+		discard()
+		return fmt.Errorf("write persisted jobs temp file: %w", err)
+	}
+	if err := temp.Chmod(0o644); err != nil {
+		discard()
+		return fmt.Errorf("set persisted jobs permissions: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		discard()
+		return fmt.Errorf("sync persisted jobs temp file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("close persisted jobs temp file: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("replace persisted jobs file: %w", err)
 	}
 
 	return nil

@@ -11,6 +11,7 @@ package recipes
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,17 @@ const (
 	// ProgressEventNameV1 is the Wails event emitted for every recipe stage.
 	ProgressEventNameV1 = "recipes/progress/v1"
 
+	// StateEventNameV1 carries a full RecipeResultV1 snapshot when a run is
+	// registered or reaches a terminal status.
+	StateEventNameV1 = "recipes/state/v1"
+
+	// retainedTerminalRuns is the number of finished recipe runs kept in the
+	// in-memory registry. Active runs are always retained.
+	retainedTerminalRuns = 25
+
+	// defaultRunListLimit applies when ListRuns receives a non-positive limit.
+	defaultRunListLimit = 100
+
 	// emailPDFHistoryToolID, webImageSetHistoryToolID, socialClipHistoryToolID,
 	// cleanScanHistoryToolID and burnedSubtitlesHistoryToolID are the
 	// job-history tool ids used for recipe runs so the undo log can tell recipe
@@ -59,6 +71,7 @@ type Service struct {
 	registry *registry.Registry
 	history  *jobhistory.Store
 	emit     func(models.RecipeProgressEventV1)
+	onState  func(models.RecipeResultV1)
 
 	slots chan struct{}
 
@@ -87,6 +100,37 @@ func NewService(reg *registry.Registry, history *jobhistory.Store, emit func(mod
 	service.tempDir = newRecipeTempDir
 
 	return service
+}
+
+// SetStateEmitter registers the callback that receives the full run snapshot
+// when a run is registered or reaches a terminal status. It may be nil.
+func (s *Service) SetStateEmitter(onState func(models.RecipeResultV1)) {
+	s.mu.Lock()
+	s.onState = onState
+	s.mu.Unlock()
+}
+
+// ListRuns returns every tracked run snapshot, newest first, capped to limit.
+// A non-positive limit uses defaultRunListLimit. The returned slice is never
+// nil.
+func (s *Service) ListRuns(limit int) []models.RecipeResultV1 {
+	if limit <= 0 {
+		limit = defaultRunListLimit
+	}
+
+	s.mu.RLock()
+	runs := make([]models.RecipeResultV1, 0, len(s.jobs))
+	for _, tracked := range s.jobs {
+		runs = append(runs, tracked.snapshot())
+	}
+	s.mu.RUnlock()
+
+	sortRecipeRuns(runs)
+	if len(runs) > limit {
+		runs = runs[:limit]
+	}
+
+	return runs
 }
 
 // List returns the built-in recipes. Email PDF is always first, followed by
@@ -179,7 +223,10 @@ func (s *Service) Run(ctx context.Context, req models.RecipeRequestV1) models.Ru
 
 	s.mu.Lock()
 	s.jobs[jobID] = tracked
+	s.pruneTerminalRunsLocked()
 	s.mu.Unlock()
+
+	s.emitStateSnapshot(tracked)
 
 	go s.runJob(jobCtx, tracked, resolved)
 
@@ -365,10 +412,6 @@ func (s *Service) execute(ctx context.Context, tracked *recipeJob, resolved *res
 }
 
 func (s *Service) emitProgress(tracked *recipeJob, status, stepName, stage, message string, percent int) {
-	if s.emit == nil {
-		return
-	}
-
 	tracked.mu.Lock()
 	tracked.percent = percent
 	event := models.RecipeProgressEventV1{
@@ -384,14 +427,15 @@ func (s *Service) emitProgress(tracked *recipeJob, status, stepName, stage, mess
 	}
 	tracked.mu.Unlock()
 
-	s.emit(event)
+	if s.emit != nil {
+		s.emit(event)
+	}
+	if isTerminalRecipeStatus(status) {
+		s.emitStateSnapshot(tracked)
+	}
 }
 
 func (s *Service) emitTerminal(tracked *recipeJob, status, stepName, message string) {
-	if s.emit == nil {
-		return
-	}
-
 	tracked.mu.RLock()
 	event := models.RecipeProgressEventV1{
 		JobID:       tracked.result.JobID,
@@ -406,7 +450,87 @@ func (s *Service) emitTerminal(tracked *recipeJob, status, stepName, message str
 	}
 	tracked.mu.RUnlock()
 
-	s.emit(event)
+	if s.emit != nil {
+		s.emit(event)
+	}
+	s.emitStateSnapshot(tracked)
+}
+
+// emitStateSnapshot publishes the full run snapshot for the activity list. The
+// service lock only guards the emitter lookup, and the job lock is taken by
+// snapshot(), so the callback never runs while a lock is held.
+func (s *Service) emitStateSnapshot(tracked *recipeJob) {
+	s.mu.RLock()
+	onState := s.onState
+	s.mu.RUnlock()
+
+	if onState == nil {
+		return
+	}
+
+	onState(tracked.snapshot())
+}
+
+// isTerminalRecipeStatus reports whether a recipe status is final. Running
+// runs expose stage names, so any unknown status is treated as active.
+func isTerminalRecipeStatus(status string) bool {
+	switch status {
+	case models.JobStatusSuccess,
+		models.JobStatusPartialSuccess,
+		models.JobStatusFailed,
+		models.JobStatusCancelled,
+		models.JobStatusInterrupted:
+		return true
+	default:
+		return false
+	}
+}
+
+// sortRecipeRuns orders run snapshots newest first, breaking ties by job id so
+// list output stays deterministic.
+func sortRecipeRuns(runs []models.RecipeResultV1) {
+	sort.Slice(runs, func(i, j int) bool {
+		if runs[i].StartedAt != runs[j].StartedAt {
+			return runs[i].StartedAt > runs[j].StartedAt
+		}
+		return runs[i].JobID > runs[j].JobID
+	})
+}
+
+// pruneTerminalRunsLocked drops the oldest terminal runs beyond
+// retainedTerminalRuns. Non-terminal runs are never pruned.
+func (s *Service) pruneTerminalRunsLocked() {
+	type terminalRunRef struct {
+		jobID     string
+		startedAt int64
+	}
+
+	terminal := make([]terminalRunRef, 0, len(s.jobs))
+	for jobID, tracked := range s.jobs {
+		tracked.mu.RLock()
+		status := tracked.result.Status
+		startedAt := tracked.result.StartedAt
+		tracked.mu.RUnlock()
+
+		if !isTerminalRecipeStatus(status) {
+			continue
+		}
+		terminal = append(terminal, terminalRunRef{jobID: jobID, startedAt: startedAt})
+	}
+	if len(terminal) <= retainedTerminalRuns {
+		return
+	}
+
+	sort.Slice(terminal, func(i, j int) bool {
+		if terminal[i].startedAt != terminal[j].startedAt {
+			return terminal[i].startedAt > terminal[j].startedAt
+		}
+		return terminal[i].jobID > terminal[j].jobID
+	})
+
+	for _, ref := range terminal[retainedTerminalRuns:] {
+		delete(s.jobs, ref.jobID)
+	}
 }
 
 func (s *Service) cancelJob(tracked *recipeJob) {
@@ -506,16 +630,7 @@ func (j *recipeJob) terminal() bool {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 
-	switch j.result.Status {
-	case models.JobStatusSuccess,
-		models.JobStatusPartialSuccess,
-		models.JobStatusFailed,
-		models.JobStatusCancelled,
-		models.JobStatusInterrupted:
-		return true
-	default:
-		return false
-	}
+	return isTerminalRecipeStatus(j.result.Status)
 }
 
 func (j *recipeJob) jobID() string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -36,13 +37,15 @@ type App struct {
 	automationService *automation.Service
 	previewService    *preview.PreviewService
 	toolchainService  *toolchain.Service
+	notifier          *Notifier
 }
 
-func New() *App {
+func New(notifier *Notifier) *App {
 	reg := registry.GetGlobalRegistry()
 	toolingService := services.NewToolingService(reg)
 	a := &App{
 		toolingService: toolingService,
+		notifier:       notifier,
 	}
 	a.recipeService = recipes.NewService(reg, toolingService.JobHistory(), func(evt models.RecipeProgressEventV1) {
 		app := application.Get()
@@ -50,6 +53,13 @@ func New() *App {
 			return
 		}
 		app.Event.Emit(recipes.ProgressEventNameV1, evt)
+	})
+	a.recipeService.SetStateEmitter(func(result models.RecipeResultV1) {
+		app := application.Get()
+		if app == nil {
+			return
+		}
+		app.Event.Emit(recipes.StateEventNameV1, result)
 	})
 	automationStore := automation.NewStore(automation.DefaultPath())
 	a.automationService = automation.NewService(automationStore, a.recipeService, func(evt models.AutomationRunEventV1) {
@@ -191,6 +201,12 @@ func (a *App) GetJobStatusV1(jobID string) models.JobStatusResponseV1 {
 	return a.toolingService.GetJobStatusV1(jobID)
 }
 
+// ListJobsV1 returns every tracked tool job, newest first. The UI uses it to
+// rebuild the background activity list without polling each job.
+func (a *App) ListJobsV1(limit int) models.JobListResponseV1 {
+	return a.toolingService.ListJobsV1(limit)
+}
+
 // VerifyJobV1 verifies every output of a finished job: existence, readability,
 // size, file type and media-specific metadata. The report lists passing and
 // failing checks per output.
@@ -309,6 +325,17 @@ func (a *App) GetRecipeStatusV1(jobID string) models.RecipeStatusResponseV1 {
 	return a.recipeService.Status(jobID)
 }
 
+// ListRecipeRunsV1 returns every tracked recipe run, newest first. The result
+// is always a slice so the frontend can render an empty activity list.
+func (a *App) ListRecipeRunsV1(limit int) []models.RecipeResultV1 {
+	runs := a.recipeService.ListRuns(limit)
+	if runs == nil {
+		return []models.RecipeResultV1{}
+	}
+
+	return runs
+}
+
 // CancelRecipeV1 requests cancellation of a running recipe.
 func (a *App) CancelRecipeV1(jobID string) models.RecipeStatusResponseV1 {
 	return a.recipeService.Cancel(jobID)
@@ -359,6 +386,30 @@ func (a *App) InspectFilesV1(paths []string) models.InspectFilesResponseV1 {
 		Message: "files inspected",
 		Files:   inspect.InspectFiles(paths),
 	}
+}
+
+// NotifyV1 sends a native desktop notification. Notifications are optional:
+// missing inputs or an unavailable notification service are reported, not fatal.
+func (a *App) NotifyV1(title, body string) models.PathActionResponseV1 {
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(body) == "" {
+		return models.PathActionResponseV1{
+			Success: false,
+			Message: "A notification needs a title and a body.",
+		}
+	}
+	if a.notifier == nil {
+		return models.PathActionResponseV1{
+			Success: false,
+			Message: "Notifications are not available.",
+		}
+	}
+
+	if err := a.notifier.Notify(title, body); err != nil {
+		log.Printf("app.notify.failed err=%v", err)
+		return models.PathActionResponseV1{Success: false, Message: err.Error()}
+	}
+
+	return models.PathActionResponseV1{Success: true, Message: "notification sent"}
 }
 
 // OpenPath opens an existing file with the operating system default handler.

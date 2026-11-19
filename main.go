@@ -10,10 +10,15 @@ import (
 )
 
 func main() {
+	notifier := myapp.NewNotifier()
+
 	app := application.New(application.Options{
 		Name:        "FileForge Desktop",
 		Description: "Cross-platform file conversion toolkit",
-		Services:    []application.Service{application.NewService(myapp.New())},
+		Services: []application.Service{
+			application.NewService(myapp.New(notifier)),
+			application.NewService(notifier),
+		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
 			Middleware: media.Middleware,

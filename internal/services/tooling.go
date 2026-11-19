@@ -17,7 +17,13 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-const JobProgressEventNameV1 = "jobs/progress/v1"
+const (
+	JobProgressEventNameV1 = "jobs/progress/v1"
+
+	// JobStateEventNameV1 carries a full JobResultV1 snapshot whenever a job is
+	// submitted or reaches a terminal status.
+	JobStateEventNameV1 = "jobs/state/v1"
+)
 
 type ToolingService struct {
 	ctx          context.Context
@@ -137,9 +143,47 @@ func (s *ToolingService) RunJobV1(req models.JobRequestV1) models.RunJobResponse
 		log.Printf("tooling.run.rejected toolId=%s mode=%s errorCode=%s", req.ToolID, req.Mode, code)
 	} else {
 		log.Printf("tooling.run.submitted toolId=%s mode=%s jobId=%s", req.ToolID, req.Mode, res.JobID)
+		s.emitJobSnapshot(res.JobID)
 	}
 
 	return res
+}
+
+// ListJobsV1 returns every tracked job snapshot, newest first. The UI uses it
+// to rebuild the activity list after navigation or reload.
+func (s *ToolingService) ListJobsV1(limit int) models.JobListResponseV1 {
+	jobs := s.orchestrator.ListJobs(limit)
+	if jobs == nil {
+		jobs = []models.JobResultV1{}
+	}
+
+	return models.JobListResponseV1{
+		Success: true,
+		Message: "jobs listed",
+		Jobs:    jobs,
+	}
+}
+
+// emitJobSnapshot emits the current full snapshot of one job. A missing job is
+// silently skipped.
+func (s *ToolingService) emitJobSnapshot(jobID string) {
+	job, found := s.orchestrator.GetJob(jobID)
+	if !found {
+		return
+	}
+
+	s.emitJobState(job)
+}
+
+// emitJobState publishes a full job snapshot so the frontend can merge it into
+// the activity list without polling.
+func (s *ToolingService) emitJobState(job models.JobResultV1) {
+	app := application.Get()
+	if app == nil {
+		return
+	}
+
+	app.Event.Emit(JobStateEventNameV1, job)
 }
 
 func (s *ToolingService) CancelJobV1(jobID string) models.CancelJobResponseV1 {
@@ -245,8 +289,11 @@ func jobOutputPaths(job models.JobResultV1) []string {
 
 // recordTerminalJob is the orchestrator completion hook. Every terminal job is
 // fingerprinted into the undo history from the backend; the frontend is never
-// responsible for recording.
+// responsible for recording. The full snapshot is emitted before history
+// recording so the activity list updates even when history is unavailable.
 func (s *ToolingService) recordTerminalJob(job models.JobResultV1) {
+	s.emitJobState(job)
+
 	if s.history == nil {
 		return
 	}
