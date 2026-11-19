@@ -2,9 +2,11 @@ package automation
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"fileforge-desktop/internal/models"
@@ -195,6 +197,36 @@ func TestStoreSaveRequiresID(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "automation_rules_v1.json"))
 	if _, err := store.Save(models.AutomationRuleV1{Name: "No id"}); err == nil {
 		t.Fatal("expected a missing-id error")
+	}
+}
+
+// TestStoreConcurrentSavesKeepEveryRule proves the write path serializes
+// snapshots: moving fsync outside the state lock must not publish a stale
+// snapshot that drops a concurrently saved rule.
+func TestStoreConcurrentSavesKeepEveryRule(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
+	store := NewStore(path)
+
+	const count = 20
+	var group sync.WaitGroup
+	for index := 0; index < count; index++ {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+
+			id := fmt.Sprintf("rule_%d", index)
+			if _, err := store.Save(models.AutomationRuleV1{ID: id, Name: id}); err != nil {
+				t.Errorf("save %s: %v", id, err)
+			}
+		}(index)
+	}
+	group.Wait()
+
+	if rules := store.List(); len(rules) != count {
+		t.Fatalf("in-memory rules = %d, want %d", len(rules), count)
+	}
+	if rules := NewStore(path).List(); len(rules) != count {
+		t.Fatalf("persisted rules = %d, want %d", len(rules), count)
 	}
 }
 

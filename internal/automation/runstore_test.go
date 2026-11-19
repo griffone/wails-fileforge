@@ -1,9 +1,11 @@
 package automation
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"fileforge-desktop/internal/models"
@@ -163,5 +165,32 @@ func TestDefaultRunPathUsesRunsFileName(t *testing.T) {
 	path := DefaultRunPath()
 	if !strings.HasSuffix(path, runsFileName) {
 		t.Fatalf("unexpected default run path: %s", path)
+	}
+}
+
+// TestRunStoreConcurrentRecordsKeepEveryRun proves disk writes stay ordered
+// with their snapshots when fsync runs outside the state lock.
+func TestRunStoreConcurrentRecordsKeepEveryRun(t *testing.T) {
+	path := filepath.Join(t.TempDir(), runsFileName)
+	store := NewRunStore(path)
+
+	const count = 20
+	var group sync.WaitGroup
+	for index := 0; index < count; index++ {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+
+			id := fmt.Sprintf("run_%d", index)
+			store.Record(runRecord(id, "rule_1", models.JobStatusSuccess, int64(index)))
+		}(index)
+	}
+	group.Wait()
+
+	if runs := store.List(100); len(runs) != count {
+		t.Fatalf("in-memory runs = %d, want %d", len(runs), count)
+	}
+	if runs := NewRunStore(path).List(100); len(runs) != count {
+		t.Fatalf("persisted runs = %d, want %d", len(runs), count)
 	}
 }

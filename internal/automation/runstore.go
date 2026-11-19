@@ -38,8 +38,12 @@ func DefaultRunPath() string {
 // RunStore keeps the recent automation runs in memory and persists them
 // atomically as a JSON array. The file is capped and tolerant: a missing or
 // malformed file starts empty instead of failing the app.
+//
+// writeMu orders mutations with their disk writes: the state lock only guards
+// the in-memory slice, while marshal and fsync run without blocking readers.
 type RunStore struct {
 	mu      sync.RWMutex
+	writeMu sync.Mutex
 	path    string
 	maxRuns int
 	runs    []models.AutomationRunRecordV1
@@ -85,13 +89,16 @@ func (s *RunStore) Record(record models.AutomationRunRecordV1) {
 		record.At = time.Now().UnixMilli()
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 
+	s.mu.Lock()
 	s.runs = append([]models.AutomationRunRecordV1{record}, s.runs...)
 	s.pruneLocked()
+	snapshot := s.snapshotLocked()
+	s.mu.Unlock()
 
-	if err := s.saveLocked(); err != nil {
+	if err := s.saveRuns(snapshot); err != nil {
 		log.Printf("automation.runs.record.failed path=%s err=%v", s.path, err)
 	}
 }
@@ -133,13 +140,19 @@ func (s *RunStore) Clear() error {
 		return nil
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 
-	previous := s.runs
+	s.mu.Lock()
+	previous := s.snapshotLocked()
 	s.runs = []models.AutomationRunRecordV1{}
-	if err := s.saveLocked(); err != nil {
+	snapshot := s.snapshotLocked()
+	s.mu.Unlock()
+
+	if err := s.saveRuns(snapshot); err != nil {
+		s.mu.Lock()
 		s.runs = previous
+		s.mu.Unlock()
 		return err
 	}
 
@@ -206,12 +219,24 @@ func (s *RunStore) pruneLocked() {
 	}
 }
 
-func (s *RunStore) saveLocked() error {
+// snapshotLocked returns a deep copy of the runs. The caller holds s.mu.
+func (s *RunStore) snapshotLocked() []models.AutomationRunRecordV1 {
+	runs := make([]models.AutomationRunRecordV1, len(s.runs))
+	for index, record := range s.runs {
+		runs[index] = cloneRunRecord(record)
+	}
+
+	return runs
+}
+
+// saveRuns marshals and writes one runs snapshot. It never runs under s.mu;
+// writeMu keeps concurrent snapshots from being published out of order.
+func (s *RunStore) saveRuns(runs []models.AutomationRunRecordV1) error {
 	if s.path == "" {
 		return nil
 	}
 
-	payload, err := json.MarshalIndent(s.runs, "", "  ")
+	payload, err := json.MarshalIndent(runs, "", "  ")
 	if err != nil {
 		return fmt.Errorf("automation: encode runs: %w", err)
 	}
