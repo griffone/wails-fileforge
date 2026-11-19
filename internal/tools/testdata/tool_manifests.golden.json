@@ -506,7 +506,9 @@
       "video",
       "convert",
       "ffmpeg"
-    ]
+    ],
+    "resourceClass": "external",
+    "maxWorkers": 1
   },
   {
     "toolId": "tool.video.merge",
@@ -536,7 +538,9 @@
       "merge",
       "concat",
       "ffmpeg"
-    ]
+    ],
+    "resourceClass": "external",
+    "maxWorkers": 1
   },
   {
     "toolId": "tool.video.transcribe",
@@ -574,7 +578,9 @@
       "transcribe",
       "whisper",
       "subtitles"
-    ]
+    ],
+    "resourceClass": "external",
+    "maxWorkers": 1
   },
   {
     "toolId": "tool.video.trim",
@@ -602,6 +608,8 @@
       "video",
       "trim",
       "ffmpeg"
-    ]
+    ],
+    "resourceClass": "external",
+    "maxWorkers": 1
   }
 ]

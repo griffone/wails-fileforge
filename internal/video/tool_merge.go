@@ -52,6 +52,8 @@ func (t *MergeTool) Manifest() models.ToolManifestV1 {
 		InputExtensions:  []string{"mp4", "mov", "mkv", "webm"},
 		OutputExtensions: []string{"mp4", "webm"},
 		RuntimeDeps:      []string{"ffmpeg", "ffprobe"},
+		ResourceClass:    "external",
+		MaxWorkers:       1,
 		Tags:             []string{"video", "merge", "concat", "ffmpeg"},
 	}
 }
@@ -173,13 +175,35 @@ func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) 
 		return videoPlanFailureItem(inputPath, firstPlannedOutputPath(plan), planErr), planErr
 	}
 
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
+	}
+
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: "video merge execution returned no result"}
+	}
+
+	return videoPlanFailureItem(inputPath, firstPlannedOutputPath(plan), jobErr), jobErr
+}
+
+// ExecutePlan merges into exactly the output resolved by Plan. The request only
+// supplies the already validated input order; options and the destination are
+// read from the plan.
+func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, _ func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	if len(plan.Outputs) == 0 {
+		jobErr := &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: "video merge execution returned no planned output"}
+		return nil, jobErr
+	}
+
 	mergeReq := mergeRequestFromPlan(plan, req.InputPaths)
 	if err := engine.Merge(ctx, t.probe, t.runner, mergeReq); err != nil {
 		jobErr := mapVideoError(err)
-		return videoPlanFailureItem(firstInputPath(mergeReq.InputPaths), mergeReq.OutputPath, jobErr), jobErr
+		return []models.JobResultItemV1{videoPlanFailureItem(firstInputPath(mergeReq.InputPaths), mergeReq.OutputPath, jobErr)}, jobErr
 	}
 
-	return models.JobResultItemV1{InputPath: firstInputPath(mergeReq.InputPaths), OutputPath: mergeReq.OutputPath, Outputs: []string{mergeReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video merge successful"}, nil
+	return []models.JobResultItemV1{{InputPath: firstInputPath(mergeReq.InputPaths), OutputPath: mergeReq.OutputPath, Outputs: []string{mergeReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video merge successful"}}, nil
 }
 
 func planExplicitMergeOutput(outputPath string, request engine.MergeRequest) (models.PlannedOutputV1, *models.JobErrorV1) {

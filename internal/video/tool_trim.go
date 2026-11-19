@@ -57,6 +57,8 @@ func (t *TrimTool) Manifest() models.ToolManifestV1 {
 		InputExtensions:  []string{"mp4", "mov", "mkv"},
 		OutputExtensions: []string{"mp4", "webm"},
 		RuntimeDeps:      []string{"ffmpeg", "ffprobe"},
+		ResourceClass:    "external",
+		MaxWorkers:       1,
 		Tags:             []string{"video", "trim", "ffmpeg"},
 	}
 }
@@ -193,69 +195,26 @@ func (t *TrimTool) Plan(ctx context.Context, req models.JobRequestV1) (models.Pl
 }
 
 func (t *TrimTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
-	return t.executeSingle(ctx, req, nil)
+	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
 func (t *TrimTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
-	return t.executeSingle(ctx, req, onProgress)
-}
-
-func (t *TrimTool) executeSingle(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return videoPlanFailureItem(firstInputPath(req.InputPaths), firstPlannedOutputPath(plan), planErr), planErr
 	}
 
-	trimReq := trimRequestFromPlannedOutput(plan.Outputs[0], plan.EffectiveOptions)
-	var fallbackInfo string
-	trimErr := engine.TrimWithProgress(ctx, t.probe, t.runner, trimReq, func(evt engine.TrimProgressEvent) {
-		if onProgress != nil {
-			total := 100
-			current := int(evt.Percent)
-			if current < 0 {
-				current = 0
-			}
-			if current > total {
-				current = total
-			}
-			message := strings.TrimSpace(evt.Message)
-			if message == "" {
-				message = evt.Stage
-			}
-			stage := strings.TrimSpace(evt.Stage)
-			if stage == "" {
-				stage = jobs.StatusRunning
-			}
-			onProgress(models.JobProgressV1{Current: current, Total: total, Stage: stage, Message: message})
-		}
-		if strings.Contains(evt.Stage, "fallback") {
-			fallbackInfo = evt.Message
-		}
-	})
-
-	if trimErr != nil {
-		jobErr := mapVideoError(trimErr)
-		if trimErr.Code == engine.ErrorCodeVideoTrimAutoFallbackFailed {
-			jobErr.Details = map[string]any{"fallbackUsed": true, "fallbackStatus": "failed"}
-		}
-		if trimErr.Code == engine.ErrorCodeVideoTrimCopyFailed && trimReq.TrimMode == engine.TrimModeAuto {
-			jobErr.Details = map[string]any{"fallbackUsed": false}
-		}
-		return videoPlanFailureItem(trimReq.InputPath, trimReq.OutputPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	message := "Video trim successful"
-	item := models.JobResultItemV1{InputPath: trimReq.InputPath, OutputPath: trimReq.OutputPath, Outputs: []string{trimReq.OutputPath}, OutputCount: 1, Success: true, Message: message}
-
-	if trimReq.TrimMode == engine.TrimModeAuto && fallbackInfo != "" {
-		item.Message = message + " (fallback re-encode used)"
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: "video trim execution returned no result"}
 	}
 
-	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 100, Total: 100, Stage: "trim.done", Message: item.Message})
-	}
-
-	return item, nil
+	return videoPlanFailureItem(firstInputPath(req.InputPaths), firstPlannedOutputPath(plan), jobErr), jobErr
 }
 
 func (t *TrimTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
@@ -264,15 +223,19 @@ func (t *TrimTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 		return nil, planErr
 	}
 
-	trimReqs := make([]engine.TrimRequest, 0, len(plan.Outputs))
-	for _, planned := range plan.Outputs {
-		trimReqs = append(trimReqs, trimRequestFromPlannedOutput(planned, plan.EffectiveOptions))
-	}
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
 
-	items := make([]models.JobResultItemV1, 0, len(trimReqs))
+// ExecutePlan trims exactly the outputs resolved by Plan. Single requests keep
+// the fine-grained trim progress; batch requests report one processed item at a
+// time. Trims stay sequential because the external class holds a single slot.
+func (t *TrimTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
+	reportItemProgress := strings.TrimSpace(req.Mode) == "single"
+	reportBatchProgress := strings.TrimSpace(req.Mode) == "batch" && onProgress != nil
 	var firstErr *models.JobErrorV1
 
-	for index, trimReq := range trimReqs {
+	for index, planned := range plan.Outputs {
 		select {
 		case <-ctx.Done():
 			cancelErr := &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
@@ -280,18 +243,65 @@ func (t *TrimTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 		default:
 		}
 
-		if err := engine.Trim(ctx, t.probe, t.runner, trimReq); err != nil {
-			jobErr := mapVideoError(err)
+		trimReq := trimRequestFromPlannedOutput(planned, plan.EffectiveOptions)
+		var fallbackInfo string
+		var trimErr *engine.VideoError
+		if reportItemProgress {
+			trimErr = engine.TrimWithProgress(ctx, t.probe, t.runner, trimReq, func(evt engine.TrimProgressEvent) {
+				if strings.Contains(evt.Stage, "fallback") {
+					fallbackInfo = evt.Message
+				}
+				if onProgress == nil {
+					return
+				}
+				total := 100
+				current := int(evt.Percent)
+				if current < 0 {
+					current = 0
+				}
+				if current > total {
+					current = total
+				}
+				message := strings.TrimSpace(evt.Message)
+				if message == "" {
+					message = evt.Stage
+				}
+				stage := strings.TrimSpace(evt.Stage)
+				if stage == "" {
+					stage = jobs.StatusRunning
+				}
+				onProgress(models.JobProgressV1{Current: current, Total: total, Stage: stage, Message: message})
+			})
+		} else {
+			trimErr = engine.Trim(ctx, t.probe, t.runner, trimReq)
+		}
+
+		if trimErr != nil {
+			jobErr := mapVideoError(trimErr)
+			if trimErr.Code == engine.ErrorCodeVideoTrimAutoFallbackFailed {
+				jobErr.Details = map[string]any{"fallbackUsed": true, "fallbackStatus": "failed"}
+			}
+			if trimErr.Code == engine.ErrorCodeVideoTrimCopyFailed && trimReq.TrimMode == engine.TrimModeAuto {
+				jobErr.Details = map[string]any{"fallbackUsed": false}
+			}
 			if firstErr == nil {
 				firstErr = jobErr
 			}
 			items = append(items, videoPlanFailureItem(trimReq.InputPath, trimReq.OutputPath, jobErr))
 		} else {
-			items = append(items, models.JobResultItemV1{InputPath: trimReq.InputPath, OutputPath: trimReq.OutputPath, Outputs: []string{trimReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video trim successful"})
+			message := "Video trim successful"
+			item := models.JobResultItemV1{InputPath: trimReq.InputPath, OutputPath: trimReq.OutputPath, Outputs: []string{trimReq.OutputPath}, OutputCount: 1, Success: true, Message: message}
+			if trimReq.TrimMode == engine.TrimModeAuto && fallbackInfo != "" {
+				item.Message = message + " (fallback re-encode used)"
+			}
+			items = append(items, item)
+			if reportItemProgress && onProgress != nil {
+				onProgress(models.JobProgressV1{Current: 100, Total: 100, Stage: "trim.done", Message: item.Message})
+			}
 		}
 
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{Current: index + 1, Total: len(trimReqs), Stage: jobs.StatusRunning, Message: fmt.Sprintf("processed %d/%d", index+1, len(trimReqs))})
+		if reportBatchProgress {
+			onProgress(models.JobProgressV1{Current: index + 1, Total: len(plan.Outputs), Stage: jobs.StatusRunning, Message: fmt.Sprintf("processed %d/%d", index+1, len(plan.Outputs))})
 		}
 	}
 

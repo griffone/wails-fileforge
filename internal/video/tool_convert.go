@@ -52,6 +52,8 @@ func (t *ConvertTool) Manifest() models.ToolManifestV1 {
 		InputExtensions:  []string{"mp4", "mov", "mkv"},
 		OutputExtensions: []string{"mp4", "webm"},
 		RuntimeDeps:      []string{"ffmpeg", "ffprobe"},
+		ResourceClass:    "external",
+		MaxWorkers:       1,
 		Tags:             []string{"video", "convert", "ffmpeg"},
 	}
 }
@@ -165,13 +167,17 @@ func (t *ConvertTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1
 		return videoPlanFailureItem(firstInputPath(req.InputPaths), firstPlannedOutputPath(plan), planErr), planErr
 	}
 
-	convertReq := convertRequestFromPlannedOutput(plan.Outputs[0], plan.EffectiveOptions)
-	if err := engine.Convert(ctx, t.probe, t.runner, convertReq); err != nil {
-		jobErr := mapVideoError(err)
-		return videoPlanFailureItem(convertReq.InputPath, convertReq.OutputPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	return models.JobResultItemV1{InputPath: convertReq.InputPath, OutputPath: convertReq.OutputPath, Outputs: []string{convertReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video conversion successful"}, nil
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: "video convert execution returned no result"}
+	}
+
+	return videoPlanFailureItem(firstInputPath(req.InputPaths), firstPlannedOutputPath(plan), jobErr), jobErr
 }
 
 func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
@@ -180,15 +186,19 @@ func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1,
 		return nil, planErr
 	}
 
-	convertReqs := make([]engine.ConvertRequest, 0, len(plan.Outputs))
-	for _, planned := range plan.Outputs {
-		convertReqs = append(convertReqs, convertRequestFromPlannedOutput(planned, plan.EffectiveOptions))
-	}
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
 
-	items := make([]models.JobResultItemV1, 0, len(convertReqs))
+// ExecutePlan converts exactly the outputs resolved by Plan. Conversions stay
+// sequential because ffmpeg already uses every core and the external class holds
+// a single slot. A reduced retry plan only processes its own outputs, and the
+// result keeps plan order with per-item failures isolated.
+func (t *ConvertTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
+	reportProgress := strings.TrimSpace(req.Mode) == "batch" && onProgress != nil
 	var firstErr *models.JobErrorV1
 
-	for index, convertReq := range convertReqs {
+	for index, planned := range plan.Outputs {
 		select {
 		case <-ctx.Done():
 			cancelErr := &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
@@ -196,6 +206,7 @@ func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1,
 		default:
 		}
 
+		convertReq := convertRequestFromPlannedOutput(planned, plan.EffectiveOptions)
 		if err := engine.Convert(ctx, t.probe, t.runner, convertReq); err != nil {
 			jobErr := mapVideoError(err)
 			if firstErr == nil {
@@ -206,8 +217,8 @@ func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1,
 			items = append(items, models.JobResultItemV1{InputPath: convertReq.InputPath, OutputPath: convertReq.OutputPath, Outputs: []string{convertReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video conversion successful"})
 		}
 
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{Current: index + 1, Total: len(convertReqs), Stage: "running", Message: fmt.Sprintf("processed %d/%d", index+1, len(convertReqs))})
+		if reportProgress {
+			onProgress(models.JobProgressV1{Current: index + 1, Total: len(plan.Outputs), Stage: "running", Message: fmt.Sprintf("processed %d/%d", index+1, len(plan.Outputs))})
 		}
 	}
 

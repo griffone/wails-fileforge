@@ -17,15 +17,31 @@ func (p stubRuntimeProbe) Check(context.Context) error {
 	return p.err
 }
 
-// stubCommandRunner records ffmpeg invocations without executing them.
+// stubCommandRunner records ffmpeg invocations without executing them. Unless a
+// run hook is supplied, it emulates a successful render by writing placeholder
+// bytes to the output path (the last argument), so atomic publication has
+// something to publish.
 type stubCommandRunner struct {
 	calls [][]string
+	run   func(name string, args []string) error
 }
 
 func (r *stubCommandRunner) Run(_ context.Context, name string, args []string) error {
 	combined := append([]string{name}, args...)
 	r.calls = append(r.calls, combined)
-	return nil
+	if r.run != nil {
+		return r.run(name, args)
+	}
+
+	return writeStubCommandOutput(args)
+}
+
+func writeStubCommandOutput(args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+
+	return os.WriteFile(args[len(args)-1], []byte("fixture"), 0o644)
 }
 
 // writeVideoFixture creates a placeholder file. The video tools only stat and

@@ -57,6 +57,8 @@ func (t *TranscribeTool) Manifest() models.ToolManifestV1 {
 		InputExtensions:  engine.SupportedTranscriptionInputExtensions(),
 		OutputExtensions: engine.SupportedTranscriptionFormats(),
 		RuntimeDeps:      []string{"whisper-cli", "ffmpeg"},
+		ResourceClass:    "external",
+		MaxWorkers:       1,
 		Tags:             []string{"video", "audio", "transcribe", "whisper", "subtitles"},
 	}
 }
@@ -175,52 +177,37 @@ func (t *TranscribeTool) ExecuteSingle(ctx context.Context, req models.JobReques
 }
 
 // ExecuteSingleWithProgress transcribes one media file and reports the coarse
-// extract/transcribe/publish stages.
+// extract/transcribe/publish stages. The legacy single result aggregates every
+// planned format of the input into one item.
 func (t *TranscribeTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
-	fields, fieldsErr := transcribeReqFields(req)
-	if fieldsErr != nil {
-		return transcribeFailureItem(firstInputPath(req.InputPaths), nil, fieldsErr), fieldsErr
-	}
-
-	if fields.Mode != "single" {
+	if strings.TrimSpace(req.Mode) != "single" {
 		jobErr := transcriptionValidationError("mode must be single")
-		return transcribeFailureItem(fields.InputPaths[0], nil, jobErr), jobErr
+		return transcribeFailureItem(firstInputPath(req.InputPaths), nil, jobErr), jobErr
 	}
 
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
-		return transcribeFailureItem(fields.InputPaths[0], plannedOutputPaths(plan.Outputs), planErr), planErr
+		return transcribeFailureItem(firstInputPath(req.InputPaths), plannedOutputPaths(plan.Outputs), planErr), planErr
 	}
 
-	jobs, groupErr := groupTranscribeOutputs(plan.Outputs, transcriptionFormatsFromOptions(plan.EffectiveOptions))
-	if groupErr != nil {
-		return transcribeFailureItem(fields.InputPaths[0], plannedOutputPaths(plan.Outputs), groupErr), groupErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
+	if aggregated := aggregateTranscribeItems(items); len(aggregated) > 0 {
+		return aggregated[0], execErr
 	}
 
-	item := jobs[0]
-	result, transcribeErr := t.runTranscribe(ctx, item, plan.EffectiveOptions, onProgress)
-	if transcribeErr != nil {
-		jobErr := mapTranscriptionError(transcribeErr)
-		return transcribeFailureItem(item.InputPath, item.OrderedOutputs, jobErr), jobErr
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: "transcription execution returned no result"}
 	}
 
-	successItem := transcribeSuccessItem(item, result)
-	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 100, Total: 100, Stage: "transcribe.done", Message: successItem.Message})
-	}
-
-	return successItem, nil
+	return transcribeFailureItem(firstInputPath(req.InputPaths), plannedOutputPaths(plan.Outputs), jobErr), jobErr
 }
 
 // ExecuteBatch transcribes every input with per-item progress and per-item
-// errors, mirroring the other video batch tools.
+// errors, mirroring the other video batch tools. Per-output plan items are
+// aggregated back into one legacy result per input.
 func (t *TranscribeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
-	fields, fieldsErr := transcribeReqFields(req)
-	if fieldsErr != nil {
-		return nil, fieldsErr
-	}
-
-	if fields.Mode != "batch" {
+	if strings.TrimSpace(req.Mode) != "batch" {
 		return nil, transcriptionValidationError("mode must be batch")
 	}
 
@@ -229,38 +216,67 @@ func (t *TranscribeTool) ExecuteBatch(ctx context.Context, req models.JobRequest
 		return nil, planErr
 	}
 
-	plannedJobs, groupErr := groupTranscribeOutputs(plan.Outputs, transcriptionFormatsFromOptions(plan.EffectiveOptions))
+	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
+	return aggregateTranscribeItems(items), execErr
+}
+
+// ExecutePlan transcribes the inputs resolved by Plan. The plan emits one output
+// per requested format; formats for the same input are grouped so Whisper runs
+// once per input, and every planned output gets its own result item so the
+// engine can align plans and retries 1:1. A reduced retry plan only processes
+// its own outputs.
+func (t *TranscribeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	groups, groupErr := groupTranscribePlanOutputs(plan.Outputs)
 	if groupErr != nil {
 		return nil, groupErr
 	}
 
-	items := make([]models.JobResultItemV1, 0, len(plannedJobs))
+	fields, _ := transcribeReqFields(req)
+	effectiveOptions := transcribePlannedOptions(plan, fields)
+
+	reportItemProgress := strings.TrimSpace(req.Mode) == "single"
+	reportBatchProgress := strings.TrimSpace(req.Mode) == "batch" && onProgress != nil
+
+	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
 	var firstErr *models.JobErrorV1
 
-	for index, job := range plannedJobs {
+	for index, group := range groups {
 		select {
 		case <-ctx.Done():
 			return items, &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
 		default:
 		}
 
-		result, transcribeErr := t.runTranscribe(ctx, job, plan.EffectiveOptions, nil)
+		var itemProgress func(models.JobProgressV1)
+		if reportItemProgress {
+			itemProgress = onProgress
+		}
+
+		result, transcribeErr := t.runTranscribe(ctx, group.job, effectiveOptions, itemProgress)
 		if transcribeErr != nil {
 			jobErr := mapTranscriptionError(transcribeErr)
 			if firstErr == nil {
 				firstErr = jobErr
 			}
-			items = append(items, transcribeFailureItem(job.InputPath, job.OrderedOutputs, jobErr))
+			for _, planned := range group.outputs {
+				items = append(items, transcribeFailureItem(planned.InputPath, []string{planned.OutputPath}, jobErr))
+			}
 		} else {
-			items = append(items, transcribeSuccessItem(job, result))
+			for _, planned := range group.outputs {
+				item := transcribeSuccessPlannedItem(planned, result)
+				items = append(items, item)
+				if reportItemProgress && onProgress != nil && planned.OutputPath == group.job.firstOutputPath() {
+					onProgress(models.JobProgressV1{Current: 100, Total: 100, Stage: "transcribe.done", Message: item.Message})
+				}
+			}
 		}
 
-		if onProgress != nil {
+		if reportBatchProgress {
 			onProgress(models.JobProgressV1{
 				Current: index + 1,
-				Total:   len(plannedJobs),
+				Total:   len(groups),
 				Stage:   jobs.StatusRunning,
-				Message: fmt.Sprintf("processed %d/%d", index+1, len(plannedJobs)),
+				Message: fmt.Sprintf("processed %d/%d", index+1, len(groups)),
 			})
 		}
 	}
@@ -270,6 +286,37 @@ func (t *TranscribeTool) ExecuteBatch(ctx context.Context, req models.JobRequest
 	}
 
 	return items, nil
+}
+
+// aggregateTranscribeItems folds the per-output plan items back into one legacy
+// result per input. Current output metadata is preserved: the first planned
+// output is the item destination and every planned path is listed.
+func aggregateTranscribeItems(items []models.JobResultItemV1) []models.JobResultItemV1 {
+	aggregated := make([]models.JobResultItemV1, 0, len(items))
+	indexByInput := make(map[string]int, len(items))
+
+	for _, item := range items {
+		index, exists := indexByInput[item.InputPath]
+		if !exists {
+			indexByInput[item.InputPath] = len(aggregated)
+			item.Outputs = append([]string(nil), item.Outputs...)
+			aggregated = append(aggregated, item)
+			continue
+		}
+
+		target := &aggregated[index]
+		target.Outputs = append(target.Outputs, item.Outputs...)
+		target.OutputCount = len(target.Outputs)
+		if !item.Success {
+			target.Success = false
+			if target.Error == nil {
+				target.Error = item.Error
+			}
+			target.Message = item.Message
+		}
+	}
+
+	return aggregated
 }
 
 // transcribePlannedJob is one resolved input plus its format -> final path map.
@@ -304,17 +351,17 @@ func (t *TranscribeTool) runTranscribe(ctx context.Context, job transcribePlanne
 	}, progress)
 }
 
-func transcribeSuccessItem(job transcribePlannedJob, result engine.TranscribeResult) models.JobResultItemV1 {
+func transcribeSuccessPlannedItem(planned models.PlannedOutputV1, result engine.TranscribeResult) models.JobResultItemV1 {
 	message := fmt.Sprintf("Transcribed: %d segments, %d characters.", result.Segments, result.TextCharacters)
 	if len(result.Warnings) > 0 {
 		message += " " + strings.Join(result.Warnings, " ")
 	}
 
 	return models.JobResultItemV1{
-		InputPath:   job.InputPath,
-		OutputPath:  job.firstOutputPath(),
-		Outputs:     job.OrderedOutputs,
-		OutputCount: len(job.OrderedOutputs),
+		InputPath:   planned.InputPath,
+		OutputPath:  planned.OutputPath,
+		Outputs:     []string{planned.OutputPath},
+		OutputCount: 1,
 		Success:     true,
 		Message:     message,
 	}
@@ -357,40 +404,80 @@ func jobProgressFromTranscription(event engine.TranscribeProgressEvent) models.J
 	return models.JobProgressV1{Current: percent, Total: 100, Stage: stage, Message: message}
 }
 
-// groupTranscribeOutputs pairs the flat planned outputs with their source
-// paths. Every input contributes one output per requested format in the same
-// canonical order, so the stride is the format count.
-func groupTranscribeOutputs(outputs []models.PlannedOutputV1, formats []string) ([]transcribePlannedJob, *models.JobErrorV1) {
-	if len(formats) == 0 {
-		return nil, transcriptionValidationError("the plan resolved no output formats")
-	}
-	if len(outputs) == 0 || len(outputs)%len(formats) != 0 {
-		return nil, transcriptionValidationError("the plan resolved an unexpected number of outputs")
-	}
+// transcribePlanGroup is one Whisper run plus the planned outputs it satisfies.
+// Formats for the same input are grouped so the pipeline runs once per input,
+// even when a reduced retry plan contains only some of them.
+type transcribePlanGroup struct {
+	job     transcribePlannedJob
+	outputs []models.PlannedOutputV1
+}
 
-	jobs := make([]transcribePlannedJob, 0, len(outputs)/len(formats))
-	for index := 0; index < len(outputs); index += len(formats) {
-		inputPath := outputs[index].InputPath
-		paths := make(map[string]string, len(formats))
-		ordered := make([]string, 0, len(formats))
+// groupTranscribePlanOutputs rebuilds the executor input from the planned
+// outputs in plan order. The plan emits adjacent outputs per input, so a new
+// group starts whenever the input path changes.
+func groupTranscribePlanOutputs(outputs []models.PlannedOutputV1) ([]transcribePlanGroup, *models.JobErrorV1) {
+	groups := make([]transcribePlanGroup, 0, len(outputs))
 
-		for offset, format := range formats {
-			planned := outputs[index+offset]
-			if planned.InputPath != inputPath {
-				return nil, transcriptionValidationError("the plan mixed inputs in one output group")
-			}
-			if extension := strings.TrimPrefix(strings.ToLower(filepath.Ext(planned.OutputPath)), "."); extension != format {
-				return nil, transcriptionValidationError("the plan resolved an unexpected output order")
-			}
-
-			paths[format] = planned.OutputPath
-			ordered = append(ordered, planned.OutputPath)
+	for _, planned := range outputs {
+		if strings.TrimSpace(planned.InputPath) == "" || strings.TrimSpace(planned.OutputPath) == "" {
+			return nil, transcriptionValidationError("the plan resolved an incomplete output")
 		}
 
-		jobs = append(jobs, transcribePlannedJob{InputPath: inputPath, OutputPaths: paths, OrderedOutputs: ordered})
+		format := strings.TrimPrefix(strings.ToLower(filepath.Ext(planned.OutputPath)), ".")
+		if !isTranscriptionFormat(format) {
+			return nil, transcriptionValidationError("the plan resolved an unsupported output format")
+		}
+
+		if len(groups) == 0 || groups[len(groups)-1].job.InputPath != planned.InputPath {
+			groups = append(groups, transcribePlanGroup{
+				job: transcribePlannedJob{
+					InputPath:   planned.InputPath,
+					OutputPaths: make(map[string]string, 1),
+				},
+			})
+		}
+
+		group := &groups[len(groups)-1]
+		if _, duplicate := group.job.OutputPaths[format]; duplicate {
+			return nil, transcriptionValidationError("the plan resolved duplicate output formats")
+		}
+		group.job.OutputPaths[format] = planned.OutputPath
+		group.job.OrderedOutputs = append(group.job.OrderedOutputs, planned.OutputPath)
+		group.outputs = append(group.outputs, planned)
 	}
 
-	return jobs, nil
+	return groups, nil
+}
+
+func isTranscriptionFormat(format string) bool {
+	switch format {
+	case engine.TranscribeFormatSRT, engine.TranscribeFormatVTT, engine.TranscribeFormatTXT:
+		return true
+	default:
+		return false
+	}
+}
+
+// transcribePlannedOptions reads the resolved runtime and language from the
+// plan. The re-parsed request only fills values a legacy plan did not store.
+func transcribePlannedOptions(plan models.PlanJobResponseV1, fields transcribeRequestFields) map[string]any {
+	options := map[string]any{
+		"language":    optionString(plan.EffectiveOptions, "language"),
+		"whisperPath": optionString(plan.EffectiveOptions, "whisperPath"),
+		"modelPath":   optionString(plan.EffectiveOptions, "modelPath"),
+	}
+
+	if options["language"] == "" {
+		options["language"] = fields.Language
+	}
+	if options["whisperPath"] == "" {
+		options["whisperPath"] = fields.WhisperPath
+	}
+	if options["modelPath"] == "" {
+		options["modelPath"] = fields.ModelPath
+	}
+
+	return options
 }
 
 // transcribeRequestFields is the canonical request form used by planning and
@@ -510,39 +597,6 @@ func transcribeOptionFormats(options map[string]any) ([]string, *models.JobError
 
 // transcriptionFormatsFromOptions reads the planned formats. The plan stores
 // []string; []any is accepted after a JSON round-trip.
-func transcriptionFormatsFromOptions(options map[string]any) []string {
-	raw, ok := options["formats"]
-	if !ok || raw == nil {
-		return engine.SupportedTranscriptionFormats()
-	}
-
-	values := make([]string, 0, len(engine.SupportedTranscriptionFormats()))
-	switch typed := raw.(type) {
-	case []string:
-		values = append(values, typed...)
-	case []any:
-		for _, item := range typed {
-			if text, isString := item.(string); isString {
-				values = append(values, text)
-			}
-		}
-	}
-
-	requested := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		requested[strings.ToLower(strings.TrimSpace(value))] = struct{}{}
-	}
-
-	formats := make([]string, 0, len(requested))
-	for _, format := range engine.SupportedTranscriptionFormats() {
-		if _, ok := requested[format]; ok {
-			formats = append(formats, format)
-		}
-	}
-
-	return formats
-}
-
 func transcriptionBaseName(inputPath string) string {
 	stem := strings.TrimSpace(strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath)))
 	if stem == "" {
