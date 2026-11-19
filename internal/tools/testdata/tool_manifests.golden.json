@@ -371,7 +371,9 @@
       "pdf",
       "merge",
       "documents"
-    ]
+    ],
+    "resourceClass": "cpu",
+    "maxWorkers": 1
   },
   {
     "toolId": "tool.pdf.ocr",

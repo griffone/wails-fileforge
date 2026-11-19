@@ -46,6 +46,8 @@ func (t *MergeTool) Manifest() models.ToolManifestV1 {
 		OutputExtensions: []string{"pdf"},
 		RuntimeDeps:      []string{"pdfcpu"},
 		Tags:             []string{"pdf", "merge", "documents"},
+		ResourceClass:    "cpu",
+		MaxWorkers:       1,
 	}
 }
 

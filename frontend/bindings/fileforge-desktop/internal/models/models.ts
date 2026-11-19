@@ -216,9 +216,9 @@ export interface JobHistoryEntryV1 {
 }
 
 /**
- * JobListResponseV1 lists the active and recent orchestrator jobs, newest
- * first. It backs the background task activity view so the UI can render every
- * tracked task without polling each job id.
+ * JobListResponseV1 lists the active and recent engine jobs, newest first. It
+ * backs the background task activity view so the UI can render every tracked
+ * task without polling each job id.
  */
 export interface JobListResponseV1 {
     "success": boolean;
@@ -576,6 +576,19 @@ export interface ToolManifestV1 {
     "outputExtensions": string[] | null;
     "runtimeDependencies": string[] | null;
     "tags": string[] | null;
+
+    /**
+     * ResourceClass is the scheduler resource profile the tool consumes:
+     * cpu, external, or io. An empty value keeps the engine's default mapping.
+     */
+    "resourceClass"?: string;
+
+    /**
+     * MaxWorkers caps concurrent per-item work inside one job. It is a ceiling,
+     * not a request: the scheduler still bounds the job by its class capacity.
+     * Zero keeps the engine default.
+     */
+    "maxWorkers"?: number;
 }
 
 export interface ToolRuntimeStateV1 {

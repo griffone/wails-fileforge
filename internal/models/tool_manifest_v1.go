@@ -13,6 +13,14 @@ type ToolManifestV1 struct {
 	OutputExtensions []string `json:"outputExtensions"`
 	RuntimeDeps      []string `json:"runtimeDependencies"`
 	Tags             []string `json:"tags"`
+
+	// ResourceClass is the scheduler resource profile the tool consumes:
+	// cpu, external, or io. An empty value keeps the engine's default mapping.
+	ResourceClass string `json:"resourceClass,omitempty"`
+	// MaxWorkers caps concurrent per-item work inside one job. It is a ceiling,
+	// not a request: the scheduler still bounds the job by its class capacity.
+	// Zero keeps the engine default.
+	MaxWorkers int `json:"maxWorkers,omitempty"`
 }
 
 type ToolRuntimeStateV1 struct {
