@@ -48,11 +48,9 @@ tasks:
 
   verify:frontend:
     desc: Builds and tests the Angular frontend
-    summary: Runs the frontend verification gate
-    dir: frontend
+    summary: Runs the frontend verification gate with a resolved Chromium binary
     cmds:
-      - npm run build
-      - npx ng test --watch=false
+      - ./scripts/verify-frontend.sh
 
   verify:all:
     desc: Runs backend and frontend verification
