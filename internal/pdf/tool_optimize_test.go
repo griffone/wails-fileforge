@@ -648,3 +648,119 @@ func TestOptimizeToolExecuteTargetKeepsMetadata(t *testing.T) {
 		t.Fatalf("expected metadata applied after compression, got %q", properties.Title)
 	}
 }
+
+func TestOptimizeToolExecutePlanHonorsResolvedPlan(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewOptimizeTool()
+	req := optimizeTestRequest("single", []string{input}, map[string]any{"compress": false})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 1 {
+		t.Fatalf("expected 1 planned output, got %d", len(plan.Outputs))
+	}
+
+	requestOutput := plan.Outputs[0].OutputPath
+	plannedOutput := filepath.Join(dir, "resolved-plan.pdf")
+	plan.Outputs[0].OutputPath = plannedOutput
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected planned optimize to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 result item, got %d", len(items))
+	}
+	if !items[0].Success || items[0].OutputPath != plannedOutput {
+		t.Fatalf("expected the planned output %q, got %+v", plannedOutput, items[0])
+	}
+	if _, statErr := os.Stat(plannedOutput); statErr != nil {
+		t.Fatalf("expected the planned output on disk: %v", statErr)
+	}
+	if _, statErr := os.Stat(requestOutput); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the request-resolved output %q to be unused, got %v", requestOutput, statErr)
+	}
+}
+
+func TestOptimizeToolExecutePlanBatchSubset(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.pdf")
+	second := filepath.Join(dir, "second.pdf")
+	writePDFFixture(t, first)
+	writePDFFixture(t, second)
+
+	tool := NewOptimizeTool()
+	req := optimizeTestRequest("batch", []string{first, second}, map[string]any{"compress": false})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected 2 planned outputs, got %d", len(plan.Outputs))
+	}
+
+	subset := plan
+	subset.Outputs = plan.Outputs[1:]
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, subset, nil)
+	if execErr != nil {
+		t.Fatalf("expected the subset to succeed, got %v", execErr)
+	}
+	if len(items) != 1 || items[0].InputPath != second || items[0].OutputPath != plan.Outputs[1].OutputPath {
+		t.Fatalf("expected only the second planned output, got %+v", items)
+	}
+	if _, statErr := os.Stat(plan.Outputs[1].OutputPath); statErr != nil {
+		t.Fatalf("expected the subset output on disk: %v", statErr)
+	}
+	if _, statErr := os.Stat(plan.Outputs[0].OutputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the excluded output %q to stay untouched, got %v", plan.Outputs[0].OutputPath, statErr)
+	}
+}
+
+func TestOptimizeToolExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.pdf")
+	broken := filepath.Join(dir, "broken.pdf")
+	second := filepath.Join(dir, "second.pdf")
+	writePDFFixture(t, first)
+	writePDFFixture(t, second)
+	if err := os.WriteFile(broken, []byte("not a pdf"), 0o644); err != nil {
+		t.Fatalf("write invalid pdf: %v", err)
+	}
+
+	tool := NewOptimizeTool()
+	req := optimizeTestRequest("batch", []string{first, broken, second}, nil)
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr == nil {
+		t.Fatal("expected an aggregate optimize failure")
+	}
+	if execErr.DetailCode != engine.ErrorCodeOptimizeFailed {
+		t.Fatalf("expected %s, got %q", engine.ErrorCodeOptimizeFailed, execErr.DetailCode)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items in plan order, got %d", len(items))
+	}
+	for index, wantInput := range []string{first, broken, second} {
+		if items[index].InputPath != wantInput {
+			t.Fatalf("expected item %d input %q, got %q", index, wantInput, items[index].InputPath)
+		}
+	}
+	if !items[0].Success || items[1].Success || !items[2].Success {
+		t.Fatalf("expected only the broken input to fail, got %+v", items)
+	}
+	if _, statErr := os.Stat(items[2].OutputPath); statErr != nil {
+		t.Fatalf("expected the parallel batch to finish the last item: %v", statErr)
+	}
+}

@@ -132,6 +132,8 @@ func (t *OptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (models.
 	return plan, nil
 }
 
+// ExecuteSingle keeps the legacy single-executor contract by resolving the plan
+// first and then running that exact plan, so it cannot drift from ExecutePlan.
 func (t *OptimizeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, parseErr := optimizeReqFields(req)
 	if parseErr != nil {
@@ -148,23 +150,21 @@ func (t *OptimizeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV
 		return optimizeFailureItem(parsed.InputPath, optimizePlannedOutputPath(plan), planErr), planErr
 	}
 
-	planned := plan.Outputs[0]
-	outcome, err := engine.OptimizeWithOptions(ctx, planned.InputPath, planned.OutputPath, optimizeEngineOptions(parsed))
-	if err != nil {
-		jobErr := mapOptimizeError(err)
-		return optimizeFailureItem(planned.InputPath, planned.OutputPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	return models.JobResultItemV1{
-		InputPath:   planned.InputPath,
-		OutputPath:  planned.OutputPath,
-		Outputs:     []string{planned.OutputPath},
-		OutputCount: 1,
-		Success:     true,
-		Message:     optimizeSuccessMessage(parsed, outcome),
-	}, nil
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("PDF_OPTIMIZE_EXECUTION_MISSING_RESULT", "optimize execution returned no result", nil)
+	}
+
+	return optimizeFailureItem(parsed.InputPath, optimizePlannedOutputPath(plan), jobErr), jobErr
 }
 
+// ExecuteBatch plans the request once and then executes exactly that plan. It
+// never re-resolves output paths from the request.
 func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, parseErr := optimizeReqFields(req)
 	if parseErr != nil {
@@ -179,6 +179,20 @@ func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 	if planErr != nil {
 		return nil, planErr
 	}
+
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan optimizes exactly the outputs resolved by Plan. Options come from
+// the plan's effective values, so a reduced retry plan only processes its own
+// outputs. Results keep plan order.
+func (t *OptimizeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	parsed, parseErr := optimizeReqFields(req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	parsed = plannedOptimizeOptions(plan, parsed)
 
 	items := make([]models.JobResultItemV1, len(plan.Outputs))
 	itemErrors := make([]*models.JobErrorV1, len(plan.Outputs))
@@ -240,6 +254,55 @@ func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 	}
 
 	return items, nil
+}
+
+// plannedOptimizeOptions returns the optimize options resolved by Plan, falling
+// back to the re-parsed request when a plan was built by an older caller.
+func plannedOptimizeOptions(plan models.PlanJobResponseV1, parsed optimizeRequestFields) optimizeRequestFields {
+	if plan.EffectiveOptions == nil {
+		return parsed
+	}
+
+	if compress, ok := planBoolOption(plan.EffectiveOptions, "compress"); ok {
+		parsed.Compress = compress
+	}
+	if targetSize, ok := planInt64Option(plan.EffectiveOptions, "targetSizeBytes"); ok && targetSize > 0 {
+		parsed.TargetSizeBytes = targetSize
+	}
+	if metadata, ok := plannedOptimizeMetadata(plan.EffectiveOptions["metadata"]); ok {
+		parsed.Metadata = metadata
+	}
+
+	return parsed
+}
+
+// plannedOptimizeMetadata reads the metadata map stored in the plan. It accepts
+// both the in-memory map[string]string shape and a JSON-roundtripped map.
+func plannedOptimizeMetadata(raw any) (optimizeMetadata, bool) {
+	switch values := raw.(type) {
+	case map[string]string:
+		return optimizeMetadata{
+			Title:    values["title"],
+			Author:   values["author"],
+			Subject:  values["subject"],
+			Keywords: values["keywords"],
+			Creator:  values["creator"],
+		}, true
+	case map[string]any:
+		read := func(key string) string {
+			value, _ := values[key].(string)
+			return value
+		}
+		return optimizeMetadata{
+			Title:    read("title"),
+			Author:   read("author"),
+			Subject:  read("subject"),
+			Keywords: read("keywords"),
+			Creator:  read("creator"),
+		}, true
+	default:
+		return optimizeMetadata{}, false
+	}
 }
 
 type optimizeRequestFields struct {

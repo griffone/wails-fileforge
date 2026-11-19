@@ -10,6 +10,7 @@ import (
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
 	"fileforge-desktop/internal/pdf/engine"
+	"fileforge-desktop/internal/utils"
 )
 
 const (
@@ -95,6 +96,8 @@ func (t *SplitTool) Plan(_ context.Context, req models.JobRequestV1) (models.Pla
 	return plan, nil
 }
 
+// ExecuteSingle keeps the legacy single-executor contract by resolving the plan
+// first and then running that exact plan, so it cannot drift from ExecutePlan.
 func (t *SplitTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, validationErr := splitReqFields(req)
 	if validationErr != nil {
@@ -111,23 +114,21 @@ func (t *SplitTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) 
 		return splitFailureItem(parsed.InputPath, splitPlannedOutputPath(plan), planErr), planErr
 	}
 
-	planned := plan.Outputs[0]
-	outputs, err := engine.SplitAdvanced(ctx, planned.InputPath, planned.OutputPath, parsed.Strategy, parsed.RangesExpr, parsed.PagesPerFile)
-	if err != nil {
-		jobErr := mapSplitError(err)
-		return splitFailureItem(planned.InputPath, planned.OutputPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	return models.JobResultItemV1{
-		InputPath:   planned.InputPath,
-		OutputPath:  planned.OutputPath,
-		Outputs:     append([]string(nil), outputs...),
-		OutputCount: len(outputs),
-		Success:     true,
-		Message:     fmt.Sprintf("PDF split successful: generated %d files", len(outputs)),
-	}, nil
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("PDF_SPLIT_EXECUTION_MISSING_RESULT", "split execution returned no result", nil)
+	}
+
+	return splitFailureItem(parsed.InputPath, splitPlannedOutputPath(plan), jobErr), jobErr
 }
 
+// ExecuteBatch plans the request once and then executes exactly that plan. It
+// never re-resolves output directories from the request.
 func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, validationErr := splitReqFields(req)
 	if validationErr != nil {
@@ -143,31 +144,39 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 		return nil, planErr
 	}
 
-	fileErrors := make([]map[string]any, 0)
-	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
-	for i, planned := range plan.Outputs {
-		select {
-		case <-ctx.Done():
-			return items, &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
-		default:
-		}
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
 
+// ExecutePlan splits exactly the directories resolved by Plan. Results keep
+// plan order even though the splits run in parallel, and a reduced retry plan
+// only processes its own outputs.
+func (t *SplitTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	parsed, validationErr := splitReqFields(req)
+	if validationErr != nil {
+		return nil, validationErr
+	}
+
+	strategy, rangesExpr, pagesPerFile := plannedSplitOptions(plan, parsed)
+
+	items := make([]models.JobResultItemV1, len(plan.Outputs))
+	itemErrors := make([]*models.JobErrorV1, len(plan.Outputs))
+	completed := make([]bool, len(plan.Outputs))
+	progress := newPDFBatchProgress(len(plan.Outputs), onProgress)
+
+	runErr := utils.ParallelForIndex(ctx, len(plan.Outputs), pdfBatchWorkerCount(), func(ctx context.Context, i int) error {
+		planned := plan.Outputs[i]
 		item := models.JobResultItemV1{
 			InputPath:  planned.InputPath,
 			OutputPath: planned.OutputPath,
 		}
 
-		outputs, err := engine.SplitAdvanced(ctx, planned.InputPath, planned.OutputPath, parsed.Strategy, parsed.RangesExpr, parsed.PagesPerFile)
+		outputs, err := engine.SplitAdvanced(ctx, planned.InputPath, planned.OutputPath, strategy, rangesExpr, pagesPerFile)
 		if err != nil {
 			jobErr := mapSplitError(err)
 			item.Success = false
 			item.Message = jobErr.Message
 			item.Error = jobErr
-			fileErrors = append(fileErrors, map[string]any{
-				"path":    planned.InputPath,
-				"code":    jobErr.DetailCode,
-				"message": jobErr.Message,
-			})
+			itemErrors[i] = jobErr
 		} else {
 			item.Success = true
 			item.Outputs = append([]string(nil), outputs...)
@@ -175,16 +184,31 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 			item.Message = fmt.Sprintf("PDF split successful: generated %d files", len(outputs))
 		}
 
-		items = append(items, item)
+		items[i] = item
+		completed[i] = true
+		progress.itemCompleted()
 
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{
-				Current: i + 1,
-				Total:   len(plan.Outputs),
-				Stage:   "running",
-				Message: fmt.Sprintf("processed %d/%d", i+1, len(plan.Outputs)),
-			})
+		return nil
+	})
+
+	if runErr != nil {
+		if ctx.Err() != nil {
+			return completedPDFBatchItems(items, completed), &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
 		}
+
+		return completedPDFBatchItems(items, completed), models.NewCanonicalJobError(engine.ErrorCodeSplitFailed, "batch split failed", map[string]any{"cause": runErr.Error()})
+	}
+
+	fileErrors := make([]map[string]any, 0)
+	for i, jobErr := range itemErrors {
+		if jobErr == nil {
+			continue
+		}
+		fileErrors = append(fileErrors, map[string]any{
+			"path":    plan.Outputs[i].InputPath,
+			"code":    jobErr.DetailCode,
+			"message": jobErr.Message,
+		})
 	}
 
 	if len(fileErrors) > 0 {
@@ -194,6 +218,27 @@ func (t *SplitTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, o
 	}
 
 	return items, nil
+}
+
+// plannedSplitOptions returns the split options resolved by Plan, falling back
+// to the re-parsed request when a plan was built by an older caller.
+func plannedSplitOptions(plan models.PlanJobResponseV1, parsed splitRequestFields) (string, string, int) {
+	strategy := stringOption(plan.EffectiveOptions, "strategy")
+	if strategy == "" {
+		strategy = parsed.Strategy
+	}
+
+	rangesExpr := stringOption(plan.EffectiveOptions, "ranges")
+	if rangesExpr == "" {
+		rangesExpr = parsed.RangesExpr
+	}
+
+	pagesPerFile := intOption(plan.EffectiveOptions, "pagesPerFile")
+	if pagesPerFile <= 0 {
+		pagesPerFile = parsed.PagesPerFile
+	}
+
+	return strategy, rangesExpr, pagesPerFile
 }
 
 type splitRequestFields struct {

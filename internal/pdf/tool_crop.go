@@ -136,6 +136,8 @@ func (t *CropTool) Plan(_ context.Context, req models.JobRequestV1) (models.Plan
 	return plan, nil
 }
 
+// ExecuteSingle keeps the legacy single-executor contract by resolving the plan
+// first and then running that exact plan, so it cannot drift from ExecutePlan.
 func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, parseErr := cropReqFields(req)
 	if parseErr != nil {
@@ -152,22 +154,21 @@ func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (
 		return cropFailureItem(parsed.InputPath, cropPlannedOutputPath(plan), planErr), planErr
 	}
 
-	planned := plan.Outputs[0]
-	if err := engine.Crop(ctx, planned.InputPath, planned.OutputPath, parsed.PageSelection, parsed.CropPreset, parsed.Margins); err != nil {
-		jobErr := mapCropError(err)
-		return cropFailureItem(planned.InputPath, planned.OutputPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	return models.JobResultItemV1{
-		InputPath:   planned.InputPath,
-		OutputPath:  planned.OutputPath,
-		Outputs:     []string{planned.OutputPath},
-		OutputCount: 1,
-		Success:     true,
-		Message:     "PDF crop successful",
-	}, nil
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("PDF_CROP_EXECUTION_MISSING_RESULT", "crop execution returned no result", nil)
+	}
+
+	return cropFailureItem(parsed.InputPath, cropPlannedOutputPath(plan), jobErr), jobErr
 }
 
+// ExecuteBatch plans the request once and then executes exactly that plan. It
+// never re-resolves output paths from the request.
 func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, parseErr := cropReqFields(req)
 	if parseErr != nil {
@@ -183,6 +184,20 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 		return nil, planErr
 	}
 
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan crops exactly the outputs resolved by Plan. Options come from the
+// plan's effective values, so a reduced retry plan only processes its own
+// outputs. Results keep plan order.
+func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	parsed, parseErr := cropReqFields(req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	pageSelection, cropPreset, margins := plannedCropOptions(plan, parsed)
+
 	items := make([]models.JobResultItemV1, len(plan.Outputs))
 	itemErrors := make([]*models.JobErrorV1, len(plan.Outputs))
 	completed := make([]bool, len(plan.Outputs))
@@ -195,7 +210,7 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 			OutputPath: planned.OutputPath,
 		}
 
-		if err := engine.Crop(ctx, planned.InputPath, planned.OutputPath, parsed.PageSelection, parsed.CropPreset, parsed.Margins); err != nil {
+		if err := engine.Crop(ctx, planned.InputPath, planned.OutputPath, pageSelection, cropPreset, margins); err != nil {
 			jobErr := mapCropError(err)
 			item.Success = false
 			item.Message = jobErr.Message
@@ -242,6 +257,29 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 	}
 
 	return items, nil
+}
+
+// plannedCropOptions returns the crop options resolved by Plan, falling back to
+// the re-parsed request when a plan was built by an older caller.
+func plannedCropOptions(plan models.PlanJobResponseV1, parsed cropRequestFields) (string, string, *engine.CropMargins) {
+	pageSelection := stringOption(plan.EffectiveOptions, "pageSelection")
+	if pageSelection == "" {
+		pageSelection = parsed.PageSelection
+	}
+
+	cropPreset := stringOption(plan.EffectiveOptions, "cropPreset")
+	if cropPreset == "" {
+		cropPreset = parsed.CropPreset
+	}
+
+	margins := parsed.Margins
+	if raw, ok := plan.EffectiveOptions["margins"]; ok && raw != nil {
+		if plannedMargins, marginsErr := optionMargins(map[string]any{"margins": raw}, "margins"); marginsErr == nil {
+			margins = plannedMargins
+		}
+	}
+
+	return pageSelection, cropPreset, margins
 }
 
 type cropRequestFields struct {

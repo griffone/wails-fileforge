@@ -602,3 +602,123 @@ func entryNames(entries []os.DirEntry) []string {
 
 	return names
 }
+
+func TestSplitToolExecutePlanHonorsResolvedPlan(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "notes.pdf")
+	writePDFFixture(t, input)
+
+	tool := NewSplitTool()
+	req := splitTestRequest("single", []string{input}, nil)
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 1 {
+		t.Fatalf("expected 1 planned output, got %d", len(plan.Outputs))
+	}
+
+	// The request resolves to <stem>_pages. Mutate the resolved plan so the test
+	// proves ExecutePlan ignores the request and uses the planned directory.
+	requestOutput := plan.Outputs[0].OutputPath
+	plannedOutput := filepath.Join(dir, "resolved-plan-pages")
+	plan.Outputs[0].OutputPath = plannedOutput
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected planned split to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 result item, got %d", len(items))
+	}
+
+	item := items[0]
+	if !item.Success || item.OutputPath != plannedOutput {
+		t.Fatalf("expected the planned output %q, got %+v", plannedOutput, item)
+	}
+	if _, statErr := os.Stat(plannedOutput); statErr != nil {
+		t.Fatalf("expected the planned directory on disk: %v", statErr)
+	}
+	if _, statErr := os.Stat(requestOutput); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the request-resolved directory %q to be unused, got %v", requestOutput, statErr)
+	}
+}
+
+func TestSplitToolExecutePlanBatchSubset(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.pdf")
+	second := filepath.Join(dir, "second.pdf")
+	writePDFFixture(t, first)
+	writePDFFixture(t, second)
+
+	tool := NewSplitTool()
+	req := splitTestRequest("batch", []string{first, second}, nil)
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected 2 planned outputs, got %d", len(plan.Outputs))
+	}
+
+	subset := plan
+	subset.Outputs = plan.Outputs[1:]
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, subset, nil)
+	if execErr != nil {
+		t.Fatalf("expected the subset to succeed, got %v", execErr)
+	}
+	if len(items) != 1 || items[0].InputPath != second || items[0].OutputPath != plan.Outputs[1].OutputPath {
+		t.Fatalf("expected only the second planned output, got %+v", items)
+	}
+	if _, statErr := os.Stat(plan.Outputs[1].OutputPath); statErr != nil {
+		t.Fatalf("expected the subset directory on disk: %v", statErr)
+	}
+	if _, statErr := os.Stat(plan.Outputs[0].OutputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the excluded directory %q to stay untouched, got %v", plan.Outputs[0].OutputPath, statErr)
+	}
+}
+
+func TestSplitToolExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.pdf")
+	broken := filepath.Join(dir, "broken.pdf")
+	second := filepath.Join(dir, "second.pdf")
+	writePDFFixture(t, first)
+	writePDFFixture(t, second)
+	if err := os.WriteFile(broken, []byte("not a pdf"), 0o644); err != nil {
+		t.Fatalf("write invalid pdf: %v", err)
+	}
+
+	tool := NewSplitTool()
+	req := splitTestRequest("batch", []string{first, broken, second}, nil)
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr == nil {
+		t.Fatal("expected an aggregate split failure")
+	}
+	if execErr.DetailCode != "PDF_SPLIT_FAILED" {
+		t.Fatalf("expected PDF_SPLIT_FAILED, got %q", execErr.DetailCode)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items in plan order, got %d", len(items))
+	}
+	for index, wantInput := range []string{first, broken, second} {
+		if items[index].InputPath != wantInput {
+			t.Fatalf("expected item %d input %q, got %q", index, wantInput, items[index].InputPath)
+		}
+	}
+	if !items[0].Success || items[1].Success || !items[2].Success {
+		t.Fatalf("expected only the broken input to fail, got %+v", items)
+	}
+	if _, statErr := os.Stat(items[2].OutputPath); statErr != nil {
+		t.Fatalf("expected the parallel batch to finish the last item: %v", statErr)
+	}
+}
