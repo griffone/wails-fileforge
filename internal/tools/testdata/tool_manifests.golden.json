@@ -1,0 +1,605 @@
+[
+  {
+    "toolId": "tool.doc.docx_to_pdf",
+    "name": "DOCX to PDF",
+    "description": "Convert DOCX to PDF with standard fidelity (LibreOffice + Pandoc fallback)",
+    "domain": "doc",
+    "capability": "tool.doc.docx_to_pdf",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "docx"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "libreoffice",
+      "pandoc"
+    ],
+    "tags": [
+      "doc",
+      "docx",
+      "pdf",
+      "standard-fidelity",
+      "fallback"
+    ]
+  },
+  {
+    "toolId": "tool.doc.md_to_pdf",
+    "name": "Markdown to PDF",
+    "description": "Convert Markdown documents to PDF with optional header/footer",
+    "domain": "doc",
+    "capability": "tool.doc.md_to_pdf",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": false,
+    "inputExtensions": [
+      "md",
+      "markdown"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [],
+    "tags": [
+      "doc",
+      "markdown",
+      "pdf",
+      "header",
+      "footer"
+    ]
+  },
+  {
+    "toolId": "tool.image.annotate",
+    "name": "Image Annotate",
+    "description": "Annotate images with text, arrows, rectangles, blur and redact",
+    "domain": "image",
+    "capability": "tool.image.annotate",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "jpeg",
+      "png",
+      "webp",
+      "gif",
+      "tiff"
+    ],
+    "runtimeDependencies": [
+      "libvips"
+    ],
+    "tags": [
+      "image",
+      "annotate",
+      "text",
+      "arrow",
+      "rect",
+      "blur",
+      "redact"
+    ]
+  },
+  {
+    "toolId": "tool.image.background",
+    "name": "Remove Background",
+    "description": "Remove image backgrounds locally with a transparent PNG or a chosen background color",
+    "domain": "image",
+    "capability": "tool.image.background",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "png"
+    ],
+    "runtimeDependencies": [
+      "rembg",
+      "rembg-model"
+    ],
+    "tags": [
+      "image",
+      "background",
+      "rembg"
+    ]
+  },
+  {
+    "toolId": "tool.image.compress",
+    "name": "Image Compressor",
+    "description": "Compress images to a target file size with quality search and optional downscaling",
+    "domain": "image",
+    "capability": "tool.image.compress",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "jpeg",
+      "png",
+      "webp"
+    ],
+    "runtimeDependencies": [
+      "libvips"
+    ],
+    "tags": [
+      "image",
+      "compress",
+      "target-size"
+    ]
+  },
+  {
+    "toolId": "tool.image.convert",
+    "name": "Image Converter",
+    "description": "Image conversion tool exposed as Tool V1 jobs",
+    "domain": "image",
+    "capability": "tool.image.convert",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "avif",
+      "gif",
+      "jpeg",
+      "png",
+      "tiff",
+      "webp"
+    ],
+    "runtimeDependencies": [
+      "libvips"
+    ],
+    "tags": [
+      "image",
+      "convert"
+    ]
+  },
+  {
+    "toolId": "tool.image.crop",
+    "name": "Image Crop",
+    "description": "Crop images with ratio presets, batch mode and safe non-destructive output",
+    "domain": "image",
+    "capability": "tool.image.crop",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "jpeg",
+      "png",
+      "webp",
+      "gif",
+      "tiff"
+    ],
+    "runtimeDependencies": [
+      "libvips"
+    ],
+    "tags": [
+      "image",
+      "crop",
+      "ratio",
+      "batch"
+    ]
+  },
+  {
+    "toolId": "tool.image.ocr",
+    "name": "Image OCR",
+    "description": "Extract text from images with local Tesseract and optionally write a searchable PDF",
+    "domain": "image",
+    "capability": "tool.image.ocr",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "txt",
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "tesseract",
+      "libvips"
+    ],
+    "tags": [
+      "image",
+      "ocr",
+      "text"
+    ]
+  },
+  {
+    "toolId": "tool.image.watermark",
+    "name": "Image Watermark",
+    "description": "Watermark images with text or a logo using nine anchors, opacity, scale, margin and tiling",
+    "domain": "image",
+    "capability": "tool.image.watermark",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "jpeg",
+      "png",
+      "webp"
+    ],
+    "runtimeDependencies": [
+      "libvips"
+    ],
+    "tags": [
+      "image",
+      "watermark"
+    ]
+  },
+  {
+    "toolId": "tool.pdf.crop",
+    "name": "PDF Crop",
+    "description": "Crop PDF pages using presets or custom margins",
+    "domain": "pdf",
+    "capability": "tool.pdf.crop",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "crop",
+      "margins"
+    ]
+  },
+  {
+    "toolId": "tool.pdf.images",
+    "name": "Images to PDF",
+    "description": "Place several images on a page grid and export one PDF.",
+    "domain": "pdf",
+    "capability": "tool.pdf.images",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": false,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "libvips",
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "images",
+      "layout",
+      "grid",
+      "album"
+    ]
+  },
+  {
+    "toolId": "tool.pdf.merge",
+    "name": "PDF Merge",
+    "description": "Merge multiple PDF files into a single output PDF",
+    "domain": "pdf",
+    "capability": "tool.pdf.merge",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": false,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "merge",
+      "documents"
+    ]
+  },
+  {
+    "toolId": "tool.pdf.ocr",
+    "name": "PDF OCR",
+    "description": "Make scanned PDFs searchable with local OCR",
+    "domain": "pdf",
+    "capability": "tool.pdf.ocr",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf",
+      "txt"
+    ],
+    "runtimeDependencies": [
+      "pdftoppm",
+      "tesseract"
+    ],
+    "tags": [
+      "pdf",
+      "ocr",
+      "scan",
+      "text",
+      "tesseract"
+    ]
+  },
+  {
+    "toolId": "tool.pdf.optimize",
+    "name": "PDF Optimize",
+    "description": "Compress PDFs and edit document metadata",
+    "domain": "pdf",
+    "capability": "tool.pdf.optimize",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "optimize",
+      "compress",
+      "metadata"
+    ]
+  },
+  {
+    "toolId": "tool.pdf.split",
+    "name": "PDF Split",
+    "description": "Split a PDF into pages, page ranges, page chunks, or bookmarks",
+    "domain": "pdf",
+    "capability": "tool.pdf.split",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "split",
+      "pages",
+      "bookmarks"
+    ]
+  },
+  {
+    "toolId": "tool.pdf.to_docx",
+    "name": "PDF to DOCX",
+    "description": "Convert a PDF into an editable DOCX while preserving fonts, weight, colors, images, tables and page layout.",
+    "domain": "pdf",
+    "capability": "tool.pdf.to_docx",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": false,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "docx"
+    ],
+    "runtimeDependencies": [
+      "python",
+      "pdf2docx"
+    ],
+    "tags": [
+      "pdf",
+      "docx",
+      "word",
+      "layout",
+      "fidelity"
+    ]
+  },
+  {
+    "toolId": "tool.video.convert",
+    "name": "Video Convert",
+    "description": "Convert videos to mp4 or webm with quality presets",
+    "domain": "video",
+    "capability": "tool.video.convert",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "mp4",
+      "mov",
+      "mkv"
+    ],
+    "outputExtensions": [
+      "mp4",
+      "webm"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "video",
+      "convert",
+      "ffmpeg"
+    ]
+  },
+  {
+    "toolId": "tool.video.merge",
+    "name": "Video Merge",
+    "description": "Merge multiple videos in input order into one mp4 or webm output",
+    "domain": "video",
+    "capability": "tool.video.merge",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": false,
+    "inputExtensions": [
+      "mp4",
+      "mov",
+      "mkv",
+      "webm"
+    ],
+    "outputExtensions": [
+      "mp4",
+      "webm"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "video",
+      "merge",
+      "concat",
+      "ffmpeg"
+    ]
+  },
+  {
+    "toolId": "tool.video.transcribe",
+    "name": "Video Transcribe",
+    "description": "Transcribe video and audio locally with Whisper",
+    "domain": "video",
+    "capability": "tool.video.transcribe",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "mp4",
+      "mov",
+      "mkv",
+      "webm",
+      "avi",
+      "mp3",
+      "m4a",
+      "wav",
+      "ogg",
+      "flac"
+    ],
+    "outputExtensions": [
+      "srt",
+      "vtt",
+      "txt"
+    ],
+    "runtimeDependencies": [
+      "whisper-cli",
+      "ffmpeg"
+    ],
+    "tags": [
+      "video",
+      "audio",
+      "transcribe",
+      "whisper",
+      "subtitles"
+    ]
+  },
+  {
+    "toolId": "tool.video.trim",
+    "name": "Video Trim",
+    "description": "Trim videos by start/end time to mp4 or webm",
+    "domain": "video",
+    "capability": "tool.video.trim",
+    "version": "v1",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "mp4",
+      "mov",
+      "mkv"
+    ],
+    "outputExtensions": [
+      "mp4",
+      "webm"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "video",
+      "trim",
+      "ffmpeg"
+    ]
+  }
+]

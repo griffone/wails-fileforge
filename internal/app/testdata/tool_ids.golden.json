@@ -1,0 +1,22 @@
+[
+  "tool.doc.docx_to_pdf",
+  "tool.doc.md_to_pdf",
+  "tool.image.annotate",
+  "tool.image.background",
+  "tool.image.compress",
+  "tool.image.convert",
+  "tool.image.crop",
+  "tool.image.ocr",
+  "tool.image.watermark",
+  "tool.pdf.crop",
+  "tool.pdf.images",
+  "tool.pdf.merge",
+  "tool.pdf.ocr",
+  "tool.pdf.optimize",
+  "tool.pdf.split",
+  "tool.pdf.to_docx",
+  "tool.video.convert",
+  "tool.video.merge",
+  "tool.video.transcribe",
+  "tool.video.trim"
+]
