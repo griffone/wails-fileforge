@@ -36,7 +36,7 @@ tasks:
   dev:
     summary: Runs the application in development mode
     cmds:
-      - /home/ivan/go/bin/wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
   verify:
     desc: Builds, vets, and tests the Go backend

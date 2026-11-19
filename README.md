@@ -45,10 +45,16 @@ task build:windows
 The Windows build and the Windows install layout are documented in
 [docs/windows-build.md](docs/windows-build.md).
 
-`task dev` delegates to the Wails binary configured in `Taskfile.yml`. If your binary lives elsewhere, update the task or run:
+`task dev` delegates to the `wails3` binary from `PATH`. Install the CLI once with:
 
 ```bash
-/home/ivan/go/bin/wails3 dev -config ./build/config.yml -port 9245
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+```
+
+Then run it directly when needed:
+
+```bash
+wails3 dev -config ./build/config.yml -port 9245
 ```
 
 ### Frontend only
@@ -124,7 +130,7 @@ odd/tasks/                       Organic development task tracking
 `frontend/bindings/` is generated. Never edit it by hand. After changing a Go-exposed API:
 
 ```bash
-/home/ivan/go/bin/wails3 generate bindings -clean=true
+wails3 generate bindings -clean=true -ts -i -names
 ```
 
 ## License
