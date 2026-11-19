@@ -1087,9 +1087,8 @@ func TestPdf2DocxVenvIsOptionalAndRepairs(t *testing.T) {
 	}
 
 	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
-	if !service.Status().Installing {
-		t.Fatal("expected the forced install to start")
-	}
+	// The fake installer can finish before Start returns, so wait for the new
+	// terminal event instead of racing the in-memory install status.
 	waitForTerminalEvent(t, events)
 
 	status = service.Status()
@@ -1189,9 +1188,8 @@ func TestRembgVenvIsOptionalAndRepairs(t *testing.T) {
 	}
 
 	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
-	if !service.Status().Installing {
-		t.Fatal("expected the forced install to start")
-	}
+	// The fake installer can finish before Start returns, so wait for the new
+	// terminal event instead of racing the in-memory install status.
 	waitForTerminalEvent(t, events)
 
 	status = service.Status()
