@@ -1007,6 +1007,95 @@ func TestEngineProgressCoalescingEmitsTerminalState(t *testing.T) {
 	}
 }
 
+func TestEngineProgressListenerReceivesCoalescedUpdates(t *testing.T) {
+	const reportCount = 30
+
+	var mu sync.Mutex
+	received := make([]models.JobProgressV1, 0, reportCount)
+
+	tool := &engineFakeTool{
+		id: "tool.fake.listener",
+		single: func(_ context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+			for current := 1; current <= reportCount; current++ {
+				onProgress(models.JobProgressV1{
+					Current: current,
+					Total:   reportCount,
+					Stage:   "running",
+					Message: "tick",
+				})
+			}
+
+			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits:           Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+		ProgressInterval: time.Hour,
+	})
+
+	response := submitTestJobWith(t, engine, models.JobRequestV1{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{engineInput("listener")},
+	}, SubmitOptions{
+		Kind: "recipe-step",
+		OnProgress: func(progress models.JobProgressV1) {
+			mu.Lock()
+			received = append(received, progress)
+			mu.Unlock()
+		},
+	})
+
+	result := awaitEngineJob(t, engine, response.JobID)
+	if result.Status != StatusSuccess {
+		t.Fatalf("job status = %s, want success", result.Status)
+	}
+
+	mu.Lock()
+	updates := append([]models.JobProgressV1(nil), received...)
+	mu.Unlock()
+
+	if len(updates) == 0 {
+		t.Fatal("expected the progress listener to receive an update")
+	}
+	if len(updates) >= reportCount {
+		t.Fatalf("listener updates = %d, want coalesced updates below %d", len(updates), reportCount)
+	}
+	if last := updates[len(updates)-1]; last.Stage != StatusRunning {
+		t.Fatalf("last listener stage = %q, want %q; terminal progress must not reach the listener", last.Stage, StatusRunning)
+	}
+}
+
+func TestEngineNilProgressListenerIsSafe(t *testing.T) {
+	tool := &engineFakeTool{
+		id: "tool.fake.no-listener",
+		single: func(_ context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+			onProgress(models.JobProgressV1{Current: 1, Total: 1, Stage: StatusRunning, Message: "tick"})
+
+			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	response := submitTestJobWith(t, engine, models.JobRequestV1{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{engineInput("no-listener")},
+	}, SubmitOptions{
+		Kind:       "recipe-step",
+		OnProgress: nil,
+	})
+
+	result := awaitEngineJob(t, engine, response.JobID)
+	if result.Status != StatusSuccess {
+		t.Fatalf("job status = %s, want success", result.Status)
+	}
+}
+
 func TestEngineShutdownIdempotentAndNoGoroutineLeak(t *testing.T) {
 	before := runtime.NumGoroutine()
 

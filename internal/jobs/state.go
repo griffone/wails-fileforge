@@ -35,6 +35,7 @@ type jobState struct {
 	workers     int
 	parentID    string
 	maxAttempts int
+	onProgress  func(models.JobProgressV1)
 
 	// queued is guarded by Engine.queueMu.
 	queued bool
@@ -56,6 +57,7 @@ func newJobState(engine *Engine, req models.JobRequestV1, tool tools.Tool, opts 
 		workers:     opts.Workers,
 		parentID:    opts.ParentID,
 		maxAttempts: opts.MaxAttempts,
+		onProgress:  opts.OnProgress,
 		done:        make(chan struct{}),
 		result: models.JobResultV1{
 			JobID:     newJobID(seq),
@@ -74,6 +76,11 @@ func newJobState(engine *Engine, req models.JobRequestV1, tool tools.Tool, opts 
 			return
 		}
 		engine.emitProgress(event)
+		// The listener mirrors the coalesced progress stream but never sees
+		// terminal progress; the terminal state event covers completion.
+		if listener := state.onProgress; listener != nil && !isTerminalJobStatus(event.Status) {
+			listener(event.Progress)
+		}
 	})
 
 	return state

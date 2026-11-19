@@ -67,6 +67,10 @@ type SubmitOptions struct {
 	Workers     int
 	ParentID    string
 	MaxAttempts int
+
+	// OnProgress receives the same coalesced progress updates the engine
+	// emits. It is never called with a terminal status and may be nil.
+	OnProgress func(models.JobProgressV1)
 }
 
 // Engine is a priority-aware, class-limited job scheduler. One dispatcher
