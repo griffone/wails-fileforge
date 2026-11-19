@@ -105,5 +105,5 @@ func normalizeBase(base string) string {
 }
 
 func pathKey(path string) string {
-	return fsx.NormalizePathKey(path)
+	return fsx.HostPathKey(path)
 }

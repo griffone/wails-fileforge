@@ -230,7 +230,26 @@ func SameFile(a, b string) bool {
 		return os.SameFile(aInfo, bInfo)
 	}
 
-	return NormalizePathKey(a) == NormalizePathKey(b)
+	return HostPathKey(a) == HostPathKey(b)
+}
+
+// HostPathKey returns a host-native path key. Unlike NormalizePathKey, it
+// folds case only on Windows, so case-sensitive POSIX names stay distinct.
+func HostPathKey(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+
+	cleaned := filepath.Clean(trimmed)
+	if absolute, err := filepath.Abs(cleaned); err == nil {
+		cleaned = absolute
+	}
+	if runtime.GOOS == "windows" {
+		cleaned = strings.ToLower(cleaned)
+	}
+
+	return cleaned
 }
 
 // NormalizePathKey returns a stable map key for a filesystem path. The key is

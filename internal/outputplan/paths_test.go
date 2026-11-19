@@ -3,6 +3,7 @@ package outputplan
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -116,5 +117,24 @@ func TestUniqueDirPathSkipsUsedNames(t *testing.T) {
 	}
 	if !adjusted {
 		t.Fatal("expected adjustment when the name is reserved")
+	}
+}
+
+func TestUniqueFilePathKeepsCaseDistinctNamesOnPOSIX(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems are usually case-insensitive")
+	}
+
+	dir := t.TempDir()
+	used := map[string]struct{}{}
+	first, adjusted := UniqueFilePath(dir, "photo", "png", used)
+	if adjusted {
+		t.Fatal("expected the first name to be free")
+	}
+	MarkUsed(used, first)
+
+	second, adjusted := UniqueFilePath(dir, "PHOTO", "png", used)
+	if adjusted {
+		t.Fatalf("expected a case-distinct POSIX name to stay free, got %q", second)
 	}
 }

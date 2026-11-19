@@ -328,6 +328,22 @@ func TestNormalizePathKeyIsCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestHostPathKeyHonorsHostCaseSensitivity(t *testing.T) {
+	upper := HostPathKey("/tmp/FileForge/Report.PDF")
+	lower := HostPathKey("/tmp/fileforge/report.pdf")
+
+	if runtime.GOOS == "windows" {
+		if upper != lower {
+			t.Fatalf("HostPathKey should fold case on Windows: %q != %q", upper, lower)
+		}
+		return
+	}
+
+	if upper == lower {
+		t.Fatalf("HostPathKey should keep case-sensitive POSIX paths distinct: %q == %q", upper, lower)
+	}
+}
+
 func TestExistsAndIsDir(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "file.bin")
