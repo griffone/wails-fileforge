@@ -576,23 +576,19 @@ func compressSupportsInputExtension(extension string) bool {
 
 // compressInputFrameCount reports the number of frames bimg would keep for the
 // input. bimg v1.1.9 does not expose a page count, so animated GIFs are counted
-// structurally without decoding pixels. Other containers report one frame.
+// structurally from the plan metadata bytes. Other containers report one
+// frame without reading the file.
 func compressInputFrameCount(inputPath string) int {
 	if normalizeFormatName(strings.TrimPrefix(filepath.Ext(inputPath), ".")) != "gif" {
 		return 1
 	}
 
-	data, err := os.ReadFile(inputPath)
+	meta, err := readPlanImageMeta(inputPath)
 	if err != nil {
 		return 1
 	}
 
-	frames := compressGIFFrameCount(data)
-	if frames < 1 {
-		return 1
-	}
-
-	return frames
+	return meta.Frames
 }
 
 // compressGIFFrameCount walks the GIF block structure and counts image
@@ -696,17 +692,12 @@ func compressAutoFormat(inputPath string) string {
 // has an alpha channel. A read failure leaves the format on the fallback path;
 // execution reports the real error later.
 func compressInputHasAlpha(inputPath string) bool {
-	data, err := os.ReadFile(inputPath)
+	meta, err := readPlanImageMeta(inputPath)
 	if err != nil {
 		return false
 	}
 
-	metadata, metaErr := bimg.NewImage(data).Metadata()
-	if metaErr != nil {
-		return false
-	}
-
-	return metadata.Alpha
+	return meta.Alpha
 }
 
 // planSingleCompressOutput resolves the one output of a single request.
