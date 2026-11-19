@@ -2,9 +2,9 @@ package preview
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // EnsureDiskDir ensures the diskDir exists with secure permissions and returns the path.
@@ -27,9 +27,9 @@ func WriteSpillFile(dir, jobID string, data []byte) (string, error) {
 		return "", fmt.Errorf("preview: write spill mkdir: %w", err)
 	}
 	// use jobID as filename safe component
-	fname := filepath.Join(dir, jobID+".bin")
+	fname := filepath.Join(dir, jobID+cacheEntrySuffix)
 	// write to temp file first then rename
-	tmp, err := ioutil.TempFile(dir, "spill-*")
+	tmp, err := os.CreateTemp(dir, "spill-*")
 	if err != nil {
 		return "", fmt.Errorf("preview: tmpfile: %w", err)
 	}
@@ -62,9 +62,9 @@ func WriteCacheEntry(dir, keyBase string, data []byte, contentType string) (stri
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("preview: write cache mkdir: %w", err)
 	}
-	fname := filepath.Join(dir, keyBase+".bin")
+	fname := filepath.Join(dir, keyBase+cacheEntrySuffix)
 	// write to temp then rename
-	tmp, err := ioutil.TempFile(dir, "cache-*")
+	tmp, err := os.CreateTemp(dir, "cache-*")
 	if err != nil {
 		return "", fmt.Errorf("preview: tmpfile: %w", err)
 	}
@@ -92,33 +92,43 @@ func WriteCacheEntry(dir, keyBase string, data []byte, contentType string) (stri
 	return fname, nil
 }
 
-// RemoveSpillFile removes the spill file at path if it exists.
+// RemoveSpillFile removes the spill file at path and its .meta sidecar if they
+// exist.
 func RemoveSpillFile(path string) error {
 	if path == "" {
 		return nil
 	}
+
+	var firstErr error
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("preview: remove spill: %w", err)
+		firstErr = fmt.Errorf("preview: remove spill: %w", err)
 	}
-	return nil
+	if err := os.Remove(path + ".meta"); err != nil && !os.IsNotExist(err) && firstErr == nil {
+		firstErr = fmt.Errorf("preview: remove spill meta: %w", err)
+	}
+
+	return firstErr
 }
 
-// DiskUsage computes total bytes used under dir (non-recursive for spill files).
+// DiskUsage computes total bytes used by .bin spill files under dir. Metadata
+// sidecars do not count against the disk cap.
 func DiskUsage(dir string) (int64, error) {
-	f, err := os.Open(dir)
-	if err != nil {
-		return 0, fmt.Errorf("preview: disk usage open: %w", err)
-	}
-	defer f.Close()
-	entries, err := f.Readdir(-1)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0, fmt.Errorf("preview: disk usage read: %w", err)
 	}
+
 	var total int64
-	for _, e := range entries {
-		if !e.IsDir() {
-			total += e.Size()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), cacheEntrySuffix) {
+			continue
 		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		total += info.Size()
 	}
+
 	return total, nil
 }

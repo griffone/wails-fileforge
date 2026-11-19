@@ -430,6 +430,9 @@ func (s *PreviewService) Shutdown(ctx context.Context) error {
 		close(s.cleanupStop)
 		s.cleanupStop = nil
 	}
+	if s.cache != nil {
+		s.cache.Close()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// mark queued/running jobs as canceled on shutdown
