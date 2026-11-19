@@ -117,23 +117,44 @@ func (t *ImagesToPDFTool) ExecuteSingle(ctx context.Context, req models.JobReque
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
-// ExecuteSingleWithProgress renders the grid into one PDF and reports progress
-// once per normalized input image.
+// ExecuteSingleWithProgress resolves the plan once, executes exactly that plan
+// and reports progress once per normalized input image.
 func (t *ImagesToPDFTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
 	inputPath := strings.Join(req.InputPaths, ",")
 
-	layout, layoutErr := imagesLayoutFromOptions(req.Options)
-	if layoutErr != nil {
-		return imagesFailureItem(inputPath, "", layoutErr), layoutErr
-	}
-
-	// Plan resolves the same destination the executor writes, so an auto path
-	// that needed a collision suffix is honored instead of being recomputed.
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return imagesFailureItem(inputPath, imagesPlannedOutputPath(plan), planErr), planErr
 	}
-	outputPath := plan.Outputs[0].OutputPath
+
+	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
+	if len(items) > 0 {
+		return items[0], execErr
+	}
+
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("PDF_IMAGES_EXECUTION_MISSING_RESULT", "images-to-PDF execution returned no result", nil)
+	}
+
+	return imagesFailureItem(inputPath, imagesPlannedOutputPath(plan), jobErr), jobErr
+}
+
+// ExecutePlan renders the images into the destination resolved by Plan. It
+// re-normalizes the layout options but never re-resolves the output path.
+func (t *ImagesToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	inputPath := strings.Join(req.InputPaths, ",")
+
+	layout, layoutErr := imagesLayoutFromOptions(req.Options)
+	if layoutErr != nil {
+		return []models.JobResultItemV1{imagesFailureItem(inputPath, imagesPlannedOutputPath(plan), layoutErr)}, layoutErr
+	}
+
+	outputPath := imagesPlannedOutputPath(plan)
+	if outputPath == "" {
+		jobErr := models.NewCanonicalJobError("PDF_IMAGES_EXECUTION_MISSING_RESULT", "the plan resolved no output", nil)
+		return []models.JobResultItemV1{imagesFailureItem(inputPath, "", jobErr)}, jobErr
+	}
 
 	progress := func(processed, total int) {
 		if onProgress == nil {
@@ -150,17 +171,17 @@ func (t *ImagesToPDFTool) ExecuteSingleWithProgress(ctx context.Context, req mod
 	result, buildErr := engine.BuildImagesPDF(ctx, req.InputPaths, outputPath, layout, progress)
 	if buildErr != nil {
 		jobErr := mapImagesExecuteError(buildErr)
-		return imagesFailureItem(inputPath, outputPath, jobErr), jobErr
+		return []models.JobResultItemV1{imagesFailureItem(inputPath, outputPath, jobErr)}, jobErr
 	}
 
-	return models.JobResultItemV1{
+	return []models.JobResultItemV1{{
 		InputPath:   inputPath,
 		OutputPath:  result.OutputPath,
 		Outputs:     []string{result.OutputPath},
 		OutputCount: 1,
 		Success:     true,
 		Message:     fmt.Sprintf("%d images on %d page(s).", result.ImageCount, result.PageCount),
-	}, nil
+	}}, nil
 }
 
 // imagesLayoutFromOptions reads the optional grid options and applies the

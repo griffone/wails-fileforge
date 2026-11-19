@@ -162,8 +162,8 @@ func (t *PDFToDOCXTool) ExecuteSingle(ctx context.Context, req models.JobRequest
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
-// ExecuteSingleWithProgress converts the planned PDF and forwards the engine
-// progress as job progress.
+// ExecuteSingleWithProgress resolves the plan once, executes exactly that plan
+// and forwards the engine progress as job progress.
 func (t *PDFToDOCXTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
 	inputPath := firstInputPath(req.InputPaths)
 
@@ -172,7 +172,37 @@ func (t *PDFToDOCXTool) ExecuteSingleWithProgress(ctx context.Context, req model
 		return pdfToDOCXFailureItem(inputPath, pdfToDOCXPlannedOutputPath(plan), planErr), planErr
 	}
 
+	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
+	if len(items) > 0 {
+		return items[0], execErr
+	}
+
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("PDF_TO_DOCX_EXECUTION_MISSING_RESULT", "PDF to DOCX execution returned no result", nil)
+	}
+
+	return pdfToDOCXFailureItem(inputPath, pdfToDOCXPlannedOutputPath(plan), jobErr), jobErr
+}
+
+// ExecutePlan converts the PDF into the destination resolved by Plan. The plan
+// already validated the input and the runtime; execution only re-resolves the
+// interpreter path it needs to launch the converter.
+func (t *PDFToDOCXTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	parsed, parseErr := parsePDFToDOCXRequest(req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	if len(plan.Outputs) == 0 {
+		jobErr := models.NewCanonicalJobError("PDF_TO_DOCX_EXECUTION_MISSING_RESULT", "the plan resolved no output", nil)
+		return []models.JobResultItemV1{pdfToDOCXFailureItem(parsed.InputPath, "", jobErr)}, jobErr
+	}
+
 	planned := plan.Outputs[0]
+	if strings.TrimSpace(planned.InputPath) == "" {
+		planned.InputPath = parsed.InputPath
+	}
 
 	pythonPath, available := pdf2docxPythonPath()
 	if !available {
@@ -183,7 +213,7 @@ func (t *PDFToDOCXTool) ExecuteSingleWithProgress(ctx context.Context, req model
 			nil,
 		)
 
-		return pdfToDOCXFailureItem(planned.InputPath, planned.OutputPath, jobErr), jobErr
+		return []models.JobResultItemV1{pdfToDOCXFailureItem(planned.InputPath, planned.OutputPath, jobErr)}, jobErr
 	}
 
 	progress := func(event engine.PDFToDOCXProgressEvent) {
@@ -207,10 +237,10 @@ func (t *PDFToDOCXTool) ExecuteSingleWithProgress(ctx context.Context, req model
 	if conversionErr != nil {
 		jobErr := mapPDFToDOCXExecutionError(ctx, conversionErr)
 
-		return pdfToDOCXFailureItem(planned.InputPath, planned.OutputPath, jobErr), jobErr
+		return []models.JobResultItemV1{pdfToDOCXFailureItem(planned.InputPath, planned.OutputPath, jobErr)}, jobErr
 	}
 
-	return pdfToDOCXSuccessItem(planned, result), nil
+	return []models.JobResultItemV1{pdfToDOCXSuccessItem(planned, result)}, nil
 }
 
 type pdfToDOCXRequestFields struct {

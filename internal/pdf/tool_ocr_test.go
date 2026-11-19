@@ -439,12 +439,25 @@ func TestOCRToolExecuteBatch(t *testing.T) {
 	if jobErr != nil {
 		t.Fatalf("expected batch OCR to succeed, got %v", jobErr)
 	}
-	if len(items) != 2 {
-		t.Fatalf("expected 2 items, got %+v", items)
+	if len(items) != 4 {
+		t.Fatalf("expected one result per planned output, got %+v", items)
 	}
 
-	for index, item := range items {
-		if !item.Success || item.OutputCount != 2 || len(item.Outputs) != 2 {
+	// With the text sidecar enabled the plan has a PDF and a TXT output per
+	// input; ExecutePlan reports one item per planned output in plan order.
+	firstPDF := filepath.Join(dir, "first_ocr.pdf")
+	firstText := filepath.Join(dir, "first_ocr.txt")
+	secondPDF := filepath.Join(dir, "second_ocr.pdf")
+	secondText := filepath.Join(dir, "second_ocr.txt")
+	want := [][]string{
+		{firstPDF, firstText},
+		{firstText},
+		{secondPDF, secondText},
+		{secondText},
+	}
+	for index, outputs := range want {
+		item := items[index]
+		if !item.Success || item.OutputCount != len(outputs) || strings.Join(item.Outputs, ",") != strings.Join(outputs, ",") {
 			t.Fatalf("unexpected item %d: %+v", index, item)
 		}
 		for _, output := range item.Outputs {
@@ -452,16 +465,6 @@ func TestOCRToolExecuteBatch(t *testing.T) {
 			if statErr != nil || info.Size() == 0 {
 				t.Fatalf("expected %s to exist and be non-empty, stat err = %v", output, statErr)
 			}
-		}
-	}
-
-	want := [][]string{
-		{filepath.Join(dir, "first_ocr.pdf"), filepath.Join(dir, "first_ocr.txt")},
-		{filepath.Join(dir, "second_ocr.pdf"), filepath.Join(dir, "second_ocr.txt")},
-	}
-	for index, outputs := range want {
-		if strings.Join(items[index].Outputs, ",") != strings.Join(outputs, ",") {
-			t.Fatalf("expected item %d outputs %v, got %v", index, outputs, items[index].Outputs)
 		}
 	}
 }
@@ -574,5 +577,214 @@ func TestOCRToolRuntimeStateAndCapabilities(t *testing.T) {
 	}
 	if response.Available != detected.Available() {
 		t.Fatalf("expected available=%t, got %t", detected.Available(), response.Available)
+	}
+}
+
+func TestOCRToolExecutePlanHonorsResolvedPlan(t *testing.T) {
+	language := realOCRTestLanguage(t)
+
+	dir := t.TempDir()
+	input := filepath.Join(dir, "scan.pdf")
+	writeOCRTextPDFFixture(t, input, 1)
+
+	hookCalls := 0
+	tool := NewOCRToolWithDeps(nil, func(ctx context.Context) engine.OCRCapabilities {
+		hookCalls++
+		return engine.DetectCapabilities(ctx, nil)
+	})
+	req := ocrTestRequest("single", []string{input}, map[string]any{"language": language})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected the PDF and TXT outputs, got %d", len(plan.Outputs))
+	}
+	if _, ok := plan.EffectiveOptions["capabilities"].(engine.OCRCapabilities); !ok {
+		t.Fatalf("expected typed capabilities in the plan, got %#v", plan.EffectiveOptions["capabilities"])
+	}
+
+	requestPDF := plan.Outputs[0].OutputPath
+	requestText := plan.Outputs[1].OutputPath
+	plannedPDF := filepath.Join(dir, "resolved-plan.pdf")
+	plannedText := filepath.Join(dir, "resolved-plan.txt")
+	plan.Outputs[0].OutputPath = plannedPDF
+	plan.Outputs[1].OutputPath = plannedText
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected planned OCR to succeed, got %v", execErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected one item per planned output, got %d", len(items))
+	}
+	if !items[0].Success || items[0].OutputPath != plannedPDF {
+		t.Fatalf("expected the planned PDF output, got %+v", items[0])
+	}
+	if !items[1].Success || items[1].OutputPath != plannedText {
+		t.Fatalf("expected the planned TXT output, got %+v", items[1])
+	}
+
+	for _, path := range []string{plannedPDF, plannedText} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("expected %s on disk: %v", path, statErr)
+		}
+	}
+	for _, path := range []string{requestPDF, requestText} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("expected the request-resolved output %q to be unused, got %v", path, statErr)
+		}
+	}
+	if hookCalls != 1 {
+		t.Fatalf("expected capabilities to be detected once for the plan, got %d calls", hookCalls)
+	}
+}
+
+func TestOCRToolExecutePlanBatchSubset(t *testing.T) {
+	language := realOCRTestLanguage(t)
+
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.pdf")
+	second := filepath.Join(dir, "second.pdf")
+	writeOCRTextPDFFixture(t, first, 1)
+	writeOCRTextPDFFixture(t, second, 1)
+
+	tool := NewOCRTool()
+	req := ocrTestRequest("batch", []string{first, second}, map[string]any{"language": language})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 4 {
+		t.Fatalf("expected 4 planned outputs, got %d", len(plan.Outputs))
+	}
+
+	// A reduced retry plan can contain a single side of an output pair.
+	subset := plan
+	subset.Outputs = plan.Outputs[2:3]
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, subset, nil)
+	if execErr != nil {
+		t.Fatalf("expected the subset to succeed, got %v", execErr)
+	}
+	if len(items) != 1 || items[0].InputPath != second || items[0].OutputPath != plan.Outputs[2].OutputPath {
+		t.Fatalf("expected only the second planned PDF output, got %+v", items)
+	}
+	if _, statErr := os.Stat(plan.Outputs[2].OutputPath); statErr != nil {
+		t.Fatalf("expected the subset output on disk: %v", statErr)
+	}
+	for _, index := range []int{0, 1, 3} {
+		if _, statErr := os.Stat(plan.Outputs[index].OutputPath); !os.IsNotExist(statErr) {
+			t.Fatalf("expected the excluded output %q to stay untouched, got %v", plan.Outputs[index].OutputPath, statErr)
+		}
+	}
+}
+
+func TestOCRToolExecutePlanUsesPlannedCapabilitiesOnce(t *testing.T) {
+	language := realOCRTestLanguage(t)
+
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.pdf")
+	second := filepath.Join(dir, "second.pdf")
+	writeOCRTextPDFFixture(t, first, 1)
+	writeOCRTextPDFFixture(t, second, 1)
+
+	hookCalls := 0
+	tool := NewOCRToolWithDeps(nil, func(ctx context.Context) engine.OCRCapabilities {
+		hookCalls++
+		return engine.DetectCapabilities(ctx, nil)
+	})
+	req := ocrTestRequest("batch", []string{first, second}, map[string]any{
+		"language":    language,
+		"textSidecar": false,
+	})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+	if hookCalls != 1 {
+		t.Fatalf("expected capabilities to be detected once for the plan, got %d calls", hookCalls)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected 2 planned outputs, got %d", len(plan.Outputs))
+	}
+
+	// Replace the plan runtime with one that disables pdftotext. ExecutePlan
+	// must use this snapshot, not probe again, and the warning is observable.
+	plan.EffectiveOptions["capabilities"] = engine.OCRCapabilities{
+		PDFToPPM:  true,
+		Tesseract: true,
+		PDFToText: false,
+		Languages: []string{language},
+	}
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected planned batch OCR to succeed, got %v", execErr)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected one item per planned output, got %d", len(items))
+	}
+	for index, wantInput := range []string{first, second} {
+		if items[index].InputPath != wantInput || !items[index].Success {
+			t.Fatalf("expected item %d for %q, got %+v", index, wantInput, items[index])
+		}
+		if !strings.Contains(items[index].Message, engine.OCRWarningPDFToTextUnavailable) {
+			t.Fatalf("expected the plan capability warning on item %d, got %q", index, items[index].Message)
+		}
+	}
+	if hookCalls != 1 {
+		t.Fatalf("expected no capability detection during execution, got %d calls", hookCalls)
+	}
+}
+
+func TestOCRToolExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
+	language := realOCRTestLanguage(t)
+
+	dir := t.TempDir()
+	valid := filepath.Join(dir, "valid.pdf")
+	broken := filepath.Join(dir, "broken.pdf")
+	writeOCRTextPDFFixture(t, valid, 1)
+	if err := os.WriteFile(broken, []byte("not a pdf"), 0o644); err != nil {
+		t.Fatalf("write invalid pdf: %v", err)
+	}
+
+	tool := NewOCRTool()
+	req := ocrTestRequest("batch", []string{valid, broken}, map[string]any{
+		"language":    language,
+		"textSidecar": false,
+	})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected batch plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 2 {
+		t.Fatalf("expected 2 planned outputs, got %d", len(plan.Outputs))
+	}
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr == nil {
+		t.Fatal("expected an aggregate OCR failure")
+	}
+	if execErr.DetailCode != engine.OCRCodeRecognizeFailed {
+		t.Fatalf("expected %s, got %q", engine.OCRCodeRecognizeFailed, execErr.DetailCode)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items in plan order, got %d", len(items))
+	}
+	if items[0].InputPath != valid || !items[0].Success {
+		t.Fatalf("expected the valid input to succeed first, got %+v", items[0])
+	}
+	if items[1].InputPath != broken || items[1].Success || items[1].Error == nil {
+		t.Fatalf("expected the broken input to fail second, got %+v", items[1])
+	}
+
+	fileErrors, ok := execErr.Details["fileErrors"].([]map[string]any)
+	if !ok || len(fileErrors) != 1 || fileErrors[0]["path"] != broken {
+		t.Fatalf("expected one file error for the broken input, got %#v", execErr.Details["fileErrors"])
 	}
 }

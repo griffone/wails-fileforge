@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -741,5 +742,52 @@ func TestImagesToolPlanThenExecuteUsesPlannedPath(t *testing.T) {
 	}
 	if string(content) != "existing" {
 		t.Fatal("execution must not overwrite the file that forced the adjustment")
+	}
+}
+
+func TestImagesToolExecutePlanHonorsResolvedPlan(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.png")
+	second := filepath.Join(dir, "second.png")
+	writeImagesToolImage(t, first)
+	writeImagesToolImage(t, second)
+
+	tool := NewImagesToPDFTool()
+	req := imagesToolRequest([]string{first, second}, map[string]any{
+		"columns": 2,
+		"rows":    1,
+	})
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 1 {
+		t.Fatalf("expected 1 planned output, got %d", len(plan.Outputs))
+	}
+
+	requestOutput := plan.Outputs[0].OutputPath
+	plannedOutput := filepath.Join(dir, "resolved-plan.pdf")
+	plan.Outputs[0].OutputPath = plannedOutput
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected planned render to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 result item, got %d", len(items))
+	}
+	item := items[0]
+	if !item.Success || item.OutputPath != plannedOutput {
+		t.Fatalf("expected the planned output %q, got %+v", plannedOutput, item)
+	}
+	if item.OutputCount != 1 || len(item.Outputs) != 1 || item.Outputs[0] != plannedOutput {
+		t.Fatalf("expected outputs [%q], got %+v", plannedOutput, item.Outputs)
+	}
+	if _, statErr := os.Stat(plannedOutput); statErr != nil {
+		t.Fatalf("expected the planned output on disk: %v", statErr)
+	}
+	if _, statErr := os.Stat(requestOutput); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the request-resolved output %q to be unused, got %v", requestOutput, statErr)
 	}
 }

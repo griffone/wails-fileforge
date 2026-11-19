@@ -417,7 +417,21 @@ func Convert(ctx context.Context, runner CommandRunner, req OCRRequest, onProgre
 		return OCRResult{}, cancelledOCRError("OCR canceled", ctx.Err())
 	}
 
-	return convertWithCapabilities(ctx, runner, capabilities, req, onProgress)
+	return ConvertWithCapabilities(ctx, runner, capabilities, req, onProgress)
+}
+
+// ConvertWithCapabilities runs the OCR pipeline with a runtime already detected
+// by the caller. Batch executors detect the runtime once per job and reuse it
+// for every input instead of probing Tesseract again per file.
+func ConvertWithCapabilities(ctx context.Context, runner CommandRunner, capabilities OCRCapabilities, req OCRRequest, onProgress func(current, total int, message string)) (OCRResult, *OCRError) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return OCRResult{}, cancelledOCRError("OCR canceled", ctx.Err())
+	}
+
+	return convertWithCapabilities(ctx, resolveCommandRunner(runner), capabilities, req, onProgress)
 }
 
 func convertWithCapabilities(ctx context.Context, runner CommandRunner, capabilities OCRCapabilities, req OCRRequest, onProgress func(current, total int, message string)) (OCRResult, *OCRError) {

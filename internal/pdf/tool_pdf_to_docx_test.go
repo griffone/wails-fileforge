@@ -471,3 +471,59 @@ func TestPDFToDOCXToolExecuteScannedWarning(t *testing.T) {
 		t.Fatalf("expected the scanned warning, got %q", item.Message)
 	}
 }
+
+func TestPDFToDOCXToolExecutePlanHonorsResolvedPlan(t *testing.T) {
+	dir, inputPath, pythonPath := preparePDFToDOCXToolExecute(t)
+
+	naturalOutput := filepath.Join(dir, "manual.docx")
+	plannedOutput := filepath.Join(dir, "resolved-plan.docx")
+
+	var captured engine.PDFToDOCXRequest
+	stubPDFToDOCXConverter(t, func(_ context.Context, _ engine.DOCXCommandRunner, req engine.PDFToDOCXRequest, _ func(engine.PDFToDOCXProgressEvent)) (engine.PDFToDOCXResult, *engine.PDFToDOCXError) {
+		captured = req
+		if err := writePDFToDOCXToolPackageFile(req.OutputPath); err != nil {
+			return engine.PDFToDOCXResult{}, &engine.PDFToDOCXError{Code: engine.PDFToDOCXErrorOutputFailed, Message: "stub write failed", Cause: err}
+		}
+
+		return engine.PDFToDOCXResult{
+			OutputPath: req.OutputPath,
+			Stats: engine.PDFToDOCXStats{
+				Paragraphs:     2,
+				Runs:           4,
+				TextCharacters: 40,
+			},
+		}, nil
+	})
+
+	tool := NewPDFToDOCXTool()
+	req := pdfToDOCXToolRequest("single", []string{inputPath}, nil)
+
+	plan, planErr := tool.Plan(context.Background(), req)
+	if planErr != nil {
+		t.Fatalf("expected plan to succeed, got %v", planErr)
+	}
+	if len(plan.Outputs) != 1 {
+		t.Fatalf("expected 1 planned output, got %d", len(plan.Outputs))
+	}
+	plan.Outputs[0].OutputPath = plannedOutput
+
+	items, execErr := tool.ExecutePlan(context.Background(), req, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected planned conversion to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 result item, got %d", len(items))
+	}
+	if !items[0].Success || items[0].OutputPath != plannedOutput {
+		t.Fatalf("expected the planned output %q, got %+v", plannedOutput, items[0])
+	}
+	if captured.InputPath != inputPath || captured.OutputPath != plannedOutput || captured.PythonPath != pythonPath {
+		t.Fatalf("unexpected conversion request: %+v", captured)
+	}
+	if _, statErr := os.Stat(plannedOutput); statErr != nil {
+		t.Fatalf("expected the planned output on disk: %v", statErr)
+	}
+	if _, statErr := os.Stat(naturalOutput); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected the request-resolved output %q to be unused, got %v", naturalOutput, statErr)
+	}
+}
