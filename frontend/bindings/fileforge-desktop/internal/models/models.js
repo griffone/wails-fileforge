@@ -1265,6 +1265,57 @@ export class JobHistoryEntryV1 {
 }
 
 /**
+ * JobListResponseV1 lists the active and recent orchestrator jobs, newest
+ * first. It backs the background task activity view so the UI can render every
+ * tracked task without polling each job id.
+ */
+export class JobListResponseV1 {
+    /**
+     * Creates a new JobListResponseV1 instance.
+     * @param {Partial<JobListResponseV1>} [$$source = {}] - The source object to create the JobListResponseV1.
+     */
+    constructor($$source = {}) {
+        if (!("success" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["success"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("jobs" in $$source)) {
+            /**
+             * @member
+             * @type {JobResultV1[]}
+             */
+            this["jobs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new JobListResponseV1 instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {JobListResponseV1}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType13;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("jobs" in $$parsedSource) {
+            $$parsedSource["jobs"] = $$createField2_0($$parsedSource["jobs"]);
+        }
+        return new JobListResponseV1(/** @type {Partial<JobListResponseV1>} */($$parsedSource));
+    }
+}
+
+/**
  * JobOutputRecordV1 records one output file produced by a terminal job. The
  * size and modification time are the fingerprint used by undo: a file whose
  * fingerprint no longer matches is never moved.
@@ -1631,8 +1682,8 @@ export class JobResultV1 {
      * @returns {JobResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType12;
-        const $$createField6_0 = $$createType14;
+        const $$createField5_0 = $$createType14;
+        const $$createField6_0 = $$createType16;
         const $$createField7_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("progress" in $$parsedSource) {
@@ -1699,7 +1750,7 @@ export class JobStatusResponseV1 {
      * @returns {JobStatusResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType16;
+        const $$createField3_0 = $$createType17;
         const $$createField4_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
@@ -1753,7 +1804,7 @@ export class ListAutomationRulesResponseV1 {
      * @returns {ListAutomationRulesResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType17;
+        const $$createField2_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("rules" in $$parsedSource) {
             $$parsedSource["rules"] = $$createField2_0($$parsedSource["rules"]);
@@ -1803,7 +1854,7 @@ export class ListAutomationRunsResponseV1 {
      * @returns {ListAutomationRunsResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType19;
+        const $$createField2_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("runs" in $$parsedSource) {
             $$parsedSource["runs"] = $$createField2_0($$parsedSource["runs"]);
@@ -1852,7 +1903,7 @@ export class ListRecipesResponseV1 {
      * @returns {ListRecipesResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType21;
+        const $$createField2_0 = $$createType22;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("recipes" in $$parsedSource) {
             $$parsedSource["recipes"] = $$createField2_0($$parsedSource["recipes"]);
@@ -1898,7 +1949,7 @@ export class ListToolsResponseV1 {
      * @returns {ListToolsResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType23;
+        const $$createField2_0 = $$createType24;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tools" in $$parsedSource) {
             $$parsedSource["tools"] = $$createField2_0($$parsedSource["tools"]);
@@ -1962,7 +2013,7 @@ export class LocalCapabilitiesResponseV1 {
      * @returns {LocalCapabilitiesResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType25;
+        const $$createField2_0 = $$createType26;
         const $$createField3_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("checks" in $$parsedSource) {
@@ -2331,7 +2382,7 @@ export class PlanJobResponseV1 {
      * @returns {PlanJobResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType27;
+        const $$createField2_0 = $$createType28;
         const $$createField3_0 = $$createType5;
         const $$createField4_0 = $$createType4;
         const $$createField5_0 = $$createType3;
@@ -2504,9 +2555,9 @@ export class RecipePlanResponseV1 {
      * @returns {RecipePlanResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType28;
+        const $$createField2_0 = $$createType29;
         const $$createField3_0 = $$createType4;
-        const $$createField5_0 = $$createType27;
+        const $$createField5_0 = $$createType28;
         const $$createField6_0 = $$createType4;
         const $$createField7_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
@@ -2702,9 +2753,9 @@ export class RecipeResultV1 {
      * @returns {RecipeResultV1}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType30;
+        const $$createField6_0 = $$createType31;
         const $$createField7_0 = $$createType4;
-        const $$createField9_0 = $$createType32;
+        const $$createField9_0 = $$createType33;
         const $$createField10_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("steps" in $$parsedSource) {
@@ -2777,7 +2828,7 @@ export class RecipeStatusResponseV1 {
      * @returns {RecipeStatusResponseV1}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType34;
+        const $$createField3_0 = $$createType35;
         const $$createField4_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
@@ -3018,7 +3069,7 @@ export class RecipeV1 {
     static createFrom($$source = {}) {
         const $$createField5_0 = $$createType4;
         const $$createField7_0 = $$createType4;
-        const $$createField8_0 = $$createType36;
+        const $$createField8_0 = $$createType37;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("acceptExtensions" in $$parsedSource) {
             $$parsedSource["acceptExtensions"] = $$createField5_0($$parsedSource["acceptExtensions"]);
@@ -3187,8 +3238,8 @@ export class ToolCatalogEntryV1 {
      * @returns {ToolCatalogEntryV1}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType37;
-        const $$createField1_0 = $$createType38;
+        const $$createField0_0 = $$createType38;
+        const $$createField1_0 = $$createType39;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("manifest" in $$parsedSource) {
             $$parsedSource["manifest"] = $$createField0_0($$parsedSource["manifest"]);
@@ -3610,7 +3661,7 @@ export class ToolchainStatusV1 {
      * @returns {ToolchainStatusV1}
      */
     static createFrom($$source = {}) {
-        const $$createField10_0 = $$createType40;
+        const $$createField10_0 = $$createType41;
         const $$createField13_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("components" in $$parsedSource) {
@@ -3779,7 +3830,7 @@ export class UndoResultV1 {
      */
     static createFrom($$source = {}) {
         const $$createField2_0 = $$createType4;
-        const $$createField3_0 = $$createType42;
+        const $$createField3_0 = $$createType43;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("moved" in $$parsedSource) {
             $$parsedSource["moved"] = $$createField2_0($$parsedSource["moved"]);
@@ -3982,7 +4033,7 @@ export class VerificationReportV1 {
      * @returns {VerificationReportV1}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType44;
+        const $$createField2_0 = $$createType45;
         const $$createField3_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("outputs" in $$parsedSource) {
@@ -4053,7 +4104,7 @@ export class VerifiedOutputV1 {
      * @returns {VerifiedOutputV1}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType46;
+        const $$createField4_0 = $$createType47;
         const $$createField5_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("checks" in $$parsedSource) {
@@ -4079,38 +4130,39 @@ const $$createType8 = FileInfoV1.createFrom;
 const $$createType9 = $Create.Array($$createType8);
 const $$createType10 = JobOutputRecordV1.createFrom;
 const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = JobProgressV1.createFrom;
-const $$createType13 = JobResultItemV1.createFrom;
-const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = JobResultV1.createFrom;
-const $$createType16 = $Create.Nullable($$createType15);
-const $$createType17 = $Create.Array($$createType0);
-const $$createType18 = AutomationRunRecordV1.createFrom;
-const $$createType19 = $Create.Array($$createType18);
-const $$createType20 = RecipeV1.createFrom;
-const $$createType21 = $Create.Array($$createType20);
-const $$createType22 = ToolCatalogEntryV1.createFrom;
-const $$createType23 = $Create.Array($$createType22);
-const $$createType24 = LocalCapabilityV1.createFrom;
-const $$createType25 = $Create.Array($$createType24);
-const $$createType26 = PlannedOutputV1.createFrom;
-const $$createType27 = $Create.Array($$createType26);
-const $$createType28 = $Create.Nullable($$createType20);
-const $$createType29 = RecipeStepResultV1.createFrom;
-const $$createType30 = $Create.Array($$createType29);
-const $$createType31 = VerificationReportV1.createFrom;
-const $$createType32 = $Create.Nullable($$createType31);
-const $$createType33 = RecipeResultV1.createFrom;
-const $$createType34 = $Create.Nullable($$createType33);
-const $$createType35 = RecipeStepV1.createFrom;
-const $$createType36 = $Create.Array($$createType35);
-const $$createType37 = ToolManifestV1.createFrom;
-const $$createType38 = ToolRuntimeStateV1.createFrom;
-const $$createType39 = ToolchainComponentV1.createFrom;
-const $$createType40 = $Create.Array($$createType39);
-const $$createType41 = UndoSkippedV1.createFrom;
-const $$createType42 = $Create.Array($$createType41);
-const $$createType43 = VerifiedOutputV1.createFrom;
-const $$createType44 = $Create.Array($$createType43);
-const $$createType45 = VerificationCheckV1.createFrom;
-const $$createType46 = $Create.Array($$createType45);
+const $$createType12 = JobResultV1.createFrom;
+const $$createType13 = $Create.Array($$createType12);
+const $$createType14 = JobProgressV1.createFrom;
+const $$createType15 = JobResultItemV1.createFrom;
+const $$createType16 = $Create.Array($$createType15);
+const $$createType17 = $Create.Nullable($$createType12);
+const $$createType18 = $Create.Array($$createType0);
+const $$createType19 = AutomationRunRecordV1.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = RecipeV1.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = ToolCatalogEntryV1.createFrom;
+const $$createType24 = $Create.Array($$createType23);
+const $$createType25 = LocalCapabilityV1.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = PlannedOutputV1.createFrom;
+const $$createType28 = $Create.Array($$createType27);
+const $$createType29 = $Create.Nullable($$createType21);
+const $$createType30 = RecipeStepResultV1.createFrom;
+const $$createType31 = $Create.Array($$createType30);
+const $$createType32 = VerificationReportV1.createFrom;
+const $$createType33 = $Create.Nullable($$createType32);
+const $$createType34 = RecipeResultV1.createFrom;
+const $$createType35 = $Create.Nullable($$createType34);
+const $$createType36 = RecipeStepV1.createFrom;
+const $$createType37 = $Create.Array($$createType36);
+const $$createType38 = ToolManifestV1.createFrom;
+const $$createType39 = ToolRuntimeStateV1.createFrom;
+const $$createType40 = ToolchainComponentV1.createFrom;
+const $$createType41 = $Create.Array($$createType40);
+const $$createType42 = UndoSkippedV1.createFrom;
+const $$createType43 = $Create.Array($$createType42);
+const $$createType44 = VerifiedOutputV1.createFrom;
+const $$createType45 = $Create.Array($$createType44);
+const $$createType46 = VerificationCheckV1.createFrom;
+const $$createType47 = $Create.Array($$createType46);

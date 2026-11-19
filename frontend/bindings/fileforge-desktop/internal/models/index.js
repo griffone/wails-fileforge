@@ -19,6 +19,7 @@ export {
     InspectFilesResponseV1,
     JobErrorV1,
     JobHistoryEntryV1,
+    JobListResponseV1,
     JobOutputRecordV1,
     JobProgressV1,
     JobRequestV1,

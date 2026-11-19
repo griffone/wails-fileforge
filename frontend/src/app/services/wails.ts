@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, NgZone, inject } from '@angular/core';
 import { Call, Events } from '@wailsio/runtime';
 import { Subject, Subscription, ReplaySubject, Observable } from 'rxjs';
 
@@ -196,6 +196,12 @@ export interface JobStatusResponseV1 {
   found: boolean;
   result?: JobResultV1;
   error?: JobErrorV1;
+}
+
+export interface JobListResponseV1 {
+  success: boolean;
+  message: string;
+  jobs: JobResultV1[];
 }
 
 export interface PDFPreviewSourceResponseV1 {
@@ -648,6 +654,10 @@ export class Wails {
   private static readonly THUMBNAIL_POLL_ATTEMPTS = 20;
   private static readonly THUMBNAIL_POLL_DELAY_MS = 120;
 
+  // Native Wails events can arrive outside the Angular zone; new state streams
+  // run their emissions inside it so signal consumers re-render reliably.
+  private readonly zone = inject(NgZone);
+
   // Job progress Subject / registration tracking to ensure we only register
   // the Wails Events.On handler once and avoid duplicate listeners.
   // We expose a public Observable that replays the last event for late
@@ -663,6 +673,18 @@ export class Wails {
     null;
   private recipeProgressUnsubscribe: (() => void) | null = null;
   private recipeProgressRefCount = 0;
+
+  // Full job/recipe snapshots follow the same lazy registration contract as
+  // the progress streams. The backend emits one snapshot on submit and another
+  // on every terminal status, so the activity view can rebuild its list without
+  // polling each job id.
+  private jobStateSubject: ReplaySubject<JobResultV1> | null = null;
+  private jobStateUnsubscribe: (() => void) | null = null;
+  private jobStateRefCount = 0;
+
+  private recipeStateSubject: ReplaySubject<RecipeResultV1> | null = null;
+  private recipeStateUnsubscribe: (() => void) | null = null;
+  private recipeStateRefCount = 0;
 
   // Automation run events follow the same lazy lifecycle as recipe progress.
   // A rule can run more than one file over time, so consumers filter by ruleId
@@ -732,6 +754,52 @@ export class Wails {
         unregister();
       };
     });
+
+  // Full snapshot streams. `jobs/state/v1` and `recipes/state/v1` carry a
+  // complete JobResultV1 / RecipeResultV1 on submit and on terminal status.
+  // They mirror recipeProgress$: lazy native registration, last snapshot
+  // replayed to late subscribers, and refcount-based cleanup.
+  public readonly jobState$: Observable<JobResultV1> = new Observable(
+    (subscriber) => {
+      const unregister = this.ensureJobStateRegistered();
+
+      const sub = this.jobStateSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    },
+  );
+
+  public readonly recipeState$: Observable<RecipeResultV1> = new Observable(
+    (subscriber) => {
+      const unregister = this.ensureRecipeStateRegistered();
+
+      const sub = this.recipeStateSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    },
+  );
 
   // Same contract as recipeProgress$ for the automation/run/v1 stream: the
   // native handler only lives while at least one consumer is subscribed and
@@ -857,6 +925,18 @@ export class Wails {
           'IPC_STATUS_FAILED',
           error,
         ),
+      };
+    }
+  }
+
+  async listJobsV1(limit = 50): Promise<JobListResponseV1> {
+    try {
+      return await this.callByID(3118322683, limit);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('List jobs failed', error),
+        jobs: [],
       };
     }
   }
@@ -1232,6 +1312,14 @@ export class Wails {
     }
   }
 
+  async listRecipeRunsV1(limit = 50): Promise<RecipeResultV1[]> {
+    try {
+      return await this.callByID(438729619, limit);
+    } catch {
+      return [];
+    }
+  }
+
   async cancelRecipeV1(jobId: string): Promise<RecipeStatusResponseV1> {
     try {
       return await this.callByID(2728388739, jobId);
@@ -1367,6 +1455,17 @@ export class Wails {
       return {
         success: false,
         message: this.formatMessage('Reveal in folder failed', error),
+      };
+    }
+  }
+
+  async notifyV1(title: string, body: string): Promise<PathActionResponseV1> {
+    try {
+      return await this.callByID(3871142726, title, body);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Send notification failed', error),
       };
     }
   }
@@ -1690,6 +1789,173 @@ export class Wails {
         this.recipeProgressRefCount = 0;
       }
     };
+  }
+
+  // Ensure the job snapshot replay subject exists and the native handler is
+  // registered. Mirrors ensureRecipeProgressRegistered; a snapshot needs a job
+  // id and a status to be usable, everything else can be defaulted.
+  private ensureJobStateRegistered(): () => void {
+    if (!this.jobStateSubject) {
+      this.jobStateSubject = new ReplaySubject<JobResultV1>(1);
+      this.jobStateUnsubscribe = Events.On(
+        'jobs/state/v1',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<JobResultV1>;
+          if (
+            typeof candidate.jobId !== 'string' ||
+            candidate.jobId.trim().length === 0 ||
+            typeof candidate.status !== 'string' ||
+            candidate.status.trim().length === 0
+          ) {
+            return;
+          }
+
+          this.emitJobState({
+            jobId: candidate.jobId,
+            success: candidate.success === true,
+            message:
+              typeof candidate.message === 'string' ? candidate.message : '',
+            toolId: typeof candidate.toolId === 'string' ? candidate.toolId : '',
+            status: candidate.status as JobExecutionStatusV1,
+            progress: candidate.progress ?? {
+              current: 0,
+              total: 0,
+              stage: candidate.status,
+              message: '',
+            },
+            items: Array.isArray(candidate.items) ? candidate.items : [],
+            error: candidate.error,
+            startedAt:
+              typeof candidate.startedAt === 'number' ? candidate.startedAt : 0,
+            endedAt:
+              typeof candidate.endedAt === 'number'
+                ? candidate.endedAt
+                : undefined,
+          });
+        },
+      );
+    }
+
+    this.jobStateRefCount += 1;
+
+    return () => {
+      this.jobStateRefCount -= 1;
+      if (this.jobStateRefCount <= 0) {
+        try {
+          this.jobStateUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.jobStateUnsubscribe = null;
+        try {
+          this.jobStateSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.jobStateSubject = null;
+        this.jobStateRefCount = 0;
+      }
+    };
+  }
+
+  // Ensure the recipe snapshot replay subject exists and the native handler is
+  // registered. Only the job id and status are required.
+  private ensureRecipeStateRegistered(): () => void {
+    if (!this.recipeStateSubject) {
+      this.recipeStateSubject = new ReplaySubject<RecipeResultV1>(1);
+      this.recipeStateUnsubscribe = Events.On(
+        'recipes/state/v1',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<RecipeResultV1>;
+          if (
+            typeof candidate.jobId !== 'string' ||
+            candidate.jobId.trim().length === 0 ||
+            typeof candidate.status !== 'string' ||
+            candidate.status.trim().length === 0
+          ) {
+            return;
+          }
+
+          this.emitRecipeState({
+            jobId: candidate.jobId,
+            recipeId:
+              typeof candidate.recipeId === 'string' ? candidate.recipeId : '',
+            status: candidate.status,
+            message:
+              typeof candidate.message === 'string' ? candidate.message : '',
+            currentStep: this.toStepCount(candidate.currentStep),
+            totalSteps: this.toStepCount(candidate.totalSteps),
+            steps: Array.isArray(candidate.steps) ? candidate.steps : [],
+            outputs: Array.isArray(candidate.outputs)
+              ? candidate.outputs.filter(
+                  (output): output is string => typeof output === 'string',
+                )
+              : [],
+            targetSizeBytes:
+              typeof candidate.targetSizeBytes === 'number'
+                ? candidate.targetSizeBytes
+                : undefined,
+            verification: candidate.verification,
+            error: candidate.error,
+            startedAt:
+              typeof candidate.startedAt === 'number' ? candidate.startedAt : 0,
+            endedAt:
+              typeof candidate.endedAt === 'number'
+                ? candidate.endedAt
+                : undefined,
+          });
+        },
+      );
+    }
+
+    this.recipeStateRefCount += 1;
+
+    return () => {
+      this.recipeStateRefCount -= 1;
+      if (this.recipeStateRefCount <= 0) {
+        try {
+          this.recipeStateUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.recipeStateUnsubscribe = null;
+        try {
+          this.recipeStateSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.recipeStateSubject = null;
+        this.recipeStateRefCount = 0;
+      }
+    };
+  }
+
+  // Native events may be delivered outside the Angular zone. Running the
+  // emission inside it lets signal consumers schedule change detection.
+  private emitJobState(snapshot: JobResultV1): void {
+    try {
+      this.zone.run(() => this.jobStateSubject?.next(snapshot));
+    } catch {
+      // ignore
+    }
+  }
+
+  private emitRecipeState(snapshot: RecipeResultV1): void {
+    try {
+      this.zone.run(() => this.recipeStateSubject?.next(snapshot));
+    } catch {
+      // ignore
+    }
   }
 
   // Ensure the automation replay subject exists and the native event handler
