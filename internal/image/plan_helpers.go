@@ -38,6 +38,53 @@ func commonPlannedFormat(formats []string) (string, bool) {
 	return first, true
 }
 
+// planStringSlice reads a per-input string list from the effective options. A
+// plan that went through JSON decoding carries []any, so both shapes are
+// accepted.
+func planStringSlice(effective map[string]any, key string) []string {
+	if effective == nil {
+		return nil
+	}
+
+	switch values := effective[key].(type) {
+	case []string:
+		return values
+	case []any:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if text, ok := value.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// planBoolSlice reads a per-input boolean list from the effective options,
+// accepting the []any shape produced by JSON decoding.
+func planBoolSlice(effective map[string]any, key string) []bool {
+	if effective == nil {
+		return nil
+	}
+
+	switch values := effective[key].(type) {
+	case []bool:
+		return values
+	case []any:
+		out := make([]bool, 0, len(values))
+		for _, value := range values {
+			if flag, ok := value.(bool); ok {
+				out = append(out, flag)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
 // plannedOutputFormat resolves the encoding of one planned output. A shared
 // effective format wins so an explicit single output path keeps the requested
 // encoding; otherwise the planned extension decides. The per-input "auto"

@@ -1568,3 +1568,172 @@ func TestWatermarkPlanExplicitOutputSkipsOutputDir(t *testing.T) {
 		t.Fatalf("expected the explicit output %q, got %+v", custom, plan.Outputs)
 	}
 }
+
+func TestWatermarkEffectiveFormatsAndAlphas(t *testing.T) {
+	dir := t.TempDir()
+	transparent := filepath.Join(dir, "transparent.png")
+	jpegInput := filepath.Join(dir, "photo.jpg")
+	writeWatermarkSolidPNG(t, transparent, 200, 150, color.NRGBA{})
+	writeCompressNoiseJPEG(t, jpegInput, 200, 150, 90)
+
+	tool := NewWatermarkTool()
+	plan, planErr := tool.Plan(context.Background(), watermarkTestRequest("batch", []string{transparent, jpegInput}, watermarkRequestOptions()))
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+
+	formats, ok := plan.EffectiveOptions["formats"].([]string)
+	if !ok || !slices.Equal(formats, []string{"png", "jpeg"}) {
+		t.Fatalf("expected per-input formats [png jpeg], got %#v", plan.EffectiveOptions["formats"])
+	}
+	alphas, ok := plan.EffectiveOptions["alphas"].([]bool)
+	if !ok || !slices.Equal(alphas, []bool{true, false}) {
+		t.Fatalf("expected per-input alphas [true false], got %#v", plan.EffectiveOptions["alphas"])
+	}
+}
+
+func TestWatermarkExecutePlanHonorsResolvedPlan(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "photo.png")
+	writePlanPNG(t, input, 300, 240)
+
+	tool := NewWatermarkTool()
+	request := watermarkTestRequest("single", []string{input}, watermarkRequestOptions())
+
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the plan to succeed, got %v", planErr)
+	}
+
+	requestOutput := plan.Outputs[0].OutputPath
+	plannedOutput := filepath.Join(dir, "resolved-plan.png")
+	plan.Outputs[0].OutputPath = plannedOutput
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, nil)
+	if execErr != nil {
+		t.Fatalf("expected the planned watermark to succeed, got %v", execErr)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 result item, got %d", len(items))
+	}
+	if !items[0].Success || items[0].OutputPath != plannedOutput {
+		t.Fatalf("expected a success item at %q, got %+v", plannedOutput, items[0])
+	}
+	if _, statErr := os.Stat(requestOutput); !os.IsNotExist(statErr) {
+		t.Fatalf("expected the request-resolved output %q to be unused, got %v", requestOutput, statErr)
+	}
+	if _, statErr := os.Stat(plannedOutput); statErr != nil {
+		t.Fatalf("expected the planned output on disk: %v", statErr)
+	}
+}
+
+func TestWatermarkExecutePlanBatchSubset(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.png")
+	second := filepath.Join(dir, "second.png")
+	writePlanPNG(t, first, 200, 150)
+	writePlanPNG(t, second, 200, 150)
+
+	tool := NewWatermarkTool()
+	request := watermarkTestRequest("batch", []string{first, second}, watermarkRequestOptions())
+
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+
+	subset := plan
+	subset.Outputs = plan.Outputs[1:]
+
+	items, execErr := tool.ExecutePlan(context.Background(), request, subset, nil)
+	if execErr != nil {
+		t.Fatalf("expected the subset to succeed, got %v", execErr)
+	}
+	if len(items) != 1 || items[0].InputPath != second || items[0].OutputPath != plan.Outputs[1].OutputPath {
+		t.Fatalf("expected only the second planned output, got %+v", items)
+	}
+	if _, statErr := os.Stat(plan.Outputs[1].OutputPath); statErr != nil {
+		t.Fatalf("expected the subset output to exist: %v", statErr)
+	}
+	if _, statErr := os.Stat(plan.Outputs[0].OutputPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected the excluded output %q to stay untouched, got %v", plan.Outputs[0].OutputPath, statErr)
+	}
+}
+
+func TestWatermarkExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
+	dir := t.TempDir()
+	valid := filepath.Join(dir, "valid.png")
+	broken := filepath.Join(dir, "broken.png")
+	writePlanPNG(t, valid, 120, 90)
+	if err := os.WriteFile(broken, []byte("not an image"), 0o644); err != nil {
+		t.Fatalf("write broken fixture: %v", err)
+	}
+
+	tool := NewWatermarkTool()
+	request := watermarkTestRequest("batch", []string{valid, broken}, watermarkRequestOptions())
+
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to tolerate a broken image, got %v", planErr)
+	}
+
+	var progress []int
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgressV1) {
+		progress = append(progress, event.Current)
+	})
+	if execErr == nil {
+		t.Fatal("expected the first item error")
+	}
+	if execErr.DetailCode != "IMAGE_WATERMARK_BATCH_ITEM" {
+		t.Fatalf("expected IMAGE_WATERMARK_BATCH_ITEM, got %q", execErr.DetailCode)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 result items, got %d", len(items))
+	}
+	if !items[0].Success || items[0].InputPath != valid || items[0].OutputPath != plan.Outputs[0].OutputPath {
+		t.Fatalf("expected the first planned item to succeed, got %+v", items[0])
+	}
+	if items[1].Success || items[1].Error == nil || items[1].InputPath != broken {
+		t.Fatalf("expected the broken planned item to fail, got %+v", items[1])
+	}
+	if len(progress) != 2 || progress[0] != 1 || progress[1] != 2 {
+		t.Fatalf("expected monotonic plan-order progress, got %v", progress)
+	}
+}
+
+func TestWatermarkExecutePlanCancellation(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.png")
+	second := filepath.Join(dir, "second.png")
+	writePlanPNG(t, first, 200, 150)
+	writePlanPNG(t, second, 200, 150)
+
+	tool := NewWatermarkTool()
+	request := watermarkTestRequest("batch", []string{first, second}, watermarkRequestOptions())
+
+	plan, planErr := tool.Plan(context.Background(), request)
+	if planErr != nil {
+		t.Fatalf("expected the batch plan to succeed, got %v", planErr)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	items, execErr := tool.ExecutePlan(ctx, request, plan, nil)
+	if execErr == nil {
+		t.Fatal("expected cancellation")
+	}
+	if execErr.DetailCode != "IMAGE_WATERMARK_CANCELLED" {
+		t.Fatalf("expected IMAGE_WATERMARK_CANCELLED, got %q", execErr.DetailCode)
+	}
+	for _, item := range items {
+		if item.Success {
+			t.Fatalf("expected no successful item after cancel, got %+v", item)
+		}
+	}
+	for _, planned := range plan.Outputs {
+		if _, statErr := os.Stat(planned.OutputPath); !os.IsNotExist(statErr) {
+			t.Fatalf("expected no output after cancel, got %v for %q", statErr, planned.OutputPath)
+		}
+	}
+}

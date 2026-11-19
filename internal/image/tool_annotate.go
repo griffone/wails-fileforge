@@ -199,31 +199,24 @@ func planParsedAnnotateRequest(parsed annotateRequest) (models.PlanJobResponseV1
 }
 
 func (t *AnnotateTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
-	plan, parsed, planErr := t.planRequest(ctx, req)
+	inputPath := firstPath(req.InputPaths)
+
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
-		return models.JobResultItemV1{
-			InputPath:  firstPath(req.InputPaths),
-			OutputPath: plannedOutputPath(plan),
-			Success:    false,
-			Message:    planErr.Message,
-			Error:      planErr,
-		}, planErr
+		return imageFailureItem(inputPath, plannedOutputPath(plan), planErr), planErr
 	}
 
-	prepared := preparedAnnotateFromPlan(plan.Outputs[0], parsed, plan.EffectiveOptions)
-	if err := executeAnnotateToPath(ctx, prepared); err != nil {
-		jobErr := models.NewCanonicalJobError("IMAGE_ANNOTATE_EXECUTION", err.Error(), map[string]any{"inputPath": prepared.inputPath})
-		return models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Success: false, Message: "image annotate failed", Error: jobErr}, jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	return models.JobResultItemV1{
-		InputPath:   prepared.inputPath,
-		OutputPath:  prepared.outputPath,
-		Outputs:     []string{prepared.outputPath},
-		OutputCount: 1,
-		Success:     true,
-		Message:     "image annotate successful",
-	}, nil
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("IMAGE_ANNOTATE_EXECUTION", "annotate returned no result", nil)
+	}
+
+	return imageFailureItem(inputPath, plannedOutputPath(plan), jobErr), jobErr
 }
 
 func (t *AnnotateTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
@@ -236,19 +229,40 @@ func (t *AnnotateTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 		return nil, models.NewCanonicalJobError("IMAGE_ANNOTATE_MODE_INVALID", "mode must be batch", nil)
 	}
 
-	plan, plannedRequest, planErr := t.planRequest(ctx, req)
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return nil, planErr
 	}
 
-	// Resolve every prepared item sequentially; execution is what runs in
-	// parallel.
-	preparedItems := make([]preparedAnnotate, len(plan.Outputs))
-	for index, planned := range plan.Outputs {
-		preparedItems[index] = preparedAnnotateFromPlan(planned, plannedRequest, plan.EffectiveOptions)
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan annotates exactly the outputs resolved by Plan. The normalized
+// operations travel in the effective options, so a reduced retry plan only
+// processes the failed items without re-planning. Results keep plan order.
+func (t *AnnotateTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	total := len(plan.Outputs)
+	if total == 0 {
+		return nil, models.NewCanonicalJobError("IMAGE_ANNOTATE_INPUT_REQUIRED", "Choose at least one image to annotate.", nil)
 	}
 
-	total := len(preparedItems)
+	operations, opErr := annotatePlanOperations(plan.EffectiveOptions, req)
+	if opErr != nil {
+		return nil, opErr
+	}
+
+	// Resolve every prepared item sequentially; execution is what runs in
+	// parallel.
+	preparedItems := make([]preparedAnnotate, total)
+	for index, planned := range plan.Outputs {
+		preparedItems[index] = preparedAnnotateFromPlan(planned, operations, plan.EffectiveOptions)
+	}
+
+	detailCode := "IMAGE_ANNOTATE_BATCH_ITEM"
+	if req.Mode == "single" {
+		detailCode = "IMAGE_ANNOTATE_EXECUTION"
+	}
+
 	items := make([]models.JobResultItemV1, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
@@ -256,7 +270,7 @@ func (t *AnnotateTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
 		prepared := preparedItems[index]
 		if err := executeAnnotateToPath(ctx, prepared); err != nil {
-			itemErr := models.NewCanonicalJobError("IMAGE_ANNOTATE_BATCH_ITEM", err.Error(), map[string]any{"inputPath": prepared.inputPath})
+			itemErr := models.NewCanonicalJobError(detailCode, err.Error(), map[string]any{"inputPath": prepared.inputPath})
 			items[index] = models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Success: false, Message: "image annotate failed", Error: itemErr}
 		} else {
 			items[index] = models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Outputs: []string{prepared.outputPath}, OutputCount: 1, Success: true, Message: "image annotate successful"}
@@ -268,10 +282,33 @@ func (t *AnnotateTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 	})
 
 	if batchRunCancelled(ctx, runErr) {
-		return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_ANNOTATE_CANCELLED", batchCancellationCause(ctx, runErr).Error(), nil)
+		cause := batchCancellationCause(ctx, runErr)
+		if req.Mode == "single" {
+			return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_ANNOTATE_EXECUTION", fmt.Sprintf("annotate cancelled: %v", cause), nil)
+		}
+
+		return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_ANNOTATE_CANCELLED", cause.Error(), nil)
 	}
 
 	return items, firstFailedItemError(items)
+}
+
+// annotatePlanOperations reads the normalized operations stored by Plan and
+// falls back to parsing the request options for legacy callers that never
+// planned. It never resolves output paths.
+func annotatePlanOperations(effective map[string]any, req models.JobRequestV1) ([]models.ImageAnnotateOperationV1, *models.JobErrorV1) {
+	if effective != nil {
+		if operations, ok := effective["operations"].([]models.ImageAnnotateOperationV1); ok && len(operations) > 0 {
+			return operations, nil
+		}
+	}
+
+	parsed, parseErr := parseAnnotateRequest(req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	return parsed.operations, nil
 }
 
 func (t *AnnotateTool) GetImageAnnotatePreviewV1(req models.ImageAnnotatePreviewRequestV1) models.ImageAnnotatePreviewResponseV1 {
@@ -664,17 +701,20 @@ func annotateOutputBaseName(inputPath string) string {
 
 // preparedAnnotateFromPlan turns a planned output into executor input without
 // resolving any path again.
-func preparedAnnotateFromPlan(planned models.PlannedOutputV1, parsed annotateRequest, effective map[string]any) preparedAnnotate {
+func preparedAnnotateFromPlan(planned models.PlannedOutputV1, operations []models.ImageAnnotateOperationV1, effective map[string]any) preparedAnnotate {
 	return preparedAnnotate{
 		inputPath:  planned.InputPath,
 		outputPath: planned.OutputPath,
 		outputFmt:  plannedOutputFormat(planned, effective),
-		operations: parsed.operations,
+		operations: operations,
 	}
 }
 
 func annotateEffectiveOptions(parsed annotateRequest, formats []string) map[string]any {
-	effective := map[string]any{"operationCount": len(parsed.operations)}
+	effective := map[string]any{
+		"operationCount": len(parsed.operations),
+		"operations":     append([]models.ImageAnnotateOperationV1(nil), parsed.operations...),
+	}
 	if format, ok := commonPlannedFormat(formats); ok {
 		effective["format"] = format
 	}

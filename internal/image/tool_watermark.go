@@ -135,36 +135,35 @@ func (t *WatermarkTool) ExecuteSingle(ctx context.Context, req models.JobRequest
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
-// ExecuteSingleWithProgress watermarks the planned image and reports stage
-// level progress for the one-item job.
+// ExecuteSingleWithProgress resolves the plan once, executes exactly that plan
+// and reports stage level progress for the one-item job.
 func (t *WatermarkTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
 	inputPath := firstInputPath(req.InputPaths)
 
-	plan, prepared, planErr := t.planRequest(req)
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return imageFailureItem(inputPath, plannedOutputPath(plan), planErr), planErr
 	}
 
-	item := prepared[0]
 	if onProgress != nil {
 		onProgress(models.JobProgressV1{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "watermarking 1/1"})
 	}
 
-	outcome, execErr := executeWatermarkToPath(ctx, item)
-	if execErr != nil {
-		jobErr, _ := watermarkExecutionError(ctx, "IMAGE_WATERMARK_EXECUTION", item.inputPath, execErr)
-		return imageFailureItem(item.inputPath, item.outputPath, jobErr), jobErr
+	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
+	if len(items) > 0 {
+		return items[0], execErr
 	}
 
-	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 1, Total: 1, Stage: models.JobStatusRunning, Message: "processed 1/1"})
+	jobErr := execErr
+	if jobErr == nil {
+		jobErr = models.NewCanonicalJobError("IMAGE_WATERMARK_EXECUTION", "watermark returned no result", nil)
 	}
 
-	return watermarkSuccessItem(item, outcome), nil
+	return imageFailureItem(inputPath, plannedOutputPath(plan), jobErr), jobErr
 }
 
-// ExecuteBatch watermarks every planned input with per-item progress and
-// per-item errors, mirroring the other image batch tools.
+// ExecuteBatch plans the request once and then executes exactly that plan. It
+// never re-resolves output paths from the request.
 func (t *WatermarkTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
 	parsed, parseErr := parseWatermarkRequest(req)
 	if parseErr != nil {
@@ -175,24 +174,69 @@ func (t *WatermarkTool) ExecuteBatch(ctx context.Context, req models.JobRequestV
 		return nil, models.NewCanonicalJobError("IMAGE_WATERMARK_MODE_INVALID", "mode must be batch", nil)
 	}
 
-	_, prepared, planErr := planParsedWatermarkRequest(parsed)
+	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return nil, planErr
 	}
 
-	total := len(prepared)
+	return t.ExecutePlan(ctx, req, plan, onProgress)
+}
+
+// ExecutePlan watermarks exactly the outputs resolved by Plan. The per-input
+// formats and alphas travel in the effective options, so a reduced retry plan
+// only processes the failed items. Results keep plan order.
+func (t *WatermarkTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+	// Parsing reads the logo bytes and normalizes the options; it never
+	// resolves output paths, so execution cannot drift from the plan.
+	parsed, parseErr := parseWatermarkRequest(req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	total := len(plan.Outputs)
+	if total == 0 {
+		return nil, models.NewCanonicalJobError("IMAGE_WATERMARK_INPUT_REQUIRED", "Choose at least one image to watermark.", nil)
+	}
+
+	formats := planStringSlice(plan.EffectiveOptions, "formats")
+	alphas := planBoolSlice(plan.EffectiveOptions, "alphas")
+
+	// Resolve every prepared item sequentially; execution is what runs in
+	// parallel.
+	preparedItems := make([]preparedWatermark, total)
+	for index, planned := range plan.Outputs {
+		format := ""
+		if index < len(formats) {
+			format = formats[index]
+		}
+		if format == "" {
+			format = plannedOutputFormat(planned, plan.EffectiveOptions)
+		}
+
+		preparedItems[index] = preparedWatermark{
+			inputPath:  planned.InputPath,
+			outputPath: planned.OutputPath,
+			options:    watermarkEngineOptions(parsed, format, index < len(alphas) && alphas[index]),
+		}
+	}
+
+	detailCode := "IMAGE_WATERMARK_BATCH_ITEM"
+	if req.Mode == "single" {
+		detailCode = "IMAGE_WATERMARK_EXECUTION"
+	}
+
 	items := make([]models.JobResultItemV1, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
 
 	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
-		item := prepared[index]
+		item := preparedItems[index]
 		outcome, execErr := executeWatermarkToPath(ctx, item)
 		if execErr != nil {
 			// A cancelled item must not be reported as a retryable batch
 			// failure; the post-loop cancellation check returns the canonical
 			// cancellation error instead.
-			itemErr, _ := watermarkExecutionError(ctx, "IMAGE_WATERMARK_BATCH_ITEM", item.inputPath, execErr)
+			itemErr, _ := watermarkExecutionError(ctx, detailCode, item.inputPath, execErr)
 			items[index] = imageFailureItem(item.inputPath, item.outputPath, itemErr)
 		} else {
 			items[index] = watermarkSuccessItem(item, outcome)
@@ -670,13 +714,22 @@ func validateWatermarkInputPath(inputPath string) *models.JobErrorV1 {
 
 // resolveWatermarkOutputFormat keeps an explicit format untouched and resolves
 // auto per input: JPEG, PNG and WebP keep their family, everything else falls to
-// JPEG unless the source carries transparency.
-func resolveWatermarkOutputFormat(inputPath, requested string) string {
+// JPEG unless the source carries transparency. The metadata comes from the one
+// plan-time read of the input.
+func resolveWatermarkOutputFormat(inputPath, requested string, meta planImageMeta, metaOK bool) string {
 	if requested != imageAutoFormat {
 		return requested
 	}
 
-	return compressAutoFormat(inputPath)
+	switch format := normalizeFormatName(strings.TrimPrefix(filepath.Ext(inputPath), ".")); format {
+	case "jpeg", "webp", "png":
+		return format
+	default:
+		if metaOK && meta.Alpha {
+			return "png"
+		}
+		return "jpeg"
+	}
 }
 
 // planParsedWatermarkRequest builds the public plan plus one prepared item per
@@ -694,22 +747,28 @@ func planParsedWatermarkRequest(parsed watermarkRequest) (models.PlanJobResponse
 			failedPlan, _ := planFailure(plan, inputErr)
 			return failedPlan, nil, inputErr
 		}
-		formats = append(formats, resolveWatermarkOutputFormat(inputPath, parsed.format))
-		alphas = append(alphas, compressInputHasAlpha(inputPath))
 
-		if compressInputFrameCount(inputPath) > 1 {
+		// One metadata read per input drives the auto format, the alpha
+		// flattening decision, the animation warning and the text-fit check.
+		// An unreadable header leaves the previous behavior intact: skip the
+		// fit check and let execution report the real decode error.
+		meta, metaErr := readPlanImageMeta(inputPath)
+		metaOK := metaErr == nil
+
+		formats = append(formats, resolveWatermarkOutputFormat(inputPath, parsed.format, meta, metaOK))
+		alphas = append(alphas, metaOK && meta.Alpha)
+
+		if metaOK && meta.Frames > 1 {
 			inputWarnings = append(inputWarnings, fmt.Sprintf("%s: %s", filepath.Base(inputPath), watermarkAnimatedWarning))
 		}
 
 		// Reject text that cannot fit even at the 12 px floor before execution.
 		// Undecodable inputs are skipped here; the executor reports the real
 		// decode error with a per-item failure.
-		if parsed.kind == watermarkKindText {
-			if width, height, dimErr := readPlanImageDimensions(inputPath); dimErr == nil {
-				if fitErr := watermarkPlanTextFitError(parsed, inputPath, width, height); fitErr != nil {
-					failedPlan, _ := planFailure(plan, fitErr)
-					return failedPlan, nil, fitErr
-				}
+		if parsed.kind == watermarkKindText && metaOK {
+			if fitErr := watermarkPlanTextFitError(parsed, inputPath, meta.Width, meta.Height); fitErr != nil {
+				failedPlan, _ := planFailure(plan, fitErr)
+				return failedPlan, nil, fitErr
 			}
 		}
 	}
@@ -748,7 +807,7 @@ func planParsedWatermarkRequest(parsed watermarkRequest) (models.PlanJobResponse
 		plan.Outputs = []models.PlannedOutputV1{planned}
 		plan.Warnings = append(append([]string{}, planned.Warnings...), inputWarnings...)
 		plan.Warnings = append(plan.Warnings, optionWarnings...)
-		plan.EffectiveOptions = watermarkEffectiveOptions(parsed, formats)
+		plan.EffectiveOptions = watermarkEffectiveOptions(parsed, formats, alphas)
 
 		prepared := []preparedWatermark{{
 			inputPath:  planned.InputPath,
@@ -791,7 +850,7 @@ func planParsedWatermarkRequest(parsed watermarkRequest) (models.PlanJobResponse
 	plan.Outputs = outputs
 	plan.Warnings = append(outputWarnings, inputWarnings...)
 	plan.Warnings = append(plan.Warnings, optionWarnings...)
-	plan.EffectiveOptions = watermarkEffectiveOptions(parsed, formats)
+	plan.EffectiveOptions = watermarkEffectiveOptions(parsed, formats, alphas)
 
 	return plan, preparedItems, nil
 }
@@ -1004,7 +1063,7 @@ func watermarkPlanTextFitError(parsed watermarkRequest, inputPath string, width,
 	return models.NewCanonicalJobError("IMAGE_WATERMARK_TEXT_DOES_NOT_FIT", message, details)
 }
 
-func watermarkEffectiveOptions(parsed watermarkRequest, formats []string) map[string]any {
+func watermarkEffectiveOptions(parsed watermarkRequest, formats []string, alphas []bool) map[string]any {
 	effective := map[string]any{
 		"kind":          parsed.kind,
 		"anchor":        parsed.anchor,
@@ -1013,6 +1072,10 @@ func watermarkEffectiveOptions(parsed watermarkRequest, formats []string) map[st
 		"opacity":       parsed.opacity,
 		"tile":          parsed.tile,
 		"quality":       parsed.quality,
+		// Per-input values let execution rebuild the exact engine options of
+		// each planned output, including reduced retry plans.
+		"formats": append([]string(nil), formats...),
+		"alphas":  append([]bool(nil), alphas...),
 	}
 	if parsed.kind == watermarkKindText {
 		effective["text"] = parsed.text
