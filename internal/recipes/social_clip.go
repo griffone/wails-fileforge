@@ -378,7 +378,7 @@ func (s *Service) runSocialClipEncode(ctx context.Context, tracked *recipeJob, s
 		return "", recipeCancelledError()
 	}
 
-	executor, planner, jobErr := s.singleExecutor(video.ToolIDVideoConvertV1)
+	executor, _, jobErr := s.singleExecutor(video.ToolIDVideoConvertV1)
 	if jobErr != nil {
 		return "", jobErr
 	}
@@ -403,11 +403,9 @@ func (s *Service) runSocialClipEncode(ctx context.Context, tracked *recipeJob, s
 	s.emitProgress(tracked, models.JobStatusRunning, stage.Step.Name, "running", stage.Label, stage.FromPercent)
 
 	req := socialClipEncodeRequest(social, stage)
-	plan, planErr := planner.Plan(ctx, req)
-	if planErr != nil {
-		return "", planErr
-	}
 
+	// ExecuteSingle plans and validates the request itself. Planning here as
+	// well would probe the runtime and re-validate the same request twice.
 	item, execErr := executor.ExecuteSingle(ctx, req)
 	if execErr != nil {
 		return "", execErr
@@ -417,11 +415,8 @@ func (s *Service) runSocialClipEncode(ctx context.Context, tracked *recipeJob, s
 	}
 
 	outputPath := strings.TrimSpace(item.OutputPath)
-	if outputPath == "" && len(plan.Outputs) > 0 {
-		outputPath = strings.TrimSpace(plan.Outputs[0].OutputPath)
-	}
 	if outputPath == "" {
-		return "", newRecipeError("RECIPE_STEP_FAILED", "The video step did not report an output.", nil)
+		outputPath = stage.Path
 	}
 	if outputPath != stage.Path {
 		*created = append(*created, outputPath)
