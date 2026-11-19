@@ -283,86 +283,15 @@ func buildMergeCopyArgs(listFilePath string, outputPath string, removeAudio bool
 	return append(args, outputPath)
 }
 
-// mergeEncoding holds the codec settings shared by concat and crossfade merges.
-type mergeEncoding struct {
-	videoCodec   string
-	videoBitrate string
-	videoCRF     string
-	videoPreset  string
-	audioCodec   string
-	faststart    bool
-}
-
-// resolveMergeEncoding maps a target format and quality preset to the same
-// encoder settings used by the concat re-encode path.
-func resolveMergeEncoding(targetFormat, qualityPreset string) (mergeEncoding, *VideoError) {
-	targetFormat = strings.ToLower(strings.TrimSpace(targetFormat))
-	qualityPreset = strings.ToLower(strings.TrimSpace(qualityPreset))
-
-	encoding := mergeEncoding{
-		videoCodec:   "libx264",
-		videoBitrate: "2500k",
-		videoCRF:     "23",
-		videoPreset:  "medium",
-		audioCodec:   "aac",
-		faststart:    true,
-	}
-
-	switch targetFormat {
-	case TargetFormatMP4:
-	case TargetFormatWebM:
-		encoding = mergeEncoding{
-			videoCodec:   "libvpx-vp9",
-			videoBitrate: "1800k",
-			videoCRF:     "32",
-			audioCodec:   "libopus",
-		}
-	default:
-		return mergeEncoding{}, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: "targetFormat must be mp4 or webm"}
-	}
-
-	switch qualityPreset {
-	case QualityPresetHigh:
-		if targetFormat == TargetFormatWebM {
-			encoding.videoCRF = "28"
-			encoding.videoBitrate = "2600k"
-		} else {
-			encoding.videoCRF = "20"
-			encoding.videoBitrate = "4500k"
-		}
-	case QualityPresetMedium:
-		// defaults
-	case QualityPresetLow:
-		if targetFormat == TargetFormatWebM {
-			encoding.videoCRF = "36"
-			encoding.videoBitrate = "1200k"
-		} else {
-			encoding.videoCRF = "28"
-			encoding.videoBitrate = "1400k"
-		}
-	default:
-		return mergeEncoding{}, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: "qualityPreset must be high, medium, or low"}
+// resolveMergeEncoding maps a target format and quality preset to the shared
+// encoder settings used by the concat and crossfade re-encode paths.
+func resolveMergeEncoding(targetFormat, qualityPreset string) (videoEncoding, *VideoError) {
+	encoding, err := resolveVideoEncoding(targetFormat, qualityPreset)
+	if err != nil {
+		return videoEncoding{}, &VideoError{Code: ErrorCodeVideoMergeValidation, Message: err.Error()}
 	}
 
 	return encoding, nil
-}
-
-func appendMergeEncodingArgs(args []string, encoding mergeEncoding, removeAudio bool) []string {
-	args = append(args, "-c:v", encoding.videoCodec, "-b:v", encoding.videoBitrate, "-crf", encoding.videoCRF)
-	if encoding.videoPreset != "" {
-		args = append(args, "-preset", encoding.videoPreset)
-	}
-	if !removeAudio {
-		args = append(args, "-c:a", encoding.audioCodec)
-	}
-	if encoding.faststart {
-		args = append(args, "-movflags", "+faststart")
-	}
-	if removeAudio {
-		args = append(args, "-an")
-	}
-
-	return args
 }
 
 // BuildMergeArgs builds the re-encode ffmpeg arguments for a merge request.
@@ -379,7 +308,7 @@ func BuildMergeArgs(listFilePath string, req MergeRequest) ([]string, *VideoErro
 		"-safe", "0",
 		"-i", listFilePath,
 	}
-	args = appendMergeEncodingArgs(args, encoding, req.RemoveAudio)
+	args = appendVideoEncodingArgs(args, encoding, req.RemoveAudio)
 
 	return append(args, strings.TrimSpace(req.OutputPath)), nil
 }
@@ -438,7 +367,7 @@ func BuildMergeCrossfadeArgs(inputPaths []string, durations []float64, req Merge
 	if !req.RemoveAudio {
 		args = append(args, "-map", "[aout]")
 	}
-	args = appendMergeEncodingArgs(args, encoding, req.RemoveAudio)
+	args = appendVideoEncodingArgs(args, encoding, req.RemoveAudio)
 
 	return append(args, strings.TrimSpace(req.OutputPath)), nil
 }

@@ -8,9 +8,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
+	"fileforge-desktop/internal/utils"
 )
 
 const (
@@ -28,6 +31,9 @@ var imageInputExtensions = []string{"jpg", "jpeg", "png", "gif", "webp", "bmp", 
 
 type ImageToolAdapter struct {
 	converter *ImageConverter
+	// convertSingle is the conversion seam. Production always points at
+	// converter.ConvertSingle; tests replace it to drive completion order.
+	convertSingle func(ctx context.Context, inputPath, outputPath, format string, options map[string]any) error
 }
 
 func NewImageToolAdapter(converter *ImageConverter) *ImageToolAdapter {
@@ -35,7 +41,7 @@ func NewImageToolAdapter(converter *ImageConverter) *ImageToolAdapter {
 		converter = NewImageConverter()
 	}
 
-	return &ImageToolAdapter{converter: converter}
+	return &ImageToolAdapter{converter: converter, convertSingle: converter.ConvertSingle}
 }
 
 func (t *ImageToolAdapter) ID() string {
@@ -148,7 +154,7 @@ func (t *ImageToolAdapter) ExecuteSingle(ctx context.Context, req models.JobRequ
 	requestedFormat, autoFormat := t.resolveRequestedFormat(req.Options)
 	format := t.inputOutputFormat(inputPath, requestedFormat, autoFormat)
 
-	if err := t.converter.ConvertSingle(ctx, inputPath, outputPath, format, req.Options); err != nil {
+	if err := t.convertSingle(ctx, inputPath, outputPath, format, req.Options); err != nil {
 		jobErr := models.NewCanonicalJobError("IMAGE_SINGLE_EXECUTION", err.Error(), nil)
 		return imageFailureItem(inputPath, outputPath, jobErr), jobErr
 	}
@@ -181,46 +187,57 @@ func (t *ImageToolAdapter) ExecuteBatch(ctx context.Context, req models.JobReque
 		outputplan.MarkUsed(used, inputPath)
 	}
 
-	items := make([]models.JobResultItemV1, 0, len(req.InputPaths))
-	total := len(req.InputPaths)
+	// Planning is sequential because planOutput mutates the shared used set.
+	// Every output is resolved before any worker starts, so the parallel
+	// closure only executes already-planned work.
+	type plannedBatchItem struct {
+		inputPath string
+		format    string
+		planned   models.PlannedOutputV1
+		planErr   *models.JobErrorV1
+	}
+
+	plannedItems := make([]plannedBatchItem, len(req.InputPaths))
 	for index, inputPath := range req.InputPaths {
-		select {
-		case <-ctx.Done():
-			return items, models.NewCanonicalJobError("IMAGE_BATCH_CANCELLED", ctx.Err().Error(), nil)
-		default:
-		}
-
-		outputFormat := t.inputOutputFormat(inputPath, requestedFormat, autoFormat)
-		items = append(items, t.executePlannedItem(ctx, inputPath, outputDir, outputFormat, used, req.Options))
-
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{
-				Current: index + 1,
-				Total:   total,
-				Stage:   models.JobStatusRunning,
-				Message: fmt.Sprintf("processed %d/%d", index+1, total),
-			})
+		format := t.inputOutputFormat(inputPath, requestedFormat, autoFormat)
+		planned, planErr := t.planOutput(inputPath, outputDir, "", format, false, used)
+		plannedItems[index] = plannedBatchItem{
+			inputPath: inputPath,
+			format:    format,
+			planned:   planned,
+			planErr:   planErr,
 		}
 	}
 
-	var firstErr *models.JobErrorV1
-	for _, item := range items {
-		if !item.Success && item.Error != nil {
-			firstErr = item.Error
-			break
-		}
+	total := len(plannedItems)
+	items := make([]models.JobResultItemV1, total)
+	completed := make([]bool, total)
+	progress := newParallelProgress(total, onProgress)
+
+	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
+		item := plannedItems[index]
+		items[index] = t.executePlannedOutput(ctx, item.inputPath, item.planned, item.format, item.planErr, req.Options)
+		completed[index] = true
+		progress.itemCompleted()
+
+		return nil
+	})
+
+	if batchRunCancelled(ctx, runErr) {
+		return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_BATCH_CANCELLED", batchCancellationCause(ctx, runErr).Error(), nil)
 	}
 
-	return items, firstErr
+	return items, firstFailedItemError(items)
 }
 
-func (t *ImageToolAdapter) executePlannedItem(ctx context.Context, inputPath, outputDir, format string, used map[string]struct{}, options map[string]any) models.JobResultItemV1 {
-	planned, planErr := t.planOutput(inputPath, outputDir, "", format, false, used)
+// executePlannedOutput runs one already-planned conversion. It never touches
+// the planning set, so it is safe to run concurrently.
+func (t *ImageToolAdapter) executePlannedOutput(ctx context.Context, inputPath string, planned models.PlannedOutputV1, format string, planErr *models.JobErrorV1, options map[string]any) models.JobResultItemV1 {
 	if planErr != nil {
 		return imageFailureItem(inputPath, planned.OutputPath, planErr)
 	}
 
-	if err := t.converter.ConvertSingle(ctx, inputPath, planned.OutputPath, format, options); err != nil {
+	if err := t.convertSingle(ctx, inputPath, planned.OutputPath, format, options); err != nil {
 		jobErr := models.NewCanonicalJobError("IMAGE_BATCH_ITEM", err.Error(), map[string]any{"inputPath": inputPath})
 		return imageFailureItem(inputPath, planned.OutputPath, jobErr)
 	}
@@ -522,6 +539,90 @@ func imageFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) m
 	}
 
 	return item
+}
+
+// parallelProgress serializes completion progress for a parallel batch. The
+// atomic counter numbers finished items; the mutex keeps the callback order
+// monotonic too, so callers never observe "processed 2/3" before "processed
+// 1/3" even when two workers finish at the same time.
+type parallelProgress struct {
+	total      int
+	onProgress func(models.JobProgressV1)
+	completed  atomic.Int64
+	mu         sync.Mutex
+}
+
+func newParallelProgress(total int, onProgress func(models.JobProgressV1)) *parallelProgress {
+	if onProgress == nil {
+		return nil
+	}
+
+	return &parallelProgress{total: total, onProgress: onProgress}
+}
+
+// itemCompleted counts one finished item and emits its progress event.
+func (p *parallelProgress) itemCompleted() {
+	if p == nil {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	current := int(p.completed.Add(1))
+	p.onProgress(models.JobProgressV1{
+		Current: current,
+		Total:   p.total,
+		Stage:   models.JobStatusRunning,
+		Message: fmt.Sprintf("processed %d/%d", current, p.total),
+	})
+}
+
+// collectCompletedItems returns the results written by index in input order,
+// dropping entries whose worker never ran (for example after cancellation).
+// Each completed flag is written by the goroutine that owns its index, so the
+// read after the workers join is race-free.
+func collectCompletedItems(items []models.JobResultItemV1, completed []bool) []models.JobResultItemV1 {
+	collected := make([]models.JobResultItemV1, 0, len(items))
+	for index, item := range items {
+		if completed[index] {
+			collected = append(collected, item)
+		}
+	}
+
+	return collected
+}
+
+// firstFailedItemError returns the error of the first failed item in input
+// order, matching the sequential loop semantics.
+func firstFailedItemError(items []models.JobResultItemV1) *models.JobErrorV1 {
+	for _, item := range items {
+		if !item.Success && item.Error != nil {
+			return item.Error
+		}
+	}
+
+	return nil
+}
+
+// batchCancellationCause returns the context error when the batch context was
+// cancelled, otherwise the helper error.
+func batchCancellationCause(ctx context.Context, runErr error) error {
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	return runErr
+}
+
+// batchRunCancelled reports whether a parallel batch must return its
+// cancellation error after the workers join.
+func batchRunCancelled(ctx context.Context, runErr error) bool {
+	if ctx != nil && ctx.Err() != nil {
+		return true
+	}
+
+	return errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)
 }
 
 func plannedOutputPath(plan models.PlanJobResponseV1) string {

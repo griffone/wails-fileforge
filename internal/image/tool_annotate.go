@@ -20,6 +20,7 @@ import (
 
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
+	"fileforge-desktop/internal/utils"
 
 	"github.com/disintegration/imaging"
 	"github.com/fogleman/gg"
@@ -239,34 +240,37 @@ func (t *AnnotateTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 		return nil, planErr
 	}
 
-	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
-	var firstErr *models.JobErrorV1
-
-	for idx, planned := range plan.Outputs {
-		select {
-		case <-ctx.Done():
-			cancelErr := models.NewCanonicalJobError("IMAGE_ANNOTATE_CANCELLED", ctx.Err().Error(), nil)
-			return items, cancelErr
-		default:
-		}
-
-		prepared := preparedAnnotateFromPlan(planned, plannedRequest, plan.EffectiveOptions)
-		if err := executeAnnotateToPath(ctx, prepared); err != nil {
-			itemErr := models.NewCanonicalJobError("IMAGE_ANNOTATE_BATCH_ITEM", err.Error(), map[string]any{"inputPath": prepared.inputPath})
-			if firstErr == nil {
-				firstErr = itemErr
-			}
-			items = append(items, models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Success: false, Message: "image annotate failed", Error: itemErr})
-		} else {
-			items = append(items, models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Outputs: []string{prepared.outputPath}, OutputCount: 1, Success: true, Message: "image annotate successful"})
-		}
-
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{Current: idx + 1, Total: len(plan.Outputs), Stage: models.JobStatusRunning, Message: fmt.Sprintf("processed %d/%d", idx+1, len(plan.Outputs))})
-		}
+	// Resolve every prepared item sequentially; execution is what runs in
+	// parallel.
+	preparedItems := make([]preparedAnnotate, len(plan.Outputs))
+	for index, planned := range plan.Outputs {
+		preparedItems[index] = preparedAnnotateFromPlan(planned, plannedRequest, plan.EffectiveOptions)
 	}
 
-	return items, firstErr
+	total := len(preparedItems)
+	items := make([]models.JobResultItemV1, total)
+	completed := make([]bool, total)
+	progress := newParallelProgress(total, onProgress)
+
+	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
+		prepared := preparedItems[index]
+		if err := executeAnnotateToPath(ctx, prepared); err != nil {
+			itemErr := models.NewCanonicalJobError("IMAGE_ANNOTATE_BATCH_ITEM", err.Error(), map[string]any{"inputPath": prepared.inputPath})
+			items[index] = models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Success: false, Message: "image annotate failed", Error: itemErr}
+		} else {
+			items[index] = models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Outputs: []string{prepared.outputPath}, OutputCount: 1, Success: true, Message: "image annotate successful"}
+		}
+		completed[index] = true
+		progress.itemCompleted()
+
+		return nil
+	})
+
+	if batchRunCancelled(ctx, runErr) {
+		return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_ANNOTATE_CANCELLED", batchCancellationCause(ctx, runErr).Error(), nil)
+	}
+
+	return items, firstFailedItemError(items)
 }
 
 func (t *AnnotateTool) GetImageAnnotatePreviewV1(req models.ImageAnnotatePreviewRequestV1) models.ImageAnnotatePreviewResponseV1 {

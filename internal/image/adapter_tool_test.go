@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/utils"
 )
 
 func writePlanFixture(t *testing.T, path string) {
@@ -256,5 +258,85 @@ func TestValidateUsesPlanForBatchWithoutOutputDir(t *testing.T) {
 	validationErr := adapter.Validate(context.Background(), planImageRequest("batch", []string{first, second}, nil))
 	if validationErr != nil {
 		t.Fatalf("expected batch validation without outputDir to pass, got %v", validationErr)
+	}
+}
+
+// TestExecuteBatchKeepsInputOrderWhenItemsFinishOutOfOrder blocks the first
+// input until every other item finished, so completion order is guaranteed to
+// differ from input order. The batch must still return results by input index.
+func TestExecuteBatchKeepsInputOrderWhenItemsFinishOutOfOrder(t *testing.T) {
+	if utils.ParallelWorkerCount() < 2 {
+		t.Skip("batch order test needs at least two parallel workers")
+	}
+
+	dir := t.TempDir()
+	inputPaths := []string{
+		filepath.Join(dir, "first.png"),
+		filepath.Join(dir, "second.png"),
+		filepath.Join(dir, "third.png"),
+	}
+	for _, inputPath := range inputPaths {
+		writePlanFixture(t, inputPath)
+	}
+
+	adapter := NewImageToolAdapter(nil)
+
+	var (
+		mu       sync.Mutex
+		finished []string
+		others   sync.WaitGroup
+	)
+	others.Add(len(inputPaths) - 1)
+	adapter.convertSingle = func(_ context.Context, inputPath, outputPath, _ string, _ map[string]any) error {
+		if inputPath == inputPaths[0] {
+			others.Wait()
+		} else {
+			others.Done()
+		}
+
+		mu.Lock()
+		finished = append(finished, filepath.Base(inputPath))
+		mu.Unlock()
+
+		return os.WriteFile(outputPath, []byte("converted"), 0o644)
+	}
+
+	var progress []int
+	items, execErr := adapter.ExecuteBatch(context.Background(), planImageRequest("batch", inputPaths, nil), func(event models.JobProgressV1) {
+		progress = append(progress, event.Current)
+	})
+	if execErr != nil {
+		t.Fatalf("expected the batch to succeed, got %v", execErr)
+	}
+	if len(items) != len(inputPaths) {
+		t.Fatalf("expected %d items, got %d", len(inputPaths), len(items))
+	}
+
+	for index, item := range items {
+		if item.InputPath != inputPaths[index] {
+			t.Fatalf("expected item %d to keep input order, got %+v", index, item)
+		}
+		if !item.Success {
+			t.Fatalf("expected item %d to succeed, got %+v", index, item)
+		}
+		if want := filepath.Join(dir, strings.TrimSuffix(filepath.Base(inputPaths[index]), ".png")+".webp"); item.OutputPath != want {
+			t.Fatalf("expected item %d at %q, got %q", index, want, item.OutputPath)
+		}
+	}
+
+	mu.Lock()
+	completionOrder := append([]string(nil), finished...)
+	mu.Unlock()
+	if len(completionOrder) != len(inputPaths) || completionOrder[0] == "first.png" {
+		t.Fatalf("expected the first input to finish last, got %v", completionOrder)
+	}
+
+	if len(progress) != len(inputPaths) {
+		t.Fatalf("expected one progress event per item, got %v", progress)
+	}
+	for index, current := range progress {
+		if current != index+1 {
+			t.Fatalf("expected monotonic progress counts, got %v", progress)
+		}
 	}
 }

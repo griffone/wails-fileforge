@@ -167,7 +167,7 @@ func TestBuildBurnArgsUsesDefaultStyleAndCopiesCompatibleAudio(t *testing.T) {
 		{"-map", "0:v:0"},
 		{"-map", "0:a?"},
 		{"-c:v", "libx264"},
-		{"-preset", "medium"},
+		{"-preset", "veryfast"},
 		{"-crf", "20"},
 		{"-pix_fmt", "yuv420p"},
 		{"-c:a", "copy"},

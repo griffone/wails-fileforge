@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"fileforge-desktop/internal/models"
@@ -647,33 +648,27 @@ func TestImageOCRToolExecuteBatchProgress(t *testing.T) {
 
 func TestImageOCRToolExecuteBatchPartialFailure(t *testing.T) {
 	dir := t.TempDir()
-	inputs := make([]string, 0, 2)
-	for _, name := range []string{"first.png", "second.png"} {
-		input := filepath.Join(dir, name)
-		writePlanPNG(t, input, 40, 30)
-		inputs = append(inputs, input)
+	valid := filepath.Join(dir, "first.png")
+	broken := filepath.Join(dir, "second.png")
+	writePlanPNG(t, valid, 40, 30)
+	if err := os.WriteFile(broken, []byte("not an image"), 0o644); err != nil {
+		t.Fatalf("write broken fixture: %v", err)
 	}
 
-	var recognized int
-	runner := &imageOCRStubRunner{onRun: func(_ context.Context, _ string, args []string) ([]byte, error) {
-		recognized++
-		if recognized == 2 {
-			return nil, errors.New("tesseract exploded")
-		}
-
-		return nil, imageOCRStubOutputs(args, "hello\n", "%PDF-1.4\n")
-	}}
+	// The broken input fails deterministically during normalization, so the
+	// partial failure does not depend on which parallel worker runs first.
+	runner := imageOCRToolSuccessfulRunner(t, "hello\n")
 	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 	tool := NewImageOCRToolWithRunner(runner)
 
-	items, batchErr := tool.ExecuteBatch(context.Background(), imageOCRTestRequest("batch", inputs, nil), nil)
+	items, batchErr := tool.ExecuteBatch(context.Background(), imageOCRTestRequest("batch", []string{valid, broken}, nil), nil)
 	if batchErr == nil {
 		t.Fatal("expected the failed item to report a batch error")
 	}
-	if batchErr.Code != models.ErrorCodeExecIOTransient || batchErr.DetailCode != ImageOCRCodeRecognizeFailed {
+	if batchErr.Code != models.ErrorCodeExecIOTransient || batchErr.DetailCode != ImageOCRCodeNormalizeFailed {
 		t.Fatalf("unexpected batch error: %+v", batchErr)
 	}
-	if detail, ok := batchErr.Details["error"].(string); !ok || !strings.Contains(detail, "tesseract exploded") {
+	if detail, ok := batchErr.Details["error"].(string); !ok || detail == "" {
 		t.Fatalf("expected the raw cause in details, got %v", batchErr.Details)
 	}
 	if len(items) != 2 {
@@ -682,12 +677,12 @@ func TestImageOCRToolExecuteBatchPartialFailure(t *testing.T) {
 	if !items[0].Success {
 		t.Fatalf("expected the first item to succeed, got %+v", items[0])
 	}
-	if items[1].Success || items[1].Message != "Tesseract could not recognize text in the image." {
+	if items[1].Success || items[1].Message != "The image could not be prepared for OCR." {
 		t.Fatalf("expected an honest failure item, got %+v", items[1])
 	}
 }
 
-func TestImageOCRToolExecuteBatchCancelledLastItem(t *testing.T) {
+func TestImageOCRToolExecuteBatchCancellation(t *testing.T) {
 	dir := t.TempDir()
 	inputs := make([]string, 0, 2)
 	for _, name := range []string{"first.png", "second.png"} {
@@ -699,15 +694,10 @@ func TestImageOCRToolExecuteBatchCancelledLastItem(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var recognized int
-	runner := &imageOCRStubRunner{onRun: func(runCtx context.Context, _ string, args []string) ([]byte, error) {
-		recognized++
-		if recognized == 2 {
-			cancel()
-			return nil, runCtx.Err()
-		}
-
-		return nil, imageOCRStubOutputs(args, "hello\n", "%PDF-1.4\n")
+	var cancelOnce sync.Once
+	runner := &imageOCRStubRunner{onRun: func(runCtx context.Context, _ string, _ []string) ([]byte, error) {
+		cancelOnce.Do(cancel)
+		return nil, runCtx.Err()
 	}}
 	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 	tool := NewImageOCRToolWithRunner(runner)
@@ -719,14 +709,27 @@ func TestImageOCRToolExecuteBatchCancelledLastItem(t *testing.T) {
 	if batchErr.Code != models.ErrorCodeCancelledByUser || batchErr.DetailCode != ImageOCRCodeCancelled {
 		t.Fatalf("expected a canonical cancellation, got %+v", batchErr)
 	}
-	if len(items) != 2 {
-		t.Fatalf("expected the completed item plus the cancelled item, got %d", len(items))
+
+	// Workers run in parallel, so a cancelled batch reports the items that
+	// actually completed. Each one must keep input order and be either a
+	// success or a cancellation failure, never a retryable item failure.
+	if len(items) == 0 || len(items) > len(inputs) {
+		t.Fatalf("expected the completed items, got %+v", items)
 	}
-	if !items[0].Success {
-		t.Fatalf("expected the first item to succeed, got %+v", items[0])
-	}
-	if items[1].Success || items[1].Error == nil || items[1].Error.Code != models.ErrorCodeCancelledByUser {
-		t.Fatalf("expected the last item to be reclassified as cancelled, got %+v", items[1])
+	previousIndex := -1
+	for _, item := range items {
+		index := slices.Index(inputs, item.InputPath)
+		if index <= previousIndex {
+			t.Fatalf("expected input order to be preserved, got %+v", items)
+		}
+		previousIndex = index
+
+		if item.Success {
+			continue
+		}
+		if item.Error == nil || item.Error.Code != models.ErrorCodeCancelledByUser {
+			t.Fatalf("expected only cancellation failures, got %+v", item)
+		}
 	}
 }
 

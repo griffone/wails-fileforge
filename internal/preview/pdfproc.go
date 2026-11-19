@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	cachepkg "fileforge-desktop/internal/utils/cache"
 )
 
 const (
@@ -26,10 +24,6 @@ func NewPDFProcessor(runner ExecRunner) JobProcessor {
 
 func (p *PDFProcessor) Process(ctx context.Context, req PreviewRequest) ([]byte, string, error) {
 	pr := req.PageRange
-	cp := cachepkg.PageRange{Start: pr.Start, End: pr.End}
-	key := cachepkg.GeneratePreviewCacheKey(req.Path, 0, 0, cp, req.PageOffset, req.Width, req.Height, req.Format, 80)
-	_ = key // TODO: integrate with cache
-
 	page := pr.Start + req.PageOffset
 	if page < pr.Start {
 		page = pr.Start

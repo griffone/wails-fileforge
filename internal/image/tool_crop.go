@@ -12,6 +12,7 @@ import (
 
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
+	"fileforge-desktop/internal/utils"
 
 	"github.com/h2non/bimg"
 )
@@ -267,47 +268,50 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 		return nil, planErr
 	}
 
-	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
-	var firstErr *models.JobErrorV1
+	// Resolve every prepared item sequentially; execution is what runs in
+	// parallel.
+	preparedItems := make([]preparedCrop, len(plan.Outputs))
+	for index, planned := range plan.Outputs {
+		preparedItems[index] = preparedCropFromPlan(planned, plan.EffectiveOptions)
+	}
 
-	for idx, planned := range plan.Outputs {
-		select {
-		case <-ctx.Done():
-			cancelErr := models.NewCanonicalJobError("IMAGE_CROP_CANCELLED", ctx.Err().Error(), nil)
-			return items, cancelErr
-		default:
-		}
+	total := len(preparedItems)
+	items := make([]models.JobResultItemV1, total)
+	completed := make([]bool, total)
+	progress := newParallelProgress(total, onProgress)
 
-		prepared := preparedCropFromPlan(planned, plan.EffectiveOptions)
+	runErr := utils.ParallelForIndex(ctx, total, utils.ParallelWorkerCount(), func(ctx context.Context, index int) error {
+		prepared := preparedItems[index]
 		if err := executeCropToPath(ctx, prepared); err != nil {
 			itemErr := models.NewCanonicalJobError("IMAGE_CROP_BATCH_ITEM", err.Error(), map[string]any{"inputPath": prepared.inputPath})
-			if firstErr == nil {
-				firstErr = itemErr
-			}
-			items = append(items, models.JobResultItemV1{
+			items[index] = models.JobResultItemV1{
 				InputPath:  prepared.inputPath,
 				OutputPath: prepared.outputPath,
 				Success:    false,
 				Message:    "image crop failed",
 				Error:      itemErr,
-			})
+			}
 		} else {
-			items = append(items, models.JobResultItemV1{
+			items[index] = models.JobResultItemV1{
 				InputPath:   prepared.inputPath,
 				OutputPath:  prepared.outputPath,
 				Outputs:     []string{prepared.outputPath},
 				OutputCount: 1,
 				Success:     true,
 				Message:     "image crop successful",
-			})
+			}
 		}
+		completed[index] = true
+		progress.itemCompleted()
 
-		if onProgress != nil {
-			onProgress(models.JobProgressV1{Current: idx + 1, Total: len(plan.Outputs), Stage: models.JobStatusRunning, Message: fmt.Sprintf("processed %d/%d", idx+1, len(plan.Outputs))})
-		}
+		return nil
+	})
+
+	if batchRunCancelled(ctx, runErr) {
+		return collectCompletedItems(items, completed), models.NewCanonicalJobError("IMAGE_CROP_CANCELLED", batchCancellationCause(ctx, runErr).Error(), nil)
 	}
 
-	return items, firstErr
+	return items, firstFailedItemError(items)
 }
 
 func (t *CropTool) GetImagePreviewSource(inputPath string) models.ImagePreviewSourceResponseV1 {

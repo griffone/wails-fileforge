@@ -346,7 +346,7 @@ func BuildBurnArgs(req BurnRequest, subtitleName string) []string {
 		"-map", "0:a?",
 		"-vf", filter,
 		"-c:v", "libx264",
-		"-preset", "medium",
+		"-preset", x264PresetHigh,
 		"-crf", "20",
 		"-pix_fmt", "yuv420p",
 	}

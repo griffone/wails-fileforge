@@ -146,40 +146,14 @@ func BuildTrimReencodeArgs(req TrimRequest) ([]string, *VideoError) {
 		"-i", strings.TrimSpace(req.InputPath),
 	}
 
-	videoCRF := "23"
-	videoBitrate := "2500k"
 	targetFormat := strings.ToLower(strings.TrimSpace(req.TargetFormat))
 	qualityPreset := strings.ToLower(strings.TrimSpace(req.QualityPreset))
 
-	if targetFormat == TargetFormatWebM {
-		videoCRF = "32"
-		videoBitrate = "1800k"
+	encoding, encodingErr := resolveVideoEncoding(targetFormat, qualityPreset)
+	if encodingErr != nil {
+		return nil, &VideoError{Code: ErrorCodeVideoTrimValidation, Message: encodingErr.Error()}
 	}
-
-	switch qualityPreset {
-	case QualityPresetHigh:
-		if targetFormat == TargetFormatWebM {
-			videoCRF = "28"
-			videoBitrate = "2600k"
-		} else {
-			videoCRF = "20"
-			videoBitrate = "4500k"
-		}
-	case QualityPresetLow:
-		if targetFormat == TargetFormatWebM {
-			videoCRF = "36"
-			videoBitrate = "1200k"
-		} else {
-			videoCRF = "28"
-			videoBitrate = "1400k"
-		}
-	}
-
-	if targetFormat == TargetFormatWebM {
-		args = append(args, "-c:v", "libvpx-vp9", "-b:v", videoBitrate, "-crf", videoCRF, "-c:a", "libopus")
-	} else {
-		args = append(args, "-c:v", "libx264", "-b:v", videoBitrate, "-crf", videoCRF, "-preset", "medium", "-c:a", "aac", "-movflags", "+faststart")
-	}
+	args = appendVideoEncodingArgs(args, encoding, false)
 
 	args = append(args, strings.TrimSpace(req.OutputPath))
 

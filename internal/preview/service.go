@@ -184,6 +184,37 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 		return nil
 	}
 
+	// Compute the cache key from the file identity before doing any work. A
+	// previous run for the same file and render options can be served without
+	// spawning pdftoppm, ffmpeg or libvips again.
+	cp := job.Req.PageRange
+	cacheKey := cachepkg.GeneratePreviewCacheKey(
+		job.Req.Path,
+		fi.ModTime().UnixNano(),
+		fi.Size(),
+		cachepkg.PageRange{Start: cp.Start, End: cp.End},
+		job.Req.PageOffset,
+		job.Req.Width,
+		job.Req.Height,
+		job.Req.Format,
+		80,
+	)
+	s.mu.Lock()
+	job.CacheKey = cacheKey
+	s.mu.Unlock()
+
+	if s.cache != nil {
+		if data, mime, ok, cacheErr := s.cache.Get(cacheKey); cacheErr == nil && ok {
+			s.mu.Lock()
+			job.Result = &PreviewResult{Success: true, Data: data, ContentType: mime, Message: "ok (from cache)"}
+			job.Progress = 100
+			job.State = JobStateSucceeded
+			job.UpdatedAt = time.Now()
+			s.mu.Unlock()
+			return nil
+		}
+	}
+
 	// use processor; switch to a tool-specific processor by file extension
 	var proc JobProcessor
 	ext := strings.ToLower(filepath.Ext(job.Req.Path))
@@ -216,11 +247,7 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 		return fmt.Errorf("preview: %w", perr)
 	}
 
-	// compute a deterministic cache key and store in cache if available
-	// Note: processors SHOULD ideally return or accept a cache key; here we compute from request
-	cp := job.Req.PageRange
-	cacheKey := cachepkg.GeneratePreviewCacheKey(job.Req.Path, 0, 0, cachepkg.PageRange{Start: cp.Start, End: cp.End}, job.Req.PageOffset, job.Req.Width, job.Req.Height, job.Req.Format, 80)
-	job.CacheKey = cacheKey
+	// Store the result under the same file-identity key computed above.
 	if s.cache != nil {
 		_ = s.cache.Put(cacheKey, data, ct)
 	}

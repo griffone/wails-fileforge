@@ -13,6 +13,7 @@ import (
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
 const (
@@ -663,6 +664,22 @@ func validateRangesWithinPageCount(ranges []SplitPageRange, pageCount int) *Spli
 }
 
 func executeSplitPlan(ctx context.Context, inputPath string, planned []splitPlannedOutput) ([]string, error) {
+	// Read and validate the source once. api.TrimFile would re-parse the whole
+	// document for every selection, which turns an every-page split into an
+	// O(pages²) operation.
+	source, openErr := os.Open(inputPath)
+	if openErr != nil {
+		return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to open the PDF: %s", filepath.Base(inputPath)), Cause: openErr}
+	}
+	defer source.Close()
+
+	conf := model.NewDefaultConfiguration()
+	conf.Cmd = model.TRIM
+	sourceCtx, readErr := api.ReadValidateAndOptimize(source, conf)
+	if readErr != nil {
+		return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to read the PDF: %s", filepath.Base(inputPath)), Cause: readErr}
+	}
+
 	outputs := make([]string, 0, len(planned))
 	for _, entry := range planned {
 		if err := ctx.Err(); err != nil {
@@ -673,8 +690,22 @@ func executeSplitPlan(ctx context.Context, inputPath string, planned []splitPlan
 			return nil, &SplitError{Code: ErrorCodeOutputDirNotWritable, Message: fmt.Sprintf("output directory is not writable: %s", filepath.Dir(entry.Output)), Cause: err}
 		}
 
-		if err := api.TrimFile(inputPath, entry.Output, []string{entry.Selection}, nil); err != nil {
-			return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to split PDF for selection %s", entry.Selection), Cause: err}
+		selected, selectionErr := api.PagesForPageSelection(sourceCtx.PageCount, []string{entry.Selection}, false, true)
+		if selectionErr != nil {
+			return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to resolve selection %s", entry.Selection), Cause: selectionErr}
+		}
+		pageNumbers := make([]int, 0, len(selected))
+		for page := range selected {
+			pageNumbers = append(pageNumbers, page)
+		}
+		sort.Ints(pageNumbers)
+
+		destCtx, extractErr := pdfcpu.ExtractPages(sourceCtx, pageNumbers, false)
+		if extractErr != nil {
+			return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to split PDF for selection %s", entry.Selection), Cause: extractErr}
+		}
+		if writeErr := api.WriteContextFile(destCtx, entry.Output); writeErr != nil {
+			return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to split PDF for selection %s", entry.Selection), Cause: writeErr}
 		}
 
 		outputs = append(outputs, entry.Output)
