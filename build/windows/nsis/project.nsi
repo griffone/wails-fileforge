@@ -100,7 +100,21 @@ InstallDirRegKey HKLM "${UNINST_KEY}" "InstallDir"
 !define MUI_FINISHPAGE_NOREBOOTSUPPORT
 !insertmacro MUI_PAGE_FINISH
 
-!insertmacro MUI_UNPAGE_INSTFILES # Uninstalling page
+####
+## Uninstaller pages
+####
+!define MUI_UNWELCOMEPAGE_TITLE "Remove ${INFO_PRODUCTNAME}"
+!define MUI_UNWELCOMEPAGE_TEXT "This wizard removes ${INFO_PRODUCTNAME} and the data it created for this Windows user: the downloaded tools and models, settings, job history, the app trash and the WebView2 profile.\r\n\r\nFiles you converted are not deleted.\r\n\r\nClick Next to continue."
+!insertmacro MUI_UNPAGE_WELCOME
+
+!define MUI_UNCONFIRMPAGE_TEXT_TOP "Uninstalling removes the local toolchain (FFmpeg, Tesseract, Poppler, Ghostscript, Python, Whisper, models and the background removal pack), settings, job history, app trash and WebView2 data for the current Windows user. Converted files are not deleted."
+!insertmacro MUI_UNPAGE_CONFIRM
+
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!define MUI_UNFINISHPAGE_TITLE "${INFO_PRODUCTNAME} was removed"
+!define MUI_UNFINISHPAGE_TEXT "${INFO_PRODUCTNAME} and its local tools and app data have been removed.\r\n\r\nYour converted files are still where you saved them. The Microsoft Edge WebView2 runtime is shared with other apps and stays installed.\r\n\r\nClick Finish to close this wizard."
+!insertmacro MUI_UNPAGE_FINISH
 
 !insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
 
@@ -138,6 +152,24 @@ Function CheckAppRunning
         Abort
 FunctionEnd
 
+Function un.CheckAppRunning
+    ${If} ${Silent}
+        Return
+    ${EndIf}
+
+    appRunningUninstallCheck:
+        FindWindow $0 "${INFO_PRODUCTNAME}"
+        ${If} $0 == 0
+            Return
+        ${EndIf}
+        MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION \
+            "${INFO_PRODUCTNAME} is still running. Close it, then choose OK to continue. Choose Cancel to stop the uninstall." \
+            IDOK appRunningUninstallCheck IDCANCEL appRunningUninstallAbort
+
+    appRunningUninstallAbort:
+        Abort
+FunctionEnd
+
 Function .onInit
     !insertmacro wails.checkArchitecture
 
@@ -149,6 +181,30 @@ Function .onInit
     ${If} $0 != ""
         StrCpy $INSTDIR $0
     ${EndIf}
+FunctionEnd
+
+# Remove everything the app created for the current Windows user. Converted
+# files live outside these folders and are never touched.
+Function un.RemoveAppData
+    # The uninstaller runs elevated, but the data belongs to the profile of the
+    # user who started it.
+    SetShellVarContext current
+
+    DetailPrint "Removing the managed tools, models and Python environments..."
+    RMDir /r "$LOCALAPPDATA\FileForge"
+    RMDir /r "$LOCALAPPDATA\fileforge"
+
+    DetailPrint "Removing settings, job history and automation data..."
+    RMDir /r "$APPDATA\fileforge"
+    RMDir /r "$APPDATA\FileForge"
+
+    DetailPrint "Removing the preview cache..."
+    RMDir /r "$TEMP\fileforge-previews"
+
+    DetailPrint "Removing the WebView2 profile for this Windows user..."
+    RMDir /r "$APPDATA\${PRODUCT_EXECUTABLE}"
+    RMDir /r "$LOCALAPPDATA\${PRODUCT_EXECUTABLE}"
+    RMDir /r "$LOCALAPPDATA\${PRODUCT_EXECUTABLE}.WebView2"
 FunctionEnd
 
 ####
@@ -208,6 +264,8 @@ SectionEnd
 ## Uninstaller section
 ####
 Section "Uninstall"
+    Call un.CheckAppRunning
+
     !insertmacro wails.setShellContext
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
@@ -217,6 +275,10 @@ Section "Uninstall"
 
     !insertmacro wails.deleteUninstaller
 
-    RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
+    Call un.RemoveAppData
+
+    # ProgramData variant of the WebView2 data path, then the install folder.
+    SetShellVarContext all
+    RMDir /r "$AppData\${PRODUCT_EXECUTABLE}"
     RMDir /r "$INSTDIR"
 SectionEnd
