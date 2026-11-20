@@ -50,6 +50,22 @@ task build:windows
 The Windows build and the Windows install layout are documented in
 [docs/windows-build.md](docs/windows-build.md).
 
+## Release artifacts
+
+| Artifact | Size |
+| --- | --- |
+| `bin/fileforge-desktop-amd64-installer.exe` | ~18.9 MiB |
+| `bin/fileforge-desktop-windows-amd64.zip` | ~23.0 MiB |
+| `bin/fileforge-desktop-x86_64.AppImage` | ~116.2 MiB |
+
+The Windows build stages the exe and copies only the libvips DLLs reachable
+from it (`scripts/prune-windows-dlls.py`), writes the portable ZIP with maximum
+deflate and uses a 64 MB LZMA dictionary for the installer. The Linux build
+post-processes the generated AppImage (`scripts/optimize-appimage.sh`): it
+removes the unused GTK3/WebKit2GTK 4.1 stack and the GObject-introspection
+typelibs, then repacks with zstd. Set `OPTIMIZE_APPIMAGE=0` to keep the
+generated AppImage unchanged.
+
 `task dev` delegates to the `wails3` binary from `PATH`. Install the CLI once with:
 
 ```bash

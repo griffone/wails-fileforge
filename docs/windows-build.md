@@ -16,25 +16,40 @@ The task runs `scripts/build-windows.sh`, which performs the complete pipeline:
 3. Builds the Angular frontend.
 4. Generates the Windows resources (`.syso`) and cross-compiles the `.exe` with
    cgo enabled.
-5. Copies the libvips DLLs and `vips-modules-8.18` next to the executable.
+5. Computes the libvips DLL closure from the executable and copies only the
+   reachable DLLs next to it (`scripts/prune-windows-dlls.py`); the
+   `vips-modules-*` directories are not bundled.
 6. Generates the WebView2 bootstrapper when missing and builds the NSIS
    installer.
-7. Creates a portable ZIP with the same exe and DLLs.
+7. Creates a portable ZIP with the same exe and DLLs (`zip -9`).
 
 Artifacts:
 
 ```text
-bin/fileforge-desktop-amd64-installer.exe
-bin/fileforge-desktop-windows-amd64.zip
+bin/fileforge-desktop-amd64-installer.exe   (~18.9 MiB)
+bin/fileforge-desktop-windows-amd64.zip     (~23.0 MiB)
 ```
 
-The ZIP contains a `FileForge Desktop/` folder with the exe, the libvips DLLs
-and `vips-modules-8.18`. The version metadata comes from
-`build/windows/info.json` and the `INFO_PRODUCTVERSION` define in
-`build/windows/nsis/project.nsi`. The libvips cache
-lives in `~/.cache/fileforge-windows`; override it with
-`FILEFORGE_WINDOWS_CACHE`. The Wails CLI is resolved from `PATH`, then
-`$HOME/go/bin/wails3`; override it with `WAILS3_BIN`.
+The staged bundle is about 57 MiB: a 27.6 MiB executable plus 48 libvips DLLs
+(29.8 MiB). The ZIP contains a `FileForge Desktop/` folder with the exe and the
+pruned DLL set. The optional libvips modules are not bundled because the app
+only uses the core loaders (JPEG, PNG, WebP, GIF, TIFF, BMP); JXL,
+ImageMagick, Poppler and OpenSlide are unnecessary. The version metadata comes
+from `build/windows/info.json` and the `INFO_PRODUCTVERSION` define in
+`build/windows/nsis/project.nsi`. The libvips cache lives in
+`~/.cache/fileforge-windows`; override it with `FILEFORGE_WINDOWS_CACHE`. The
+Wails CLI is resolved from `PATH`, then `$HOME/go/bin/wails3`; override it with
+`WAILS3_BIN`.
+
+### Bundle pruning
+
+`scripts/prune-windows-dlls.py` parses the PE import tables with
+`x86_64-w64-mingw32-objdump` (falling back to `objdump`), walks the transitive
+DLL closure from the staged `.exe`, and copies only the reachable DLLs from the
+libvips `bin` directory. It fails when a non-system import is missing from the
+source. The current closure keeps 48 of 61 DLLs (29.8 MiB) and drops the 13
+unreachable ones (11.7 MiB): JXL, ImageMagick, Poppler, OpenSlide, sqlite,
+brotli, dicom and libvips-cpp.
 
 ## Why cgo and libvips are required
 
@@ -47,7 +62,7 @@ has already loaded its imports.
 The installer bundles:
 
 - `fileforge-desktop.exe`
-- libvips DLLs and `vips-modules-8.18/`
+- libvips DLLs (the pruned set reachable from the exe)
 - the WebView2 bootstrapper
 - shortcuts and the uninstaller
 
@@ -69,9 +84,10 @@ build is also possible with:
   `build/windows/nsis/project.nsi` from this repository.
 
 Build the frontend, generate the `.syso`, run `go build -tags production` with
-the libvips cgo flags, copy the DLLs, generate the WebView2 bootstrapper and run
-`makensis` with `-DLIBVIPS_DIR=<libvips>/bin`. The script contains the exact
-commands and is the reference implementation.
+the libvips cgo flags, run `scripts/prune-windows-dlls.py` to stage the
+reachable DLLs, generate the WebView2 bootstrapper and run `makensis` with
+`-DLIBVIPS_DIR=<pruned stage>`. The script contains the exact commands and is
+the reference implementation.
 
 Do **not** run `wails3 update build-assets` without re-applying the NSIS
 changes: it regenerates template files and would drop the libvips bundling.
@@ -86,7 +102,6 @@ The NSIS installer defaults to a per-machine install:
 %ProgramFiles%\FileForge\FileForge Desktop\
   fileforge-desktop.exe
   libvips-42.dll + dependencies
-  vips-modules-8.18\
   uninstall.exe
 ```
 
