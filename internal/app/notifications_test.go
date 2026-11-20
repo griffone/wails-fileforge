@@ -45,20 +45,20 @@ func TestNotifierShutdownWithoutStartupIsSafe(t *testing.T) {
 }
 
 func TestNotifyV1RequiresTitleAndBody(t *testing.T) {
-	app := &App{}
+	service := &SystemService{}
 
-	if response := app.NotifyV1("", "The job finished."); response.Success || response.Message == "" {
+	if response := service.NotifyV1("", "The job finished."); response.Success || response.Message == "" {
 		t.Fatalf("expected an empty-title rejection with a message, got %+v", response)
 	}
-	if response := app.NotifyV1("Conversion done", " "); response.Success || response.Message == "" {
+	if response := service.NotifyV1("Conversion done", " "); response.Success || response.Message == "" {
 		t.Fatalf("expected an empty-body rejection with a message, got %+v", response)
 	}
 }
 
 func TestNotifyV1WithoutNotifierFails(t *testing.T) {
-	app := &App{}
+	service := &SystemService{}
 
-	response := app.NotifyV1("Conversion done", "The job finished.")
+	response := service.NotifyV1("Conversion done", "The job finished.")
 	if response.Success || response.Message == "" {
 		t.Fatalf("expected a friendly failure without a notifier, got %+v", response)
 	}

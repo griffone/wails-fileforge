@@ -16,29 +16,29 @@ import (
 // updateGolden refreshes the golden files instead of comparing them.
 var updateGolden = flag.Bool("update", false, "update golden files")
 
-// newTestApp builds an App with isolated user directories and shuts it down
-// when the test finishes.
-func newTestApp(t *testing.T) *App {
+// newTestApp builds the service bundle with isolated user directories and
+// shuts it down when the test finishes.
+func newTestApp(t *testing.T) *Services {
 	t.Helper()
 
 	t.Setenv("XDG_CONFIG_HOME", testutil.TempDir(t))
 	t.Setenv("XDG_DATA_HOME", testutil.TempDir(t))
 	t.Setenv("XDG_CACHE_HOME", testutil.TempDir(t))
 
-	a := New(NewNotifier())
+	bundle := New(NewNotifier())
 	t.Cleanup(func() {
-		if err := a.Shutdown(context.Background()); err != nil {
+		if err := bundle.Lifecycle.shutdown(context.Background()); err != nil {
 			t.Errorf("shutdown app: %v", err)
 		}
 	})
 
-	return a
+	return bundle
 }
 
 func TestListToolsContract(t *testing.T) {
 	a := newTestApp(t)
 
-	response := a.ListToolsV1()
+	response := a.Tools.ListToolsV1()
 	if !response.Success {
 		t.Fatalf("ListToolsV1 failed: %s", response.Message)
 	}
@@ -61,7 +61,7 @@ func TestListToolsContract(t *testing.T) {
 func TestListRecipesContract(t *testing.T) {
 	a := newTestApp(t)
 
-	response := a.ListRecipesV1()
+	response := a.Recipes.ListRecipesV1()
 	if !response.Success {
 		t.Fatalf("ListRecipesV1 failed: %s", response.Message)
 	}
@@ -84,7 +84,7 @@ func TestListRecipesContract(t *testing.T) {
 func TestGetLocalCapabilitiesContract(t *testing.T) {
 	a := newTestApp(t)
 
-	response := a.GetLocalCapabilitiesV1()
+	response := a.System.GetLocalCapabilitiesV1()
 	if !response.Success {
 		t.Fatalf("GetLocalCapabilitiesV1 failed: %s", response.Message)
 	}
@@ -96,7 +96,7 @@ func TestGetLocalCapabilitiesContract(t *testing.T) {
 func TestGetToolchainStatusContract(t *testing.T) {
 	a := newTestApp(t)
 
-	status := a.GetToolchainStatusV1()
+	status := a.Toolchain.GetToolchainStatusV1()
 	if status.Message == "" {
 		t.Fatal("GetToolchainStatusV1 returned an empty message")
 	}
