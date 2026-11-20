@@ -1,6 +1,15 @@
 {
   "name": "fileforge-desktop",
   "version": "1.0.0",
+  "info": {
+    "companyName": "FileForge",
+    "productName": "FileForge Desktop",
+    "productIdentifier": "com.fileforge.desktop",
+    "description": "Cross-platform file conversion toolkit",
+    "copyright": "(c) 2026, FileForge",
+    "comments": "Local-first file workbench",
+    "version": "1.0.0"
+  },
   "build": {
     "appName": "FileForge Desktop",
     "assetDir": "frontend/dist/frontend/browser",
