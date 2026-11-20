@@ -5,7 +5,7 @@
     "description": "Convert DOCX to PDF with standard fidelity (LibreOffice + Pandoc fallback)",
     "domain": "doc",
     "capability": "tool.doc.docx_to_pdf",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -34,7 +34,7 @@
     "description": "Convert Markdown documents to PDF with optional header/footer",
     "domain": "doc",
     "capability": "tool.doc.md_to_pdf",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -61,7 +61,7 @@
     "description": "Annotate images with text, arrows, rectangles, blur and redact",
     "domain": "image",
     "capability": "tool.image.annotate",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -100,7 +100,7 @@
     "description": "Remove image backgrounds locally with a transparent PNG or a chosen background color",
     "domain": "image",
     "capability": "tool.image.background",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -132,7 +132,7 @@
     "description": "Compress images to a target file size with quality search and optional downscaling",
     "domain": "image",
     "capability": "tool.image.compress",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -162,10 +162,10 @@
   {
     "toolId": "tool.image.convert",
     "name": "Image Converter",
-    "description": "Image conversion tool exposed as Tool V1 jobs",
+    "description": "Image conversion tool exposed through the job engine",
     "domain": "image",
     "capability": "tool.image.convert",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -200,7 +200,7 @@
     "description": "Crop images with ratio presets, batch mode and safe non-destructive output",
     "domain": "image",
     "capability": "tool.image.crop",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -236,7 +236,7 @@
     "description": "Extract text from images with local Tesseract and optionally write a searchable PDF",
     "domain": "image",
     "capability": "tool.image.ocr",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -269,7 +269,7 @@
     "description": "Watermark images with text or a logo using nine anchors, opacity, scale, margin and tiling",
     "domain": "image",
     "capability": "tool.image.watermark",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -301,7 +301,7 @@
     "description": "Crop PDF pages using presets or custom margins",
     "domain": "pdf",
     "capability": "tool.pdf.crop",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -325,7 +325,7 @@
     "description": "Place several images on a page grid and export one PDF.",
     "domain": "pdf",
     "capability": "tool.pdf.images",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": false,
     "inputExtensions": [
@@ -359,7 +359,7 @@
     "description": "Merge multiple PDF files into a single output PDF",
     "domain": "pdf",
     "capability": "tool.pdf.merge",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": false,
     "inputExtensions": [
@@ -385,7 +385,7 @@
     "description": "Make scanned PDFs searchable with local OCR",
     "domain": "pdf",
     "capability": "tool.pdf.ocr",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -413,7 +413,7 @@
     "description": "Compress PDFs and edit document metadata",
     "domain": "pdf",
     "capability": "tool.pdf.optimize",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -438,7 +438,7 @@
     "description": "Split a PDF into pages, page ranges, page chunks, or bookmarks",
     "domain": "pdf",
     "capability": "tool.pdf.split",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -463,7 +463,7 @@
     "description": "Convert a PDF into an editable DOCX while preserving fonts, weight, colors, images, tables and page layout.",
     "domain": "pdf",
     "capability": "tool.pdf.to_docx",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": false,
     "inputExtensions": [
@@ -490,7 +490,7 @@
     "description": "Convert videos to mp4 or webm with quality presets",
     "domain": "video",
     "capability": "tool.video.convert",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -520,7 +520,7 @@
     "description": "Merge multiple videos in input order into one mp4 or webm output",
     "domain": "video",
     "capability": "tool.video.merge",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": false,
     "inputExtensions": [
@@ -552,7 +552,7 @@
     "description": "Transcribe video and audio locally with Whisper",
     "domain": "video",
     "capability": "tool.video.transcribe",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -592,7 +592,7 @@
     "description": "Trim videos by start/end time to mp4 or webm",
     "domain": "video",
     "capability": "tool.video.trim",
-    "version": "v1",
+    "version": "1.0",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [

@@ -32,17 +32,17 @@ const (
 )
 
 // VerifyPaths verifies every path without a size target.
-func VerifyPaths(paths []string) models.VerificationReportV1 {
+func VerifyPaths(paths []string) models.VerificationReport {
 	return VerifyPathsWithTarget(paths, 0)
 }
 
 // VerifyPathsWithTarget verifies every output and, when targetBytes is
 // positive, adds a target_size check per output. One bad output never hides
 // the others: every path produces its own checks and warnings.
-func VerifyPathsWithTarget(paths []string, targetBytes int64) models.VerificationReportV1 {
-	report := models.VerificationReportV1{
+func VerifyPathsWithTarget(paths []string, targetBytes int64) models.VerificationReport {
+	report := models.VerificationReport{
 		Success: true,
-		Outputs: make([]models.VerifiedOutputV1, 0, len(paths)),
+		Outputs: make([]models.VerifiedOutput, 0, len(paths)),
 	}
 	if len(paths) == 0 {
 		report.Success = false
@@ -75,18 +75,18 @@ func VerifyPathsWithTarget(paths []string, targetBytes int64) models.Verificatio
 	return report
 }
 
-func verifyOutput(path string, targetBytes int64) models.VerifiedOutputV1 {
+func verifyOutput(path string, targetBytes int64) models.VerifiedOutput {
 	trimmed := strings.TrimSpace(path)
 	info := inspect.InspectFile(trimmed)
-	output := models.VerifiedOutputV1{
+	output := models.VerifiedOutput{
 		Path:      trimmed,
 		Exists:    info.Exists,
 		SizeBytes: info.SizeBytes,
 		Kind:      info.Kind,
-		Checks:    make([]models.VerificationCheckV1, 0, 8),
+		Checks:    make([]models.VerificationCheck, 0, 8),
 	}
 
-	output.Checks = append(output.Checks, models.VerificationCheckV1{
+	output.Checks = append(output.Checks, models.VerificationCheck{
 		Key:    checkPath,
 		Label:  "Path",
 		Passed: trimmed != "",
@@ -115,7 +115,7 @@ func verifyOutput(path string, targetBytes int64) models.VerifiedOutputV1 {
 	}
 
 	nonEmpty := info.SizeBytes > 0
-	output.Checks = append(output.Checks, models.VerificationCheckV1{
+	output.Checks = append(output.Checks, models.VerificationCheck{
 		Key:    checkSize,
 		Label:  "Size",
 		Passed: nonEmpty,
@@ -127,7 +127,7 @@ func verifyOutput(path string, targetBytes int64) models.VerifiedOutputV1 {
 	}
 
 	kindKnown := info.Extension != "" && info.Kind != "other"
-	output.Checks = append(output.Checks, models.VerificationCheckV1{
+	output.Checks = append(output.Checks, models.VerificationCheck{
 		Key:    checkKind,
 		Label:  "File type",
 		Passed: kindKnown,
@@ -142,7 +142,7 @@ func verifyOutput(path string, targetBytes int64) models.VerifiedOutputV1 {
 
 	if targetBytes > 0 {
 		targetMet := info.SizeBytes <= targetBytes
-		output.Checks = append(output.Checks, models.VerificationCheckV1{
+		output.Checks = append(output.Checks, models.VerificationCheck{
 			Key:    checkTargetSize,
 			Label:  "Target size",
 			Passed: targetMet,
@@ -162,13 +162,13 @@ func verifyOutput(path string, targetBytes int64) models.VerifiedOutputV1 {
 	return output
 }
 
-func mediaChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []models.VerificationCheckV1 {
+func mediaChecks(info models.FileInfo, output *models.VerifiedOutput) []models.VerificationCheck {
 	switch info.Kind {
 	case kindImage:
 		return imageChecks(info, output)
 	case kindPDF:
 		pages := info.PageCount
-		return []models.VerificationCheckV1{{
+		return []models.VerificationCheck{{
 			Key:    checkPageCount,
 			Label:  "Page count",
 			Passed: pages > 0,
@@ -182,7 +182,7 @@ func mediaChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []mode
 	}
 }
 
-func imageChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []models.VerificationCheckV1 {
+func imageChecks(info models.FileInfo, output *models.VerifiedOutput) []models.VerificationCheck {
 	if !supportsDimensionInspection(info.Extension) {
 		output.Warnings = append(output.Warnings, fmt.Sprintf(
 			"%s: dimensions are not inspected for .%s images",
@@ -193,7 +193,7 @@ func imageChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []mode
 	}
 
 	hasDimensions := info.Width > 0 && info.Height > 0
-	return []models.VerificationCheckV1{{
+	return []models.VerificationCheck{{
 		Key:    checkImageDims,
 		Label:  "Dimensions",
 		Passed: hasDimensions,
@@ -202,11 +202,11 @@ func imageChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []mode
 	}}
 }
 
-func videoChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []models.VerificationCheckV1 {
-	checks := make([]models.VerificationCheckV1, 0, 4)
+func videoChecks(info models.FileInfo, output *models.VerifiedOutput) []models.VerificationCheck {
+	checks := make([]models.VerificationCheck, 0, 4)
 
 	if info.DurationSeconds > 0 {
-		checks = append(checks, models.VerificationCheckV1{
+		checks = append(checks, models.VerificationCheck{
 			Key:    checkVideoLength,
 			Label:  "Duration",
 			Passed: true,
@@ -215,7 +215,7 @@ func videoChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []mode
 	}
 
 	if info.Width > 0 && info.Height > 0 {
-		checks = append(checks, models.VerificationCheckV1{
+		checks = append(checks, models.VerificationCheck{
 			Key:    checkVideoDims,
 			Label:  "Dimensions",
 			Passed: true,
@@ -224,7 +224,7 @@ func videoChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []mode
 	}
 
 	if info.VideoCodec != "" {
-		checks = append(checks, models.VerificationCheckV1{
+		checks = append(checks, models.VerificationCheck{
 			Key:    checkVideoCodec,
 			Label:  "Video codec",
 			Passed: true,
@@ -233,7 +233,7 @@ func videoChecks(info models.FileInfoV1, output *models.VerifiedOutputV1) []mode
 	}
 
 	if info.AudioCodec != "" {
-		checks = append(checks, models.VerificationCheckV1{
+		checks = append(checks, models.VerificationCheck{
 			Key:    checkAudioCodec,
 			Label:  "Audio codec",
 			Passed: true,
@@ -290,8 +290,8 @@ func supportsDimensionInspection(extension string) bool {
 	}
 }
 
-func boolCheck(key, label string, passed bool, detail string) models.VerificationCheckV1 {
-	check := models.VerificationCheckV1{
+func boolCheck(key, label string, passed bool, detail string) models.VerificationCheck {
+	check := models.VerificationCheck{
 		Key:    key,
 		Label:  label,
 		Passed: passed,
@@ -305,12 +305,12 @@ func boolCheck(key, label string, passed bool, detail string) models.Verificatio
 	return check
 }
 
-func passedCheck(key, label, value string) models.VerificationCheckV1 {
-	return models.VerificationCheckV1{Key: key, Label: label, Passed: true, Value: value}
+func passedCheck(key, label, value string) models.VerificationCheck {
+	return models.VerificationCheck{Key: key, Label: label, Passed: true, Value: value}
 }
 
-func failedCheck(key, label, detail string) models.VerificationCheckV1 {
-	return models.VerificationCheckV1{Key: key, Label: label, Passed: false, Detail: detail}
+func failedCheck(key, label, detail string) models.VerificationCheck {
+	return models.VerificationCheck{Key: key, Label: label, Passed: false, Detail: detail}
 }
 
 func checkDetail(condition bool, detail string) string {

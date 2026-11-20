@@ -36,12 +36,12 @@ const (
 	// RecipeIDCleanScan is the curated outcome "Clean scan".
 	RecipeIDCleanScan = "recipe.clean_scan"
 
-	// ProgressEventNameV1 is the Wails event emitted for every recipe stage.
-	ProgressEventNameV1 = "recipes/progress/v1"
+	// ProgressEventName is the Wails event emitted for every recipe stage.
+	ProgressEventName = "recipes/progress/v1"
 
-	// StateEventNameV1 carries a full RecipeResultV1 snapshot when a run is
+	// StateEventName carries a full RecipeResult snapshot when a run is
 	// registered or reaches a terminal status.
-	StateEventNameV1 = "recipes/state/v1"
+	StateEventName = "recipes/state/v1"
 
 	// retainedTerminalRuns is the number of finished recipe runs kept in the
 	// in-memory registry. Active runs are always retained.
@@ -73,8 +73,8 @@ const (
 type Service struct {
 	registry *registry.Registry
 	history  *jobhistory.Store
-	emit     func(models.RecipeProgressEventV1)
-	onState  func(models.RecipeResultV1)
+	emit     func(models.RecipeProgressEvent)
+	onState  func(models.RecipeResult)
 	engine   *jobs.Engine
 
 	// tempDir creates the intermediate workspace for a run. It is a field so
@@ -87,7 +87,7 @@ type Service struct {
 
 // NewService builds the recipe service. emit may be nil in tests or headless
 // runs; history may be nil when undo is not configured.
-func NewService(reg *registry.Registry, history *jobhistory.Store, emit func(models.RecipeProgressEventV1)) *Service {
+func NewService(reg *registry.Registry, history *jobhistory.Store, emit func(models.RecipeProgressEvent)) *Service {
 	if reg == nil {
 		reg = registry.GetGlobalRegistry()
 	}
@@ -113,7 +113,7 @@ func (s *Service) SetEngine(engine *jobs.Engine) {
 
 // SetStateEmitter registers the callback that receives the full run snapshot
 // when a run is registered or reaches a terminal status. It may be nil.
-func (s *Service) SetStateEmitter(onState func(models.RecipeResultV1)) {
+func (s *Service) SetStateEmitter(onState func(models.RecipeResult)) {
 	s.mu.Lock()
 	s.onState = onState
 	s.mu.Unlock()
@@ -122,13 +122,13 @@ func (s *Service) SetStateEmitter(onState func(models.RecipeResultV1)) {
 // ListRuns returns every tracked run snapshot, newest first, capped to limit.
 // A non-positive limit uses defaultRunListLimit. The returned slice is never
 // nil.
-func (s *Service) ListRuns(limit int) []models.RecipeResultV1 {
+func (s *Service) ListRuns(limit int) []models.RecipeResult {
 	if limit <= 0 {
 		limit = defaultRunListLimit
 	}
 
 	s.mu.RLock()
-	runs := make([]models.RecipeResultV1, 0, len(s.jobs))
+	runs := make([]models.RecipeResult, 0, len(s.jobs))
 	for _, tracked := range s.jobs {
 		runs = append(runs, tracked.snapshot())
 	}
@@ -144,20 +144,20 @@ func (s *Service) ListRuns(limit int) []models.RecipeResultV1 {
 
 // List returns the built-in recipes. Email PDF is always first, followed by
 // Web image set, Social clip, Clean scan and Burned-in subtitles.
-func (s *Service) List() []models.RecipeV1 {
-	return []models.RecipeV1{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe()}
+func (s *Service) List() []models.Recipe {
+	return []models.Recipe{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe()}
 }
 
 // Plan validates a recipe request without executing any tool and resolves the
 // final destination. Merge intermediates never appear in the response.
-func (s *Service) Plan(req models.RecipeRequestV1) models.RecipePlanResponseV1 {
+func (s *Service) Plan(req models.RecipeRequest) models.RecipePlanResponse {
 	response, _ := s.plan(req)
 	return response
 }
 
 // plan resolves and validates a request once, returning the public response and
 // the internal resolution used by Run.
-func (s *Service) plan(req models.RecipeRequestV1) (models.RecipePlanResponseV1, *resolvedRecipe) {
+func (s *Service) plan(req models.RecipeRequest) (models.RecipePlanResponse, *resolvedRecipe) {
 	resolved, jobErr := s.resolve(req)
 	if jobErr != nil {
 		return recipePlanFailure(jobErr), nil
@@ -177,10 +177,10 @@ func (s *Service) plan(req models.RecipeRequestV1) (models.RecipePlanResponseV1,
 
 	outputs := resolved.PlannedOutputs
 	if outputs == nil {
-		outputs = []models.PlannedOutputV1{}
+		outputs = []models.PlannedOutput{}
 	}
 
-	return models.RecipePlanResponseV1{
+	return models.RecipePlanResponse{
 		Success:    true,
 		Message:    resolved.PlanMessage,
 		Recipe:     resolved.Recipe,
@@ -194,7 +194,7 @@ func (s *Service) plan(req models.RecipeRequestV1) (models.RecipePlanResponseV1,
 // Run validates the request, registers an in-memory job and executes the chain
 // in the background. A malformed request fails synchronously; execution errors
 // are reported through Status/progress events.
-func (s *Service) Run(ctx context.Context, req models.RecipeRequestV1) models.RunRecipeResponseV1 {
+func (s *Service) Run(ctx context.Context, req models.RecipeRequest) models.RunRecipeResponse {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -205,7 +205,7 @@ func (s *Service) Run(ctx context.Context, req models.RecipeRequestV1) models.Ru
 		if message == "" {
 			message = "recipe plan failed"
 		}
-		return models.RunRecipeResponseV1{
+		return models.RunRecipeResponse{
 			Success: false,
 			Message: message,
 			Status:  models.JobStatusFailed,
@@ -217,7 +217,7 @@ func (s *Service) Run(ctx context.Context, req models.RecipeRequestV1) models.Ru
 	jobCtx, cancel := context.WithCancel(ctx)
 	tracked := &recipeJob{
 		cancel: cancel,
-		result: models.RecipeResultV1{
+		result: models.RecipeResult{
 			JobID:           jobID,
 			RecipeID:        resolved.Recipe.ID,
 			Status:          models.JobStatusQueued,
@@ -239,7 +239,7 @@ func (s *Service) Run(ctx context.Context, req models.RecipeRequestV1) models.Ru
 
 	go s.runJob(jobCtx, tracked, resolved)
 
-	return models.RunRecipeResponseV1{
+	return models.RunRecipeResponse{
 		Success: true,
 		Message: "recipe submitted",
 		JobID:   jobID,
@@ -248,11 +248,11 @@ func (s *Service) Run(ctx context.Context, req models.RecipeRequestV1) models.Ru
 }
 
 // Status returns the current snapshot of a recipe run.
-func (s *Service) Status(jobID string) models.RecipeStatusResponseV1 {
+func (s *Service) Status(jobID string) models.RecipeStatusResponse {
 	tracked, found := s.job(jobID)
 	if !found {
 		trimmed := strings.TrimSpace(jobID)
-		return models.RecipeStatusResponseV1{
+		return models.RecipeStatusResponse{
 			Success: false,
 			Found:   false,
 			Message: fmt.Sprintf("recipe job '%s' not found", trimmed),
@@ -261,7 +261,7 @@ func (s *Service) Status(jobID string) models.RecipeStatusResponseV1 {
 	}
 
 	snapshot := tracked.snapshot()
-	return models.RecipeStatusResponseV1{
+	return models.RecipeStatusResponse{
 		Success: true,
 		Found:   true,
 		Message: "recipe status retrieved",
@@ -271,11 +271,11 @@ func (s *Service) Status(jobID string) models.RecipeStatusResponseV1 {
 
 // Cancel requests cancellation. Tool executors stop at their own checkpoints;
 // the job becomes cancelled once the running step returns.
-func (s *Service) Cancel(jobID string) models.RecipeStatusResponseV1 {
+func (s *Service) Cancel(jobID string) models.RecipeStatusResponse {
 	tracked, found := s.job(jobID)
 	if !found {
 		trimmed := strings.TrimSpace(jobID)
-		return models.RecipeStatusResponseV1{
+		return models.RecipeStatusResponse{
 			Success: false,
 			Found:   false,
 			Message: fmt.Sprintf("recipe job '%s' not found", trimmed),
@@ -285,7 +285,7 @@ func (s *Service) Cancel(jobID string) models.RecipeStatusResponseV1 {
 
 	if tracked.terminal() {
 		snapshot := tracked.snapshot()
-		return models.RecipeStatusResponseV1{
+		return models.RecipeStatusResponse{
 			Success: true,
 			Found:   true,
 			Message: "recipe job is already finished",
@@ -296,7 +296,7 @@ func (s *Service) Cancel(jobID string) models.RecipeStatusResponseV1 {
 	tracked.requestCancel()
 	snapshot := tracked.snapshot()
 
-	return models.RecipeStatusResponseV1{
+	return models.RecipeStatusResponse{
 		Success: true,
 		Found:   true,
 		Message: "cancel requested",
@@ -318,7 +318,7 @@ func (s *Service) Shutdown() {
 	}
 }
 
-func (s *Service) resolve(req models.RecipeRequestV1) (*resolvedRecipe, *models.JobErrorV1) {
+func (s *Service) resolve(req models.RecipeRequest) (*resolvedRecipe, *models.JobError) {
 	recipe := recipeByID(req.RecipeID)
 	if recipe == nil {
 		trimmed := strings.TrimSpace(req.RecipeID)
@@ -349,8 +349,8 @@ func (s *Service) job(jobID string) (*recipeJob, bool) {
 	return tracked, found
 }
 
-func (s *Service) toolFor(toolID string) (tools.Tool, *models.JobErrorV1) {
-	tool, err := s.registry.GetToolV2(toolID)
+func (s *Service) toolFor(toolID string) (tools.Tool, *models.JobError) {
+	tool, err := s.registry.GetTool(toolID)
 	if err != nil {
 		return nil, newRecipeError(
 			"RECIPE_TOOL_DEPENDENCY_MISSING",
@@ -365,7 +365,7 @@ func (s *Service) toolFor(toolID string) (tools.Tool, *models.JobErrorV1) {
 // singleExecutor resolves a tool, asserts the optional Planner capability the
 // recipe chain depends on, and returns an executor that schedules the step on
 // the shared job engine.
-func (s *Service) singleExecutor(toolID string) (tools.SingleExecutor, tools.Planner, *models.JobErrorV1) {
+func (s *Service) singleExecutor(toolID string) (tools.SingleExecutor, tools.Planner, *models.JobError) {
 	tool, jobErr := s.toolFor(toolID)
 	if jobErr != nil {
 		return nil, nil, jobErr
@@ -424,14 +424,14 @@ type engineStepExecutor struct {
 
 // ExecuteSingle delegates to ExecuteSingleWithProgress with no progress
 // callback.
-func (x *engineStepExecutor) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (x *engineStepExecutor) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	return x.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
 // ExecuteSingleWithProgress submits one recipe step as an interactive engine
 // job, waits for the step, and maps the job result back to the single-item
 // contract the recipe files use.
-func (x *engineStepExecutor) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (x *engineStepExecutor) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	if x == nil || x.service == nil || x.engine == nil || x.tool == nil {
 		jobErr := newRecipeError("RECIPE_ENGINE_UNAVAILABLE", "The recipe job engine is not available.", nil)
 		return failedEngineStepItem(req, jobErr), jobErr
@@ -499,7 +499,7 @@ func (x *engineStepExecutor) ExecuteSingleWithProgress(ctx context.Context, req 
 
 // failedEngineStepItem synthesizes the per-input failure item the recipe files
 // expect when a step cannot run or returns no item.
-func failedEngineStepItem(req models.JobRequestV1, jobErr *models.JobErrorV1) models.JobResultItemV1 {
+func failedEngineStepItem(req models.JobRequest, jobErr *models.JobError) models.JobResultItem {
 	message := "The recipe step failed."
 	if jobErr != nil && strings.TrimSpace(jobErr.Message) != "" {
 		message = jobErr.Message
@@ -510,7 +510,7 @@ func failedEngineStepItem(req models.JobRequestV1, jobErr *models.JobErrorV1) mo
 		inputPath = req.InputPaths[0]
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath: inputPath,
 		Success:   false,
 		Message:   message,
@@ -520,7 +520,7 @@ func failedEngineStepItem(req models.JobRequestV1, jobErr *models.JobErrorV1) mo
 
 // cancelledEngineStepError is the canonical cancellation error returned when
 // the recipe context ends while the step job is running.
-func cancelledEngineStepError(ctx context.Context) *models.JobErrorV1 {
+func cancelledEngineStepError(ctx context.Context) *models.JobError {
 	message := "Recipe step cancelled."
 	if ctx != nil && ctx.Err() != nil {
 		message = ctx.Err().Error()
@@ -549,7 +549,7 @@ func (s *Service) execute(ctx context.Context, tracked *recipeJob, resolved *res
 func (s *Service) emitProgress(tracked *recipeJob, status, stepName, stage, message string, percent int) {
 	tracked.mu.Lock()
 	tracked.percent = percent
-	event := models.RecipeProgressEventV1{
+	event := models.RecipeProgressEvent{
 		JobID:       tracked.result.JobID,
 		RecipeID:    tracked.result.RecipeID,
 		Status:      status,
@@ -572,7 +572,7 @@ func (s *Service) emitProgress(tracked *recipeJob, status, stepName, stage, mess
 
 func (s *Service) emitTerminal(tracked *recipeJob, status, stepName, message string) {
 	tracked.mu.RLock()
-	event := models.RecipeProgressEventV1{
+	event := models.RecipeProgressEvent{
 		JobID:       tracked.result.JobID,
 		RecipeID:    tracked.result.RecipeID,
 		Status:      status,
@@ -623,7 +623,7 @@ func isTerminalRecipeStatus(status string) bool {
 
 // sortRecipeRuns orders run snapshots newest first, breaking ties by job id so
 // list output stays deterministic.
-func sortRecipeRuns(runs []models.RecipeResultV1) {
+func sortRecipeRuns(runs []models.RecipeResult) {
 	sort.Slice(runs, func(i, j int) bool {
 		if runs[i].StartedAt != runs[j].StartedAt {
 			return runs[i].StartedAt > runs[j].StartedAt
@@ -677,7 +677,7 @@ func (s *Service) cancelJob(tracked *recipeJob) {
 	s.emitTerminal(tracked, models.JobStatusCancelled, stepName, message)
 }
 
-func (s *Service) failJob(tracked *recipeJob, jobErr *models.JobErrorV1) {
+func (s *Service) failJob(tracked *recipeJob, jobErr *models.JobError) {
 	message := "The recipe failed."
 	if jobErr != nil && jobErr.Message != "" {
 		message = jobErr.Message
@@ -691,17 +691,17 @@ func (s *Service) failJob(tracked *recipeJob, jobErr *models.JobErrorV1) {
 // recipeJob is the mutable in-memory state of one recipe run.
 type recipeJob struct {
 	mu      sync.RWMutex
-	result  models.RecipeResultV1
+	result  models.RecipeResult
 	cancel  context.CancelFunc
 	percent int
 }
 
-func (j *recipeJob) snapshot() models.RecipeResultV1 {
+func (j *recipeJob) snapshot() models.RecipeResult {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 
 	snapshot := j.result
-	snapshot.Steps = make([]models.RecipeStepResultV1, len(j.result.Steps))
+	snapshot.Steps = make([]models.RecipeStepResult, len(j.result.Steps))
 	for index, step := range j.result.Steps {
 		copied := step
 		copied.Outputs = copyStrings(step.Outputs)
@@ -710,7 +710,7 @@ func (j *recipeJob) snapshot() models.RecipeResultV1 {
 	snapshot.Outputs = copyStrings(j.result.Outputs)
 	if j.result.Verification != nil {
 		verification := *j.result.Verification
-		verification.Outputs = append([]models.VerifiedOutputV1{}, j.result.Verification.Outputs...)
+		verification.Outputs = append([]models.VerifiedOutput{}, j.result.Verification.Outputs...)
 		verification.Warnings = copyStrings(j.result.Verification.Warnings)
 		snapshot.Verification = &verification
 	}
@@ -734,7 +734,7 @@ func (j *recipeJob) setCurrentStep(stepIndex int) {
 	j.result.CurrentStep = stepIndex
 }
 
-func (j *recipeJob) setStep(index int, step models.RecipeStepResultV1) {
+func (j *recipeJob) setStep(index int, step models.RecipeStepResult) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
@@ -744,7 +744,7 @@ func (j *recipeJob) setStep(index int, step models.RecipeStepResultV1) {
 	j.result.Steps[index] = step
 }
 
-func (j *recipeJob) finish(status, message string, outputs []string, verification *models.VerificationReportV1, jobErr *models.JobErrorV1, completed bool) {
+func (j *recipeJob) finish(status, message string, outputs []string, verification *models.VerificationReport, jobErr *models.JobError, completed bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
@@ -804,10 +804,10 @@ func newRecipeJobID() string {
 	return fmt.Sprintf("recipe_%d", time.Now().UnixNano())
 }
 
-func pendingRecipeSteps(steps []models.RecipeStepV1) []models.RecipeStepResultV1 {
-	results := make([]models.RecipeStepResultV1, 0, len(steps))
+func pendingRecipeSteps(steps []models.RecipeStep) []models.RecipeStepResult {
+	results := make([]models.RecipeStepResult, 0, len(steps))
 	for _, step := range steps {
-		results = append(results, models.RecipeStepResultV1{
+		results = append(results, models.RecipeStepResult{
 			ID:     step.ID,
 			Name:   step.Name,
 			ToolID: step.ToolID,
@@ -822,6 +822,6 @@ func copyStrings(values []string) []string {
 	return append([]string{}, values...)
 }
 
-func newRecipeError(detailCode, message string, details map[string]any) *models.JobErrorV1 {
+func newRecipeError(detailCode, message string, details map[string]any) *models.JobError {
 	return models.NewCanonicalJobError(detailCode, message, details)
 }

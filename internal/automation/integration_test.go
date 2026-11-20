@@ -22,10 +22,10 @@ import (
 // window, recipe plan/run/status, output verification and last-run persistence.
 func TestAutomationRunsRealEmailPDFRecipe(t *testing.T) {
 	reg := registry.NewRegistry()
-	if err := reg.RegisterToolV2(pdf.NewMergeTool()); err != nil {
+	if err := reg.RegisterTool(pdf.NewMergeTool()); err != nil {
 		t.Fatalf("register PDF merge: %v", err)
 	}
-	if err := reg.RegisterToolV2(pdf.NewOptimizeTool()); err != nil {
+	if err := reg.RegisterTool(pdf.NewOptimizeTool()); err != nil {
 		t.Fatalf("register PDF optimize: %v", err)
 	}
 
@@ -46,7 +46,7 @@ func TestAutomationRunsRealEmailPDFRecipe(t *testing.T) {
 
 	watchDir := t.TempDir()
 	outputDir := t.TempDir()
-	saved := service.SaveRule(models.AutomationRuleV1{
+	saved := service.SaveRule(models.AutomationRule{
 		Name:      "Email PDFs",
 		Enabled:   true,
 		WatchDir:  watchDir,
@@ -63,7 +63,7 @@ func TestAutomationRunsRealEmailPDFRecipe(t *testing.T) {
 	writeAutomationPDFFixture(t, filepath.Join(watchDir, "report.pdf"), 2)
 
 	deadline := time.Now().Add(30 * time.Second)
-	var rule models.AutomationRuleV1
+	var rule models.AutomationRule
 	for time.Now().Before(deadline) {
 		current, found := store.Get(saved.Rule.ID)
 		if found && current.LastStatus != "" {

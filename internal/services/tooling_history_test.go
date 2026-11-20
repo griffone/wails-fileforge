@@ -29,19 +29,19 @@ func (t *historyFakeTool) Capability() string {
 	return t.id
 }
 
-func (t *historyFakeTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{ToolID: t.id}
+func (t *historyFakeTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{ToolID: t.id}
 }
 
-func (t *historyFakeTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *historyFakeTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *historyFakeTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *historyFakeTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return nil
 }
 
-func (t *historyFakeTool) ExecuteSingle(_ context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *historyFakeTool) ExecuteSingle(_ context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	if t.started != nil {
 		t.started <- struct{}{}
 	}
@@ -54,20 +54,20 @@ func (t *historyFakeTool) ExecuteSingle(_ context.Context, req models.JobRequest
 		inputPath = req.InputPaths[0]
 	}
 	if t.fail {
-		return models.JobResultItemV1{InputPath: inputPath, Success: false, Message: "fake failure"},
+		return models.JobResultItem{InputPath: inputPath, Success: false, Message: "fake failure"},
 			models.NewCanonicalJobError("FAKE_SERVICE_FAILED", "fake failure", nil)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(t.outputPath), 0o755); err != nil {
-		return models.JobResultItemV1{InputPath: inputPath, Success: false, Message: err.Error()},
+		return models.JobResultItem{InputPath: inputPath, Success: false, Message: err.Error()},
 			models.NewCanonicalJobError("FAKE_SERVICE_WRITE", err.Error(), nil)
 	}
 	if err := os.WriteFile(t.outputPath, []byte("converted"), 0o644); err != nil {
-		return models.JobResultItemV1{InputPath: inputPath, Success: false, Message: err.Error()},
+		return models.JobResultItem{InputPath: inputPath, Success: false, Message: err.Error()},
 			models.NewCanonicalJobError("FAKE_SERVICE_WRITE", err.Error(), nil)
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:  inputPath,
 		OutputPath: t.outputPath,
 		Outputs:    []string{t.outputPath},
@@ -87,7 +87,7 @@ func newHistoryTestServiceWithBus(t *testing.T, tool *historyFakeTool, bus event
 
 	dir := t.TempDir()
 	reg := registry.NewRegistry()
-	if err := reg.RegisterToolV2(tool); err != nil {
+	if err := reg.RegisterTool(tool); err != nil {
 		t.Fatalf("register tool: %v", err)
 	}
 
@@ -97,19 +97,19 @@ func newHistoryTestServiceWithBus(t *testing.T, tool *historyFakeTool, bus event
 	return newToolingServiceWithBus(reg, history, bus), dir
 }
 
-func waitForHistoryEntries(t *testing.T, service *ToolingService, want int) []models.JobHistoryEntryV1 {
+func waitForHistoryEntries(t *testing.T, service *ToolingService, want int) []models.JobHistoryEntry {
 	t.Helper()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		entries := service.ListJobHistoryV1()
+		entries := service.ListJobHistory()
 		if len(entries) >= want {
 			return entries
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	t.Fatalf("timed out waiting for %d history entries, got %+v", want, service.ListJobHistoryV1())
+	t.Fatalf("timed out waiting for %d history entries, got %+v", want, service.ListJobHistory())
 	return nil
 }
 
@@ -118,11 +118,11 @@ func TestToolingServiceRecordsTerminalJobsAndSupportsUndoRestore(t *testing.T) {
 	tool := &historyFakeTool{id: "tool.fake.history", outputPath: output}
 	service, _ := newHistoryTestService(t, tool)
 
-	if entries := service.ListJobHistoryV1(); entries == nil || len(entries) != 0 {
+	if entries := service.ListJobHistory(); entries == nil || len(entries) != 0 {
 		t.Fatalf("expected an empty non-nil history, got %+v", entries)
 	}
 
-	submit := service.RunJobV1(models.JobRequestV1{
+	submit := service.RunJob(models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-service-input.pdf"},
@@ -140,18 +140,18 @@ func TestToolingServiceRecordsTerminalJobsAndSupportsUndoRestore(t *testing.T) {
 		t.Fatalf("expected the job output to be recorded, got %+v", entry.Outputs)
 	}
 
-	undo := service.UndoJobV1(entry.JobID)
+	undo := service.UndoJob(entry.JobID)
 	if !undo.Success {
 		t.Fatalf("expected undo success, got %+v", undo)
 	}
 	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		t.Fatalf("expected the output to leave its original path, got %v", err)
 	}
-	if entries := service.ListJobHistoryV1(); !entries[0].Undone {
+	if entries := service.ListJobHistory(); !entries[0].Undone {
 		t.Fatalf("expected the job to be marked undone, got %+v", entries[0])
 	}
 
-	restore := service.RestoreJobV1(entry.JobID)
+	restore := service.RestoreJob(entry.JobID)
 	if !restore.Success {
 		t.Fatalf("expected restore success, got %+v", restore)
 	}
@@ -163,7 +163,7 @@ func TestToolingServiceRecordsTerminalJobsAndSupportsUndoRestore(t *testing.T) {
 		t.Fatalf("expected restored bytes, got %q", content)
 	}
 
-	empty := service.EmptyTrashV1()
+	empty := service.EmptyTrash()
 	if !empty.Success {
 		t.Fatalf("expected empty trash success, got %+v", empty)
 	}
@@ -177,7 +177,7 @@ func TestToolingServiceSkipsHistoryForJobsWithoutOutputs(t *testing.T) {
 	}
 	service, _ := newHistoryTestService(t, tool)
 
-	submit := service.RunJobV1(models.JobRequestV1{
+	submit := service.RunJob(models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-service-input.pdf"},
@@ -191,17 +191,17 @@ func TestToolingServiceSkipsHistoryForJobsWithoutOutputs(t *testing.T) {
 		t.Fatalf("expected a failed job, got %+v", status)
 	}
 
-	if entries := service.ListJobHistoryV1(); len(entries) != 0 {
+	if entries := service.ListJobHistory(); len(entries) != 0 {
 		t.Fatalf("expected failed jobs without outputs to be ignored, got %+v", entries)
 	}
 }
 
-func waitForTerminalStatus(t *testing.T, service *ToolingService, jobID string) models.JobResultV1 {
+func waitForTerminalStatus(t *testing.T, service *ToolingService, jobID string) models.JobResult {
 	t.Helper()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		response := service.GetJobStatusV1(jobID)
+		response := service.GetJobStatus(jobID)
 		if response.Found && response.Result != nil {
 			switch response.Result.Status {
 			case models.JobStatusSuccess,
@@ -216,13 +216,13 @@ func waitForTerminalStatus(t *testing.T, service *ToolingService, jobID string) 
 	}
 
 	t.Fatalf("timed out waiting for job %s to reach a terminal status", jobID)
-	return models.JobResultV1{}
+	return models.JobResult{}
 }
 
 func TestToolingServiceEmptyTrashWithoutHistory(t *testing.T) {
 	service, _ := newHistoryTestService(t, &historyFakeTool{id: "tool.fake.history.idle"})
 
-	response := service.EmptyTrashV1()
+	response := service.EmptyTrash()
 	if !response.Success {
 		t.Fatalf("expected empty trash to succeed, got %+v", response)
 	}

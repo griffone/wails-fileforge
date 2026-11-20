@@ -25,7 +25,7 @@ func TestRecipeStepRunsOnSharedEngine(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 1)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": float64(testLargeTargetBytes)},
@@ -45,8 +45,8 @@ func TestRecipeStepRunsOnSharedEngine(t *testing.T) {
 	}
 
 	step := engineJobs[0]
-	if step.ToolID != pdf.ToolIDPDFOptimizeV1 {
-		t.Fatalf("engine step tool = %q, want %q", step.ToolID, pdf.ToolIDPDFOptimizeV1)
+	if step.ToolID != pdf.ToolIDPDFOptimize {
+		t.Fatalf("engine step tool = %q, want %q", step.ToolID, pdf.ToolIDPDFOptimize)
 	}
 	if step.Status != jobs.StatusSuccess {
 		t.Fatalf("engine step status = %q, want %q", step.Status, jobs.StatusSuccess)
@@ -77,7 +77,7 @@ func TestRecipeCancellationCancelsEngineStep(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 1)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": testLargeTargetBytes},

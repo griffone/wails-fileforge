@@ -37,7 +37,7 @@ type Store struct {
 	writeMu  sync.Mutex
 	path     string
 	maxRules int
-	rules    []models.AutomationRuleV1
+	rules    []models.AutomationRule
 }
 
 // DefaultPath returns the persisted rules location:
@@ -72,11 +72,11 @@ func (s *Store) configured() bool {
 }
 
 // List returns the saved rules newest first. Callers own the returned copies.
-func (s *Store) List() []models.AutomationRuleV1 {
+func (s *Store) List() []models.AutomationRule {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	rules := make([]models.AutomationRuleV1, len(s.rules))
+	rules := make([]models.AutomationRule, len(s.rules))
 	for index, rule := range s.rules {
 		rules[index] = cloneRule(rule)
 	}
@@ -85,7 +85,7 @@ func (s *Store) List() []models.AutomationRuleV1 {
 }
 
 // Get returns one rule copy.
-func (s *Store) Get(id string) (models.AutomationRuleV1, bool) {
+func (s *Store) Get(id string) (models.AutomationRule, bool) {
 	trimmed := strings.TrimSpace(id)
 
 	s.mu.RLock()
@@ -93,7 +93,7 @@ func (s *Store) Get(id string) (models.AutomationRuleV1, bool) {
 
 	index := s.findIndexLocked(trimmed)
 	if index < 0 {
-		return models.AutomationRuleV1{}, false
+		return models.AutomationRule{}, false
 	}
 
 	return cloneRule(s.rules[index]), true
@@ -103,11 +103,11 @@ func (s *Store) Get(id string) (models.AutomationRuleV1, bool) {
 // are cleared and LastOutputs is capped before writing. New rules are placed
 // first; edits keep their position. The disk write happens outside the state
 // lock so readers never wait for fsync.
-func (s *Store) Save(rule models.AutomationRuleV1) (models.AutomationRuleV1, error) {
+func (s *Store) Save(rule models.AutomationRule) (models.AutomationRule, error) {
 	rule = cloneRule(rule)
 	rule.ID = strings.TrimSpace(rule.ID)
 	if rule.ID == "" {
-		return models.AutomationRuleV1{}, errors.New("automation: rule id is required")
+		return models.AutomationRule{}, errors.New("automation: rule id is required")
 	}
 	rule.RuntimeStatus = ""
 	rule.RuntimeReason = ""
@@ -123,7 +123,7 @@ func (s *Store) Save(rule models.AutomationRuleV1) (models.AutomationRuleV1, err
 	if index := s.findIndexLocked(rule.ID); index >= 0 {
 		s.rules[index] = rule
 	} else {
-		s.rules = append([]models.AutomationRuleV1{rule}, s.rules...)
+		s.rules = append([]models.AutomationRule{rule}, s.rules...)
 	}
 	s.pruneLocked()
 	snapshot := s.snapshotLocked()
@@ -133,7 +133,7 @@ func (s *Store) Save(rule models.AutomationRuleV1) (models.AutomationRuleV1, err
 		s.mu.Lock()
 		s.rules = previous
 		s.mu.Unlock()
-		return models.AutomationRuleV1{}, err
+		return models.AutomationRule{}, err
 	}
 
 	return cloneRule(rule), nil
@@ -236,7 +236,7 @@ func (s *Store) SetEnabled(id string, enabled bool) error {
 
 func (s *Store) load() {
 	if !s.configured() {
-		s.rules = []models.AutomationRuleV1{}
+		s.rules = []models.AutomationRule{}
 		return
 	}
 
@@ -245,18 +245,18 @@ func (s *Store) load() {
 		if !errors.Is(err, os.ErrNotExist) {
 			log.Printf("automation.store.load.failed path=%s err=%v", s.path, err)
 		}
-		s.rules = []models.AutomationRuleV1{}
+		s.rules = []models.AutomationRule{}
 		return
 	}
 	if len(strings.TrimSpace(string(content))) == 0 {
-		s.rules = []models.AutomationRuleV1{}
+		s.rules = []models.AutomationRule{}
 		return
 	}
 
-	rules := make([]models.AutomationRuleV1, 0)
+	rules := make([]models.AutomationRule, 0)
 	if err := json.Unmarshal(content, &rules); err != nil {
 		log.Printf("automation.store.load.malformed path=%s err=%v", s.path, err)
-		s.rules = []models.AutomationRuleV1{}
+		s.rules = []models.AutomationRule{}
 		return
 	}
 
@@ -264,8 +264,8 @@ func (s *Store) load() {
 	s.pruneLocked()
 }
 
-func normalizeRules(rules []models.AutomationRuleV1) []models.AutomationRuleV1 {
-	normalized := make([]models.AutomationRuleV1, 0, len(rules))
+func normalizeRules(rules []models.AutomationRule) []models.AutomationRule {
+	normalized := make([]models.AutomationRule, 0, len(rules))
 	seen := make(map[string]struct{}, len(rules))
 	for _, rule := range rules {
 		id := strings.TrimSpace(rule.ID)
@@ -297,8 +297,8 @@ func (s *Store) pruneLocked() {
 }
 
 // snapshotLocked returns a deep copy of the rules. The caller holds s.mu.
-func (s *Store) snapshotLocked() []models.AutomationRuleV1 {
-	rules := make([]models.AutomationRuleV1, len(s.rules))
+func (s *Store) snapshotLocked() []models.AutomationRule {
+	rules := make([]models.AutomationRule, len(s.rules))
 	for index, rule := range s.rules {
 		rules[index] = cloneRule(rule)
 	}
@@ -308,7 +308,7 @@ func (s *Store) snapshotLocked() []models.AutomationRuleV1 {
 
 // saveRules marshals and writes one rules snapshot. It never runs under s.mu;
 // writeMu keeps concurrent snapshots from being published out of order.
-func (s *Store) saveRules(rules []models.AutomationRuleV1) error {
+func (s *Store) saveRules(rules []models.AutomationRule) error {
 	if !s.configured() {
 		return errors.New("automation: rules path is not configured")
 	}
@@ -334,7 +334,7 @@ func (s *Store) findIndexLocked(id string) int {
 	return -1
 }
 
-func cloneRule(rule models.AutomationRuleV1) models.AutomationRuleV1 {
+func cloneRule(rule models.AutomationRule) models.AutomationRule {
 	cloned := rule
 	cloned.Extensions = append([]string{}, rule.Extensions...)
 	cloned.LastOutputs = append([]string{}, rule.LastOutputs...)

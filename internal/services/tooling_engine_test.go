@@ -15,9 +15,9 @@ import (
 	"fileforge-desktop/internal/registry"
 )
 
-// TestRunJobV1MapsQueueFullToSubmitError proves the new engine backpressure is
+// TestRunJobMapsQueueFullToSubmitError proves the new engine backpressure is
 // surfaced through the unchanged RunJob response shape.
-func TestRunJobV1MapsQueueFullToSubmitError(t *testing.T) {
+func TestRunJobMapsQueueFullToSubmitError(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{}, 1)
 	reg := registry.NewRegistry()
@@ -27,7 +27,7 @@ func TestRunJobV1MapsQueueFullToSubmitError(t *testing.T) {
 		started:    started,
 		release:    release,
 	}
-	if err := reg.RegisterToolV2(tool); err != nil {
+	if err := reg.RegisterTool(tool); err != nil {
 		t.Fatalf("register tool: %v", err)
 	}
 
@@ -49,7 +49,7 @@ func TestRunJobV1MapsQueueFullToSubmitError(t *testing.T) {
 		_ = service.Shutdown(ctx)
 	})
 
-	first := service.RunJobV1(models.JobRequestV1{
+	first := service.RunJob(models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-queue-a.pdf"},
@@ -63,7 +63,7 @@ func TestRunJobV1MapsQueueFullToSubmitError(t *testing.T) {
 		t.Fatal("timed out waiting for the first job to start")
 	}
 
-	second := service.RunJobV1(models.JobRequestV1{
+	second := service.RunJob(models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-queue-b.pdf"},
@@ -72,7 +72,7 @@ func TestRunJobV1MapsQueueFullToSubmitError(t *testing.T) {
 		t.Fatalf("second submit = %+v, want it queued", second)
 	}
 
-	third := service.RunJobV1(models.JobRequestV1{
+	third := service.RunJob(models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-queue-c.pdf"},

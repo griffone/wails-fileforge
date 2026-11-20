@@ -24,9 +24,9 @@ import (
 // batch hooks are independent so a test only implements the mode it exercises.
 type engineFakeTool struct {
 	id          string
-	validateErr *models.JobErrorV1
-	single      func(context.Context, models.JobRequestV1, func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1)
-	batch       func(context.Context, models.JobRequestV1, func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1)
+	validateErr *models.JobError
+	single      func(context.Context, models.JobRequest, func(models.JobProgress)) (models.JobResultItem, *models.JobError)
+	batch       func(context.Context, models.JobRequest, func(models.JobProgress)) ([]models.JobResultItem, *models.JobError)
 }
 
 func (t *engineFakeTool) ID() string {
@@ -37,23 +37,23 @@ func (t *engineFakeTool) Capability() string {
 	return t.id
 }
 
-func (t *engineFakeTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{ToolID: t.id}
+func (t *engineFakeTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{ToolID: t.id}
 }
 
-func (t *engineFakeTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *engineFakeTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *engineFakeTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *engineFakeTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return t.validateErr
 }
 
-func (t *engineFakeTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *engineFakeTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	return t.single(ctx, req, onProgress)
 }
 
-func (t *engineFakeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *engineFakeTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	return t.batch(ctx, req, onProgress)
 }
 
@@ -80,7 +80,7 @@ func closeAllGates(gates map[string]*releaseGate) {
 func newBlockingEngineTool(id string, started chan<- string, gates map[string]*releaseGate) *engineFakeTool {
 	return &engineFakeTool{
 		id: id,
-		single: func(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 			path := firstEngineInput(req)
 			started <- path
 			if gate := gates[path]; gate != nil {
@@ -88,7 +88,7 @@ func newBlockingEngineTool(id string, started chan<- string, gates map[string]*r
 			}
 
 			output := path + ".out"
-			return models.JobResultItemV1{
+			return models.JobResultItem{
 				InputPath:  path,
 				OutputPath: output,
 				Outputs:    []string{output},
@@ -99,7 +99,7 @@ func newBlockingEngineTool(id string, started chan<- string, gates map[string]*r
 	}
 }
 
-func firstEngineInput(req models.JobRequestV1) string {
+func firstEngineInput(req models.JobRequest) string {
 	if len(req.InputPaths) == 0 {
 		return ""
 	}
@@ -112,7 +112,7 @@ func newEngineResolver(t *testing.T, registered ...tools.Tool) *registry.Registr
 
 	reg := registry.NewRegistry()
 	for _, tool := range registered {
-		if err := reg.RegisterToolV2(tool); err != nil {
+		if err := reg.RegisterTool(tool); err != nil {
 			t.Fatalf("register tool %q: %v", tool.ID(), err)
 		}
 	}
@@ -140,7 +140,7 @@ func newTestEngine(t *testing.T, resolver ToolResolver, opts Options) *Engine {
 	return engine
 }
 
-func submitTestJob(t *testing.T, engine *Engine, req models.JobRequestV1) models.RunJobResponseV1 {
+func submitTestJob(t *testing.T, engine *Engine, req models.JobRequest) models.RunJobResponse {
 	t.Helper()
 
 	response, err := engine.Submit(context.Background(), req)
@@ -154,7 +154,7 @@ func submitTestJob(t *testing.T, engine *Engine, req models.JobRequestV1) models
 	return response
 }
 
-func submitTestJobWith(t *testing.T, engine *Engine, req models.JobRequestV1, opts SubmitOptions) models.RunJobResponseV1 {
+func submitTestJobWith(t *testing.T, engine *Engine, req models.JobRequest, opts SubmitOptions) models.RunJobResponse {
 	t.Helper()
 
 	response, err := engine.SubmitWithOptions(context.Background(), req, opts)
@@ -191,7 +191,7 @@ func assertNoEngineStart(t *testing.T, started <-chan string, window time.Durati
 	}
 }
 
-func awaitEngineJob(t *testing.T, engine *Engine, jobID string) models.JobResultV1 {
+func awaitEngineJob(t *testing.T, engine *Engine, jobID string) models.JobResult {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -271,7 +271,7 @@ func TestEnginePriorityOrder(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	running := submitTestJobWith(t, engine, models.JobRequestV1{
+	running := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.priority",
 		Mode:       "single",
 		InputPaths: []string{engineInput("a")},
@@ -280,18 +280,18 @@ func TestEnginePriorityOrder(t *testing.T) {
 		t.Fatalf("first started job = %q, want a", path)
 	}
 
-	lowFirst := submitTestJobWith(t, engine, models.JobRequestV1{
+	lowFirst := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.priority",
 		Mode:       "single",
 		InputPaths: []string{engineInput("c1")},
 	}, SubmitOptions{Kind: "tool", Priority: PriorityPreview, Class: ClassCPU})
-	lowSecond := submitTestJobWith(t, engine, models.JobRequestV1{
+	lowSecond := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.priority",
 		Mode:       "single",
 		InputPaths: []string{engineInput("c2")},
 	}, SubmitOptions{Kind: "tool", Priority: PriorityPreview, Class: ClassCPU})
 
-	high := submitTestJobWith(t, engine, models.JobRequestV1{
+	high := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.priority",
 		Mode:       "single",
 		InputPaths: []string{engineInput("b")},
@@ -336,12 +336,12 @@ func TestEngineClassLimitsAndNoHeadOfLineBlocking(t *testing.T) {
 		Limits: Limits{Total: 2, CPU: 1, External: 1, IO: 1},
 	})
 
-	cpuJob := submitTestJobWith(t, engine, models.JobRequestV1{
+	cpuJob := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.classes",
 		Mode:       "single",
 		InputPaths: []string{engineInput("cpu-a")},
 	}, SubmitOptions{Kind: "tool", Priority: PriorityInteractive, Class: ClassCPU})
-	externalJob := submitTestJobWith(t, engine, models.JobRequestV1{
+	externalJob := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.classes",
 		Mode:       "single",
 		InputPaths: []string{engineInput("ext-b")},
@@ -355,7 +355,7 @@ func TestEngineClassLimitsAndNoHeadOfLineBlocking(t *testing.T) {
 		t.Fatalf("expected the CPU job and the external job to run concurrently, got %v", got)
 	}
 
-	blockedCPU := submitTestJobWith(t, engine, models.JobRequestV1{
+	blockedCPU := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.classes",
 		Mode:       "single",
 		InputPaths: []string{engineInput("cpu-c")},
@@ -366,7 +366,7 @@ func TestEngineClassLimitsAndNoHeadOfLineBlocking(t *testing.T) {
 
 	// The preview IO job is behind the interactive CPU job in the queue and has
 	// a lower priority, but it must run while the CPU class is saturated.
-	lowPriorityIO := submitTestJobWith(t, engine, models.JobRequestV1{
+	lowPriorityIO := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.classes",
 		Mode:       "single",
 		InputPaths: []string{engineInput("io-d")},
@@ -405,20 +405,20 @@ func TestEngineQueueFullReturnsSentinel(t *testing.T) {
 		MaxQueue: 1,
 	})
 
-	running := submitTestJob(t, engine, models.JobRequestV1{
+	running := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.queue",
 		Mode:       "single",
 		InputPaths: []string{engineInput("a")},
 	})
 	awaitEngineStart(t, started)
 
-	queued := submitTestJob(t, engine, models.JobRequestV1{
+	queued := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.queue",
 		Mode:       "single",
 		InputPaths: []string{engineInput("b")},
 	})
 
-	response, err := engine.Submit(context.Background(), models.JobRequestV1{
+	response, err := engine.Submit(context.Background(), models.JobRequest{
 		ToolID:     "tool.fake.queue",
 		Mode:       "single",
 		InputPaths: []string{engineInput("c")},
@@ -456,14 +456,14 @@ func TestEngineCancelQueuedJobNeverExecutes(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	running := submitTestJob(t, engine, models.JobRequestV1{
+	running := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.cancel.queue",
 		Mode:       "single",
 		InputPaths: []string{engineInput("a")},
 	})
 	awaitEngineStart(t, started)
 
-	queued := submitTestJob(t, engine, models.JobRequestV1{
+	queued := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     "tool.fake.cancel.queue",
 		Mode:       "single",
 		InputPaths: []string{engineInput("b")},
@@ -492,12 +492,12 @@ func TestEngineCancelRunningJobIsPrompt(t *testing.T) {
 	started := make(chan string, 1)
 	tool := &engineFakeTool{
 		id: "tool.image.convert",
-		single: func(ctx context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+		single: func(ctx context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 			path := firstEngineInput(req)
 			started <- path
 			<-ctx.Done()
 
-			item := models.JobResultItemV1{InputPath: path, Success: false, Message: "cancelled"}
+			item := models.JobResultItem{InputPath: path, Success: false, Message: "cancelled"}
 			return item, models.NewCanonicalJobError("IMAGE_SINGLE_EXECUTION", ctx.Err().Error(), nil)
 		},
 	}
@@ -506,7 +506,7 @@ func TestEngineCancelRunningJobIsPrompt(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("cancel-running")},
@@ -527,13 +527,13 @@ func TestEnginePanicRecovery(t *testing.T) {
 	panicInput := engineInput("panic")
 	tool := &engineFakeTool{
 		id: "tool.fake.panic",
-		single: func(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 			path := firstEngineInput(req)
 			if path == panicInput {
 				panic("boom")
 			}
 
-			return models.JobResultItemV1{InputPath: path, Success: true, Message: "ok"}, nil
+			return models.JobResultItem{InputPath: path, Success: true, Message: "ok"}, nil
 		},
 	}
 
@@ -541,7 +541,7 @@ func TestEnginePanicRecovery(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	panicking := submitTestJob(t, engine, models.JobRequestV1{
+	panicking := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{panicInput},
@@ -555,7 +555,7 @@ func TestEnginePanicRecovery(t *testing.T) {
 		t.Fatalf("expected PANIC detail code, got %+v", result.Error)
 	}
 
-	recovered := submitTestJob(t, engine, models.JobRequestV1{
+	recovered := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("after-panic")},
@@ -587,7 +587,7 @@ func TestEnginePersistenceRecoveryMarksInterrupted(t *testing.T) {
 		_ = first.Shutdown(ctx)
 	})
 
-	response := submitTestJob(t, first, models.JobRequestV1{
+	response := submitTestJob(t, first, models.JobRequest{
 		ToolID:     "tool.fake.recovery",
 		Mode:       "single",
 		InputPaths: []string{engineInput("blocked")},
@@ -634,7 +634,7 @@ func TestEnginePersistenceRecoveryMarksInterrupted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read persisted jobs: %v", err)
 	}
-	var persisted []models.JobResultV1
+	var persisted []models.JobResult
 	if err := json.Unmarshal(content, &persisted); err != nil {
 		t.Fatalf("decode persisted jobs: %v", err)
 	}
@@ -655,8 +655,8 @@ func TestEnginePersistenceRecoveryMarksInterrupted(t *testing.T) {
 func TestEngineSetPersistencePathEmptyIsNoOp(t *testing.T) {
 	tool := &engineFakeTool{
 		id: "tool.fake.persist.empty",
-		single: func(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
-			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
+			return models.JobResultItem{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
 		},
 	}
 
@@ -675,7 +675,7 @@ func TestEngineSetPersistencePathEmptyIsNoOp(t *testing.T) {
 		t.Fatalf("empty path configured persistence: store=%v path=%q", store, path)
 	}
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("no-persistence")},
@@ -688,8 +688,8 @@ func TestEngineSetPersistencePathEmptyIsNoOp(t *testing.T) {
 func TestEngineSetPersistencePathPersistsExistingJobs(t *testing.T) {
 	tool := &engineFakeTool{
 		id: "tool.fake.persist.switch",
-		single: func(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
-			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
+			return models.JobResultItem{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
 		},
 	}
 
@@ -697,7 +697,7 @@ func TestEngineSetPersistencePathPersistsExistingJobs(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("persist-switch")},
@@ -725,7 +725,7 @@ func TestEngineSetPersistencePathPersistsExistingJobs(t *testing.T) {
 	}
 }
 
-func readEnginePersistedJobs(t *testing.T, path string) []models.JobResultV1 {
+func readEnginePersistedJobs(t *testing.T, path string) []models.JobResult {
 	t.Helper()
 
 	content, err := os.ReadFile(path)
@@ -733,7 +733,7 @@ func readEnginePersistedJobs(t *testing.T, path string) []models.JobResultV1 {
 		t.Fatalf("read persisted jobs: %v", err)
 	}
 
-	var persisted []models.JobResultV1
+	var persisted []models.JobResult
 	if err := json.Unmarshal(content, &persisted); err != nil {
 		t.Fatalf("decode persisted jobs: %v", err)
 	}
@@ -746,8 +746,8 @@ func TestEngineSubmitRejectsInvalidRequest(t *testing.T) {
 	tool := &engineFakeTool{
 		id:          "tool.fake.validation",
 		validateErr: validationErr,
-		single: func(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
-			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true}, nil
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
+			return models.JobResultItem{InputPath: firstEngineInput(req), Success: true}, nil
 		},
 	}
 
@@ -755,7 +755,7 @@ func TestEngineSubmitRejectsInvalidRequest(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	response, err := engine.Submit(context.Background(), models.JobRequestV1{
+	response, err := engine.Submit(context.Background(), models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("invalid")},
@@ -778,9 +778,9 @@ func TestEngineSingleRetry(t *testing.T) {
 	var attempts atomic.Int32
 	tool := &engineFakeTool{
 		id: "tool.image.convert",
-		single: func(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 			path := firstEngineInput(req)
-			item := models.JobResultItemV1{InputPath: path}
+			item := models.JobResultItem{InputPath: path}
 			if attempts.Add(1) == 1 {
 				jobErr := models.NewCanonicalJobError("IMAGE_SINGLE_EXECUTION", "transient failure", nil)
 				item.Success = false
@@ -801,7 +801,7 @@ func TestEngineSingleRetry(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("retry")},
@@ -833,23 +833,23 @@ func TestEngineBatchRetriesOnlyFailedRetryableItems(t *testing.T) {
 
 	tool := &engineFakeTool{
 		id: "tool.image.crop",
-		batch: func(_ context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+		batch: func(_ context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 			mu.Lock()
 			calls = append(calls, append([]string(nil), req.InputPaths...))
 			call := len(calls)
 			mu.Unlock()
 
-			items := make([]models.JobResultItemV1, 0, len(req.InputPaths))
-			var batchErr *models.JobErrorV1
+			items := make([]models.JobResultItem, 0, len(req.InputPaths))
+			var batchErr *models.JobError
 			for index, path := range req.InputPaths {
 				if onProgress != nil {
-					onProgress(models.JobProgressV1{Current: index + 1, Total: len(req.InputPaths), Stage: "running", Message: "processing"})
+					onProgress(models.JobProgress{Current: index + 1, Total: len(req.InputPaths), Stage: "running", Message: "processing"})
 				}
 
 				if call == 1 && path == duplicate {
 					jobErr := models.NewCanonicalJobError("IMAGE_CROP_BATCH_ITEM", "transient failure", nil)
 					batchErr = jobErr
-					items = append(items, models.JobResultItemV1{
+					items = append(items, models.JobResultItem{
 						InputPath: path,
 						Success:   false,
 						Message:   jobErr.Message,
@@ -859,7 +859,7 @@ func TestEngineBatchRetriesOnlyFailedRetryableItems(t *testing.T) {
 				}
 
 				output := path + ".out"
-				items = append(items, models.JobResultItemV1{
+				items = append(items, models.JobResultItem{
 					InputPath:  path,
 					OutputPath: output,
 					Outputs:    []string{output},
@@ -876,7 +876,7 @@ func TestEngineBatchRetriesOnlyFailedRetryableItems(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "batch",
 		InputPaths: inputs,
@@ -924,28 +924,28 @@ func TestEngineBatchRetriesOnlyFailedRetryableItems(t *testing.T) {
 
 type recordingEngineEmitter struct {
 	mu       sync.Mutex
-	progress []models.JobProgressEventV1
-	states   []models.JobResultV1
+	progress []models.JobProgressEvent
+	states   []models.JobResult
 }
 
-func (e *recordingEngineEmitter) JobProgress(event models.JobProgressEventV1) {
+func (e *recordingEngineEmitter) JobProgress(event models.JobProgressEvent) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.progress = append(e.progress, event)
 }
 
-func (e *recordingEngineEmitter) JobState(result models.JobResultV1) {
+func (e *recordingEngineEmitter) JobState(result models.JobResult) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.states = append(e.states, result)
 }
 
-func (e *recordingEngineEmitter) snapshots() ([]models.JobProgressEventV1, []models.JobResultV1) {
+func (e *recordingEngineEmitter) snapshots() ([]models.JobProgressEvent, []models.JobResult) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	progressEvents := append([]models.JobProgressEventV1(nil), e.progress...)
-	stateEvents := append([]models.JobResultV1(nil), e.states...)
+	progressEvents := append([]models.JobProgressEvent(nil), e.progress...)
+	stateEvents := append([]models.JobResult(nil), e.states...)
 
 	return progressEvents, stateEvents
 }
@@ -956,10 +956,10 @@ func TestEngineProgressCoalescingEmitsTerminalState(t *testing.T) {
 	emitter := &recordingEngineEmitter{}
 	tool := &engineFakeTool{
 		id: "tool.fake.progress",
-		single: func(_ context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+		single: func(_ context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 			path := firstEngineInput(req)
 			for current := 1; current <= reportCount; current++ {
-				onProgress(models.JobProgressV1{
+				onProgress(models.JobProgress{
 					Current: current,
 					Total:   reportCount,
 					Stage:   "running",
@@ -967,7 +967,7 @@ func TestEngineProgressCoalescingEmitsTerminalState(t *testing.T) {
 				})
 			}
 
-			return models.JobResultItemV1{InputPath: path, Success: true, Message: "done"}, nil
+			return models.JobResultItem{InputPath: path, Success: true, Message: "done"}, nil
 		},
 	}
 
@@ -977,7 +977,7 @@ func TestEngineProgressCoalescingEmitsTerminalState(t *testing.T) {
 		ProgressInterval: time.Hour,
 	})
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("progress")},
@@ -1011,13 +1011,13 @@ func TestEngineProgressListenerReceivesCoalescedUpdates(t *testing.T) {
 	const reportCount = 30
 
 	var mu sync.Mutex
-	received := make([]models.JobProgressV1, 0, reportCount)
+	received := make([]models.JobProgress, 0, reportCount)
 
 	tool := &engineFakeTool{
 		id: "tool.fake.listener",
-		single: func(_ context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+		single: func(_ context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 			for current := 1; current <= reportCount; current++ {
-				onProgress(models.JobProgressV1{
+				onProgress(models.JobProgress{
 					Current: current,
 					Total:   reportCount,
 					Stage:   "running",
@@ -1025,7 +1025,7 @@ func TestEngineProgressListenerReceivesCoalescedUpdates(t *testing.T) {
 				})
 			}
 
-			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
+			return models.JobResultItem{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
 		},
 	}
 
@@ -1034,13 +1034,13 @@ func TestEngineProgressListenerReceivesCoalescedUpdates(t *testing.T) {
 		ProgressInterval: time.Hour,
 	})
 
-	response := submitTestJobWith(t, engine, models.JobRequestV1{
+	response := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("listener")},
 	}, SubmitOptions{
 		Kind: "recipe-step",
-		OnProgress: func(progress models.JobProgressV1) {
+		OnProgress: func(progress models.JobProgress) {
 			mu.Lock()
 			received = append(received, progress)
 			mu.Unlock()
@@ -1053,7 +1053,7 @@ func TestEngineProgressListenerReceivesCoalescedUpdates(t *testing.T) {
 	}
 
 	mu.Lock()
-	updates := append([]models.JobProgressV1(nil), received...)
+	updates := append([]models.JobProgress(nil), received...)
 	mu.Unlock()
 
 	if len(updates) == 0 {
@@ -1070,10 +1070,10 @@ func TestEngineProgressListenerReceivesCoalescedUpdates(t *testing.T) {
 func TestEngineNilProgressListenerIsSafe(t *testing.T) {
 	tool := &engineFakeTool{
 		id: "tool.fake.no-listener",
-		single: func(_ context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
-			onProgress(models.JobProgressV1{Current: 1, Total: 1, Stage: StatusRunning, Message: "tick"})
+		single: func(_ context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
+			onProgress(models.JobProgress{Current: 1, Total: 1, Stage: StatusRunning, Message: "tick"})
 
-			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
+			return models.JobResultItem{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
 		},
 	}
 
@@ -1081,7 +1081,7 @@ func TestEngineNilProgressListenerIsSafe(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	response := submitTestJobWith(t, engine, models.JobRequestV1{
+	response := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("no-listener")},
@@ -1101,8 +1101,8 @@ func TestEngineShutdownIdempotentAndNoGoroutineLeak(t *testing.T) {
 
 	tool := &engineFakeTool{
 		id: "tool.fake.shutdown",
-		single: func(_ context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
-			return models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
+			return models.JobResultItem{InputPath: firstEngineInput(req), Success: true, Message: "done"}, nil
 		},
 	}
 
@@ -1111,7 +1111,7 @@ func TestEngineShutdownIdempotentAndNoGoroutineLeak(t *testing.T) {
 		Logger: testEngineLogger(),
 	})
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{engineInput("shutdown")},
@@ -1159,13 +1159,13 @@ func TestEngineOnJobCompleteRunsOnceForTerminalJob(t *testing.T) {
 				outputPath: filepath.Join(t.TempDir(), "output.pdf"),
 				fail:       tt.fail,
 			}
-			completions := make(chan models.JobResultV1, 4)
+			completions := make(chan models.JobResult, 4)
 			engine := newTestEngine(t, newEngineResolver(t, tool), Options{
 				Limits:        Limits{Total: 1, CPU: 1, External: 1, IO: 1},
-				OnJobComplete: func(result models.JobResultV1) { completions <- result },
+				OnJobComplete: func(result models.JobResult) { completions <- result },
 			})
 
-			response := submitTestJob(t, engine, models.JobRequestV1{
+			response := submitTestJob(t, engine, models.JobRequest{
 				ToolID:     tool.id,
 				Mode:       "single",
 				InputPaths: []string{"/tmp/fileforge-hook-input.pdf"},
@@ -1197,14 +1197,14 @@ func TestEngineOnJobCompleteNeverRunsForQueuedOrRunningJobs(t *testing.T) {
 		started:    started,
 		waitFor:    gate.ch,
 	}
-	completions := make(chan models.JobResultV1, 4)
+	completions := make(chan models.JobResult, 4)
 	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
 		Limits:        Limits{Total: 1, CPU: 1, External: 1, IO: 1},
-		OnJobComplete: func(result models.JobResultV1) { completions <- result },
+		OnJobComplete: func(result models.JobResult) { completions <- result },
 	})
 	t.Cleanup(gate.close)
 
-	first := submitTestJob(t, engine, models.JobRequestV1{
+	first := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-hook-a.pdf"},
@@ -1215,7 +1215,7 @@ func TestEngineOnJobCompleteNeverRunsForQueuedOrRunningJobs(t *testing.T) {
 		t.Fatal("timed out waiting for the first job to start")
 	}
 
-	second := submitTestJob(t, engine, models.JobRequestV1{
+	second := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-hook-b.pdf"},
@@ -1250,7 +1250,7 @@ func TestEngineOnJobCompleteNeverRunsForQueuedOrRunningJobs(t *testing.T) {
 
 func TestEngineOnJobCompleteIgnoresRecoveredJobs(t *testing.T) {
 	storePath := filepath.Join(t.TempDir(), "jobs.json")
-	persisted := []models.JobResultV1{{
+	persisted := []models.JobResult{{
 		JobID:   "job_interrupted",
 		ToolID:  "tool.fake.recovery",
 		Status:  StatusRunning,
@@ -1264,10 +1264,10 @@ func TestEngineOnJobCompleteIgnoresRecoveredJobs(t *testing.T) {
 		t.Fatalf("write persisted jobs: %v", err)
 	}
 
-	completions := make(chan models.JobResultV1, 1)
+	completions := make(chan models.JobResult, 1)
 	engine := newTestEngine(t, newEngineResolver(t), Options{
 		PersistencePath: storePath,
-		OnJobComplete:   func(result models.JobResultV1) { completions <- result },
+		OnJobComplete:   func(result models.JobResult) { completions <- result },
 	})
 
 	if err := engine.Recover(context.Background()); err != nil {
@@ -1287,11 +1287,11 @@ func TestEngineOnJobCompleteIgnoresRecoveredJobs(t *testing.T) {
 
 func TestEngineListSortsNewestFirstAndAppliesLimit(t *testing.T) {
 	engine := newTestEngine(t, newEngineResolver(t), Options{})
-	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_old", StartedAt: 100, Status: StatusSuccess})
-	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_tie_a", StartedAt: 200, Status: StatusSuccess})
-	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_tie_b", StartedAt: 200, Status: StatusSuccess})
-	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_stage", StartedAt: 150, Status: "ocr"})
-	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_new", StartedAt: 300, Status: StatusRunning})
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_old", StartedAt: 100, Status: StatusSuccess})
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_tie_a", StartedAt: 200, Status: StatusSuccess})
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_tie_b", StartedAt: 200, Status: StatusSuccess})
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_stage", StartedAt: 150, Status: "ocr"})
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_new", StartedAt: 300, Status: StatusRunning})
 
 	t.Run("default limit returns every job newest first", func(t *testing.T) {
 		assertEngineJobOrder(t, engine.List(0), []string{"job_new", "job_tie_b", "job_tie_a", "job_stage", "job_old"})
@@ -1317,14 +1317,14 @@ func TestEngineListReturnsEmptyNonNilSlice(t *testing.T) {
 func TestEngineTerminalRetentionKeepsNewestTerminalJobs(t *testing.T) {
 	engine := newTestEngine(t, newEngineResolver(t), Options{})
 	for index := 1; index <= retainedTerminalJobs+5; index++ {
-		seedEngineJob(t, engine, models.JobResultV1{
+		seedEngineJob(t, engine, models.JobResult{
 			JobID:     engineJobIDForIndex(index),
 			StartedAt: int64(index),
 			Status:    StatusSuccess,
 		})
 	}
-	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_active_old", StartedAt: 1, Status: StatusRunning})
-	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_active_stage", StartedAt: 2, Status: "processing"})
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_active_old", StartedAt: 1, Status: StatusRunning})
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_active_stage", StartedAt: 2, Status: "processing"})
 
 	engine.pruneTerminalJobs()
 
@@ -1355,14 +1355,14 @@ func TestEngineSnapshotKeepsActiveAndNewestTerminalJobs(t *testing.T) {
 	})
 
 	for index := 1; index <= retainedTerminalJobs+5; index++ {
-		seedEngineJob(t, engine, models.JobResultV1{
+		seedEngineJob(t, engine, models.JobResult{
 			JobID:     engineJobIDForIndex(index),
 			StartedAt: int64(index),
 			Status:    StatusSuccess,
 		})
 	}
-	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_queued", StartedAt: 500, Status: StatusQueued})
-	seedEngineJob(t, engine, models.JobResultV1{JobID: "job_running", StartedAt: 501, Status: StatusRunning})
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_queued", StartedAt: 500, Status: StatusQueued})
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_running", StartedAt: 501, Status: StatusRunning})
 
 	engine.persistNow()
 
@@ -1410,7 +1410,7 @@ func TestEngineSnapshotKeepsActiveAndNewestTerminalJobs(t *testing.T) {
 
 func TestEngineRecoverRestoresTerminalAndInterruptsActive(t *testing.T) {
 	storePath := filepath.Join(t.TempDir(), "jobs.json")
-	persisted := []models.JobResultV1{
+	persisted := []models.JobResult{
 		{
 			JobID:     "job_terminal",
 			ToolID:    "tool.fake.recovery",
@@ -1425,7 +1425,7 @@ func TestEngineRecoverRestoresTerminalAndInterruptsActive(t *testing.T) {
 			ToolID:    "tool.fake.recovery",
 			Message:   "running",
 			Status:    StatusRunning,
-			Progress:  models.JobProgressV1{Current: 3, Total: 2, Stage: StatusRunning, Message: "running"},
+			Progress:  models.JobProgress{Current: 3, Total: 2, Stage: StatusRunning, Message: "running"},
 			StartedAt: 300,
 		},
 		{
@@ -1440,7 +1440,7 @@ func TestEngineRecoverRestoresTerminalAndInterruptsActive(t *testing.T) {
 			ToolID:    "tool.fake.recovery",
 			Message:   "ocr in progress",
 			Status:    "ocr",
-			Progress:  models.JobProgressV1{Current: 1, Total: 4, Stage: "ocr"},
+			Progress:  models.JobProgress{Current: 1, Total: 4, Stage: "ocr"},
 			StartedAt: 500,
 		},
 	}
@@ -1517,7 +1517,7 @@ func TestEngineValidateResponseShapes(t *testing.T) {
 	engine := newTestEngine(t, newEngineResolver(t, validTool, invalidTool), Options{})
 
 	t.Run("valid request", func(t *testing.T) {
-		response := engine.Validate(context.Background(), models.JobRequestV1{ToolID: validTool.id})
+		response := engine.Validate(context.Background(), models.JobRequest{ToolID: validTool.id})
 		if !response.Success || !response.Valid {
 			t.Fatalf("response = %+v, want a valid result", response)
 		}
@@ -1527,7 +1527,7 @@ func TestEngineValidateResponseShapes(t *testing.T) {
 	})
 
 	t.Run("invalid request", func(t *testing.T) {
-		response := engine.Validate(context.Background(), models.JobRequestV1{ToolID: invalidTool.id})
+		response := engine.Validate(context.Background(), models.JobRequest{ToolID: invalidTool.id})
 		if response.Success || response.Valid {
 			t.Fatalf("response = %+v, want an invalid result", response)
 		}
@@ -1540,7 +1540,7 @@ func TestEngineValidateResponseShapes(t *testing.T) {
 	})
 
 	t.Run("unknown tool", func(t *testing.T) {
-		response := engine.Validate(context.Background(), models.JobRequestV1{ToolID: "tool.unknown"})
+		response := engine.Validate(context.Background(), models.JobRequest{ToolID: "tool.unknown"})
 		if response.Success || response.Valid {
 			t.Fatalf("response = %+v, want an invalid result", response)
 		}
@@ -1554,22 +1554,22 @@ func TestEngineValidateResponseShapes(t *testing.T) {
 }
 
 func TestEnginePlanDelegatesToPlannerTool(t *testing.T) {
-	planned := models.PlannedOutputV1{
+	planned := models.PlannedOutput{
 		InputPath:  "/tmp/input.png",
 		OutputPath: "/tmp/input.webp",
 		OutputKind: "file",
 	}
 	tool := &fakePlannerTool{
 		id: "tool.fake.plan",
-		plan: models.PlanJobResponseV1{
+		plan: models.PlanJobResponse{
 			Success: true,
 			Message: "ready",
-			Outputs: []models.PlannedOutputV1{planned},
+			Outputs: []models.PlannedOutput{planned},
 		},
 	}
 
 	engine := newTestEngine(t, newEngineResolver(t, tool), Options{})
-	plan := engine.Plan(context.Background(), models.JobRequestV1{ToolID: tool.id, Mode: "single", InputPaths: []string{planned.InputPath}})
+	plan := engine.Plan(context.Background(), models.JobRequest{ToolID: tool.id, Mode: "single", InputPaths: []string{planned.InputPath}})
 
 	if !tool.called {
 		t.Fatal("expected the planner tool to be called")
@@ -1589,7 +1589,7 @@ func TestEnginePlanReportsUnsupportedTool(t *testing.T) {
 	batchTool := &fakeBatchTool{id: "tool.no.plan"}
 	engine := newTestEngine(t, newEngineResolver(t, batchTool), Options{})
 
-	plan := engine.Plan(context.Background(), models.JobRequestV1{ToolID: batchTool.id, Mode: "batch"})
+	plan := engine.Plan(context.Background(), models.JobRequest{ToolID: batchTool.id, Mode: "batch"})
 	if plan.Success {
 		t.Fatal("expected unsupported plan to fail")
 	}
@@ -1605,7 +1605,7 @@ func TestEnginePlanReportsUnknownTool(t *testing.T) {
 	tool := &fakePlannerTool{id: "tool.known"}
 	engine := newTestEngine(t, newEngineResolver(t, tool), Options{})
 
-	plan := engine.Plan(context.Background(), models.JobRequestV1{ToolID: "tool.unknown"})
+	plan := engine.Plan(context.Background(), models.JobRequest{ToolID: "tool.unknown"})
 	if plan.Success {
 		t.Fatal("expected unknown tool plan to fail")
 	}
@@ -1620,12 +1620,12 @@ func TestEnginePlanReportsUnknownTool(t *testing.T) {
 func TestEnginePlanSurfacesPlannerError(t *testing.T) {
 	tool := &fakePlannerTool{
 		id:      "tool.fake.failing",
-		plan:    models.PlanJobResponseV1{Message: "conflict"},
+		plan:    models.PlanJobResponse{Message: "conflict"},
 		planErr: models.NewCanonicalJobError("IMAGE_OUTPUT_EXISTS", "output already exists", nil),
 	}
 	engine := newTestEngine(t, newEngineResolver(t, tool), Options{})
 
-	plan := engine.Plan(context.Background(), models.JobRequestV1{ToolID: tool.id, Mode: "single"})
+	plan := engine.Plan(context.Background(), models.JobRequest{ToolID: tool.id, Mode: "single"})
 	if plan.Success {
 		t.Fatal("expected failing plan")
 	}
@@ -1638,11 +1638,11 @@ func TestEnginePlanSurfacesPlannerError(t *testing.T) {
 }
 
 func TestEnginePlanOnceExecutesStoredPlan(t *testing.T) {
-	outputs := []models.PlannedOutputV1{
+	outputs := []models.PlannedOutput{
 		{InputPath: engineInput("a.pdf"), OutputPath: engineInput("a-merged.pdf"), OutputKind: "file"},
 		{InputPath: engineInput("b.pdf"), OutputPath: engineInput("b-merged.pdf"), OutputKind: "file"},
 	}
-	resolved := models.PlanJobResponseV1{
+	resolved := models.PlanJobResponse{
 		Success: true,
 		Message: "ready",
 		Outputs: outputs,
@@ -1653,7 +1653,7 @@ func TestEnginePlanOnceExecutesStoredPlan(t *testing.T) {
 	}
 	tool := &plannedFakeTool{
 		id: "tool.fake.plan.once",
-		planHook: func(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+		planHook: func(_ context.Context, _ models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 			return resolved, nil
 		},
 	}
@@ -1662,7 +1662,7 @@ func TestEnginePlanOnceExecutesStoredPlan(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "batch",
 		InputPaths: []string{engineInput("a.pdf"), engineInput("b.pdf")},
@@ -1704,19 +1704,19 @@ func TestEnginePlanOnceExecutesStoredPlan(t *testing.T) {
 func TestEnginePlanFailureRejectsSubmission(t *testing.T) {
 	tests := []struct {
 		name       string
-		plan       models.PlanJobResponseV1
-		planErr    *models.JobErrorV1
+		plan       models.PlanJobResponse
+		planErr    *models.JobError
 		wantDetail string
 	}{
 		{
 			name:       "planner error",
-			plan:       models.PlanJobResponseV1{Message: "conflict"},
+			plan:       models.PlanJobResponse{Message: "conflict"},
 			planErr:    models.NewCanonicalJobError("PDF_MERGE_OUTPUT_ALREADY_EXISTS", "output already exists", nil),
 			wantDetail: "PDF_MERGE_OUTPUT_ALREADY_EXISTS",
 		},
 		{
 			name:       "unsuccessful plan without error",
-			plan:       models.PlanJobResponseV1{Message: "page ranges invalid"},
+			plan:       models.PlanJobResponse{Message: "page ranges invalid"},
 			wantDetail: "VALIDATION_ERROR",
 		},
 	}
@@ -1725,7 +1725,7 @@ func TestEnginePlanFailureRejectsSubmission(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := &plannedFakeTool{
 				id: "tool.fake.plan.reject",
-				planHook: func(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+				planHook: func(_ context.Context, _ models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 					return tt.plan, tt.planErr
 				},
 			}
@@ -1733,7 +1733,7 @@ func TestEnginePlanFailureRejectsSubmission(t *testing.T) {
 				Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 			})
 
-			response, err := engine.Submit(context.Background(), models.JobRequestV1{
+			response, err := engine.Submit(context.Background(), models.JobRequest{
 				ToolID:     tool.id,
 				Mode:       "single",
 				InputPaths: []string{engineInput("rejected.pdf")},
@@ -1762,29 +1762,29 @@ func TestEnginePlanFailureRejectsSubmission(t *testing.T) {
 
 func TestEnginePlannedBatchRetriesOnlyFailedOutputs(t *testing.T) {
 	inputs := []string{engineInput("one.pdf"), engineInput("two.pdf"), engineInput("three.pdf")}
-	outputs := make([]models.PlannedOutputV1, 0, len(inputs))
+	outputs := make([]models.PlannedOutput, 0, len(inputs))
 	for _, input := range inputs {
-		outputs = append(outputs, models.PlannedOutputV1{InputPath: input, OutputPath: input + ".out", OutputKind: "file"})
+		outputs = append(outputs, models.PlannedOutput{InputPath: input, OutputPath: input + ".out", OutputKind: "file"})
 	}
 
 	var tool *plannedFakeTool
 	tool = &plannedFakeTool{
 		id: "tool.image.crop",
-		planHook: func(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
-			return models.PlanJobResponseV1{Success: true, Outputs: outputs}, nil
+		planHook: func(_ context.Context, _ models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+			return models.PlanJobResponse{Success: true, Outputs: outputs}, nil
 		},
-		execHook: func(_ context.Context, _ models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+		execHook: func(_ context.Context, _ models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 			call := tool.execCalls.Load()
-			items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
-			var batchErr *models.JobErrorV1
+			items := make([]models.JobResultItem, 0, len(plan.Outputs))
+			var batchErr *models.JobError
 			for index, output := range plan.Outputs {
 				if onProgress != nil {
-					onProgress(models.JobProgressV1{Current: index + 1, Total: len(plan.Outputs), Stage: "running"})
+					onProgress(models.JobProgress{Current: index + 1, Total: len(plan.Outputs), Stage: "running"})
 				}
 				if call == 1 && output.InputPath == inputs[1] {
 					jobErr := models.NewCanonicalJobError("IMAGE_CROP_BATCH_ITEM", "transient failure", nil)
 					batchErr = jobErr
-					items = append(items, models.JobResultItemV1{
+					items = append(items, models.JobResultItem{
 						InputPath:  output.InputPath,
 						OutputPath: output.OutputPath,
 						Success:    false,
@@ -1793,7 +1793,7 @@ func TestEnginePlannedBatchRetriesOnlyFailedOutputs(t *testing.T) {
 					})
 					continue
 				}
-				items = append(items, models.JobResultItemV1{
+				items = append(items, models.JobResultItem{
 					InputPath:   output.InputPath,
 					OutputPath:  output.OutputPath,
 					Outputs:     []string{output.OutputPath},
@@ -1811,7 +1811,7 @@ func TestEnginePlannedBatchRetriesOnlyFailedOutputs(t *testing.T) {
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "batch",
 		InputPaths: inputs,
@@ -1855,27 +1855,27 @@ func TestEnginePlannedBatchRetriesOnlyFailedOutputs(t *testing.T) {
 }
 
 func TestEngineUsesManifestSchedulingMetadata(t *testing.T) {
-	plan := models.PlanJobResponseV1{
+	plan := models.PlanJobResponse{
 		Success: true,
-		Outputs: []models.PlannedOutputV1{
+		Outputs: []models.PlannedOutput{
 			{InputPath: engineInput("manifest.pdf"), OutputPath: engineInput("manifest-out.pdf"), OutputKind: "file"},
 		},
 	}
 	newTool := func(id, resourceClass string, maxWorkers int) *plannedFakeTool {
 		return &plannedFakeTool{
 			id: id,
-			manifest: models.ToolManifestV1{
+			manifest: models.ToolManifest{
 				ToolID:        id,
 				ResourceClass: resourceClass,
 				MaxWorkers:    maxWorkers,
 			},
-			planHook: func(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+			planHook: func(_ context.Context, _ models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 				return plan, nil
 			},
 		}
 	}
-	request := func(tool *plannedFakeTool) models.JobRequestV1 {
-		return models.JobRequestV1{
+	request := func(tool *plannedFakeTool) models.JobRequest {
+		return models.JobRequest{
 			ToolID:     tool.id,
 			Mode:       "single",
 			InputPaths: []string{engineInput("manifest.pdf")},
@@ -1929,24 +1929,24 @@ func TestEngineUsesManifestSchedulingMetadata(t *testing.T) {
 }
 
 func TestEnginePlannerWithoutPlanExecutorUsesLegacyExecution(t *testing.T) {
-	output := models.PlannedOutputV1{
+	output := models.PlannedOutput{
 		InputPath:  engineInput("legacy.pdf"),
 		OutputPath: engineInput("legacy-out.pdf"),
 		OutputKind: "file",
 	}
 	tool := &plannerOnlyFakeTool{
 		id: "tool.fake.planner.only",
-		plan: models.PlanJobResponseV1{
+		plan: models.PlanJobResponse{
 			Success: true,
 			Message: "ready",
-			Outputs: []models.PlannedOutputV1{output},
+			Outputs: []models.PlannedOutput{output},
 		},
 	}
 	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
 		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
 	})
 
-	response := submitTestJob(t, engine, models.JobRequestV1{
+	response := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{output.InputPath},
@@ -1971,7 +1971,7 @@ func TestEnginePlannerWithoutPlanExecutorUsesLegacyExecution(t *testing.T) {
 	}
 }
 
-func seedEngineJob(t *testing.T, engine *Engine, result models.JobResultV1) {
+func seedEngineJob(t *testing.T, engine *Engine, result models.JobResult) {
 	t.Helper()
 
 	engine.mu.Lock()
@@ -1996,7 +1996,7 @@ func engineTrackedJobIDs(engine *Engine) map[string]struct{} {
 	return ids
 }
 
-func assertEngineJobOrder(t *testing.T, jobs []models.JobResultV1, want []string) {
+func assertEngineJobOrder(t *testing.T, jobs []models.JobResult, want []string) {
 	t.Helper()
 
 	if len(jobs) != len(want) {
@@ -2017,10 +2017,10 @@ func engineJobIDForIndex(index int) string {
 	return fmt.Sprintf("job_terminal_%02d", index)
 }
 
-func awaitJobCompletions(t *testing.T, completions <-chan models.JobResultV1, want int) []models.JobResultV1 {
+func awaitJobCompletions(t *testing.T, completions <-chan models.JobResult, want int) []models.JobResult {
 	t.Helper()
 
-	results := make([]models.JobResultV1, 0, want)
+	results := make([]models.JobResult, 0, want)
 	deadline := time.After(5 * time.Second)
 	for len(results) < want {
 		select {
@@ -2034,7 +2034,7 @@ func awaitJobCompletions(t *testing.T, completions <-chan models.JobResultV1, wa
 	return results
 }
 
-func assertNoExtraCompletion(t *testing.T, completions <-chan models.JobResultV1, window time.Duration) {
+func assertNoExtraCompletion(t *testing.T, completions <-chan models.JobResult, window time.Duration) {
 	t.Helper()
 
 	select {

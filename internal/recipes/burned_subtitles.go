@@ -98,8 +98,8 @@ type srtCue struct {
 	Text  string
 }
 
-func burnSubtitlesRecipe() models.RecipeV1 {
-	return models.RecipeV1{
+func burnSubtitlesRecipe() models.Recipe {
+	return models.Recipe{
 		ID:               RecipeIDBurnedSubtitles,
 		Name:             "Burned-in subtitles",
 		Description:      "Transcribe a video locally and burn synchronized subtitles into a new MP4.",
@@ -108,11 +108,11 @@ func burnSubtitlesRecipe() models.RecipeV1 {
 		AcceptExtensions: []string{"mp4", "mov", "mkv", "webm", "avi"},
 		MaxInputs:        1,
 		Highlights:       []string{"Local Whisper", "Synchronized burn-in", "SRT sidecar"},
-		Steps: []models.RecipeStepV1{
+		Steps: []models.RecipeStep{
 			{
 				ID:     burnedSubtitlesStepTranscribe,
 				Name:   "Transcribe audio",
-				ToolID: video.ToolIDVideoTranscribeV1,
+				ToolID: video.ToolIDVideoTranscribe,
 				Detail: "Whisper writes timed subtitles locally",
 			},
 			{
@@ -132,7 +132,7 @@ func burnSubtitlesRecipe() models.RecipeV1 {
 
 // resolveBurnedSubtitles validates the single video, requires an audio track
 // and resolves the collision-safe MP4 plus SRT destinations.
-func resolveBurnedSubtitles(recipe *models.RecipeV1, req models.RecipeRequestV1) (*resolvedRecipe, *models.JobErrorV1) {
+func resolveBurnedSubtitles(recipe *models.Recipe, req models.RecipeRequest) (*resolvedRecipe, *models.JobError) {
 	inputs, inputErr := validateBurnedSubtitlesInputs(req.InputPaths)
 	if inputErr != nil {
 		return nil, inputErr
@@ -190,7 +190,7 @@ func resolveBurnedSubtitles(recipe *models.RecipeV1, req models.RecipeRequestV1)
 	videoPath, _ := outputplan.UniqueFilePath(outputDir, stem+burnedSubtitlesSuffix, "mp4", used)
 	subtitlePath, _ := outputplan.UniqueFilePath(outputDir, stem+burnedSubtitlesSuffix, "srt", used)
 
-	planned := []models.PlannedOutputV1{
+	planned := []models.PlannedOutput{
 		{InputPath: sourcePath, OutputPath: videoPath, OutputKind: "file", OutputCount: 1},
 		{InputPath: sourcePath, OutputPath: subtitlePath, OutputKind: "file", OutputCount: 1},
 	}
@@ -216,7 +216,7 @@ func resolveBurnedSubtitles(recipe *models.RecipeV1, req models.RecipeRequestV1)
 	}, nil
 }
 
-func validateBurnedSubtitlesInputs(rawInputs []string) ([]string, *models.JobErrorV1) {
+func validateBurnedSubtitlesInputs(rawInputs []string) ([]string, *models.JobError) {
 	if len(rawInputs) == 0 {
 		return nil, newRecipeError("RECIPE_INVALID_INPUT", "Choose one video for Burned-in subtitles.", nil)
 	}
@@ -422,7 +422,7 @@ func (s *Service) executeBurnedSubtitles(ctx context.Context, tracked *recipeJob
 		s.history.RecordOutputs(tracked.jobID(), burnedSubtitlesHistoryToolID, outputs)
 	}
 
-	tracked.setStep(burnedSubtitlesStepIndexVerify, models.RecipeStepResultV1{
+	tracked.setStep(burnedSubtitlesStepIndexVerify, models.RecipeStepResult{
 		ID:      verifyStep.ID,
 		Name:    verifyStep.Name,
 		ToolID:  verifyStep.ToolID,
@@ -437,7 +437,7 @@ func (s *Service) executeBurnedSubtitles(ctx context.Context, tracked *recipeJob
 
 // abortBurnedSubtitles removes the files this run created and reports the step
 // failure or the cancellation, never both.
-func (s *Service) abortBurnedSubtitles(ctx context.Context, tracked *recipeJob, step models.RecipeStepV1, stepIndex int, created []string, jobErr *models.JobErrorV1) {
+func (s *Service) abortBurnedSubtitles(ctx context.Context, tracked *recipeJob, step models.RecipeStep, stepIndex int, created []string, jobErr *models.JobError) {
 	removeCreatedFiles(created)
 	if isCancellation(ctx, jobErr) {
 		s.cancelJob(tracked)
@@ -450,18 +450,18 @@ func (s *Service) abortBurnedSubtitles(ctx context.Context, tracked *recipeJob, 
 
 // runBurnedSubtitlesTranscribeStep plans and runs Whisper into a temp SRT and
 // returns the parsed cues. The temp SRT never appears in the step outputs.
-func (s *Service) runBurnedSubtitlesTranscribeStep(ctx context.Context, tracked *recipeJob, burned *burnedSubtitlesResolution, step models.RecipeStepV1, tempDir string, emit func(stage, message string, percent int)) (string, []srtCue, *models.JobErrorV1) {
+func (s *Service) runBurnedSubtitlesTranscribeStep(ctx context.Context, tracked *recipeJob, burned *burnedSubtitlesResolution, step models.RecipeStep, tempDir string, emit func(stage, message string, percent int)) (string, []srtCue, *models.JobError) {
 	if ctx.Err() != nil {
 		return "", nil, recipeCancelledError()
 	}
 
-	executor, planner, jobErr := s.singleExecutor(video.ToolIDVideoTranscribeV1)
+	executor, planner, jobErr := s.singleExecutor(video.ToolIDVideoTranscribe)
 	if jobErr != nil {
 		return "", nil, jobErr
 	}
 
-	req := models.JobRequestV1{
-		ToolID:     video.ToolIDVideoTranscribeV1,
+	req := models.JobRequest{
+		ToolID:     video.ToolIDVideoTranscribe,
 		Mode:       "single",
 		InputPaths: []string{burned.SourcePath},
 		OutputDir:  tempDir,
@@ -487,7 +487,7 @@ func (s *Service) runBurnedSubtitlesTranscribeStep(ctx context.Context, tracked 
 		)
 	}
 
-	progress := func(event models.JobProgressV1) {
+	progress := func(event models.JobProgress) {
 		percent := burnedSubtitlesProgressStart
 		if event.Total > 0 {
 			percent = burnedSubtitlesProgressStart + int(math.Round(
@@ -500,7 +500,7 @@ func (s *Service) runBurnedSubtitlesTranscribeStep(ctx context.Context, tracked 
 		emit("transcribe", event.Message, percent)
 	}
 
-	var item models.JobResultItemV1
+	var item models.JobResultItem
 	if progressExecutor, ok := executor.(tools.SingleExecutorWithProgress); ok {
 		item, jobErr = progressExecutor.ExecuteSingleWithProgress(ctx, req, progress)
 	} else {
@@ -511,7 +511,7 @@ func (s *Service) runBurnedSubtitlesTranscribeStep(ctx context.Context, tracked 
 		return "", nil, jobErr
 	}
 	if !item.Success {
-		return "", nil, stepItemError(item, video.ToolIDVideoTranscribeV1)
+		return "", nil, stepItemError(item, video.ToolIDVideoTranscribe)
 	}
 
 	content, readErr := os.ReadFile(srtPath)
@@ -532,7 +532,7 @@ func (s *Service) runBurnedSubtitlesTranscribeStep(ctx context.Context, tracked 
 		)
 	}
 
-	tracked.setStep(burnedSubtitlesStepIndexTranscribe, models.RecipeStepResultV1{
+	tracked.setStep(burnedSubtitlesStepIndexTranscribe, models.RecipeStepResult{
 		ID:      step.ID,
 		Name:    step.Name,
 		ToolID:  step.ToolID,
@@ -547,7 +547,7 @@ func (s *Service) runBurnedSubtitlesTranscribeStep(ctx context.Context, tracked 
 // runBurnedSubtitlesBurnStep claims the final video and renders the cues with
 // the burn engine. The final path is claimed before the call so a partial
 // render is removed on every failure.
-func (s *Service) runBurnedSubtitlesBurnStep(ctx context.Context, tracked *recipeJob, burned *burnedSubtitlesResolution, step models.RecipeStepV1, srtPath string, created *[]string, emit func(stage, message string, percent int)) (string, *models.JobErrorV1) {
+func (s *Service) runBurnedSubtitlesBurnStep(ctx context.Context, tracked *recipeJob, burned *burnedSubtitlesResolution, step models.RecipeStep, srtPath string, created *[]string, emit func(stage, message string, percent int)) (string, *models.JobError) {
 	if ctx.Err() != nil {
 		return "", recipeCancelledError()
 	}
@@ -599,7 +599,7 @@ func (s *Service) runBurnedSubtitlesBurnStep(ctx context.Context, tracked *recip
 		*created = append(*created, outputPath)
 	}
 
-	tracked.setStep(burnedSubtitlesStepIndexBurn, models.RecipeStepResultV1{
+	tracked.setStep(burnedSubtitlesStepIndexBurn, models.RecipeStepResult{
 		ID:      step.ID,
 		Name:    step.Name,
 		ToolID:  step.ToolID,
@@ -614,7 +614,7 @@ func (s *Service) runBurnedSubtitlesBurnStep(ctx context.Context, tracked *recip
 
 // burnedSubtitlesBurnError maps the typed engine failure to a canonical job
 // error with a bounded cause for the UI.
-func burnedSubtitlesBurnError(err error) *models.JobErrorV1 {
+func burnedSubtitlesBurnError(err error) *models.JobError {
 	if err == nil {
 		return nil
 	}
@@ -654,7 +654,7 @@ func burnedSubtitlesBurnError(err error) *models.JobErrorV1 {
 // publishBurnedSubtitlesSRT writes the sidecar to a hidden temp file in the
 // destination folder and renames it into place, so a half-written SRT is never
 // left at the final path. An existing destination is never overwritten.
-func publishBurnedSubtitlesSRT(subtitlePath string, content []byte) *models.JobErrorV1 {
+func publishBurnedSubtitlesSRT(subtitlePath string, content []byte) *models.JobError {
 	tempFile, err := os.CreateTemp(filepath.Dir(subtitlePath), burnedSubtitlesTempPattern)
 	if err != nil {
 		return newRecipeError("RECIPE_SIDECAR_FAILED", fmt.Sprintf("Could not create the SRT sidecar: %v", err), nil)
@@ -703,7 +703,7 @@ func publishBurnedSubtitlesSRT(subtitlePath string, content []byte) *models.JobE
 // source duration, frame size and audio, the SRT cues are ordered and inside the
 // video, and the cues are visibly rendered into the picture. Any failure marks
 // the whole report as failed.
-func addBurnedSubtitlesChecks(ctx context.Context, report models.VerificationReportV1, burned *burnedSubtitlesResolution, cues []srtCue, videoPath, subtitlePath string) models.VerificationReportV1 {
+func addBurnedSubtitlesChecks(ctx context.Context, report models.VerificationReport, burned *burnedSubtitlesResolution, cues []srtCue, videoPath, subtitlePath string) models.VerificationReport {
 	sourceDuration := burned.Metadata.DurationSeconds
 	actual, _ := inspect.ProbeVideoMetadata(ctx, videoPath)
 	failed := false
@@ -722,7 +722,7 @@ func addBurnedSubtitlesChecks(ctx context.Context, report models.VerificationRep
 			actual.DurationSeconds,
 		))
 	}
-	appendBurnedSubtitlesCheck(&report, videoPath, models.VerificationCheckV1{
+	appendBurnedSubtitlesCheck(&report, videoPath, models.VerificationCheck{
 		Key:    burnedSubtitlesDurationCheck,
 		Label:  "Source duration",
 		Passed: durationPassed,
@@ -745,7 +745,7 @@ func addBurnedSubtitlesChecks(ctx context.Context, report models.VerificationRep
 			actual.Height,
 		))
 	}
-	appendBurnedSubtitlesCheck(&report, videoPath, models.VerificationCheckV1{
+	appendBurnedSubtitlesCheck(&report, videoPath, models.VerificationCheck{
 		Key:    burnedSubtitlesFrameSizeCheck,
 		Label:  "Frame size",
 		Passed: frameSizePassed,
@@ -763,7 +763,7 @@ func addBurnedSubtitlesChecks(ctx context.Context, report models.VerificationRep
 			filepath.Base(videoPath),
 		))
 	}
-	appendBurnedSubtitlesCheck(&report, videoPath, models.VerificationCheckV1{
+	appendBurnedSubtitlesCheck(&report, videoPath, models.VerificationCheck{
 		Key:    burnedSubtitlesAudioCheck,
 		Label:  "Audio track",
 		Passed: audioPassed,
@@ -778,7 +778,7 @@ func addBurnedSubtitlesChecks(ctx context.Context, report models.VerificationRep
 		cueCountDetail = "the SRT sidecar has no cues"
 		report.Warnings = append(report.Warnings, fmt.Sprintf("%s: no subtitle cues", filepath.Base(subtitlePath)))
 	}
-	appendBurnedSubtitlesCheck(&report, subtitlePath, models.VerificationCheckV1{
+	appendBurnedSubtitlesCheck(&report, subtitlePath, models.VerificationCheck{
 		Key:    burnedSubtitlesCueCountCheck,
 		Label:  "Subtitle cues",
 		Passed: cueCountPassed,
@@ -795,7 +795,7 @@ func addBurnedSubtitlesChecks(ctx context.Context, report models.VerificationRep
 		timingDetail = timingReason
 		report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", filepath.Base(subtitlePath), timingReason))
 	}
-	appendBurnedSubtitlesCheck(&report, subtitlePath, models.VerificationCheckV1{
+	appendBurnedSubtitlesCheck(&report, subtitlePath, models.VerificationCheck{
 		Key:    burnedSubtitlesCueTimingCheck,
 		Label:  "Subtitle timing",
 		Passed: timingPassed,
@@ -808,7 +808,7 @@ func addBurnedSubtitlesChecks(ctx context.Context, report models.VerificationRep
 	if !renderedPassed {
 		failed = true
 	}
-	appendBurnedSubtitlesCheck(&report, videoPath, models.VerificationCheckV1{
+	appendBurnedSubtitlesCheck(&report, videoPath, models.VerificationCheck{
 		Key:    burnedSubtitlesRenderedCheck,
 		Label:  "Rendered subtitles",
 		Passed: renderedPassed,
@@ -827,7 +827,7 @@ func addBurnedSubtitlesChecks(ctx context.Context, report models.VerificationRep
 // appendBurnedSubtitlesCheck attaches a check to the verified output with the
 // same path. A missing entry falls back to the first output so a check is never
 // silently dropped.
-func appendBurnedSubtitlesCheck(report *models.VerificationReportV1, path string, check models.VerificationCheckV1) {
+func appendBurnedSubtitlesCheck(report *models.VerificationReport, path string, check models.VerificationCheck) {
 	key := canonicalInputKey(path)
 	for index := range report.Outputs {
 		if canonicalInputKey(report.Outputs[index].Path) == key {

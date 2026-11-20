@@ -16,7 +16,7 @@ func TestServiceRecordsTerminalRunsAndClears(t *testing.T) {
 	service.SetRunStore(runs)
 
 	watch := t.TempDir()
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -29,7 +29,7 @@ func TestServiceRecordsTerminalRunsAndClears(t *testing.T) {
 	writeTestFile(t, path, "hello")
 	waitForRunCount(t, runner, 1, 3*time.Second)
 
-	var listed models.ListAutomationRunsResponseV1
+	var listed models.ListAutomationRunsResponse
 	waitFor(t, 3*time.Second, "the terminal run to be recorded", func() bool {
 		listed = service.ListRuns(10)
 

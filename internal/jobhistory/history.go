@@ -56,7 +56,7 @@ type Store struct {
 	trashMaxBytes int64
 	trashMaxAge   time.Duration
 
-	entries []models.JobHistoryEntryV1
+	entries []models.JobHistoryEntry
 	rename  func(oldPath, newPath string) error
 }
 
@@ -114,7 +114,7 @@ func (s *Store) configured() bool {
 // RecordJob records the successful outputs of a terminal job. Non-terminal
 // snapshots and jobs without existing outputs are ignored. A job id is
 // recorded at most once.
-func (s *Store) RecordJob(job models.JobResultV1) {
+func (s *Store) RecordJob(job models.JobResult) {
 	if !isTerminalStatus(job.Status) {
 		return
 	}
@@ -156,13 +156,13 @@ func (s *Store) record(jobID, toolID string, outputs []string, createdAt int64) 
 		return
 	}
 
-	entry := models.JobHistoryEntryV1{
+	entry := models.JobHistoryEntry{
 		JobID:     jobID,
 		ToolID:    toolID,
 		CreatedAt: createdAt,
 		Outputs:   records,
 	}
-	s.entries = append([]models.JobHistoryEntryV1{entry}, s.entries...)
+	s.entries = append([]models.JobHistoryEntry{entry}, s.entries...)
 	s.pruneLocked()
 	snapshot := s.snapshotEntriesLocked()
 	s.mu.Unlock()
@@ -173,7 +173,7 @@ func (s *Store) record(jobID, toolID string, outputs []string, createdAt int64) 
 }
 
 // List returns recorded jobs newest first.
-func (s *Store) List() []models.JobHistoryEntryV1 {
+func (s *Store) List() []models.JobHistoryEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -182,10 +182,10 @@ func (s *Store) List() []models.JobHistoryEntryV1 {
 
 // Get returns a deep copy of one recorded job. It lets callers verify jobs
 // whose engine state has already been evicted from memory.
-func (s *Store) Get(jobID string) (models.JobHistoryEntryV1, bool) {
+func (s *Store) Get(jobID string) (models.JobHistoryEntry, bool) {
 	trimmed := strings.TrimSpace(jobID)
 	if trimmed == "" {
-		return models.JobHistoryEntryV1{}, false
+		return models.JobHistoryEntry{}, false
 	}
 
 	s.mu.RLock()
@@ -193,7 +193,7 @@ func (s *Store) Get(jobID string) (models.JobHistoryEntryV1, bool) {
 
 	index := s.findIndexLocked(trimmed)
 	if index < 0 {
-		return models.JobHistoryEntryV1{}, false
+		return models.JobHistoryEntry{}, false
 	}
 
 	return cloneEntry(s.entries[index]), true
@@ -206,7 +206,7 @@ func (s *Store) Get(jobID string) (models.JobHistoryEntryV1, bool) {
 // File I/O runs outside the data lock: the entry is snapshotted, inspected and
 // moved, then re-found and updated under the lock before the snapshot is
 // persisted. Concurrent readers never wait for a file move or fsync.
-func (s *Store) Undo(jobID string) models.UndoResultV1 {
+func (s *Store) Undo(jobID string) models.UndoResult {
 	jobID = strings.TrimSpace(jobID)
 
 	result := newUndoResult()
@@ -267,28 +267,28 @@ func (s *Store) Undo(jobID string) models.UndoResultV1 {
 			if !errors.Is(err, os.ErrNotExist) {
 				reason = fmt.Sprintf("file cannot be accessed: %v", err)
 			}
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{Path: output.Path, Reason: reason})
+			result.Skipped = append(result.Skipped, models.UndoSkipped{Path: output.Path, Reason: reason})
 			continue
 		}
 		if !info.Mode().IsRegular() {
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{Path: output.Path, Reason: "path is not a regular file"})
+			result.Skipped = append(result.Skipped, models.UndoSkipped{Path: output.Path, Reason: "path is not a regular file"})
 			continue
 		}
 		if !matchesFingerprint(info, *output) {
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{Path: output.Path, Reason: reasonModified})
+			result.Skipped = append(result.Skipped, models.UndoSkipped{Path: output.Path, Reason: reasonModified})
 			continue
 		}
 
 		trashPath := s.trashPathFor(entry.JobID, outputIndex, output.Path)
 		if err := os.MkdirAll(filepath.Dir(trashPath), dirPermissions); err != nil {
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{
+			result.Skipped = append(result.Skipped, models.UndoSkipped{
 				Path:   output.Path,
 				Reason: fmt.Sprintf("could not create trash folder: %v", err),
 			})
 			continue
 		}
 		if err := moveFile(output.Path, trashPath, s.rename); err != nil {
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{
+			result.Skipped = append(result.Skipped, models.UndoSkipped{
 				Path:   output.Path,
 				Reason: fmt.Sprintf("could not move file to trash: %v", err),
 			})
@@ -354,7 +354,7 @@ func (s *Store) Undo(jobID string) models.UndoResultV1 {
 //
 // Like Undo, file I/O runs outside the data lock and the entry is re-found
 // before its snapshot is persisted.
-func (s *Store) Restore(jobID string) models.UndoResultV1 {
+func (s *Store) Restore(jobID string) models.UndoResult {
 	jobID = strings.TrimSpace(jobID)
 
 	result := newUndoResult()
@@ -410,10 +410,10 @@ func (s *Store) Restore(jobID string) models.UndoResultV1 {
 		}
 
 		if _, err := os.Stat(output.Path); err == nil {
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{Path: output.Path, Reason: "destination already exists"})
+			result.Skipped = append(result.Skipped, models.UndoSkipped{Path: output.Path, Reason: "destination already exists"})
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{
+			result.Skipped = append(result.Skipped, models.UndoSkipped{
 				Path:   output.Path,
 				Reason: fmt.Sprintf("destination cannot be checked: %v", err),
 			})
@@ -425,19 +425,19 @@ func (s *Store) Restore(jobID string) models.UndoResultV1 {
 			if !errors.Is(err, os.ErrNotExist) {
 				reason = fmt.Sprintf("trashed file cannot be accessed: %v", err)
 			}
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{Path: output.Path, Reason: reason})
+			result.Skipped = append(result.Skipped, models.UndoSkipped{Path: output.Path, Reason: reason})
 			continue
 		}
 
 		if err := os.MkdirAll(filepath.Dir(output.Path), dirPermissions); err != nil {
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{
+			result.Skipped = append(result.Skipped, models.UndoSkipped{
 				Path:   output.Path,
 				Reason: fmt.Sprintf("could not create destination folder: %v", err),
 			})
 			continue
 		}
 		if err := moveFile(trashPath, output.Path, s.rename); err != nil {
-			result.Skipped = append(result.Skipped, models.UndoSkippedV1{
+			result.Skipped = append(result.Skipped, models.UndoSkipped{
 				Path:   output.Path,
 				Reason: fmt.Sprintf("could not restore file: %v", err),
 			})
@@ -546,7 +546,7 @@ func (s *Store) EmptyTrash() error {
 
 func (s *Store) load() {
 	if !s.configured() {
-		s.entries = []models.JobHistoryEntryV1{}
+		s.entries = []models.JobHistoryEntry{}
 		return
 	}
 
@@ -555,18 +555,18 @@ func (s *Store) load() {
 		if !errors.Is(err, os.ErrNotExist) {
 			log.Printf("jobhistory.load.failed path=%s err=%v", s.path, err)
 		}
-		s.entries = []models.JobHistoryEntryV1{}
+		s.entries = []models.JobHistoryEntry{}
 		return
 	}
 	if len(strings.TrimSpace(string(content))) == 0 {
-		s.entries = []models.JobHistoryEntryV1{}
+		s.entries = []models.JobHistoryEntry{}
 		return
 	}
 
-	entries := make([]models.JobHistoryEntryV1, 0)
+	entries := make([]models.JobHistoryEntry, 0)
 	if err := json.Unmarshal(content, &entries); err != nil {
 		log.Printf("jobhistory.load.malformed path=%s err=%v", s.path, err)
-		s.entries = []models.JobHistoryEntryV1{}
+		s.entries = []models.JobHistoryEntry{}
 		return
 	}
 
@@ -574,8 +574,8 @@ func (s *Store) load() {
 	s.pruneLocked()
 }
 
-func normalizeEntries(entries []models.JobHistoryEntryV1) []models.JobHistoryEntryV1 {
-	normalized := make([]models.JobHistoryEntryV1, 0, len(entries))
+func normalizeEntries(entries []models.JobHistoryEntry) []models.JobHistoryEntry {
+	normalized := make([]models.JobHistoryEntry, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
 		jobID := strings.TrimSpace(entry.JobID)
@@ -589,7 +589,7 @@ func normalizeEntries(entries []models.JobHistoryEntryV1) []models.JobHistoryEnt
 
 		entry.JobID = jobID
 		if entry.Outputs == nil {
-			entry.Outputs = []models.JobOutputRecordV1{}
+			entry.Outputs = []models.JobOutputRecord{}
 		}
 		normalized = append(normalized, entry)
 	}
@@ -816,7 +816,7 @@ func selectTrashPrunes(units []trashUnit, maxBytes int64, maxAge time.Duration, 
 // saveSnapshot marshals and persists one immutable history snapshot. Callers
 // build the snapshot under s.mu and release it before calling, so readers are
 // never blocked by encoding, fsync, or rename.
-func (s *Store) saveSnapshot(entries []models.JobHistoryEntryV1) error {
+func (s *Store) saveSnapshot(entries []models.JobHistoryEntry) error {
 	if !s.configured() {
 		return errors.New("jobhistory: history path is not configured")
 	}
@@ -837,8 +837,8 @@ func (s *Store) saveSnapshot(entries []models.JobHistoryEntryV1) error {
 
 // snapshotEntriesLocked returns a deep copy of the entries. Callers must hold
 // s.mu for reading or writing.
-func (s *Store) snapshotEntriesLocked() []models.JobHistoryEntryV1 {
-	entries := make([]models.JobHistoryEntryV1, len(s.entries))
+func (s *Store) snapshotEntriesLocked() []models.JobHistoryEntry {
+	entries := make([]models.JobHistoryEntry, len(s.entries))
 	for index, entry := range s.entries {
 		entries[index] = cloneEntry(entry)
 	}
@@ -846,11 +846,11 @@ func (s *Store) snapshotEntriesLocked() []models.JobHistoryEntryV1 {
 	return entries
 }
 
-func cloneEntry(entry models.JobHistoryEntryV1) models.JobHistoryEntryV1 {
+func cloneEntry(entry models.JobHistoryEntry) models.JobHistoryEntry {
 	copied := entry
-	copied.Outputs = append([]models.JobOutputRecordV1(nil), entry.Outputs...)
+	copied.Outputs = append([]models.JobOutputRecord(nil), entry.Outputs...)
 	if copied.Outputs == nil {
-		copied.Outputs = []models.JobOutputRecordV1{}
+		copied.Outputs = []models.JobOutputRecord{}
 	}
 
 	return copied
@@ -866,7 +866,7 @@ func (s *Store) findIndexLocked(jobID string) int {
 	return -1
 }
 
-func findOutputIndex(entry *models.JobHistoryEntryV1, path string) int {
+func findOutputIndex(entry *models.JobHistoryEntry, path string) int {
 	for index := range entry.Outputs {
 		if entry.Outputs[index].Path == path {
 			return index
@@ -924,7 +924,7 @@ func isTerminalStatus(status string) bool {
 	}
 }
 
-func successfulOutputs(job models.JobResultV1) []string {
+func successfulOutputs(job models.JobResult) []string {
 	outputs := make([]string, 0, len(job.Items))
 	for _, item := range job.Items {
 		if !item.Success {
@@ -942,8 +942,8 @@ func successfulOutputs(job models.JobResultV1) []string {
 
 // fingerprintOutputs dedupes, normalizes and stats output paths. Missing or
 // non-regular paths are skipped: they cannot be undone.
-func fingerprintOutputs(outputs []string) []models.JobOutputRecordV1 {
-	records := make([]models.JobOutputRecordV1, 0, len(outputs))
+func fingerprintOutputs(outputs []string) []models.JobOutputRecord {
+	records := make([]models.JobOutputRecord, 0, len(outputs))
 	seen := make(map[string]struct{}, len(outputs))
 	for _, output := range outputs {
 		trimmed := strings.TrimSpace(output)
@@ -960,7 +960,7 @@ func fingerprintOutputs(outputs []string) []models.JobOutputRecordV1 {
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		records = append(records, models.JobOutputRecordV1{
+		records = append(records, models.JobOutputRecord{
 			Path:       path,
 			SizeBytes:  info.Size(),
 			ModifiedAt: info.ModTime().UnixMilli(),
@@ -970,7 +970,7 @@ func fingerprintOutputs(outputs []string) []models.JobOutputRecordV1 {
 	return records
 }
 
-func matchesFingerprint(info os.FileInfo, output models.JobOutputRecordV1) bool {
+func matchesFingerprint(info os.FileInfo, output models.JobOutputRecord) bool {
 	if info.Size() != output.SizeBytes {
 		return false
 	}
@@ -981,7 +981,7 @@ func matchesFingerprint(info os.FileInfo, output models.JobOutputRecordV1) bool 
 	return info.ModTime().UnixMilli() == output.ModifiedAt
 }
 
-func allUndone(outputs []models.JobOutputRecordV1) bool {
+func allUndone(outputs []models.JobOutputRecord) bool {
 	if len(outputs) == 0 {
 		return false
 	}
@@ -994,10 +994,10 @@ func allUndone(outputs []models.JobOutputRecordV1) bool {
 	return true
 }
 
-func newUndoResult() models.UndoResultV1 {
-	return models.UndoResultV1{
+func newUndoResult() models.UndoResult {
+	return models.UndoResult{
 		Moved:   []string{},
-		Skipped: []models.UndoSkippedV1{},
+		Skipped: []models.UndoSkipped{},
 	}
 }
 

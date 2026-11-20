@@ -339,7 +339,7 @@ func DetectProtectedDOCX(inputPath string) error {
 
 		text := strings.ToLower(string(content))
 		if strings.Contains(text, "<w:documentprotection") || strings.Contains(text, "<w:writeprotection") {
-			return &DOCXError{Code: ErrorCodeDocxInputProtected, Message: "protected docx files are not supported in v1"}
+			return &DOCXError{Code: ErrorCodeDocxInputProtected, Message: "protected docx files are not supported"}
 		}
 		break
 	}
@@ -350,7 +350,7 @@ func DetectProtectedDOCX(inputPath string) error {
 func mapProtectedFromExecution(logOutput string) error {
 	normalized := strings.ToLower(logOutput)
 	if strings.Contains(normalized, "password") || strings.Contains(normalized, "encrypted") || strings.Contains(normalized, "protection") {
-		return &DOCXError{Code: ErrorCodeDocxInputProtected, Message: "protected docx files are not supported in v1"}
+		return &DOCXError{Code: ErrorCodeDocxInputProtected, Message: "protected docx files are not supported"}
 	}
 	return nil
 }

@@ -76,7 +76,7 @@ func TestPlanSocialClipPlansBothEncodesAndPoster(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeRecipeVideo(t, input, 1, false)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDSocialClip,
 		InputPaths: []string{input},
 	})
@@ -144,37 +144,37 @@ func TestPlanSocialClipRejectsInvalidRequests(t *testing.T) {
 
 	cases := []struct {
 		name       string
-		req        models.RecipeRequestV1
+		req        models.RecipeRequest
 		wantDetail string
 	}{
 		{
 			name:       "no inputs",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDSocialClip},
+			req:        models.RecipeRequest{RecipeID: RecipeIDSocialClip},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "blank input",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDSocialClip, InputPaths: []string{"   "}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDSocialClip, InputPaths: []string{"   "}},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "multiple inputs",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDSocialClip, InputPaths: []string{first, second}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDSocialClip, InputPaths: []string{first, second}},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "non video extension",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDSocialClip, InputPaths: []string{textFile}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDSocialClip, InputPaths: []string{textFile}},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "missing video",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDSocialClip, InputPaths: []string{filepath.Join(dir, "missing.mp4")}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDSocialClip, InputPaths: []string{filepath.Join(dir, "missing.mp4")}},
 			wantDetail: "RECIPE_INPUT_UNREADABLE",
 		},
 		{
 			name:       "unreadable media",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDSocialClip, InputPaths: []string{brokenVideo}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDSocialClip, InputPaths: []string{brokenVideo}},
 			wantDetail: "RECIPE_INPUT_UNREADABLE",
 		},
 	}
@@ -210,7 +210,7 @@ func TestRunSocialClipProducesVerifiedBundle(t *testing.T) {
 		t.Fatalf("unexpected source metadata: %+v ok=%v", sourceMetadata, ok)
 	}
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDSocialClip,
 		InputPaths: []string{input},
 	})
@@ -341,7 +341,7 @@ func TestRunSocialClipProducesVerifiedBundle(t *testing.T) {
 		}
 	}
 
-	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.Status == models.JobStatusSuccess && event.Percent == 100
 	})
 	if terminalEvent.JobID != run.JobID || terminalEvent.RecipeID != RecipeIDSocialClip {
@@ -356,7 +356,7 @@ func TestRunSocialClipSilentShortClipSkipsAudioChecks(t *testing.T) {
 	input := filepath.Join(dir, "silent.mp4")
 	writeRecipeVideo(t, input, 1, false)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDSocialClip,
 		InputPaths: []string{input},
 	})
@@ -367,7 +367,7 @@ func TestRunSocialClipSilentShortClipSkipsAudioChecks(t *testing.T) {
 		t.Fatalf("expected the short clip warning, got %+v", plan.Warnings)
 	}
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDSocialClip,
 		InputPaths: []string{input},
 	})
@@ -412,7 +412,7 @@ func TestRunSocialClipFailureOnSecondEncodeRemovesCreatedFiles(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeRecipeVideo(t, input, 1, true)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDSocialClip,
 		InputPaths: []string{input},
 	})
@@ -455,7 +455,7 @@ func TestRunSocialClipPosterFailureRemovesCreatedFiles(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeRecipeVideo(t, input, 1, true)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDSocialClip,
 		InputPaths: []string{input},
 	})
@@ -491,7 +491,7 @@ func TestRunSocialClipCancelRemovesPartialOutputs(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeRecipeVideo(t, input, 1, true)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDSocialClip,
 		InputPaths: []string{input},
 	})
@@ -520,7 +520,7 @@ func TestRunSocialClipCancelRemovesPartialOutputs(t *testing.T) {
 	if len(result.Outputs) != 0 {
 		t.Fatalf("expected no outputs for a cancelled run, got %+v", result.Outputs)
 	}
-	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.Status == models.JobStatusCancelled
 	})
 
@@ -534,7 +534,7 @@ func TestPlanSocialClipSanitizesSourceStem(t *testing.T) {
 	input := filepath.Join(dir, "photo & clip.mov")
 	writeRecipeVideo(t, input, 1, false)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDSocialClip,
 		InputPaths: []string{input},
 	})
@@ -567,19 +567,19 @@ type failingVideoConvertTool struct {
 	calls int
 }
 
-func (t *failingVideoConvertTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *failingVideoConvertTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	t.mu.Lock()
 	t.calls++
 	call := t.calls
 	t.mu.Unlock()
 
 	if call == t.failAt {
-		jobErr := &models.JobErrorV1{
+		jobErr := &models.JobError{
 			Code:       "VIDEO_TEST_FAILED",
 			DetailCode: "VIDEO_TEST_FAILED",
 			Message:    fmt.Sprintf("video conversion failed for test on call %d", call),
 		}
-		return models.JobResultItemV1{
+		return models.JobResultItem{
 			InputPath: firstRequestInput(req),
 			Success:   false,
 			Message:   jobErr.Message,
@@ -592,14 +592,14 @@ func (t *failingVideoConvertTool) ExecuteSingle(ctx context.Context, req models.
 
 // ExecutePlan mirrors the failure behavior on the engine's plan-once path,
 // which the engine prefers over ExecuteSingle.
-func (t *failingVideoConvertTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *failingVideoConvertTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	t.mu.Lock()
 	t.calls++
 	call := t.calls
 	t.mu.Unlock()
 
 	if call == t.failAt {
-		jobErr := &models.JobErrorV1{
+		jobErr := &models.JobError{
 			Code:       "VIDEO_TEST_FAILED",
 			DetailCode: "VIDEO_TEST_FAILED",
 			Message:    fmt.Sprintf("video conversion failed for test on call %d", call),
@@ -617,7 +617,7 @@ type blockingVideoConvertTool struct {
 	started chan struct{}
 }
 
-func (t *blockingVideoConvertTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *blockingVideoConvertTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	select {
 	case t.started <- struct{}{}:
 	default:
@@ -625,11 +625,11 @@ func (t *blockingVideoConvertTool) ExecuteSingle(ctx context.Context, req models
 
 	<-ctx.Done()
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath: firstRequestInput(req),
 		Success:   false,
 		Message:   "video conversion canceled",
-	}, &models.JobErrorV1{
+	}, &models.JobError{
 		Code:       "CANCELED",
 		DetailCode: "VIDEO_TEST_CANCELED",
 		Message:    "video conversion canceled",
@@ -637,7 +637,7 @@ func (t *blockingVideoConvertTool) ExecuteSingle(ctx context.Context, req models
 }
 
 // ExecutePlan blocks the engine's plan-once path until cancellation.
-func (t *blockingVideoConvertTool) ExecutePlan(ctx context.Context, _ models.JobRequestV1, plan models.PlanJobResponseV1, _ func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *blockingVideoConvertTool) ExecutePlan(ctx context.Context, _ models.JobRequest, plan models.PlanJobResponse, _ func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	select {
 	case t.started <- struct{}{}:
 	default:
@@ -645,7 +645,7 @@ func (t *blockingVideoConvertTool) ExecutePlan(ctx context.Context, _ models.Job
 
 	<-ctx.Done()
 
-	jobErr := &models.JobErrorV1{
+	jobErr := &models.JobError{
 		Code:       "CANCELED",
 		DetailCode: "VIDEO_TEST_CANCELED",
 		Message:    "video conversion canceled",
@@ -656,10 +656,10 @@ func (t *blockingVideoConvertTool) ExecutePlan(ctx context.Context, _ models.Job
 
 // failedPlanItems returns one failed item per planned output so the engine can
 // align a failed batch-style step result.
-func failedPlanItems(plan models.PlanJobResponseV1, jobErr *models.JobErrorV1) []models.JobResultItemV1 {
-	items := make([]models.JobResultItemV1, len(plan.Outputs))
+func failedPlanItems(plan models.PlanJobResponse, jobErr *models.JobError) []models.JobResultItem {
+	items := make([]models.JobResultItem, len(plan.Outputs))
 	for index, output := range plan.Outputs {
-		items[index] = models.JobResultItemV1{
+		items[index] = models.JobResultItem{
 			InputPath:  output.InputPath,
 			OutputPath: output.OutputPath,
 			Success:    false,

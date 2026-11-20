@@ -18,17 +18,17 @@ type jobState struct {
 	engine *Engine
 
 	mu       sync.Mutex
-	result   models.JobResultV1
+	result   models.JobResult
 	terminal bool
 	cancel   context.CancelFunc
 	done     chan struct{}
-	reporter *progress.Reporter[models.JobProgressEventV1]
+	reporter *progress.Reporter[models.JobProgressEvent]
 
 	// Immutable after submission.
 	ctx         context.Context
-	request     models.JobRequestV1
+	request     models.JobRequest
 	tool        tools.Tool
-	plan        *models.PlanJobResponseV1
+	plan        *models.PlanJobResponse
 	class       Class
 	priority    Priority
 	seq         uint64
@@ -36,13 +36,13 @@ type jobState struct {
 	workers     int
 	parentID    string
 	maxAttempts int
-	onProgress  func(models.JobProgressV1)
+	onProgress  func(models.JobProgress)
 
 	// queued is guarded by Engine.queueMu.
 	queued bool
 }
 
-func newJobState(engine *Engine, req models.JobRequestV1, tool tools.Tool, opts SubmitOptions, plan *models.PlanJobResponseV1) *jobState {
+func newJobState(engine *Engine, req models.JobRequest, tool tools.Tool, opts SubmitOptions, plan *models.PlanJobResponse) *jobState {
 	seq := engine.seq.Add(1)
 	startedAt := time.Now().UnixMilli()
 
@@ -60,19 +60,19 @@ func newJobState(engine *Engine, req models.JobRequestV1, tool tools.Tool, opts 
 		maxAttempts: opts.MaxAttempts,
 		onProgress:  opts.OnProgress,
 		done:        make(chan struct{}),
-		result: models.JobResultV1{
+		result: models.JobResult{
 			JobID:     newJobID(seq),
 			Kind:      resultKind(opts.Kind),
 			Success:   false,
 			Message:   "job queued",
 			ToolID:    req.ToolID,
 			Status:    StatusQueued,
-			Progress:  models.JobProgressV1{Current: 0, Total: len(req.InputPaths), Stage: StatusQueued, Message: "queued"},
+			Progress:  models.JobProgress{Current: 0, Total: len(req.InputPaths), Stage: StatusQueued, Message: "queued"},
 			StartedAt: startedAt,
 		},
 	}
 
-	state.reporter = progress.New(engine.opts.ProgressInterval, func(event models.JobProgressEventV1) {
+	state.reporter = progress.New(engine.opts.ProgressInterval, func(event models.JobProgressEvent) {
 		// Drop a coalesced stale update that lost the race against completion.
 		if !isTerminalJobStatus(event.Status) && state.isTerminal() {
 			return
@@ -111,7 +111,7 @@ func (j *jobState) isTerminal() bool {
 }
 
 // snapshot returns a copy that shares no slices or maps with the live state.
-func (j *jobState) snapshot() models.JobResultV1 {
+func (j *jobState) snapshot() models.JobResult {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
@@ -121,7 +121,7 @@ func (j *jobState) snapshot() models.JobResultV1 {
 // updateProgress records scheduler progress and reports it through the
 // coalescing reporter. Persistence is debounced so a fast tool cannot turn
 // progress ticks into a write per tick.
-func (j *jobState) updateProgress(value models.JobProgressV1) {
+func (j *jobState) updateProgress(value models.JobProgress) {
 	j.mu.Lock()
 	if j.terminal {
 		j.mu.Unlock()
@@ -133,7 +133,7 @@ func (j *jobState) updateProgress(value models.JobProgressV1) {
 	if value.Stage != "" {
 		j.result.Status = value.Stage
 	}
-	event := models.JobProgressEventV1{
+	event := models.JobProgressEvent{
 		JobID:    j.result.JobID,
 		Kind:     j.result.Kind,
 		ToolID:   j.result.ToolID,
@@ -152,7 +152,7 @@ func (j *jobState) updateProgress(value models.JobProgressV1) {
 // complete moves the job into a terminal state exactly once, then emits the
 // terminal snapshot, persists it, and runs the completion hook. Later calls
 // are no-ops.
-func (j *jobState) complete(status, message string, items []models.JobResultItemV1, jobErr *models.JobErrorV1, endedAt int64) {
+func (j *jobState) complete(status, message string, items []models.JobResultItem, jobErr *models.JobError, endedAt int64) {
 	j.mu.Lock()
 	if j.terminal {
 		j.mu.Unlock()
@@ -181,7 +181,7 @@ func (j *jobState) complete(status, message string, items []models.JobResultItem
 	}
 
 	result := cloneJobResult(j.result)
-	event := models.JobProgressEventV1{
+	event := models.JobProgressEvent{
 		JobID:    j.result.JobID,
 		Kind:     j.result.Kind,
 		ToolID:   j.result.ToolID,
@@ -223,14 +223,14 @@ func (j *jobState) cancelContext() {
 
 // cloneJobPlan returns a plan copy that shares no slices or maps with the
 // tool-returned value, so the stored plan stays immutable after submission.
-func cloneJobPlan(in *models.PlanJobResponseV1) *models.PlanJobResponseV1 {
+func cloneJobPlan(in *models.PlanJobResponse) *models.PlanJobResponse {
 	if in == nil {
 		return nil
 	}
 
 	out := *in
 	if in.Outputs != nil {
-		out.Outputs = make([]models.PlannedOutputV1, len(in.Outputs))
+		out.Outputs = make([]models.PlannedOutput, len(in.Outputs))
 		for index, output := range in.Outputs {
 			out.Outputs[index] = clonePlannedOutput(output)
 		}
@@ -249,7 +249,7 @@ func cloneJobPlan(in *models.PlanJobResponseV1) *models.PlanJobResponseV1 {
 	return &out
 }
 
-func clonePlannedOutput(in models.PlannedOutputV1) models.PlannedOutputV1 {
+func clonePlannedOutput(in models.PlannedOutput) models.PlannedOutput {
 	out := in
 	if in.Warnings != nil {
 		out.Warnings = append([]string(nil), in.Warnings...)
@@ -258,7 +258,7 @@ func clonePlannedOutput(in models.PlannedOutputV1) models.PlannedOutputV1 {
 	return out
 }
 
-func cloneJobResult(in models.JobResultV1) models.JobResultV1 {
+func cloneJobResult(in models.JobResult) models.JobResult {
 	out := in
 	out.Items = cloneJobItems(in.Items)
 	out.Error = cloneJobError(in.Error)
@@ -266,12 +266,12 @@ func cloneJobResult(in models.JobResultV1) models.JobResultV1 {
 	return out
 }
 
-func cloneJobItems(items []models.JobResultItemV1) []models.JobResultItemV1 {
+func cloneJobItems(items []models.JobResultItem) []models.JobResultItem {
 	if items == nil {
 		return nil
 	}
 
-	out := make([]models.JobResultItemV1, len(items))
+	out := make([]models.JobResultItem, len(items))
 	for index, item := range items {
 		out[index] = cloneJobItem(item)
 	}
@@ -279,7 +279,7 @@ func cloneJobItems(items []models.JobResultItemV1) []models.JobResultItemV1 {
 	return out
 }
 
-func cloneJobItem(in models.JobResultItemV1) models.JobResultItemV1 {
+func cloneJobItem(in models.JobResultItem) models.JobResultItem {
 	out := in
 	if in.Outputs != nil {
 		out.Outputs = append([]string(nil), in.Outputs...)
@@ -289,7 +289,7 @@ func cloneJobItem(in models.JobResultItemV1) models.JobResultItemV1 {
 	return out
 }
 
-func cloneJobError(in *models.JobErrorV1) *models.JobErrorV1 {
+func cloneJobError(in *models.JobError) *models.JobError {
 	if in == nil {
 		return nil
 	}

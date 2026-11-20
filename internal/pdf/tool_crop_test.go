@@ -11,9 +11,9 @@ import (
 	"fileforge-desktop/internal/pdf/engine"
 )
 
-func cropTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDPDFCropV1,
+func cropTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDPDFCrop,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,

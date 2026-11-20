@@ -14,13 +14,13 @@ func init() {
 	ocrTool := NewImageOCRTool()
 	rembgTool := NewBackgroundRemoveTool()
 
-	registry.GetGlobalRegistry().SafeRegisterToolV2(adapter)
-	registry.GetGlobalRegistry().SafeRegisterToolV2(cropTool)
-	registry.GetGlobalRegistry().SafeRegisterToolV2(annotateTool)
-	registry.GetGlobalRegistry().SafeRegisterToolV2(compressTool)
-	registry.GetGlobalRegistry().SafeRegisterToolV2(watermarkTool)
-	registry.GetGlobalRegistry().SafeRegisterToolV2(ocrTool)
-	registry.GetGlobalRegistry().SafeRegisterToolV2(rembgTool)
+	registry.GetGlobalRegistry().SafeRegisterTool(adapter)
+	registry.GetGlobalRegistry().SafeRegisterTool(cropTool)
+	registry.GetGlobalRegistry().SafeRegisterTool(annotateTool)
+	registry.GetGlobalRegistry().SafeRegisterTool(compressTool)
+	registry.GetGlobalRegistry().SafeRegisterTool(watermarkTool)
+	registry.GetGlobalRegistry().SafeRegisterTool(ocrTool)
+	registry.GetGlobalRegistry().SafeRegisterTool(rembgTool)
 
 	// Optionally log any initialization errors (non-blocking)
 	go func() {

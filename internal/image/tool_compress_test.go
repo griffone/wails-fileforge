@@ -23,9 +23,9 @@ import (
 	"golang.org/x/image/tiff"
 )
 
-func compressTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDImageCompressV1,
+func compressTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDImageCompress,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,
@@ -127,11 +127,11 @@ func TestCompressToolManifest(t *testing.T) {
 	if manifest.Domain != "image" {
 		t.Fatalf("expected domain image, got %q", manifest.Domain)
 	}
-	if manifest.Capability != ToolIDImageCompressV1 {
-		t.Fatalf("expected capability %q, got %q", ToolIDImageCompressV1, manifest.Capability)
+	if manifest.Capability != ToolIDImageCompress {
+		t.Fatalf("expected capability %q, got %q", ToolIDImageCompress, manifest.Capability)
 	}
-	if manifest.Version != "v1" {
-		t.Fatalf("expected version v1, got %q", manifest.Version)
+	if manifest.Version != "1.0" {
+		t.Fatalf("expected version 1.0, got %q", manifest.Version)
 	}
 	if !manifest.SupportsSingle || !manifest.SupportsBatch {
 		t.Fatalf("expected single and batch support, got %+v", manifest)
@@ -819,8 +819,8 @@ func TestCompressExecutionSingleWithProgress(t *testing.T) {
 	tool := NewCompressTool()
 	request := compressTestRequest("single", []string{input}, compressTargetOptions(1024*1024))
 
-	var events []models.JobProgressV1
-	item, execErr := tool.ExecuteSingleWithProgress(context.Background(), request, func(event models.JobProgressV1) {
+	var events []models.JobProgress
+	item, execErr := tool.ExecuteSingleWithProgress(context.Background(), request, func(event models.JobProgress) {
 		events = append(events, event)
 	})
 	if execErr != nil {
@@ -867,8 +867,8 @@ func TestCompressExecutionBatchMixedExtensions(t *testing.T) {
 		t.Fatalf("expected %q, got %q", want, plan.Outputs[1].OutputPath)
 	}
 
-	var events []models.JobProgressV1
-	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgressV1) {
+	var events []models.JobProgress
+	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgress) {
 		events = append(events, event)
 	})
 	if execErr != nil {
@@ -928,8 +928,8 @@ func TestCompressExecutionBatchReportsItemFailures(t *testing.T) {
 		t.Fatalf("expected the batch plan to tolerate a broken image, got %v", planErr)
 	}
 
-	var events []models.JobProgressV1
-	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgressV1) {
+	var events []models.JobProgress
+	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgress) {
 		events = append(events, event)
 	})
 	if execErr == nil {
@@ -978,7 +978,7 @@ func TestCompressExecutionBatchCancellation(t *testing.T) {
 	defer cancel()
 
 	var progress []int
-	items, execErr := tool.ExecuteBatch(ctx, request, func(event models.JobProgressV1) {
+	items, execErr := tool.ExecuteBatch(ctx, request, func(event models.JobProgress) {
 		progress = append(progress, event.Current)
 		if event.Current == 1 {
 			cancel()
@@ -1729,7 +1729,7 @@ func TestCompressExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
 	}
 
 	var progress []int
-	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgressV1) {
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgress) {
 		progress = append(progress, event.Current)
 	})
 	if execErr == nil {

@@ -45,11 +45,11 @@ func (r *serviceEventRecorder) eventsForJob(jobID string) []serviceEvent {
 	matched := []serviceEvent{}
 	for _, event := range r.events {
 		switch payload := event.payload.(type) {
-		case models.JobProgressEventV1:
+		case models.JobProgressEvent:
 			if payload.JobID == jobID {
 				matched = append(matched, event)
 			}
-		case models.JobResultV1:
+		case models.JobResult:
 			if payload.JobID == jobID {
 				matched = append(matched, event)
 			}
@@ -67,7 +67,7 @@ func TestToolingServiceHidesRecipeStepJobs(t *testing.T) {
 
 	submit, err := service.Engine().SubmitWithOptions(
 		context.Background(),
-		models.JobRequestV1{
+		models.JobRequest{
 			ToolID:     tool.id,
 			Mode:       "single",
 			InputPaths: []string{"/tmp/fileforge-recipe-step.pdf"},
@@ -87,18 +87,18 @@ func TestToolingServiceHidesRecipeStepJobs(t *testing.T) {
 	}
 
 	// Internal diagnostics still resolve step jobs by id.
-	status := service.GetJobStatusV1(submit.JobID)
+	status := service.GetJobStatus(submit.JobID)
 	if !status.Found || status.Result == nil {
 		t.Fatalf("recipe step is missing from the engine lookup: %+v", status)
 	}
 
-	if listed := service.ListJobsV1(0); len(listed.Jobs) != 0 {
+	if listed := service.ListJobs(0); len(listed.Jobs) != 0 {
 		t.Fatalf("recipe step leaked into the job list: %+v", listed.Jobs)
 	}
 	if events := recorder.eventsForJob(submit.JobID); len(events) != 0 {
 		t.Fatalf("recipe step leaked into the event stream: %+v", events)
 	}
-	if entries := service.ListJobHistoryV1(); len(entries) != 0 {
+	if entries := service.ListJobHistory(); len(entries) != 0 {
 		t.Fatalf("recipe step leaked into the undo history: %+v", entries)
 	}
 }
@@ -109,7 +109,7 @@ func TestToolingServiceExposesToolJobs(t *testing.T) {
 	recorder := &serviceEventRecorder{}
 	service, _ := newHistoryTestServiceWithBus(t, tool, recorder)
 
-	submit := service.RunJobV1(models.JobRequestV1{
+	submit := service.RunJob(models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-visible.pdf"},
@@ -123,7 +123,7 @@ func TestToolingServiceExposesToolJobs(t *testing.T) {
 		t.Fatalf("tool job kind = %q, want the empty wire default", result.Kind)
 	}
 
-	listed := service.ListJobsV1(0)
+	listed := service.ListJobs(0)
 	if len(listed.Jobs) != 1 || listed.Jobs[0].JobID != submit.JobID {
 		t.Fatalf("tool job missing from the job list: %+v", listed.Jobs)
 	}
@@ -132,9 +132,9 @@ func TestToolingServiceExposesToolJobs(t *testing.T) {
 	var sawProgress, sawState bool
 	for _, event := range events {
 		switch event.name {
-		case JobProgressEventNameV1:
+		case JobProgressEventName:
 			sawProgress = true
-		case JobStateEventNameV1:
+		case JobStateEventName:
 			sawState = true
 		}
 	}
@@ -142,7 +142,7 @@ func TestToolingServiceExposesToolJobs(t *testing.T) {
 		t.Fatalf("tool job events missing: progress=%t state=%t (%+v)", sawProgress, sawState, events)
 	}
 
-	if entries := service.ListJobHistoryV1(); len(entries) != 1 || entries[0].JobID != submit.JobID {
+	if entries := service.ListJobHistory(); len(entries) != 1 || entries[0].JobID != submit.JobID {
 		t.Fatalf("tool job missing from the undo history: %+v", entries)
 	}
 }
@@ -152,7 +152,7 @@ func TestToolingServiceExposesToolJobs(t *testing.T) {
 // recipe run records its final outputs exactly once.
 func TestRecipeRunRecordsFinalOutputsOnce(t *testing.T) {
 	reg := registry.NewRegistry()
-	if err := reg.RegisterToolV2(pdf.NewOptimizeTool()); err != nil {
+	if err := reg.RegisterTool(pdf.NewOptimizeTool()); err != nil {
 		t.Fatalf("register optimize tool: %v", err)
 	}
 
@@ -171,7 +171,7 @@ func TestRecipeRunRecordsFinalOutputsOnce(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writeServicePDFFixture(t, input, 1)
 
-	run := recipeService.Run(context.Background(), models.RecipeRequestV1{
+	run := recipeService.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   recipes.RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": float64(200 * 1024 * 1024)},
@@ -192,11 +192,11 @@ func TestRecipeRunRecordsFinalOutputsOnce(t *testing.T) {
 	if engineJobs[0].Kind != jobs.KindRecipeStep {
 		t.Fatalf("step job kind = %q, want %q", engineJobs[0].Kind, jobs.KindRecipeStep)
 	}
-	if listed := service.ListJobsV1(0); len(listed.Jobs) != 0 {
+	if listed := service.ListJobs(0); len(listed.Jobs) != 0 {
 		t.Fatalf("recipe step leaked into the job list: %+v", listed.Jobs)
 	}
 
-	entries := service.ListJobHistoryV1()
+	entries := service.ListJobHistory()
 	if len(entries) != 1 {
 		t.Fatalf("history entries = %d, want exactly one recipe entry: %+v", len(entries), entries)
 	}
@@ -223,7 +223,7 @@ func writeServicePDFFixture(t *testing.T, path string, pages int) {
 	}
 }
 
-func waitForRecipeResult(t *testing.T, service *recipes.Service, jobID string) models.RecipeResultV1 {
+func waitForRecipeResult(t *testing.T, service *recipes.Service, jobID string) models.RecipeResult {
 	t.Helper()
 
 	deadline := time.Now().Add(60 * time.Second)
@@ -236,7 +236,7 @@ func waitForRecipeResult(t *testing.T, service *recipes.Service, jobID string) m
 	}
 
 	t.Fatalf("timed out waiting for recipe %s to finish", jobID)
-	return models.RecipeResultV1{}
+	return models.RecipeResult{}
 }
 
 func terminalRecipeStatus(status string) bool {

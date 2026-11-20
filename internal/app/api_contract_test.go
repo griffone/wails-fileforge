@@ -38,9 +38,9 @@ func newTestApp(t *testing.T) *Services {
 func TestListToolsContract(t *testing.T) {
 	a := newTestApp(t)
 
-	response := a.Tools.ListToolsV1()
+	response := a.Tools.ListTools()
 	if !response.Success {
-		t.Fatalf("ListToolsV1 failed: %s", response.Message)
+		t.Fatalf("ListTools failed: %s", response.Message)
 	}
 	if len(response.Tools) != 20 {
 		t.Fatalf("listed tools = %d, want 20", len(response.Tools))
@@ -49,7 +49,7 @@ func TestListToolsContract(t *testing.T) {
 	ids := make([]string, 0, len(response.Tools))
 	for _, entry := range response.Tools {
 		if entry.Manifest.ToolID == "" {
-			t.Fatalf("tool with empty ID in ListToolsV1: %+v", entry)
+			t.Fatalf("tool with empty ID in ListTools: %+v", entry)
 		}
 		ids = append(ids, entry.Manifest.ToolID)
 	}
@@ -61,9 +61,9 @@ func TestListToolsContract(t *testing.T) {
 func TestListRecipesContract(t *testing.T) {
 	a := newTestApp(t)
 
-	response := a.Recipes.ListRecipesV1()
+	response := a.Recipes.ListRecipes()
 	if !response.Success {
-		t.Fatalf("ListRecipesV1 failed: %s", response.Message)
+		t.Fatalf("ListRecipes failed: %s", response.Message)
 	}
 	if len(response.Recipes) != 5 {
 		t.Fatalf("listed recipes = %d, want 5", len(response.Recipes))
@@ -73,7 +73,7 @@ func TestListRecipesContract(t *testing.T) {
 	ids := make([]string, 0, len(response.Recipes))
 	for _, recipe := range response.Recipes {
 		if recipe.ID == "" {
-			t.Fatalf("recipe with empty ID in ListRecipesV1: %+v", recipe)
+			t.Fatalf("recipe with empty ID in ListRecipes: %+v", recipe)
 		}
 		ids = append(ids, recipe.ID)
 	}
@@ -84,21 +84,21 @@ func TestListRecipesContract(t *testing.T) {
 func TestGetLocalCapabilitiesContract(t *testing.T) {
 	a := newTestApp(t)
 
-	response := a.System.GetLocalCapabilitiesV1()
+	response := a.System.GetLocalCapabilities()
 	if !response.Success {
-		t.Fatalf("GetLocalCapabilitiesV1 failed: %s", response.Message)
+		t.Fatalf("GetLocalCapabilities failed: %s", response.Message)
 	}
 	if len(response.Checks) == 0 {
-		t.Fatal("GetLocalCapabilitiesV1 returned no checks")
+		t.Fatal("GetLocalCapabilities returned no checks")
 	}
 }
 
 func TestGetToolchainStatusContract(t *testing.T) {
 	a := newTestApp(t)
 
-	status := a.Toolchain.GetToolchainStatusV1()
+	status := a.Toolchain.GetToolchainStatus()
 	if status.Message == "" {
-		t.Fatal("GetToolchainStatusV1 returned an empty message")
+		t.Fatal("GetToolchainStatus returned an empty message")
 	}
 }
 

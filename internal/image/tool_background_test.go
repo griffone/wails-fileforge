@@ -18,9 +18,9 @@ import (
 	"fileforge-desktop/internal/toolchain"
 )
 
-func backgroundRemoveTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDImageBackgroundV1,
+func backgroundRemoveTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDImageBackground,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,
@@ -141,11 +141,11 @@ func TestBackgroundRemoveToolManifest(t *testing.T) {
 	if manifest.Domain != "image" {
 		t.Fatalf("expected domain image, got %q", manifest.Domain)
 	}
-	if manifest.Capability != ToolIDImageBackgroundV1 {
-		t.Fatalf("expected capability %q, got %q", ToolIDImageBackgroundV1, manifest.Capability)
+	if manifest.Capability != ToolIDImageBackground {
+		t.Fatalf("expected capability %q, got %q", ToolIDImageBackground, manifest.Capability)
 	}
-	if manifest.Version != "v1" {
-		t.Fatalf("expected version v1, got %q", manifest.Version)
+	if manifest.Version != "1.0" {
+		t.Fatalf("expected version 1.0, got %q", manifest.Version)
 	}
 	if !manifest.SupportsSingle || !manifest.SupportsBatch {
 		t.Fatalf("expected single and batch support, got %+v", manifest)
@@ -561,11 +561,11 @@ func TestBackgroundRemoveToolExecuteSingle(t *testing.T) {
 	})
 	tool := NewBackgroundRemoveTool()
 
-	var progress []models.JobProgressV1
+	var progress []models.JobProgress
 	item, jobErr := tool.ExecuteSingleWithProgress(
 		context.Background(),
 		backgroundRemoveTestRequest("single", []string{input}, map[string]any{"backgroundColor": "#A1B2C3"}),
-		func(update models.JobProgressV1) {
+		func(update models.JobProgress) {
 			progress = append(progress, update)
 		},
 	)
@@ -674,11 +674,11 @@ func TestBackgroundRemoveToolExecuteBatchProgressAndFailures(t *testing.T) {
 	})
 	tool := NewBackgroundRemoveTool()
 
-	var progress []models.JobProgressV1
+	var progress []models.JobProgress
 	items, jobErr := tool.ExecuteBatch(
 		context.Background(),
 		backgroundRemoveTestRequest("batch", inputs, nil),
-		func(update models.JobProgressV1) {
+		func(update models.JobProgress) {
 			progress = append(progress, update)
 		},
 	)

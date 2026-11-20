@@ -16,9 +16,9 @@ import (
 	"fileforge-desktop/internal/pdf/engine"
 )
 
-func imageOCRTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDImageOCRV1,
+func imageOCRTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDImageOCR,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,
@@ -55,11 +55,11 @@ func TestImageOCRToolManifest(t *testing.T) {
 	if manifest.Domain != "image" {
 		t.Fatalf("expected domain image, got %q", manifest.Domain)
 	}
-	if manifest.Capability != ToolIDImageOCRV1 {
-		t.Fatalf("expected capability %q, got %q", ToolIDImageOCRV1, manifest.Capability)
+	if manifest.Capability != ToolIDImageOCR {
+		t.Fatalf("expected capability %q, got %q", ToolIDImageOCR, manifest.Capability)
 	}
-	if manifest.Version != "v1" {
-		t.Fatalf("expected version v1, got %q", manifest.Version)
+	if manifest.Version != "1.0" {
+		t.Fatalf("expected version 1.0, got %q", manifest.Version)
 	}
 	if !manifest.SupportsSingle || !manifest.SupportsBatch {
 		t.Fatalf("expected single and batch support, got %+v", manifest)
@@ -498,7 +498,7 @@ func TestImageOCRToolPlanRejectsReadOnlyDestination(t *testing.T) {
 	})
 }
 
-func assertImageOCRPlanOutputDirInvalid(t *testing.T, plan models.PlanJobResponseV1, planErr *models.JobErrorV1) {
+func assertImageOCRPlanOutputDirInvalid(t *testing.T, plan models.PlanJobResponse, planErr *models.JobError) {
 	t.Helper()
 
 	if planErr == nil {
@@ -548,8 +548,8 @@ func TestImageOCRToolExecuteSingleProgressAndMessage(t *testing.T) {
 	detectionCalls := stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 	tool := NewImageOCRToolWithRunner(runner)
 
-	var progress []models.JobProgressV1
-	item, execErr := tool.ExecuteSingleWithProgress(context.Background(), imageOCRTestRequest("single", []string{input}, map[string]any{"writePdf": true}), func(event models.JobProgressV1) {
+	var progress []models.JobProgress
+	item, execErr := tool.ExecuteSingleWithProgress(context.Background(), imageOCRTestRequest("single", []string{input}, map[string]any{"writePdf": true}), func(event models.JobProgress) {
 		progress = append(progress, event)
 	})
 	if execErr != nil {
@@ -623,7 +623,7 @@ func TestImageOCRToolExecuteBatchProgress(t *testing.T) {
 	tool := NewImageOCRToolWithRunner(runner)
 
 	var progress []string
-	items, batchErr := tool.ExecuteBatch(context.Background(), imageOCRTestRequest("batch", inputs, nil), func(event models.JobProgressV1) {
+	items, batchErr := tool.ExecuteBatch(context.Background(), imageOCRTestRequest("batch", inputs, nil), func(event models.JobProgress) {
 		progress = append(progress, event.Message)
 	})
 	if batchErr != nil {
@@ -955,7 +955,7 @@ func TestImageOCRToolExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
 	}
 
 	var progress []int
-	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgressV1) {
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgress) {
 		progress = append(progress, event.Current)
 	})
 	if execErr == nil {

@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	ToolIDVideoConvertV1 = "tool.video.convert"
+	ToolIDVideoConvert = "tool.video.convert"
 
 	videoConvertOutputSuffix = "_converted"
 )
@@ -32,21 +32,21 @@ func NewConvertToolWithDeps(probe engine.RuntimeProbe, runner engine.CommandRunn
 }
 
 func (t *ConvertTool) ID() string {
-	return ToolIDVideoConvertV1
+	return ToolIDVideoConvert
 }
 
 func (t *ConvertTool) Capability() string {
-	return ToolIDVideoConvertV1
+	return ToolIDVideoConvert
 }
 
-func (t *ConvertTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *ConvertTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "Video Convert",
 		Description:      "Convert videos to mp4 or webm with quality presets",
 		Domain:           "video",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  []string{"mp4", "mov", "mkv"},
@@ -58,15 +58,15 @@ func (t *ConvertTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *ConvertTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 {
+func (t *ConvertTool) RuntimeState(ctx context.Context) models.ToolRuntimeState {
 	if err := resolveRuntimeProbe(t.probe).Check(ctx); err != nil {
-		return models.ToolRuntimeStateV1{Status: "degraded", Healthy: false, Reason: err.Error()}
+		return models.ToolRuntimeState{Status: "degraded", Healthy: false, Reason: err.Error()}
 	}
 
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *ConvertTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *ConvertTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -74,8 +74,8 @@ func (t *ConvertTool) Validate(ctx context.Context, req models.JobRequestV1) *mo
 // Plan resolves every output path without converting anything. Explicit
 // options.outputPath keeps the classic contract; otherwise outputs default to
 // <stem>_converted.<format> and never overwrite an existing file.
-func (t *ConvertTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *ConvertTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	if runtimeErr := checkVideoRuntime(ctx, t.probe); runtimeErr != nil {
 		return planFailure(plan, runtimeErr)
@@ -85,14 +85,14 @@ func (t *ConvertTool) Plan(ctx context.Context, req models.JobRequestV1) (models
 	switch mode {
 	case "single":
 		if len(req.InputPaths) != 1 {
-			return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoValidation, Message: "exactly 1 input video is required"})
+			return planFailure(plan, &models.JobError{Code: engine.ErrorCodeVideoValidation, Message: "exactly 1 input video is required"})
 		}
 	case "batch":
 		if len(req.InputPaths) < 1 {
-			return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoValidation, Message: "at least 1 input video is required"})
+			return planFailure(plan, &models.JobError{Code: engine.ErrorCodeVideoValidation, Message: "at least 1 input video is required"})
 		}
 	default:
-		return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoValidation, Message: "mode must be single or batch"})
+		return planFailure(plan, &models.JobError{Code: engine.ErrorCodeVideoValidation, Message: "mode must be single or batch"})
 	}
 
 	targetFormat, qualityPreset, optionsErr := resolveVideoOutputOptions(req.Options, engine.ErrorCodeVideoValidation)
@@ -112,17 +112,17 @@ func (t *ConvertTool) Plan(ctx context.Context, req models.JobRequestV1) (models
 	}
 
 	used := reserveInputPaths(req.InputPaths)
-	outputs := make([]models.PlannedOutputV1, 0, len(req.InputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(req.InputPaths))
 	warnings := make([]string, 0, len(req.InputPaths))
 
 	for _, rawInputPath := range req.InputPaths {
 		inputPath := strings.TrimSpace(rawInputPath)
 		if inputPath == "" {
-			return planFailure(plan, &models.JobErrorV1{Code: engine.ErrorCodeVideoValidation, Message: "inputPaths must not contain empty values"})
+			return planFailure(plan, &models.JobError{Code: engine.ErrorCodeVideoValidation, Message: "inputPaths must not contain empty values"})
 		}
 
-		var planned models.PlannedOutputV1
-		var planErr *models.JobErrorV1
+		var planned models.PlannedOutput
+		var planErr *models.JobError
 		if explicitOutput != "" {
 			planned, planErr = planExplicitConvertOutput(inputPath, explicitOutput, targetFormat, qualityPreset, videoOptions)
 		} else {
@@ -161,7 +161,7 @@ func (t *ConvertTool) Plan(ctx context.Context, req models.JobRequestV1) (models
 	return plan, nil
 }
 
-func (t *ConvertTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ConvertTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return videoPlanFailureItem(firstInputPath(req.InputPaths), firstPlannedOutputPath(plan), planErr), planErr
@@ -174,13 +174,13 @@ func (t *ConvertTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1
 
 	jobErr := execErr
 	if jobErr == nil {
-		jobErr = &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: "video convert execution returned no result"}
+		jobErr = &models.JobError{Code: "EXECUTION_ERROR", Message: "video convert execution returned no result"}
 	}
 
 	return videoPlanFailureItem(firstInputPath(req.InputPaths), firstPlannedOutputPath(plan), jobErr), jobErr
 }
 
-func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return nil, planErr
@@ -193,15 +193,15 @@ func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1,
 // sequential because ffmpeg already uses every core and the external class holds
 // a single slot. A reduced retry plan only processes its own outputs, and the
 // result keeps plan order with per-item failures isolated.
-func (t *ConvertTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
-	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
+func (t *ConvertTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
+	items := make([]models.JobResultItem, 0, len(plan.Outputs))
 	reportProgress := strings.TrimSpace(req.Mode) == "batch" && onProgress != nil
-	var firstErr *models.JobErrorV1
+	var firstErr *models.JobError
 
 	for index, planned := range plan.Outputs {
 		select {
 		case <-ctx.Done():
-			cancelErr := &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
+			cancelErr := &models.JobError{Code: "CANCELED", Message: ctx.Err().Error()}
 			return items, cancelErr
 		default:
 		}
@@ -214,11 +214,11 @@ func (t *ConvertTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, 
 			}
 			items = append(items, videoPlanFailureItem(convertReq.InputPath, convertReq.OutputPath, jobErr))
 		} else {
-			items = append(items, models.JobResultItemV1{InputPath: convertReq.InputPath, OutputPath: convertReq.OutputPath, Outputs: []string{convertReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video conversion successful"})
+			items = append(items, models.JobResultItem{InputPath: convertReq.InputPath, OutputPath: convertReq.OutputPath, Outputs: []string{convertReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video conversion successful"})
 		}
 
 		if reportProgress {
-			onProgress(models.JobProgressV1{Current: index + 1, Total: len(plan.Outputs), Stage: "running", Message: fmt.Sprintf("processed %d/%d", index+1, len(plan.Outputs))})
+			onProgress(models.JobProgress{Current: index + 1, Total: len(plan.Outputs), Stage: "running", Message: fmt.Sprintf("processed %d/%d", index+1, len(plan.Outputs))})
 		}
 	}
 
@@ -239,14 +239,14 @@ type convertVideoOptions struct {
 
 // resolveConvertVideoOptions parses the optional resolution/bitrate/audio
 // controls, applying defaults for omitted values.
-func resolveConvertVideoOptions(options map[string]any, validationCode string) (convertVideoOptions, *models.JobErrorV1) {
+func resolveConvertVideoOptions(options map[string]any, validationCode string) (convertVideoOptions, *models.JobError) {
 	resolution := strings.ToLower(optionString(options, "resolution"))
 	switch resolution {
 	case "":
 		resolution = engine.ResolutionOriginal
 	case engine.ResolutionOriginal, engine.Resolution1080p, engine.Resolution720p, engine.Resolution480p:
 	default:
-		return convertVideoOptions{}, &models.JobErrorV1{Code: validationCode, Message: "resolution must be original, 1080p, 720p, or 480p"}
+		return convertVideoOptions{}, &models.JobError{Code: validationCode, Message: "resolution must be original, 1080p, 720p, or 480p"}
 	}
 
 	bitrateKbps, bitrateErr := videoOptionInt(options, "bitrateKbps", validationCode)
@@ -254,7 +254,7 @@ func resolveConvertVideoOptions(options map[string]any, validationCode string) (
 		return convertVideoOptions{}, bitrateErr
 	}
 	if bitrateKbps < 0 {
-		return convertVideoOptions{}, &models.JobErrorV1{Code: validationCode, Message: "bitrateKbps must be >= 0"}
+		return convertVideoOptions{}, &models.JobError{Code: validationCode, Message: "bitrateKbps must be >= 0"}
 	}
 
 	removeAudio, audioErr := videoOptionBool(options, "removeAudio", validationCode)
@@ -265,8 +265,8 @@ func resolveConvertVideoOptions(options map[string]any, validationCode string) (
 	return convertVideoOptions{resolution: resolution, bitrateKbps: bitrateKbps, removeAudio: removeAudio}, nil
 }
 
-func planExplicitConvertOutput(inputPath, outputPath, targetFormat, qualityPreset string, videoOptions convertVideoOptions) (models.PlannedOutputV1, *models.JobErrorV1) {
-	planned := models.PlannedOutputV1{
+func planExplicitConvertOutput(inputPath, outputPath, targetFormat, qualityPreset string, videoOptions convertVideoOptions) (models.PlannedOutput, *models.JobError) {
+	planned := models.PlannedOutput{
 		InputPath:  strings.TrimSpace(inputPath),
 		OutputPath: filepath.Clean(strings.TrimSpace(outputPath)),
 		OutputKind: videoOutputKindFile,
@@ -289,7 +289,7 @@ func planExplicitConvertOutput(inputPath, outputPath, targetFormat, qualityPrese
 	return planned, mapVideoError(validationErr)
 }
 
-func convertRequestFromPlannedOutput(planned models.PlannedOutputV1, effectiveOptions map[string]any) engine.ConvertRequest {
+func convertRequestFromPlannedOutput(planned models.PlannedOutput, effectiveOptions map[string]any) engine.ConvertRequest {
 	bitrateKbps, _ := effectiveOptions["bitrateKbps"].(int)
 	removeAudio, _ := effectiveOptions["removeAudio"].(bool)
 	resolution := optionString(effectiveOptions, "resolution")
@@ -315,14 +315,14 @@ func videoConvertPlanMessage(count int) string {
 	return fmt.Sprintf("Ready to convert %d videos.", count)
 }
 
-func mapVideoError(err error) *models.JobErrorV1 {
+func mapVideoError(err error) *models.JobError {
 	if err == nil {
 		return nil
 	}
 
 	var videoErr *engine.VideoError
 	if !errors.As(err, &videoErr) {
-		return &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
+		return &models.JobError{Code: "EXECUTION_ERROR", Message: err.Error()}
 	}
 	if videoErr == nil {
 		// A typed nil *VideoError wrapped in an error interface is a success.
@@ -330,10 +330,10 @@ func mapVideoError(err error) *models.JobErrorV1 {
 	}
 
 	if videoErr.Code == engine.ErrorCodeRuntimeFFmpegNotFound || videoErr.Code == engine.ErrorCodeRuntimeFFprobeNotFound {
-		return &models.JobErrorV1{Code: engine.ErrorCodeRuntimeUnavailable, Message: "ffmpeg/ffprobe runtime is unavailable"}
+		return &models.JobError{Code: engine.ErrorCodeRuntimeUnavailable, Message: "ffmpeg/ffprobe runtime is unavailable"}
 	}
 
-	return &models.JobErrorV1{Code: videoErr.Code, DetailCode: videoErr.Code, Message: videoErr.Message}
+	return &models.JobError{Code: videoErr.Code, DetailCode: videoErr.Code, Message: videoErr.Message}
 }
 
 func optionString(options map[string]any, key string) string {

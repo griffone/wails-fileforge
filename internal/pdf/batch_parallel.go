@@ -28,12 +28,12 @@ func pdfBatchWorkerCount() int {
 // callers never observe out-of-order counters.
 type pdfBatchProgress struct {
 	total      int
-	onProgress func(models.JobProgressV1)
+	onProgress func(models.JobProgress)
 	completed  int
 	mu         sync.Mutex
 }
 
-func newPDFBatchProgress(total int, onProgress func(models.JobProgressV1)) *pdfBatchProgress {
+func newPDFBatchProgress(total int, onProgress func(models.JobProgress)) *pdfBatchProgress {
 	if onProgress == nil {
 		return nil
 	}
@@ -50,7 +50,7 @@ func (p *pdfBatchProgress) itemCompleted() {
 	defer p.mu.Unlock()
 
 	p.completed++
-	p.onProgress(models.JobProgressV1{
+	p.onProgress(models.JobProgress{
 		Current: p.completed,
 		Total:   p.total,
 		Stage:   "running",
@@ -60,8 +60,8 @@ func (p *pdfBatchProgress) itemCompleted() {
 
 // completedPDFBatchItems returns the items written by index, in input order,
 // dropping entries whose worker never ran after cancellation.
-func completedPDFBatchItems(items []models.JobResultItemV1, completed []bool) []models.JobResultItemV1 {
-	collected := make([]models.JobResultItemV1, 0, len(items))
+func completedPDFBatchItems(items []models.JobResultItem, completed []bool) []models.JobResultItem {
+	collected := make([]models.JobResultItem, 0, len(items))
 	for index, item := range items {
 		if completed[index] {
 			collected = append(collected, item)

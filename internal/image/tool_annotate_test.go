@@ -11,9 +11,9 @@ import (
 	"fileforge-desktop/internal/models"
 )
 
-func annotateTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDImageAnnotateV1,
+func annotateTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDImageAnnotate,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,
@@ -117,15 +117,15 @@ func TestAnnotatePlanSingleChosenOutputDir(t *testing.T) {
 
 	cases := []struct {
 		name  string
-		apply func(request *models.JobRequestV1)
+		apply func(request *models.JobRequest)
 	}{
 		{
 			name:  "request output dir",
-			apply: func(request *models.JobRequestV1) { request.OutputDir = chosen },
+			apply: func(request *models.JobRequest) { request.OutputDir = chosen },
 		},
 		{
 			name:  "option output dir",
-			apply: func(request *models.JobRequestV1) { request.Options["outputDir"] = chosen },
+			apply: func(request *models.JobRequest) { request.Options["outputDir"] = chosen },
 		},
 	}
 
@@ -365,8 +365,8 @@ func TestAnnotateExecutionUsesPlannedBatchPaths(t *testing.T) {
 		t.Fatalf("expected batch plan to succeed, got %v", planErr)
 	}
 
-	var progress []models.JobProgressV1
-	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgressV1) {
+	var progress []models.JobProgress
+	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgress) {
 		progress = append(progress, event)
 	})
 	if execErr != nil {
@@ -406,7 +406,7 @@ func TestAnnotateExecutePlanHonorsResolvedPlan(t *testing.T) {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
 
-	operations, ok := plan.EffectiveOptions["operations"].([]models.ImageAnnotateOperationV1)
+	operations, ok := plan.EffectiveOptions["operations"].([]models.ImageAnnotateOperation)
 	if !ok || len(operations) != 1 {
 		t.Fatalf("expected the resolved operations in the effective options, got %#v", plan.EffectiveOptions["operations"])
 	}
@@ -501,7 +501,7 @@ func TestAnnotateExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
 	}
 
 	var progress []int
-	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgressV1) {
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgress) {
 		progress = append(progress, event.Current)
 	})
 	if execErr == nil {

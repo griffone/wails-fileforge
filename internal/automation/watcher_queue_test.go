@@ -20,7 +20,7 @@ func TestWatcherRunTimeoutCancelsRecipeJob(t *testing.T) {
 	service.runTimeout = 30 * time.Millisecond
 
 	watch := t.TempDir()
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -64,7 +64,7 @@ func TestWatcherBurstProcessesFilesSequentially(t *testing.T) {
 	service, _ := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	saveTestRule(t, service, models.AutomationRuleV1{
+	saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -100,7 +100,7 @@ func TestWatcherBurstProcessesFilesSequentially(t *testing.T) {
 // and drops new paths without blocking the fsnotify loop.
 func TestWatcherQueueDropsWhenFull(t *testing.T) {
 	service, _ := newTestService(t, newFakeRecipeRunner(), nil)
-	rule := models.AutomationRuleV1{
+	rule := models.AutomationRule{
 		ID:       "rule_queue",
 		Name:     "Queue",
 		Enabled:  true,
@@ -154,7 +154,7 @@ type stopAwareRunner struct {
 	exited  chan struct{}
 }
 
-func (r *stopAwareRunner) Run(ctx context.Context, req models.RecipeRequestV1) models.RunRecipeResponseV1 {
+func (r *stopAwareRunner) Run(ctx context.Context, req models.RecipeRequest) models.RunRecipeResponse {
 	if r.calls.Add(1) == 1 {
 		select {
 		case r.entered <- struct{}{}:
@@ -167,7 +167,7 @@ func (r *stopAwareRunner) Run(ctx context.Context, req models.RecipeRequestV1) m
 		default:
 		}
 
-		return models.RunRecipeResponseV1{
+		return models.RunRecipeResponse{
 			Success: true,
 			Message: "recipe submitted",
 			JobID:   "job_stop_aware",
@@ -190,7 +190,7 @@ func TestStartRuleWaitsForDeadWatcherBeforeReplacement(t *testing.T) {
 	service, _ := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,

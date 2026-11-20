@@ -125,9 +125,9 @@ func writePlainDOCXFixture(t *testing.T, path string) {
 	writeDOCXFixture(t, path, "<w:settings/>")
 }
 
-func docxPlanRequest(mode string, inputPaths []string, outputDir string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDDocDOCXToPDFV1,
+func docxPlanRequest(mode string, inputPaths []string, outputDir string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDDocDOCXToPDF,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		OutputDir:  outputDir,
@@ -868,8 +868,8 @@ func TestDOCXExecutePlanBatchRunsInParallelAndPreservesPlanOrder(t *testing.T) {
 	defer cancel()
 
 	type batchOutcome struct {
-		items []models.JobResultItemV1
-		err   *models.JobErrorV1
+		items []models.JobResultItem
+		err   *models.JobError
 	}
 	done := make(chan batchOutcome, 1)
 	go func() {

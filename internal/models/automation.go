@@ -1,9 +1,9 @@
 package models
 
-// AutomationRuleV1 is one watch-folder rule: a folder, an accepted input kind
+// AutomationRule is one watch-folder rule: a folder, an accepted input kind
 // and the recipe that runs for every arriving file. RuntimeStatus and
 // RuntimeReason are response-only dynamic state and are never persisted.
-type AutomationRuleV1 struct {
+type AutomationRule struct {
 	ID           string         `json:"id"`
 	Name         string         `json:"name"`
 	Enabled      bool           `json:"enabled"`
@@ -26,26 +26,26 @@ type AutomationRuleV1 struct {
 	RuntimeReason string `json:"runtimeReason,omitempty"`
 }
 
-// ListAutomationRulesResponseV1 lists every saved automation rule with its
+// ListAutomationRulesResponse lists every saved automation rule with its
 // current runtime state.
-type ListAutomationRulesResponseV1 struct {
-	Success bool               `json:"success"`
-	Message string             `json:"message"`
-	Rules   []AutomationRuleV1 `json:"rules"`
+type ListAutomationRulesResponse struct {
+	Success bool             `json:"success"`
+	Message string           `json:"message"`
+	Rules   []AutomationRule `json:"rules"`
 }
 
-// AutomationRuleActionResponseV1 is the result of a rule mutation. Rule is the
+// AutomationRuleActionResponse is the result of a rule mutation. Rule is the
 // saved rule with its runtime state when the mutation succeeded.
-type AutomationRuleActionResponseV1 struct {
-	Success bool              `json:"success"`
-	Message string            `json:"message"`
-	Rule    *AutomationRuleV1 `json:"rule,omitempty"`
-	Error   *JobErrorV1       `json:"error,omitempty"`
+type AutomationRuleActionResponse struct {
+	Success bool            `json:"success"`
+	Message string          `json:"message"`
+	Rule    *AutomationRule `json:"rule,omitempty"`
+	Error   *JobError       `json:"error,omitempty"`
 }
 
-// AutomationStatusResponseV1 is the compact automation summary shown on Home.
+// AutomationStatusResponse is the compact automation summary shown on Home.
 // The last-run fields mirror the most recently run rule.
-type AutomationStatusResponseV1 struct {
+type AutomationStatusResponse struct {
 	Success     bool   `json:"success"`
 	Message     string `json:"message"`
 	TotalRules  int    `json:"totalRules"`
@@ -56,9 +56,9 @@ type AutomationStatusResponseV1 struct {
 	LastFile    string `json:"lastFile,omitempty"`
 }
 
-// AutomationRunEventV1 is emitted on automation/run/v1 when a rule starts
+// AutomationRunEvent is emitted on automation/run/v1 when a rule starts
 // processing a file and when that run reaches a terminal state.
-type AutomationRunEventV1 struct {
+type AutomationRunEvent struct {
 	RuleID   string   `json:"ruleId"`
 	RuleName string   `json:"ruleName"`
 	FilePath string   `json:"filePath"`
@@ -68,10 +68,10 @@ type AutomationRunEventV1 struct {
 	At       int64    `json:"at"`
 }
 
-// AutomationRunRecordV1 is one terminal automation run kept in the local run
+// AutomationRunRecord is one terminal automation run kept in the local run
 // history. RuleName is captured at run time so the history survives rule
 // deletion.
-type AutomationRunRecordV1 struct {
+type AutomationRunRecord struct {
 	ID       string   `json:"id"`
 	RuleID   string   `json:"ruleId"`
 	RuleName string   `json:"ruleName"`
@@ -82,16 +82,16 @@ type AutomationRunRecordV1 struct {
 	At       int64    `json:"at"`
 }
 
-// ListAutomationRunsResponseV1 lists the persisted automation run history,
+// ListAutomationRunsResponse lists the persisted automation run history,
 // newest first.
-type ListAutomationRunsResponseV1 struct {
-	Success bool                    `json:"success"`
-	Message string                  `json:"message"`
-	Runs    []AutomationRunRecordV1 `json:"runs"`
+type ListAutomationRunsResponse struct {
+	Success bool                  `json:"success"`
+	Message string                `json:"message"`
+	Runs    []AutomationRunRecord `json:"runs"`
 }
 
-// AutomationRunsActionResponseV1 is the result of clearing the run history.
-type AutomationRunsActionResponseV1 struct {
+// AutomationRunsActionResponse is the result of clearing the run history.
+type AutomationRunsActionResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }

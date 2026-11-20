@@ -11,8 +11,8 @@ import (
 	"fileforge-desktop/internal/models"
 )
 
-func runRecord(id, ruleID, status string, at int64) models.AutomationRunRecordV1 {
-	return models.AutomationRunRecordV1{
+func runRecord(id, ruleID, status string, at int64) models.AutomationRunRecord {
+	return models.AutomationRunRecord{
 		ID:       id,
 		RuleID:   ruleID,
 		RuleName: "Rule " + ruleID,
@@ -57,7 +57,7 @@ func TestRunStoreGeneratesIDAndCapsOutputs(t *testing.T) {
 	for index := 0; index < 12; index++ {
 		outputs = append(outputs, "/tmp/out-"+string(rune('a'+index))+".txt")
 	}
-	store.Record(models.AutomationRunRecordV1{
+	store.Record(models.AutomationRunRecord{
 		RuleID:   " rule_1 ",
 		RuleName: " Inbox ",
 		FilePath: " /tmp/in.txt ",

@@ -15,9 +15,9 @@ import (
 	"fileforge-desktop/internal/pdf/engine"
 )
 
-func optimizeTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDPDFOptimizeV1,
+func optimizeTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDPDFOptimize,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,

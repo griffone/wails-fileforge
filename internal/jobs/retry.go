@@ -14,7 +14,7 @@ var retryBackoffSchedule = []time.Duration{
 	1000 * time.Millisecond,
 }
 
-func isRetryableError(toolID string, jobErr *models.JobErrorV1) bool {
+func isRetryableError(toolID string, jobErr *models.JobError) bool {
 	if jobErr == nil {
 		return false
 	}
@@ -72,7 +72,7 @@ func isRetryableError(toolID string, jobErr *models.JobErrorV1) bool {
 	return false
 }
 
-func retryMetadata(attempts int, jobErr *models.JobErrorV1) map[string]any {
+func retryMetadata(attempts int, jobErr *models.JobError) map[string]any {
 	if attempts <= 1 {
 		return nil
 	}

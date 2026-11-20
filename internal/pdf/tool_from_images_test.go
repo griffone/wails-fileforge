@@ -20,9 +20,9 @@ import (
 	"fileforge-desktop/internal/pdf/engine"
 )
 
-func imagesToolRequest(inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDPDFImagesV1,
+func imagesToolRequest(inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDPDFImages,
 		Mode:       "single",
 		InputPaths: inputPaths,
 		Options:    options,
@@ -63,7 +63,7 @@ func writeImagesToolImage(t *testing.T, path string) {
 	}
 }
 
-func imagesToolEffectiveSlots(t *testing.T, plan models.PlanJobResponseV1) []map[string]any {
+func imagesToolEffectiveSlots(t *testing.T, plan models.PlanJobResponse) []map[string]any {
 	t.Helper()
 
 	slots, ok := plan.EffectiveOptions["slots"].([]map[string]any)
@@ -87,7 +87,7 @@ func TestImagesToolManifest(t *testing.T) {
 	if manifest.Description != "Place several images on a page grid and export one PDF." {
 		t.Fatalf("unexpected description: %q", manifest.Description)
 	}
-	if manifest.Domain != "pdf" || manifest.Version != "v1" {
+	if manifest.Domain != "pdf" || manifest.Version != "1.0" {
 		t.Fatalf("unexpected domain/version: %q/%q", manifest.Domain, manifest.Version)
 	}
 	if !manifest.SupportsSingle || manifest.SupportsBatch {
@@ -105,7 +105,7 @@ func TestImagesToolManifest(t *testing.T) {
 	if got := strings.Join(manifest.Tags, ","); got != "pdf,images,layout,grid,album" {
 		t.Fatalf("unexpected tags: %q", got)
 	}
-	if tool.Capability() != ToolIDPDFImagesV1 {
+	if tool.Capability() != ToolIDPDFImages {
 		t.Fatalf("expected the capability to be the tool ID, got %q", tool.Capability())
 	}
 
@@ -370,7 +370,7 @@ func TestImagesToolPlanErrors(t *testing.T) {
 
 	cases := []struct {
 		name           string
-		req            models.JobRequestV1
+		req            models.JobRequest
 		wantCode       string
 		wantDetailCode string
 	}{
@@ -593,8 +593,8 @@ func TestImagesToolExecuteSingleWithProgress(t *testing.T) {
 	}
 
 	tool := NewImagesToPDFTool()
-	progress := make([]models.JobProgressV1, 0, len(inputs))
-	item, jobErr := tool.ExecuteSingleWithProgress(context.Background(), imagesToolRequest(inputs, nil), func(update models.JobProgressV1) {
+	progress := make([]models.JobProgress, 0, len(inputs))
+	item, jobErr := tool.ExecuteSingleWithProgress(context.Background(), imagesToolRequest(inputs, nil), func(update models.JobProgress) {
 		progress = append(progress, update)
 	})
 	if jobErr != nil {

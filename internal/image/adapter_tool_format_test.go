@@ -346,8 +346,8 @@ func TestValidateAcceptsAutoFormatForBatch(t *testing.T) {
 	writePlanFixture(t, second)
 
 	adapter := NewImageToolAdapter(nil)
-	request := models.JobRequestV1{
-		ToolID:     ToolIDImageConvertV1,
+	request := models.JobRequest{
+		ToolID:     ToolIDImageConvert,
 		Mode:       "batch",
 		InputPaths: []string{first, second},
 		Options:    map[string]any{"format": "auto"},

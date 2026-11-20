@@ -27,13 +27,13 @@ func TestConvertExecutePlanHonorsMutatedOutputPath(t *testing.T) {
 	mutated := filepath.Join(dir, "custom-target.mp4")
 
 	tool := NewConvertToolWithDeps(stubRuntimeProbe{}, &stubCommandRunner{})
-	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil))
+	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, nil))
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
 	}
 	plan.Outputs[0].OutputPath = mutated
 
-	items, execErr := tool.ExecutePlan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil), plan, nil)
+	items, execErr := tool.ExecutePlan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, nil), plan, nil)
 	if execErr != nil {
 		t.Fatalf("unexpected execution error: %v", execErr)
 	}
@@ -61,14 +61,14 @@ func TestConvertExecutePlanProcessesOnlyPlannedOutputs(t *testing.T) {
 
 	runner := &stubCommandRunner{}
 	tool := NewConvertToolWithDeps(stubRuntimeProbe{}, runner)
-	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "batch", inputs, nil))
+	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "batch", inputs, nil))
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
 	}
 
 	subset := plan
-	subset.Outputs = []models.PlannedOutputV1{plan.Outputs[2], plan.Outputs[0]}
-	items, execErr := tool.ExecutePlan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "batch", inputs, nil), subset, nil)
+	subset.Outputs = []models.PlannedOutput{plan.Outputs[2], plan.Outputs[0]}
+	items, execErr := tool.ExecutePlan(context.Background(), videoToolRequest(ToolIDVideoConvert, "batch", inputs, nil), subset, nil)
 	if execErr != nil {
 		t.Fatalf("unexpected execution error: %v", execErr)
 	}
@@ -107,12 +107,12 @@ func TestConvertExecutePlanIsolatesItemFailures(t *testing.T) {
 	}}
 
 	tool := NewConvertToolWithDeps(stubRuntimeProbe{}, runner)
-	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "batch", []string{first, second}, nil))
+	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "batch", []string{first, second}, nil))
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
 	}
 
-	items, execErr := tool.ExecutePlan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "batch", []string{first, second}, nil), plan, nil)
+	items, execErr := tool.ExecutePlan(context.Background(), videoToolRequest(ToolIDVideoConvert, "batch", []string{first, second}, nil), plan, nil)
 	if execErr == nil {
 		t.Fatal("expected the batch error to be reported")
 	}
@@ -141,7 +141,7 @@ func TestTrimExecutePlanHonorsMutatedOutputPath(t *testing.T) {
 	stubVideoDuration(t, 0, false)
 
 	tool := NewTrimToolWithDeps(stubRuntimeProbe{}, &stubCommandRunner{})
-	req := videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, trimOptions(1, 5))
+	req := videoToolRequest(ToolIDVideoTrim, "single", []string{input}, trimOptions(1, 5))
 	plan, planErr := tool.Plan(context.Background(), req)
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
@@ -174,14 +174,14 @@ func TestTrimExecutePlanProcessesOnlyPlannedOutputsInOrder(t *testing.T) {
 
 	runner := &stubCommandRunner{}
 	tool := NewTrimToolWithDeps(stubRuntimeProbe{}, runner)
-	req := videoToolRequest(ToolIDVideoTrimV1, "batch", inputs, trimOptions(0, 2))
+	req := videoToolRequest(ToolIDVideoTrim, "batch", inputs, trimOptions(0, 2))
 	plan, planErr := tool.Plan(context.Background(), req)
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
 	}
 
 	subset := plan
-	subset.Outputs = []models.PlannedOutputV1{plan.Outputs[1]}
+	subset.Outputs = []models.PlannedOutput{plan.Outputs[1]}
 	items, execErr := tool.ExecutePlan(context.Background(), req, subset, nil)
 	if execErr != nil {
 		t.Fatalf("unexpected execution error: %v", execErr)
@@ -216,7 +216,7 @@ func TestTrimExecutePlanIsolatesItemFailures(t *testing.T) {
 	}}
 
 	tool := NewTrimToolWithDeps(stubRuntimeProbe{}, runner)
-	req := videoToolRequest(ToolIDVideoTrimV1, "batch", []string{first, second}, trimOptions(0, 2))
+	req := videoToolRequest(ToolIDVideoTrim, "batch", []string{first, second}, trimOptions(0, 2))
 	plan, planErr := tool.Plan(context.Background(), req)
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
@@ -249,7 +249,7 @@ func TestMergeExecutePlanHonorsMutatedOutputPath(t *testing.T) {
 	mutated := filepath.Join(dir, "custom-merge.mp4")
 
 	tool := NewMergeToolWithDeps(stubRuntimeProbe{}, &stubCommandRunner{})
-	req := videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil)
+	req := videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, nil)
 	plan, planErr := tool.Plan(context.Background(), req)
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
@@ -277,7 +277,7 @@ func TestTranscribeExecutePlanHonorsMutatedOutputPath(t *testing.T) {
 
 	runner := newFakeToolTranscribeRunner()
 	tool := NewTranscribeToolWithDeps(runner, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-	req := videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, map[string]any{"formats": []string{"srt"}})
+	req := videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, map[string]any{"formats": []string{"srt"}})
 	plan, planErr := tool.Plan(context.Background(), req)
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
@@ -311,7 +311,7 @@ func TestTranscribeExecutePlanProcessesOnlyPlannedOutputs(t *testing.T) {
 
 	runner := newFakeToolTranscribeRunner()
 	tool := NewTranscribeToolWithDeps(runner, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-	req := videoToolRequest(ToolIDVideoTranscribeV1, "batch", []string{firstInput, secondInput}, nil)
+	req := videoToolRequest(ToolIDVideoTranscribe, "batch", []string{firstInput, secondInput}, nil)
 	req.OutputDir = outputDir
 	plan, planErr := tool.Plan(context.Background(), req)
 	if planErr != nil {
@@ -322,7 +322,7 @@ func TestTranscribeExecutePlanProcessesOnlyPlannedOutputs(t *testing.T) {
 	}
 
 	subset := plan
-	subset.Outputs = append([]models.PlannedOutputV1(nil), plan.Outputs[:3]...)
+	subset.Outputs = append([]models.PlannedOutput(nil), plan.Outputs[:3]...)
 	items, execErr := tool.ExecutePlan(context.Background(), req, subset, nil)
 	if execErr != nil {
 		t.Fatalf("unexpected execution error: %v", execErr)
@@ -368,7 +368,7 @@ func TestTranscribeExecutePlanIsolatesItemFailures(t *testing.T) {
 	runner := newFakeToolTranscribeRunner()
 	runner.failOnWhisperCall = 2
 	tool := NewTranscribeToolWithDeps(runner, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-	req := videoToolRequest(ToolIDVideoTranscribeV1, "batch", []string{firstInput, secondInput}, nil)
+	req := videoToolRequest(ToolIDVideoTranscribe, "batch", []string{firstInput, secondInput}, nil)
 	req.OutputDir = outputDir
 	plan, planErr := tool.Plan(context.Background(), req)
 	if planErr != nil {

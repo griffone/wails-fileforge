@@ -48,7 +48,7 @@ func fingerprintInfo(info os.FileInfo) fileFingerprint {
 // ruleWatcher owns one fsnotify watcher for one enabled rule.
 type ruleWatcher struct {
 	service *Service
-	rule    models.AutomationRuleV1
+	rule    models.AutomationRule
 
 	extensions map[string]struct{}
 	// excludeOutputDir is true when the rule writes into a subfolder of the
@@ -75,7 +75,7 @@ type ruleWatcher struct {
 	queue chan string
 }
 
-func newRuleWatcher(service *Service, rule models.AutomationRuleV1, parentCtx context.Context) (*ruleWatcher, error) {
+func newRuleWatcher(service *Service, rule models.AutomationRule, parentCtx context.Context) (*ruleWatcher, error) {
 	extensions := make(map[string]struct{}, len(rule.Extensions))
 	for _, extension := range rule.Extensions {
 		if normalized := normalizeExtension(extension); normalized != "" {
@@ -461,7 +461,7 @@ func (w *ruleWatcher) runRecipe(path string) {
 		return
 	}
 
-	request := models.RecipeRequestV1{
+	request := models.RecipeRequest{
 		RecipeID:   w.rule.RecipeID,
 		InputPaths: []string{path},
 		OutputDir:  w.rule.OutputDir,
@@ -480,7 +480,7 @@ func (w *ruleWatcher) runRecipe(path string) {
 	}
 
 	w.addProduced(plannedOutputPaths(plan))
-	w.service.emitRun(models.AutomationRunEventV1{
+	w.service.emitRun(models.AutomationRunEvent{
 		RuleID:   w.rule.ID,
 		RuleName: w.rule.Name,
 		FilePath: path,
@@ -533,7 +533,7 @@ func (w *ruleWatcher) runRecipe(path string) {
 	w.finish(path, status, message, outputs)
 }
 
-func (w *ruleWatcher) waitForTerminal(jobID string) (*models.RecipeResultV1, error) {
+func (w *ruleWatcher) waitForTerminal(jobID string) (*models.RecipeResult, error) {
 	timeout := w.service.runTimeout
 	if timeout <= 0 {
 		timeout = defaultRunTimeout
@@ -593,7 +593,7 @@ func (w *ruleWatcher) cancelRecipeRun(jobID string) {
 
 func (w *ruleWatcher) finish(path, status, message string, outputs []string) {
 	w.service.recordRun(w.rule.ID, status, message, path, outputs)
-	w.service.emitRun(models.AutomationRunEventV1{
+	w.service.emitRun(models.AutomationRunEvent{
 		RuleID:   w.rule.ID,
 		RuleName: w.rule.Name,
 		FilePath: path,
@@ -651,7 +651,7 @@ func (w *ruleWatcher) addProduced(paths []string) {
 	}
 }
 
-func plannedOutputPaths(plan models.RecipePlanResponseV1) []string {
+func plannedOutputPaths(plan models.RecipePlanResponse) []string {
 	paths := make([]string, 0, len(plan.Outputs))
 	for _, output := range plan.Outputs {
 		if trimmed := strings.TrimSpace(output.OutputPath); trimmed != "" {

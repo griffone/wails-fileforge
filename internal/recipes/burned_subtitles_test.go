@@ -90,7 +90,7 @@ func TestPlanBurnedSubtitlesPlansVideoAndSidecar(t *testing.T) {
 	input := filepath.Join(dir, "talk.mp4")
 	writeRecipeVideo(t, input, 2, true)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDBurnedSubtitles,
 		InputPaths: []string{input},
 	})
@@ -150,7 +150,7 @@ func TestPlanBurnedSubtitlesWarnsAboutAudioReEncode(t *testing.T) {
 	input := filepath.Join(dir, "talk.mov")
 	writeBurnedSubtitlesPCMVideo(t, input)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDBurnedSubtitles,
 		InputPaths: []string{input},
 	})
@@ -169,7 +169,7 @@ func TestPlanBurnedSubtitlesRejectsVideoWithoutAudio(t *testing.T) {
 	input := filepath.Join(dir, "silent.mp4")
 	writeRecipeVideo(t, input, 1, false)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDBurnedSubtitles,
 		InputPaths: []string{input},
 	})
@@ -211,7 +211,7 @@ func TestPlanBurnedSubtitlesRejectsInvalidRequests(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			plan := service.Plan(models.RecipeRequestV1{
+			plan := service.Plan(models.RecipeRequest{
 				RecipeID:   RecipeIDBurnedSubtitles,
 				InputPaths: testCase.inputs,
 			})
@@ -245,7 +245,7 @@ func TestRunBurnedSubtitlesProducesVideoAndSidecar(t *testing.T) {
 	input := filepath.Join(dir, "talk.mp4")
 	writeRecipeVideo(t, input, 2, true)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDBurnedSubtitles,
 		InputPaths: []string{input},
 	})
@@ -332,7 +332,7 @@ func TestRunBurnedSubtitlesProducesVideoAndSidecar(t *testing.T) {
 		}
 	}
 
-	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.JobID == run.JobID && event.Status == models.JobStatusSuccess && event.Percent == burnedSubtitlesProgressEnd
 	})
 	if terminalEvent.RecipeID != RecipeIDBurnedSubtitles {
@@ -392,7 +392,7 @@ func TestRunBurnedSubtitlesBurnFailureRemovesCreatedFiles(t *testing.T) {
 	input := filepath.Join(dir, "talk.mp4")
 	writeRecipeVideo(t, input, 2, true)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDBurnedSubtitles,
 		InputPaths: []string{input},
 	})
@@ -458,7 +458,7 @@ func TestRunBurnedSubtitlesCancelRemovesPartialOutputs(t *testing.T) {
 	input := filepath.Join(dir, "talk.mp4")
 	writeRecipeVideo(t, input, 2, true)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDBurnedSubtitles,
 		InputPaths: []string{input},
 	})
@@ -487,7 +487,7 @@ func TestRunBurnedSubtitlesCancelRemovesPartialOutputs(t *testing.T) {
 	if len(result.Outputs) != 0 {
 		t.Fatalf("expected no outputs for a cancelled run, got %+v", result.Outputs)
 	}
-	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.Status == models.JobStatusCancelled
 	})
 
@@ -514,7 +514,7 @@ func TestRunBurnedSubtitlesEmptyTranscriptionFailsWithoutBurning(t *testing.T) {
 	input := filepath.Join(dir, "talk.mp4")
 	writeRecipeVideo(t, input, 2, true)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDBurnedSubtitles,
 		InputPaths: []string{input},
 	})
@@ -565,7 +565,7 @@ func TestRunBurnedSubtitlesIntegrationRendersFrames(t *testing.T) {
 	input := filepath.Join(dir, "lecture.mp4")
 	writeBurnedSubtitlesFixture(t, input)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDBurnedSubtitles,
 		InputPaths: []string{input},
 	})
@@ -764,31 +764,31 @@ type fakeBurnedSubtitlesTranscribeTool struct {
 	content string
 }
 
-func (t *fakeBurnedSubtitlesTranscribeTool) ID() string { return video.ToolIDVideoTranscribeV1 }
+func (t *fakeBurnedSubtitlesTranscribeTool) ID() string { return video.ToolIDVideoTranscribe }
 
 func (t *fakeBurnedSubtitlesTranscribeTool) Capability() string { return t.ID() }
 
-func (t *fakeBurnedSubtitlesTranscribeTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{ToolID: t.ID(), Name: "Fake Transcribe"}
+func (t *fakeBurnedSubtitlesTranscribeTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{ToolID: t.ID(), Name: "Fake Transcribe"}
 }
 
-func (t *fakeBurnedSubtitlesTranscribeTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *fakeBurnedSubtitlesTranscribeTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *fakeBurnedSubtitlesTranscribeTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *fakeBurnedSubtitlesTranscribeTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return nil
 }
 
-func (t *fakeBurnedSubtitlesTranscribeTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *fakeBurnedSubtitlesTranscribeTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	inputPath := firstRequestInput(req)
 	stem := strings.TrimSpace(strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath)))
 	outputPath := filepath.Join(req.OutputDir, stem+".srt")
 
-	return models.PlanJobResponseV1{
+	return models.PlanJobResponse{
 		Success: true,
 		Message: "ready to transcribe",
-		Outputs: []models.PlannedOutputV1{{
+		Outputs: []models.PlannedOutput{{
 			InputPath:   inputPath,
 			OutputPath:  outputPath,
 			OutputKind:  "file",
@@ -797,28 +797,28 @@ func (t *fakeBurnedSubtitlesTranscribeTool) Plan(_ context.Context, req models.J
 	}, nil
 }
 
-func (t *fakeBurnedSubtitlesTranscribeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *fakeBurnedSubtitlesTranscribeTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
-func (t *fakeBurnedSubtitlesTranscribeTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *fakeBurnedSubtitlesTranscribeTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 25, Total: 100, Stage: "transcribe", Message: "Recognizing speech."})
-		onProgress(models.JobProgressV1{Current: 75, Total: 100, Stage: "transcribe", Message: "Almost there."})
+		onProgress(models.JobProgress{Current: 25, Total: 100, Stage: "transcribe", Message: "Recognizing speech."})
+		onProgress(models.JobProgress{Current: 75, Total: 100, Stage: "transcribe", Message: "Almost there."})
 	}
 
 	plan, jobErr := t.Plan(ctx, req)
 	if jobErr != nil {
-		return models.JobResultItemV1{InputPath: firstRequestInput(req), Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
+		return models.JobResultItem{InputPath: firstRequestInput(req), Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
 	}
 	outputPath := plan.Outputs[0].OutputPath
 
 	if writeErr := os.WriteFile(outputPath, []byte(t.content), 0o644); writeErr != nil {
 		jobErr := models.NewCanonicalJobError("RECIPE_TEST_TRANSCRIBE_FAILED", "could not write the test subtitles", nil)
-		return models.JobResultItemV1{InputPath: firstRequestInput(req), Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
+		return models.JobResultItem{InputPath: firstRequestInput(req), Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:   firstRequestInput(req),
 		OutputPath:  outputPath,
 		Outputs:     []string{outputPath},
@@ -875,7 +875,7 @@ func writeBurnedSubtitlesFixture(t *testing.T, path string) {
 }
 
 // findBurnedSubtitlesCheck returns the recipe check attached to path.
-func findBurnedSubtitlesCheck(t *testing.T, result models.RecipeResultV1, path, key string) models.VerificationCheckV1 {
+func findBurnedSubtitlesCheck(t *testing.T, result models.RecipeResult, path, key string) models.VerificationCheck {
 	t.Helper()
 
 	if result.Verification != nil {
@@ -892,5 +892,5 @@ func findBurnedSubtitlesCheck(t *testing.T, result models.RecipeResultV1, path, 
 	}
 
 	t.Fatalf("expected check %q on %s, got %+v", key, path, result.Verification)
-	return models.VerificationCheckV1{}
+	return models.VerificationCheck{}
 }

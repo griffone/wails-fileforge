@@ -22,8 +22,8 @@ func TestSaveRuleValidation(t *testing.T) {
 		t.Fatalf("write watch file: %v", err)
 	}
 
-	base := func() models.AutomationRuleV1 {
-		return models.AutomationRuleV1{
+	base := func() models.AutomationRule {
+		return models.AutomationRule{
 			Name:     "Docs",
 			WatchDir: watch,
 			RecipeID: testRecipeID,
@@ -32,26 +32,26 @@ func TestSaveRuleValidation(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		mutate func(*models.AutomationRuleV1)
+		mutate func(*models.AutomationRule)
 		want   bool
 	}{
-		{name: "valid minimal rule", mutate: func(*models.AutomationRuleV1) {}, want: true},
-		{name: "missing name", mutate: func(rule *models.AutomationRuleV1) { rule.Name = "   " }, want: false},
-		{name: "missing watch dir", mutate: func(rule *models.AutomationRuleV1) { rule.WatchDir = "" }, want: false},
-		{name: "watch dir does not exist", mutate: func(rule *models.AutomationRuleV1) {
+		{name: "valid minimal rule", mutate: func(*models.AutomationRule) {}, want: true},
+		{name: "missing name", mutate: func(rule *models.AutomationRule) { rule.Name = "   " }, want: false},
+		{name: "missing watch dir", mutate: func(rule *models.AutomationRule) { rule.WatchDir = "" }, want: false},
+		{name: "watch dir does not exist", mutate: func(rule *models.AutomationRule) {
 			rule.WatchDir = filepath.Join(watch, "missing")
 		}, want: false},
-		{name: "watch path is a file", mutate: func(rule *models.AutomationRuleV1) { rule.WatchDir = watchFile }, want: false},
-		{name: "unknown recipe", mutate: func(rule *models.AutomationRuleV1) { rule.RecipeID = "recipe.unknown" }, want: false},
-		{name: "missing recipe", mutate: func(rule *models.AutomationRuleV1) { rule.RecipeID = "" }, want: false},
-		{name: "unsupported extension", mutate: func(rule *models.AutomationRuleV1) {
+		{name: "watch path is a file", mutate: func(rule *models.AutomationRule) { rule.WatchDir = watchFile }, want: false},
+		{name: "unknown recipe", mutate: func(rule *models.AutomationRule) { rule.RecipeID = "recipe.unknown" }, want: false},
+		{name: "missing recipe", mutate: func(rule *models.AutomationRule) { rule.RecipeID = "" }, want: false},
+		{name: "unsupported extension", mutate: func(rule *models.AutomationRule) {
 			rule.Extensions = []string{"txt", "png"}
 		}, want: false},
-		{name: "output dir does not exist", mutate: func(rule *models.AutomationRuleV1) {
+		{name: "output dir does not exist", mutate: func(rule *models.AutomationRule) {
 			rule.OutputDir = filepath.Join(output, "missing")
 		}, want: false},
-		{name: "output path is a file", mutate: func(rule *models.AutomationRuleV1) { rule.OutputDir = watchFile }, want: false},
-		{name: "valid explicit output dir", mutate: func(rule *models.AutomationRuleV1) { rule.OutputDir = output }, want: true},
+		{name: "output path is a file", mutate: func(rule *models.AutomationRule) { rule.OutputDir = watchFile }, want: false},
+		{name: "valid explicit output dir", mutate: func(rule *models.AutomationRule) { rule.OutputDir = output }, want: true},
 	}
 
 	for _, test := range tests {
@@ -84,7 +84,7 @@ func TestSaveRuleNormalizesAndPreservesTimestamps(t *testing.T) {
 	watch := t.TempDir()
 	output := t.TempDir()
 
-	saved := saveTestRule(t, service, models.AutomationRuleV1{
+	saved := saveTestRule(t, service, models.AutomationRule{
 		Name:       "  Inbox  ",
 		WatchDir:   watch + string(filepath.Separator) + ".",
 		RecipeID:   testRecipeID,
@@ -124,7 +124,7 @@ func TestSaveRuleNormalizesAndPreservesTimestamps(t *testing.T) {
 		t.Fatalf("unexpected edited rule: %+v", response.Rule)
 	}
 
-	missing := models.AutomationRuleV1{ID: "rule_missing", Name: "Ghost", WatchDir: watch, RecipeID: testRecipeID}
+	missing := models.AutomationRule{ID: "rule_missing", Name: "Ghost", WatchDir: watch, RecipeID: testRecipeID}
 	if response := service.SaveRule(missing); response.Success {
 		t.Fatal("expected saving an unknown rule id to fail")
 	}
@@ -136,7 +136,7 @@ func TestRuleLifecycleTogglesWatcher(t *testing.T) {
 
 	watch := t.TempDir()
 	output := t.TempDir()
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:      "Inbox",
 		Enabled:   false,
 		WatchDir:  watch,
@@ -209,13 +209,13 @@ func TestListRulesReportsRuntimeState(t *testing.T) {
 	service, _ := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	enabled := saveTestRule(t, service, models.AutomationRuleV1{
+	enabled := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Enabled",
 		Enabled:  true,
 		WatchDir: watch,
 		RecipeID: testRecipeID,
 	})
-	disabled := saveTestRule(t, service, models.AutomationRuleV1{
+	disabled := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Disabled",
 		Enabled:  false,
 		WatchDir: watch,
@@ -224,7 +224,7 @@ func TestListRulesReportsRuntimeState(t *testing.T) {
 
 	startService(t, service)
 
-	statuses := map[string]models.AutomationRuleV1{}
+	statuses := map[string]models.AutomationRule{}
 	for _, rule := range service.ListRules().Rules {
 		statuses[rule.ID] = rule
 	}
@@ -247,7 +247,7 @@ func TestStartToleratesMissingWatchFolder(t *testing.T) {
 	if err := os.Mkdir(watch, 0o755); err != nil {
 		t.Fatalf("create watch dir: %v", err)
 	}
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Gone",
 		Enabled:  true,
 		WatchDir: watch,

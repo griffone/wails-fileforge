@@ -46,7 +46,7 @@ type RunStore struct {
 	writeMu sync.Mutex
 	path    string
 	maxRuns int
-	runs    []models.AutomationRunRecordV1
+	runs    []models.AutomationRunRecord
 }
 
 // NewRunStore loads the run history at path, tolerating a missing or malformed
@@ -67,7 +67,7 @@ func newRunStore(path string, maxRuns int) *RunStore {
 
 // Record prepends one terminal run, capping its outputs and persisting the
 // store. An empty id is replaced by a generated run id.
-func (s *RunStore) Record(record models.AutomationRunRecordV1) {
+func (s *RunStore) Record(record models.AutomationRunRecord) {
 	if s == nil {
 		return
 	}
@@ -93,7 +93,7 @@ func (s *RunStore) Record(record models.AutomationRunRecordV1) {
 	defer s.writeMu.Unlock()
 
 	s.mu.Lock()
-	s.runs = append([]models.AutomationRunRecordV1{record}, s.runs...)
+	s.runs = append([]models.AutomationRunRecord{record}, s.runs...)
 	s.pruneLocked()
 	snapshot := s.snapshotLocked()
 	s.mu.Unlock()
@@ -105,9 +105,9 @@ func (s *RunStore) Record(record models.AutomationRunRecordV1) {
 
 // List returns the recorded runs newest first. A zero limit returns the default
 // page size; the result is clamped to the store capacity.
-func (s *RunStore) List(limit int) []models.AutomationRunRecordV1 {
+func (s *RunStore) List(limit int) []models.AutomationRunRecord {
 	if s == nil {
-		return []models.AutomationRunRecordV1{}
+		return []models.AutomationRunRecord{}
 	}
 	switch {
 	case limit == 0:
@@ -126,7 +126,7 @@ func (s *RunStore) List(limit int) []models.AutomationRunRecordV1 {
 		limit = len(s.runs)
 	}
 
-	runs := make([]models.AutomationRunRecordV1, limit)
+	runs := make([]models.AutomationRunRecord, limit)
 	for index := 0; index < limit; index++ {
 		runs[index] = cloneRunRecord(s.runs[index])
 	}
@@ -145,7 +145,7 @@ func (s *RunStore) Clear() error {
 
 	s.mu.Lock()
 	previous := s.snapshotLocked()
-	s.runs = []models.AutomationRunRecordV1{}
+	s.runs = []models.AutomationRunRecord{}
 	snapshot := s.snapshotLocked()
 	s.mu.Unlock()
 
@@ -161,7 +161,7 @@ func (s *RunStore) Clear() error {
 
 func (s *RunStore) load() {
 	if s.path == "" {
-		s.runs = []models.AutomationRunRecordV1{}
+		s.runs = []models.AutomationRunRecord{}
 		return
 	}
 
@@ -170,18 +170,18 @@ func (s *RunStore) load() {
 		if !errors.Is(err, os.ErrNotExist) {
 			log.Printf("automation.runs.load.failed path=%s err=%v", s.path, err)
 		}
-		s.runs = []models.AutomationRunRecordV1{}
+		s.runs = []models.AutomationRunRecord{}
 		return
 	}
 	if len(strings.TrimSpace(string(content))) == 0 {
-		s.runs = []models.AutomationRunRecordV1{}
+		s.runs = []models.AutomationRunRecord{}
 		return
 	}
 
-	runs := make([]models.AutomationRunRecordV1, 0)
+	runs := make([]models.AutomationRunRecord, 0)
 	if err := json.Unmarshal(content, &runs); err != nil {
 		log.Printf("automation.runs.load.malformed path=%s err=%v", s.path, err)
-		s.runs = []models.AutomationRunRecordV1{}
+		s.runs = []models.AutomationRunRecord{}
 		return
 	}
 
@@ -189,8 +189,8 @@ func (s *RunStore) load() {
 	s.pruneLocked()
 }
 
-func normalizeRuns(runs []models.AutomationRunRecordV1) []models.AutomationRunRecordV1 {
-	normalized := make([]models.AutomationRunRecordV1, 0, len(runs))
+func normalizeRuns(runs []models.AutomationRunRecord) []models.AutomationRunRecord {
+	normalized := make([]models.AutomationRunRecord, 0, len(runs))
 	seen := make(map[string]struct{}, len(runs))
 	for _, record := range runs {
 		id := strings.TrimSpace(record.ID)
@@ -220,8 +220,8 @@ func (s *RunStore) pruneLocked() {
 }
 
 // snapshotLocked returns a deep copy of the runs. The caller holds s.mu.
-func (s *RunStore) snapshotLocked() []models.AutomationRunRecordV1 {
-	runs := make([]models.AutomationRunRecordV1, len(s.runs))
+func (s *RunStore) snapshotLocked() []models.AutomationRunRecord {
+	runs := make([]models.AutomationRunRecord, len(s.runs))
 	for index, record := range s.runs {
 		runs[index] = cloneRunRecord(record)
 	}
@@ -231,7 +231,7 @@ func (s *RunStore) snapshotLocked() []models.AutomationRunRecordV1 {
 
 // saveRuns marshals and writes one runs snapshot. It never runs under s.mu;
 // writeMu keeps concurrent snapshots from being published out of order.
-func (s *RunStore) saveRuns(runs []models.AutomationRunRecordV1) error {
+func (s *RunStore) saveRuns(runs []models.AutomationRunRecord) error {
 	if s.path == "" {
 		return nil
 	}
@@ -247,7 +247,7 @@ func (s *RunStore) saveRuns(runs []models.AutomationRunRecordV1) error {
 	return nil
 }
 
-func cloneRunRecord(record models.AutomationRunRecordV1) models.AutomationRunRecordV1 {
+func cloneRunRecord(record models.AutomationRunRecord) models.AutomationRunRecord {
 	cloned := record
 	cloned.Outputs = append([]string{}, record.Outputs...)
 

@@ -44,21 +44,21 @@ func TestNotifierShutdownWithoutStartupIsSafe(t *testing.T) {
 	}
 }
 
-func TestNotifyV1RequiresTitleAndBody(t *testing.T) {
+func TestNotifyRequiresTitleAndBody(t *testing.T) {
 	service := &SystemService{}
 
-	if response := service.NotifyV1("", "The job finished."); response.Success || response.Message == "" {
+	if response := service.Notify("", "The job finished."); response.Success || response.Message == "" {
 		t.Fatalf("expected an empty-title rejection with a message, got %+v", response)
 	}
-	if response := service.NotifyV1("Conversion done", " "); response.Success || response.Message == "" {
+	if response := service.Notify("Conversion done", " "); response.Success || response.Message == "" {
 		t.Fatalf("expected an empty-body rejection with a message, got %+v", response)
 	}
 }
 
-func TestNotifyV1WithoutNotifierFails(t *testing.T) {
+func TestNotifyWithoutNotifierFails(t *testing.T) {
 	service := &SystemService{}
 
-	response := service.NotifyV1("Conversion done", "The job finished.")
+	response := service.Notify("Conversion done", "The job finished.")
 	if response.Success || response.Message == "" {
 		t.Fatalf("expected a friendly failure without a notifier, got %+v", response)
 	}

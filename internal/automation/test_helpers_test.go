@@ -22,16 +22,16 @@ const (
 type fakeRecipeRunner struct {
 	mu sync.Mutex
 
-	recipes []models.RecipeV1
+	recipes []models.Recipe
 
-	runs       []models.RecipeRequestV1
-	runCh      chan models.RecipeRequestV1
+	runs       []models.RecipeRequest
+	runCh      chan models.RecipeRequest
 	jobCounter int
 	jobs       map[string]*fakeRecipeJob
 
 	failPlan    bool
 	planMessage string
-	planOutput  func(req models.RecipeRequestV1) string
+	planOutput  func(req models.RecipeRequest) string
 
 	failRun    bool
 	runMessage string
@@ -60,37 +60,37 @@ type fakeRecipeJob struct {
 
 func newFakeRecipeRunner() *fakeRecipeRunner {
 	return &fakeRecipeRunner{
-		recipes: []models.RecipeV1{{
+		recipes: []models.Recipe{{
 			ID:               testRecipeID,
 			Name:             testRecipeName,
 			Description:      "Converts text files for automation tests.",
 			Category:         "test",
 			InputKind:        "text",
 			AcceptExtensions: []string{"txt"},
-			Steps: []models.RecipeStepV1{{
+			Steps: []models.RecipeStep{{
 				ID:     "convert",
 				Name:   "Convert text",
 				ToolID: "tool.test",
 			}},
 		}},
-		runCh:          make(chan models.RecipeRequestV1, 32),
+		runCh:          make(chan models.RecipeRequest, 32),
 		jobs:           make(map[string]*fakeRecipeJob),
 		writeOutput:    true,
 		terminalStatus: models.JobStatusSuccess,
 	}
 }
 
-func (f *fakeRecipeRunner) List() []models.RecipeV1 {
+func (f *fakeRecipeRunner) List() []models.Recipe {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	recipes := make([]models.RecipeV1, len(f.recipes))
+	recipes := make([]models.Recipe, len(f.recipes))
 	copy(recipes, f.recipes)
 
 	return recipes
 }
 
-func (f *fakeRecipeRunner) Plan(req models.RecipeRequestV1) models.RecipePlanResponseV1 {
+func (f *fakeRecipeRunner) Plan(req models.RecipeRequest) models.RecipePlanResponse {
 	f.mu.Lock()
 	fail := f.failPlan
 	message := f.planMessage
@@ -102,18 +102,18 @@ func (f *fakeRecipeRunner) Plan(req models.RecipeRequestV1) models.RecipePlanRes
 			message = "The test recipe could not plan this file."
 		}
 
-		return models.RecipePlanResponseV1{Success: false, Message: message}
+		return models.RecipePlanResponse{Success: false, Message: message}
 	}
 
 	recipe := f.recipeByID(req.RecipeID)
 
-	return models.RecipePlanResponseV1{
+	return models.RecipePlanResponse{
 		Success:    true,
 		Message:    "The test recipe is ready.",
 		Recipe:     recipe,
 		InputPaths: req.InputPaths,
 		OutputDir:  req.OutputDir,
-		Outputs: []models.PlannedOutputV1{{
+		Outputs: []models.PlannedOutput{{
 			InputPath:   firstPath(req.InputPaths),
 			OutputPath:  output,
 			OutputKind:  "file",
@@ -122,7 +122,7 @@ func (f *fakeRecipeRunner) Plan(req models.RecipeRequestV1) models.RecipePlanRes
 	}
 }
 
-func (f *fakeRecipeRunner) Run(_ context.Context, req models.RecipeRequestV1) models.RunRecipeResponseV1 {
+func (f *fakeRecipeRunner) Run(_ context.Context, req models.RecipeRequest) models.RunRecipeResponse {
 	f.mu.Lock()
 	f.runs = append(f.runs, req)
 	f.jobCounter++
@@ -149,7 +149,7 @@ func (f *fakeRecipeRunner) Run(_ context.Context, req models.RecipeRequestV1) mo
 		}
 		f.finishActiveRun()
 
-		return models.RunRecipeResponseV1{
+		return models.RunRecipeResponse{
 			Success: false,
 			Message: runMessage,
 			Status:  models.JobStatusFailed,
@@ -166,7 +166,7 @@ func (f *fakeRecipeRunner) Run(_ context.Context, req models.RecipeRequestV1) mo
 	default:
 	}
 
-	return models.RunRecipeResponseV1{
+	return models.RunRecipeResponse{
 		Success: true,
 		Message: "recipe submitted",
 		JobID:   jobID,
@@ -174,13 +174,13 @@ func (f *fakeRecipeRunner) Run(_ context.Context, req models.RecipeRequestV1) mo
 	}
 }
 
-func (f *fakeRecipeRunner) Status(jobID string) models.RecipeStatusResponseV1 {
+func (f *fakeRecipeRunner) Status(jobID string) models.RecipeStatusResponse {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	job, found := f.jobs[jobID]
 	if !found || f.missingStatus {
-		return models.RecipeStatusResponseV1{
+		return models.RecipeStatusResponse{
 			Success: false,
 			Found:   false,
 			Message: "recipe job not found",
@@ -190,16 +190,16 @@ func (f *fakeRecipeRunner) Status(jobID string) models.RecipeStatusResponseV1 {
 	f.statusCalls++
 	job.polls++
 	if job.polls <= f.pollsBeforeTerminal {
-		return models.RecipeStatusResponseV1{
+		return models.RecipeStatusResponse{
 			Success: true,
 			Found:   true,
 			Message: "recipe status retrieved",
-			Result: &models.RecipeResultV1{
+			Result: &models.RecipeResult{
 				JobID:     jobID,
 				RecipeID:  job.recipeID,
 				Status:    models.JobStatusRunning,
 				Message:   "recipe running",
-				Steps:     []models.RecipeStepResultV1{},
+				Steps:     []models.RecipeStepResult{},
 				Outputs:   []string{},
 				StartedAt: 1,
 			},
@@ -233,16 +233,16 @@ func (f *fakeRecipeRunner) Status(jobID string) models.RecipeStatusResponseV1 {
 		outputs = append(outputs, job.output)
 	}
 
-	return models.RecipeStatusResponseV1{
+	return models.RecipeStatusResponse{
 		Success: true,
 		Found:   true,
 		Message: "recipe status retrieved",
-		Result: &models.RecipeResultV1{
+		Result: &models.RecipeResult{
 			JobID:     jobID,
 			RecipeID:  job.recipeID,
 			Status:    status,
 			Message:   message,
-			Steps:     []models.RecipeStepResultV1{},
+			Steps:     []models.RecipeStepResult{},
 			Outputs:   outputs,
 			StartedAt: 1,
 			EndedAt:   2,
@@ -253,13 +253,13 @@ func (f *fakeRecipeRunner) Status(jobID string) models.RecipeStatusResponseV1 {
 // Cancel records the cancellation request and finishes the fake job so the
 // watcher can observe it. Cancelling an unknown job fails like the real
 // service does.
-func (f *fakeRecipeRunner) Cancel(jobID string) models.RecipeStatusResponseV1 {
+func (f *fakeRecipeRunner) Cancel(jobID string) models.RecipeStatusResponse {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	job, found := f.jobs[jobID]
 	if !found {
-		return models.RecipeStatusResponseV1{
+		return models.RecipeStatusResponse{
 			Success: false,
 			Found:   false,
 			Message: "recipe job not found",
@@ -272,16 +272,16 @@ func (f *fakeRecipeRunner) Cancel(jobID string) models.RecipeStatusResponseV1 {
 		f.finishActiveRun()
 	}
 
-	return models.RecipeStatusResponseV1{
+	return models.RecipeStatusResponse{
 		Success: true,
 		Found:   true,
 		Message: "cancel requested",
-		Result: &models.RecipeResultV1{
+		Result: &models.RecipeResult{
 			JobID:     jobID,
 			RecipeID:  job.recipeID,
 			Status:    models.JobStatusCancelled,
 			Message:   "The test recipe was cancelled.",
-			Steps:     []models.RecipeStepResultV1{},
+			Steps:     []models.RecipeStepResult{},
 			Outputs:   []string{},
 			StartedAt: 1,
 		},
@@ -296,7 +296,7 @@ func (f *fakeRecipeRunner) finishActiveRun() {
 	}
 }
 
-func (f *fakeRecipeRunner) plannedOutputLocked(req models.RecipeRequestV1) string {
+func (f *fakeRecipeRunner) plannedOutputLocked(req models.RecipeRequest) string {
 	if f.planOutput != nil {
 		return f.planOutput(req)
 	}
@@ -311,7 +311,7 @@ func (f *fakeRecipeRunner) plannedOutputLocked(req models.RecipeRequestV1) strin
 	return filepath.Join(directory, base)
 }
 
-func (f *fakeRecipeRunner) recipeByID(id string) *models.RecipeV1 {
+func (f *fakeRecipeRunner) recipeByID(id string) *models.Recipe {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -361,11 +361,11 @@ func (f *fakeRecipeRunner) maxConcurrentRuns() int {
 	return f.maxActiveRuns
 }
 
-func (f *fakeRecipeRunner) runsSnapshot() []models.RecipeRequestV1 {
+func (f *fakeRecipeRunner) runsSnapshot() []models.RecipeRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	return append([]models.RecipeRequestV1(nil), f.runs...)
+	return append([]models.RecipeRequest(nil), f.runs...)
 }
 
 func firstPath(paths []string) string {
@@ -376,7 +376,7 @@ func firstPath(paths []string) string {
 	return paths[0]
 }
 
-func newTestService(t *testing.T, runner RecipeRunner, emit func(models.AutomationRunEventV1)) (*Service, *Store) {
+func newTestService(t *testing.T, runner RecipeRunner, emit func(models.AutomationRunEvent)) (*Service, *Store) {
 	t.Helper()
 
 	root := t.TempDir()
@@ -399,7 +399,7 @@ func startService(t *testing.T, service *Service) {
 	time.Sleep(50 * time.Millisecond)
 }
 
-func saveTestRule(t *testing.T, service *Service, rule models.AutomationRuleV1) models.AutomationRuleV1 {
+func saveTestRule(t *testing.T, service *Service, rule models.AutomationRule) models.AutomationRule {
 	t.Helper()
 
 	response := service.SaveRule(rule)
@@ -461,10 +461,10 @@ func writeTestFile(t *testing.T, path, content string) {
 	}
 }
 
-func waitForEvents(t *testing.T, events <-chan models.AutomationRunEventV1, timeout time.Duration) []models.AutomationRunEventV1 {
+func waitForEvents(t *testing.T, events <-chan models.AutomationRunEvent, timeout time.Duration) []models.AutomationRunEvent {
 	t.Helper()
 
-	collected := []models.AutomationRunEventV1{}
+	collected := []models.AutomationRunEvent{}
 	deadline := time.After(timeout)
 	for {
 		select {

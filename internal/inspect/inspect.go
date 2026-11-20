@@ -90,8 +90,8 @@ type videoProbeOutput struct {
 
 // InspectFile describes a single path for UI file cards. It never returns an
 // error: missing or unreadable files are reported through Exists and Error.
-func InspectFile(path string) models.FileInfoV1 {
-	info := models.FileInfoV1{
+func InspectFile(path string) models.FileInfo {
+	info := models.FileInfo{
 		Path: strings.TrimSpace(path),
 		Kind: kindOther,
 	}
@@ -247,8 +247,8 @@ func ProbeVideoMetadata(ctx context.Context, path string) (VideoMetadata, bool) 
 }
 
 // InspectFiles describes every path in order. One bad file never fails the batch.
-func InspectFiles(paths []string) []models.FileInfoV1 {
-	files := make([]models.FileInfoV1, 0, len(paths))
+func InspectFiles(paths []string) []models.FileInfo {
+	files := make([]models.FileInfo, 0, len(paths))
 	for _, path := range paths {
 		files = append(files, InspectFile(path))
 	}

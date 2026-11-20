@@ -18,9 +18,9 @@ import (
 
 const pdfToDOCXToolDocumentXML = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:b/><w:t>Stub</w:t></w:r></w:p></w:body></w:document>`
 
-func pdfToDOCXToolRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDPDFToDOCXV1,
+func pdfToDOCXToolRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDPDFToDOCX,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,
@@ -121,7 +121,7 @@ func TestPDFToDOCXToolManifest(t *testing.T) {
 	if manifest.Name != "PDF to DOCX" {
 		t.Fatalf("expected the PDF to DOCX name, got %q", manifest.Name)
 	}
-	if manifest.Domain != "pdf" || manifest.Version != "v1" {
+	if manifest.Domain != "pdf" || manifest.Version != "1.0" {
 		t.Fatalf("unexpected domain/version: %q/%q", manifest.Domain, manifest.Version)
 	}
 	if !manifest.SupportsSingle || manifest.SupportsBatch {
@@ -334,8 +334,8 @@ func TestPDFToDOCXToolExecuteSingleWithProgress(t *testing.T) {
 		}, nil
 	})
 
-	var progress []models.JobProgressV1
-	item, jobErr := NewPDFToDOCXTool().ExecuteSingleWithProgress(context.Background(), pdfToDOCXToolRequest("single", []string{inputPath}, nil), func(update models.JobProgressV1) {
+	var progress []models.JobProgress
+	item, jobErr := NewPDFToDOCXTool().ExecuteSingleWithProgress(context.Background(), pdfToDOCXToolRequest("single", []string{inputPath}, nil), func(update models.JobProgress) {
 		progress = append(progress, update)
 	})
 	if jobErr != nil {
@@ -429,7 +429,7 @@ func TestPDFToDOCXToolExecuteCancellation(t *testing.T) {
 	})
 }
 
-func assertPDFToDOCXCancelled(t *testing.T, jobErr *models.JobErrorV1) {
+func assertPDFToDOCXCancelled(t *testing.T, jobErr *models.JobError) {
 	t.Helper()
 
 	if jobErr == nil {

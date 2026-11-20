@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	ToolIDDocDOCXToPDFV1 = "tool.doc.docx_to_pdf"
+	ToolIDDocDOCXToPDF = "tool.doc.docx_to_pdf"
 
 	// docxConvertWorkers bounds concurrent conversions. LibreOffice is
 	// external and heavy, so two conversions per job is the ceiling.
@@ -38,21 +38,21 @@ func NewDOCXToPDFToolWithDeps(probe engine.RuntimeProbe, runner engine.CommandRu
 }
 
 func (t *DOCXToPDFTool) ID() string {
-	return ToolIDDocDOCXToPDFV1
+	return ToolIDDocDOCXToPDF
 }
 
 func (t *DOCXToPDFTool) Capability() string {
-	return ToolIDDocDOCXToPDFV1
+	return ToolIDDocDOCXToPDF
 }
 
-func (t *DOCXToPDFTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *DOCXToPDFTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "DOCX to PDF",
 		Description:      "Convert DOCX to PDF with standard fidelity (LibreOffice + Pandoc fallback)",
 		Domain:           "doc",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  []string{"docx"},
@@ -64,20 +64,20 @@ func (t *DOCXToPDFTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *DOCXToPDFTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 {
+func (t *DOCXToPDFTool) RuntimeState(ctx context.Context) models.ToolRuntimeState {
 	probe := t.probe
 	if probe == nil {
 		probe = engine.NewHybridRuntimeProbe()
 	}
 
 	if err := probe.Check(ctx); err != nil {
-		return models.ToolRuntimeStateV1{Status: "degraded", Healthy: false, Reason: err.Error()}
+		return models.ToolRuntimeState{Status: "degraded", Healthy: false, Reason: err.Error()}
 	}
 
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *DOCXToPDFTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *DOCXToPDFTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -85,8 +85,8 @@ func (t *DOCXToPDFTool) Validate(ctx context.Context, req models.JobRequestV1) *
 // Plan probes the conversion runtime, validates every input and resolves one
 // collision-safe output per input without writing anything. ExecutePlan reuses
 // this plan, so the shown destination and the written file always agree.
-func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	parsed, parseErr := parseDOCXRequest(req)
 	if parseErr != nil {
@@ -129,7 +129,7 @@ func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (mode
 
 		plan.Success = true
 		plan.Message = "Ready to convert 1 document."
-		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Outputs = []models.PlannedOutput{planned}
 		plan.Warnings = docxPlanWarnings(parsed, planned.Warnings)
 		plan.EffectiveOptions = docxEffectiveOptions(parsed)
 
@@ -150,7 +150,7 @@ func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (mode
 		outputplan.MarkUsed(used, inputPath)
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(parsed.inputPaths))
 	warnings := make([]string, 0)
 	for _, inputPath := range parsed.inputPaths {
 		targetDir := outputDir
@@ -174,10 +174,10 @@ func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequestV1) (mode
 
 // ExecuteSingle resolves the plan first and then runs that exact plan, so it
 // cannot drift from ExecutePlan.
-func (t *DOCXToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *DOCXToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
-		return models.JobResultItemV1{InputPath: firstPath(req.InputPaths), Success: false, Message: planErr.Message, Error: planErr}, planErr
+		return models.JobResultItem{InputPath: firstPath(req.InputPaths), Success: false, Message: planErr.Message, Error: planErr}, planErr
 	}
 
 	items, execErr := t.ExecutePlan(ctx, req, plan, nil)
@@ -190,12 +190,12 @@ func (t *DOCXToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequest
 		jobErr = models.NewCanonicalJobError("DOC_DOCX_TO_PDF_EXECUTION_FAILED", "docx conversion returned no result", nil)
 	}
 
-	return models.JobResultItemV1{InputPath: firstPath(req.InputPaths), Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
+	return models.JobResultItem{InputPath: firstPath(req.InputPaths), Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
 }
 
 // ExecuteBatch plans the whole request once and then executes exactly that
 // plan. It never re-resolves output paths from the request.
-func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return nil, planErr
@@ -208,7 +208,7 @@ func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequestV
 // plan's effective options and skips the runtime probe and ZIP protection scan
 // that Plan already performed, so a reduced retry plan only converts its own
 // outputs. Results keep plan order and item failures stay isolated.
-func (t *DOCXToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *DOCXToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	total := len(plan.Outputs)
 	if total == 0 {
 		return nil, models.NewCanonicalJobError("DOC_DOCX_TO_PDF_INPUT_COUNT_INVALID", "at least one .docx input is required", nil)
@@ -220,7 +220,7 @@ func (t *DOCXToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequestV1
 	}
 	parsed = plannedDOCXOptions(plan, parsed)
 
-	items := make([]models.JobResultItemV1, total)
+	items := make([]models.JobResultItem, total)
 	completed := make([]bool, total)
 	progress := newDocItemProgress(total, onProgress)
 
@@ -245,7 +245,7 @@ func (t *DOCXToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequestV1
 
 // convertPlannedDOCX runs one already-planned conversion and applies the page
 // selection. It never re-plans, so it is safe to run concurrently.
-func (t *DOCXToPDFTool) convertPlannedDOCX(ctx context.Context, planned models.PlannedOutputV1, pdfa bool, pageSelection string) models.JobResultItemV1 {
+func (t *DOCXToPDFTool) convertPlannedDOCX(ctx context.Context, planned models.PlannedOutput, pdfa bool, pageSelection string) models.JobResultItem {
 	result, execErr := engine.ConvertDOCX(ctx, t.probe, t.runner, engine.ConvertDOCXRequest{
 		InputPath:          planned.InputPath,
 		OutputPath:         planned.OutputPath,
@@ -255,11 +255,11 @@ func (t *DOCXToPDFTool) convertPlannedDOCX(ctx context.Context, planned models.P
 	})
 	if execErr != nil {
 		jobErr := mapDOCXEngineError(execErr)
-		return models.JobResultItemV1{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Success: false, Message: jobErr.Message, Error: jobErr}
+		return models.JobResultItem{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Success: false, Message: jobErr.Message, Error: jobErr}
 	}
 
 	if applyErr := applyDOCXPageSelection(planned.InputPath, planned.OutputPath, pageSelection); applyErr != nil {
-		return models.JobResultItemV1{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Success: false, Message: applyErr.Message, Error: applyErr}
+		return models.JobResultItem{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Success: false, Message: applyErr.Message, Error: applyErr}
 	}
 
 	message := "docx to pdf successful"
@@ -267,7 +267,7 @@ func (t *DOCXToPDFTool) convertPlannedDOCX(ctx context.Context, planned models.P
 		message = "docx to pdf successful (fallback engine: pandoc)"
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:   planned.InputPath,
 		OutputPath:  planned.OutputPath,
 		Outputs:     []string{planned.OutputPath},
@@ -279,7 +279,7 @@ func (t *DOCXToPDFTool) convertPlannedDOCX(ctx context.Context, planned models.P
 
 // plannedDOCXOptions returns the conversion options resolved by Plan, falling
 // back to the re-parsed request when a plan was built by an older caller.
-func plannedDOCXOptions(plan models.PlanJobResponseV1, parsed docxRequest) docxRequest {
+func plannedDOCXOptions(plan models.PlanJobResponse, parsed docxRequest) docxRequest {
 	if plan.EffectiveOptions == nil {
 		return parsed
 	}
@@ -303,7 +303,7 @@ type docxRequest struct {
 	pdfa          bool
 }
 
-func parseDOCXRequest(req models.JobRequestV1) (docxRequest, *models.JobErrorV1) {
+func parseDOCXRequest(req models.JobRequest) (docxRequest, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return docxRequest{}, models.NewCanonicalJobError("DOC_DOCX_TO_PDF_MODE_INVALID", "mode must be single or batch", nil)
@@ -359,7 +359,7 @@ func parseDOCXRequest(req models.JobRequestV1) (docxRequest, *models.JobErrorV1)
 // docxOptionBool reads an optional boolean option. Absent options default to
 // false; a supplied value must be a bool or a "true"/"false" string so a typo
 // never silently disables the requested export flavor.
-func docxOptionBool(options map[string]any, key string) (bool, *models.JobErrorV1) {
+func docxOptionBool(options map[string]any, key string) (bool, *models.JobError) {
 	raw, ok := options[key]
 	if !ok || raw == nil {
 		return false, nil
@@ -414,7 +414,7 @@ func docxEffectiveOptions(parsed docxRequest) map[string]any {
 
 // applyDOCXPageSelection keeps only the requested pages of a converted PDF.
 // An empty selection leaves the conversion untouched.
-func applyDOCXPageSelection(inputPath, outputPath, selection string) *models.JobErrorV1 {
+func applyDOCXPageSelection(inputPath, outputPath, selection string) *models.JobError {
 	if strings.TrimSpace(selection) == "" {
 		return nil
 	}
@@ -430,7 +430,7 @@ func applyDOCXPageSelection(inputPath, outputPath, selection string) *models.Job
 	return nil
 }
 
-func validateDOCXInputPath(inputPath string) *models.JobErrorV1 {
+func validateDOCXInputPath(inputPath string) *models.JobError {
 	name := filepath.Base(inputPath)
 
 	info, err := os.Stat(inputPath)
@@ -449,7 +449,7 @@ func validateDOCXInputPath(inputPath string) *models.JobErrorV1 {
 	return nil
 }
 
-func validateDOCXOutputDir(dir string) *models.JobErrorV1 {
+func validateDOCXOutputDir(dir string) *models.JobError {
 	if strings.TrimSpace(dir) == "" {
 		return models.NewCanonicalJobError("DOC_DOCX_TO_PDF_OUTPUT_DIR_INVALID", "output directory is required", nil)
 	}
@@ -473,12 +473,12 @@ func validateDOCXOutputDir(dir string) *models.JobErrorV1 {
 // outputPath keeps the established contract: .pdf extension, an existing
 // parent directory and a collision suffix instead of an overwrite. Otherwise
 // the output goes to req.OutputDir when provided, or next to the input.
-func planSingleDOCXOutput(parsed docxRequest) (models.PlannedOutputV1, *models.JobErrorV1) {
+func planSingleDOCXOutput(parsed docxRequest) (models.PlannedOutput, *models.JobError) {
 	inputPath := parsed.inputPaths[0]
 
 	if explicit := strings.TrimSpace(parsed.outputPath); explicit != "" {
 		requestedPath := filepath.Clean(explicit)
-		planned := models.PlannedOutputV1{
+		planned := models.PlannedOutput{
 			InputPath:  inputPath,
 			OutputPath: requestedPath,
 			OutputKind: docPlannedOutputKindFile,
@@ -519,7 +519,7 @@ func planSingleDOCXOutput(parsed docxRequest) (models.PlannedOutputV1, *models.J
 	}
 
 	if dirErr := validateDOCXOutputDir(targetDir); dirErr != nil {
-		return models.PlannedOutputV1{InputPath: inputPath, OutputKind: docPlannedOutputKindFile}, dirErr
+		return models.PlannedOutput{InputPath: inputPath, OutputKind: docPlannedOutputKindFile}, dirErr
 	}
 
 	return planAutoDOCXOutput(inputPath, targetDir, nil), nil
@@ -527,8 +527,8 @@ func planSingleDOCXOutput(parsed docxRequest) (models.PlannedOutputV1, *models.J
 
 // planAutoDOCXOutput derives <stem>_docx2pdf.pdf inside outputDir, suffixing
 // when the natural name is taken on disk or already used in the same plan.
-func planAutoDOCXOutput(inputPath, outputDir string, used map[string]struct{}) models.PlannedOutputV1 {
-	planned := models.PlannedOutputV1{
+func planAutoDOCXOutput(inputPath, outputDir string, used map[string]struct{}) models.PlannedOutput {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputKind: docPlannedOutputKindFile,
 	}
@@ -560,7 +560,7 @@ func docxOutputBaseName(inputPath string) string {
 
 // docxProtectedInputError keeps the engine's protected/encrypted detail code
 // while naming the offending file for the UI.
-func docxProtectedInputError(inputPath string, err error) *models.JobErrorV1 {
+func docxProtectedInputError(inputPath string, err error) *models.JobError {
 	jobErr := mapDOCXEngineError(err)
 	if jobErr == nil {
 		return nil
@@ -582,7 +582,7 @@ func docxProtectedInputError(inputPath string, err error) *models.JobErrorV1 {
 	)
 }
 
-func mapDOCXEngineError(err error) *models.JobErrorV1 {
+func mapDOCXEngineError(err error) *models.JobError {
 	if err == nil {
 		return nil
 	}

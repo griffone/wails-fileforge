@@ -34,7 +34,7 @@ func TestPlanEmailPDFSingleInput(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 2)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 	})
@@ -53,10 +53,10 @@ func TestPlanEmailPDFSingleInput(t *testing.T) {
 	if len(plan.Recipe.Steps) != 2 {
 		t.Fatalf("expected 2 recipe steps, got %+v", plan.Recipe.Steps)
 	}
-	if plan.Recipe.Steps[0].ID != stepIDMergePDFs || plan.Recipe.Steps[0].ToolID != pdf.ToolIDPDFMergeV1 {
+	if plan.Recipe.Steps[0].ID != stepIDMergePDFs || plan.Recipe.Steps[0].ToolID != pdf.ToolIDPDFMerge {
 		t.Fatalf("unexpected merge step: %+v", plan.Recipe.Steps[0])
 	}
-	if plan.Recipe.Steps[1].ID != stepIDOptimizeTarget || plan.Recipe.Steps[1].ToolID != pdf.ToolIDPDFOptimizeV1 {
+	if plan.Recipe.Steps[1].ID != stepIDOptimizeTarget || plan.Recipe.Steps[1].ToolID != pdf.ToolIDPDFOptimize {
 		t.Fatalf("unexpected optimize step: %+v", plan.Recipe.Steps[1])
 	}
 
@@ -103,7 +103,7 @@ func TestPlanEmailPDFMultipleInputs(t *testing.T) {
 		writePDFFixture(t, input, 1)
 	}
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: inputs,
 		OutputDir:  outDir,
@@ -124,7 +124,7 @@ func TestPlanEmailPDFMultipleInputs(t *testing.T) {
 	if err := os.WriteFile(wantPath, []byte("existing"), 0o644); err != nil {
 		t.Fatalf("write existing output: %v", err)
 	}
-	adjustedPlan := service.Plan(models.RecipeRequestV1{
+	adjustedPlan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: inputs,
 		OutputDir:  outDir,
@@ -148,7 +148,7 @@ func TestRunEmailPDFSingleInput(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 2)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": float64(testLargeTargetBytes)},
@@ -207,7 +207,7 @@ func TestRunEmailPDFSingleInput(t *testing.T) {
 		t.Fatalf("expected the output to be recorded for undo, got %+v", entries[0].Outputs)
 	}
 
-	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.Status == models.JobStatusSuccess && event.Percent == 100
 	})
 	if terminalEvent.JobID != run.JobID || terminalEvent.RecipeID != RecipeIDEmailPDF {
@@ -222,7 +222,7 @@ func TestRecipeOutputCanBeUndoneAndRestored(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 1)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": testLargeTargetBytes},
@@ -262,7 +262,7 @@ func TestRecipeUndoSkipsModifiedOutput(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 1)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": testLargeTargetBytes},
@@ -315,7 +315,7 @@ func TestRunEmailPDFMergesMultipleInputs(t *testing.T) {
 		writePDFFixture(t, input, pages[index])
 	}
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: inputs,
 		Options:    map[string]any{"targetSizeBytes": int64(testLargeTargetBytes)},
@@ -350,10 +350,10 @@ func TestRunEmailPDFMergesMultipleInputs(t *testing.T) {
 	}
 	waitForPathGone(t, result.Steps[0].Outputs[0])
 
-	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.StepName == "Merge PDFs" && event.Stage == "running"
 	})
-	verifyEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	verifyEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.StepName == "Optimize to target" && event.Stage == "verifying"
 	})
 	if verifyEvent.CurrentStep != 2 || verifyEvent.TotalSteps != 2 {
@@ -369,7 +369,7 @@ func TestRunEmailPDFTinyTargetReturnsPartialSuccess(t *testing.T) {
 	writePDFFixture(t, input, 1)
 
 	const tinyTarget = int64(1)
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": tinyTarget},
@@ -422,32 +422,32 @@ func TestPlanEmailPDFRejectsInvalidRequests(t *testing.T) {
 
 	cases := []struct {
 		name       string
-		req        models.RecipeRequestV1
+		req        models.RecipeRequest
 		wantDetail string
 	}{
 		{
 			name:       "unknown recipe",
-			req:        models.RecipeRequestV1{RecipeID: "recipe.unknown", InputPaths: []string{input}},
+			req:        models.RecipeRequest{RecipeID: "recipe.unknown", InputPaths: []string{input}},
 			wantDetail: "RECIPE_NOT_FOUND",
 		},
 		{
 			name:       "no inputs",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDEmailPDF},
+			req:        models.RecipeRequest{RecipeID: RecipeIDEmailPDF},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "non pdf input",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDEmailPDF, InputPaths: []string{textFile}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDEmailPDF, InputPaths: []string{textFile}},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "missing pdf input",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDEmailPDF, InputPaths: []string{filepath.Join(dir, "missing.pdf")}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDEmailPDF, InputPaths: []string{filepath.Join(dir, "missing.pdf")}},
 			wantDetail: "RECIPE_INPUT_MISSING",
 		},
 		{
 			name: "duplicate input",
-			req: models.RecipeRequestV1{
+			req: models.RecipeRequest{
 				RecipeID:   RecipeIDEmailPDF,
 				InputPaths: []string{input, input},
 			},
@@ -455,7 +455,7 @@ func TestPlanEmailPDFRejectsInvalidRequests(t *testing.T) {
 		},
 		{
 			name: "zero target",
-			req: models.RecipeRequestV1{
+			req: models.RecipeRequest{
 				RecipeID:   RecipeIDEmailPDF,
 				InputPaths: []string{input},
 				Options:    map[string]any{"targetSizeBytes": 0},
@@ -464,7 +464,7 @@ func TestPlanEmailPDFRejectsInvalidRequests(t *testing.T) {
 		},
 		{
 			name: "fractional target",
-			req: models.RecipeRequestV1{
+			req: models.RecipeRequest{
 				RecipeID:   RecipeIDEmailPDF,
 				InputPaths: []string{input},
 				Options:    map[string]any{"targetSizeBytes": 10.5},
@@ -473,7 +473,7 @@ func TestPlanEmailPDFRejectsInvalidRequests(t *testing.T) {
 		},
 		{
 			name: "non numeric target",
-			req: models.RecipeRequestV1{
+			req: models.RecipeRequest{
 				RecipeID:   RecipeIDEmailPDF,
 				InputPaths: []string{input},
 				Options:    map[string]any{"targetSizeBytes": "10MB"},
@@ -482,7 +482,7 @@ func TestPlanEmailPDFRejectsInvalidRequests(t *testing.T) {
 		},
 		{
 			name: "output dir is a file",
-			req: models.RecipeRequestV1{
+			req: models.RecipeRequest{
 				RecipeID:   RecipeIDEmailPDF,
 				InputPaths: []string{input},
 				OutputDir:  notADirectory,
@@ -491,7 +491,7 @@ func TestPlanEmailPDFRejectsInvalidRequests(t *testing.T) {
 		},
 		{
 			name: "output dir is missing",
-			req: models.RecipeRequestV1{
+			req: models.RecipeRequest{
 				RecipeID:   RecipeIDEmailPDF,
 				InputPaths: []string{input},
 				OutputDir:  filepath.Join(dir, "missing-folder"),
@@ -518,7 +518,7 @@ func TestPlanEmailPDFRejectsInvalidRequests(t *testing.T) {
 		})
 	}
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{RecipeID: RecipeIDEmailPDF})
+	run := service.Run(context.Background(), models.RecipeRequest{RecipeID: RecipeIDEmailPDF})
 	if run.Success || run.Error == nil {
 		t.Fatalf("expected an invalid run to fail synchronously, got %+v", run)
 	}
@@ -541,7 +541,7 @@ func TestCancelRecipeJobCleansTempWorkspace(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 1)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": testLargeTargetBytes},
@@ -568,7 +568,7 @@ func TestCancelRecipeJobCleansTempWorkspace(t *testing.T) {
 	if result.Error == nil || result.Error.Code != models.ErrorCodeCancelledByUser {
 		t.Fatalf("expected a cancellation error, got %+v", result.Error)
 	}
-	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.Status == models.JobStatusCancelled
 	})
 	waitForEmptyDir(t, tempRoot)
@@ -598,7 +598,7 @@ func TestRunEmailPDFFailureCleansTempWorkspace(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 1)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": testLargeTargetBytes},
@@ -670,7 +670,7 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	if len(web.Steps) != 3 {
 		t.Fatalf("expected three Web image set steps, got %+v", web.Steps)
 	}
-	if web.Steps[0].ID != stepIDBuildVariants || web.Steps[0].ToolID != image.ToolIDImageConvertV1 {
+	if web.Steps[0].ID != stepIDBuildVariants || web.Steps[0].ToolID != image.ToolIDImageConvert {
 		t.Fatalf("unexpected build step: %+v", web.Steps[0])
 	}
 	if web.Steps[0].Detail == "" || web.Steps[1].Detail == "" || web.Steps[2].Detail == "" {
@@ -699,10 +699,10 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	if len(social.Steps) != 3 {
 		t.Fatalf("expected three Social clip steps, got %+v", social.Steps)
 	}
-	if social.Steps[0].ID != stepIDSocialMP4 || social.Steps[0].ToolID != video.ToolIDVideoConvertV1 {
+	if social.Steps[0].ID != stepIDSocialMP4 || social.Steps[0].ToolID != video.ToolIDVideoConvert {
 		t.Fatalf("unexpected MP4 step: %+v", social.Steps[0])
 	}
-	if social.Steps[1].ID != stepIDSocialWebM || social.Steps[1].ToolID != video.ToolIDVideoConvertV1 {
+	if social.Steps[1].ID != stepIDSocialWebM || social.Steps[1].ToolID != video.ToolIDVideoConvert {
 		t.Fatalf("unexpected WebM step: %+v", social.Steps[1])
 	}
 	if social.Steps[2].ID != stepIDSocialPoster || social.Steps[2].ToolID != "" {
@@ -731,7 +731,7 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	if len(cleanScan.Steps) != 2 {
 		t.Fatalf("expected two Clean scan steps, got %+v", cleanScan.Steps)
 	}
-	if cleanScan.Steps[0].ID != stepIDCleanScanOCR || cleanScan.Steps[0].ToolID != pdf.ToolIDPDFOCRV1 {
+	if cleanScan.Steps[0].ID != stepIDCleanScanOCR || cleanScan.Steps[0].ToolID != pdf.ToolIDPDFOCR {
 		t.Fatalf("unexpected Clean scan OCR step: %+v", cleanScan.Steps[0])
 	}
 	if cleanScan.Steps[1].ID != stepIDCleanScanVerify || cleanScan.Steps[1].ToolID != "" {
@@ -768,7 +768,7 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	if len(burned.Steps) != 3 {
 		t.Fatalf("expected three Burned-in subtitles steps, got %+v", burned.Steps)
 	}
-	if burned.Steps[0].ID != burnedSubtitlesStepTranscribe || burned.Steps[0].ToolID != video.ToolIDVideoTranscribeV1 {
+	if burned.Steps[0].ID != burnedSubtitlesStepTranscribe || burned.Steps[0].ToolID != video.ToolIDVideoTranscribe {
 		t.Fatalf("unexpected transcribe step: %+v", burned.Steps[0])
 	}
 	if burned.Steps[1].ID != burnedSubtitlesStepBurn || burned.Steps[1].ToolID != "" {
@@ -788,29 +788,29 @@ type blockingOptimizeTool struct {
 	started chan struct{}
 }
 
-func (t *blockingOptimizeTool) ID() string { return pdf.ToolIDPDFOptimizeV1 }
+func (t *blockingOptimizeTool) ID() string { return pdf.ToolIDPDFOptimize }
 
 func (t *blockingOptimizeTool) Capability() string { return t.ID() }
 
-func (t *blockingOptimizeTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{ToolID: t.ID(), Name: "Blocking Optimize"}
+func (t *blockingOptimizeTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{ToolID: t.ID(), Name: "Blocking Optimize"}
 }
 
-func (t *blockingOptimizeTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *blockingOptimizeTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *blockingOptimizeTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *blockingOptimizeTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return nil
 }
 
-func (t *blockingOptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *blockingOptimizeTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	outputPath, _ := req.Options["outputPath"].(string)
 
-	return models.PlanJobResponseV1{
+	return models.PlanJobResponse{
 		Success: true,
 		Message: "ready to block",
-		Outputs: []models.PlannedOutputV1{{
+		Outputs: []models.PlannedOutput{{
 			InputPath:   firstRequestInput(req),
 			OutputPath:  outputPath,
 			OutputKind:  "file",
@@ -819,7 +819,7 @@ func (t *blockingOptimizeTool) Plan(_ context.Context, req models.JobRequestV1) 
 	}, nil
 }
 
-func (t *blockingOptimizeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *blockingOptimizeTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	select {
 	case t.started <- struct{}{}:
 	default:
@@ -827,39 +827,39 @@ func (t *blockingOptimizeTool) ExecuteSingle(ctx context.Context, req models.Job
 
 	<-ctx.Done()
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath: firstRequestInput(req),
 		Success:   false,
 		Message:   "optimize canceled",
-	}, &models.JobErrorV1{Code: "CANCELED", DetailCode: "PDF_OPTIMIZE_FAILED", Message: "optimize canceled"}
+	}, &models.JobError{Code: "CANCELED", DetailCode: "PDF_OPTIMIZE_FAILED", Message: "optimize canceled"}
 }
 
 // failingOptimizeTool always fails so failure cleanup can be asserted.
 type failingOptimizeTool struct{}
 
-func (t *failingOptimizeTool) ID() string { return pdf.ToolIDPDFOptimizeV1 }
+func (t *failingOptimizeTool) ID() string { return pdf.ToolIDPDFOptimize }
 
 func (t *failingOptimizeTool) Capability() string { return t.ID() }
 
-func (t *failingOptimizeTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{ToolID: t.ID(), Name: "Failing Optimize"}
+func (t *failingOptimizeTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{ToolID: t.ID(), Name: "Failing Optimize"}
 }
 
-func (t *failingOptimizeTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *failingOptimizeTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *failingOptimizeTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *failingOptimizeTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return nil
 }
 
-func (t *failingOptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *failingOptimizeTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	outputPath, _ := req.Options["outputPath"].(string)
 
-	return models.PlanJobResponseV1{
+	return models.PlanJobResponse{
 		Success: true,
 		Message: "ready to fail",
-		Outputs: []models.PlannedOutputV1{{
+		Outputs: []models.PlannedOutput{{
 			InputPath:   firstRequestInput(req),
 			OutputPath:  outputPath,
 			OutputKind:  "file",
@@ -868,10 +868,10 @@ func (t *failingOptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (
 	}, nil
 }
 
-func (t *failingOptimizeTool) ExecuteSingle(_ context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
-	jobErr := &models.JobErrorV1{Code: "PDF_OPTIMIZE_FAILED", DetailCode: "PDF_OPTIMIZE_FAILED", Message: "optimize failed for test"}
+func (t *failingOptimizeTool) ExecuteSingle(_ context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
+	jobErr := &models.JobError{Code: "PDF_OPTIMIZE_FAILED", DetailCode: "PDF_OPTIMIZE_FAILED", Message: "optimize failed for test"}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath: firstRequestInput(req),
 		Success:   false,
 		Message:   jobErr.Message,
@@ -879,7 +879,7 @@ func (t *failingOptimizeTool) ExecuteSingle(_ context.Context, req models.JobReq
 	}, jobErr
 }
 
-func firstRequestInput(req models.JobRequestV1) string {
+func firstRequestInput(req models.JobRequest) string {
 	if len(req.InputPaths) > 0 {
 		return req.InputPaths[0]
 	}
@@ -889,21 +889,21 @@ func firstRequestInput(req models.JobRequestV1) string {
 
 type eventRecorder struct {
 	mu     sync.Mutex
-	events []models.RecipeProgressEventV1
+	events []models.RecipeProgressEvent
 }
 
-func (r *eventRecorder) record(event models.RecipeProgressEventV1) {
+func (r *eventRecorder) record(event models.RecipeProgressEvent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.events = append(r.events, event)
 }
 
-func (r *eventRecorder) snapshot() []models.RecipeProgressEventV1 {
+func (r *eventRecorder) snapshot() []models.RecipeProgressEvent {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return append([]models.RecipeProgressEventV1{}, r.events...)
+	return append([]models.RecipeProgressEvent{}, r.events...)
 }
 
 func newTestService(t *testing.T) (*Service, *jobhistory.Store, *eventRecorder) {
@@ -950,7 +950,7 @@ func newRecipeTestEngine(t *testing.T, reg *registry.Registry) *jobs.Engine {
 func mustRegisterTool(t *testing.T, reg *registry.Registry, tool tools.Tool) {
 	t.Helper()
 
-	if err := reg.RegisterToolV2(tool); err != nil {
+	if err := reg.RegisterTool(tool); err != nil {
 		t.Fatalf("register tool %s: %v", tool.ID(), err)
 	}
 }
@@ -969,7 +969,7 @@ func writePDFFixture(t *testing.T, path string, pages int) {
 	}
 }
 
-func waitForRecipeTerminal(t *testing.T, service *Service, jobID string) models.RecipeResultV1 {
+func waitForRecipeTerminal(t *testing.T, service *Service, jobID string) models.RecipeResult {
 	t.Helper()
 
 	deadline := time.Now().Add(60 * time.Second)
@@ -989,10 +989,10 @@ func waitForRecipeTerminal(t *testing.T, service *Service, jobID string) models.
 	}
 
 	t.Fatalf("timed out waiting for recipe job %s", jobID)
-	return models.RecipeResultV1{}
+	return models.RecipeResult{}
 }
 
-func waitForRecipeEvent(t *testing.T, recorder *eventRecorder, match func(models.RecipeProgressEventV1) bool) models.RecipeProgressEventV1 {
+func waitForRecipeEvent(t *testing.T, recorder *eventRecorder, match func(models.RecipeProgressEvent) bool) models.RecipeProgressEvent {
 	t.Helper()
 
 	deadline := time.Now().Add(10 * time.Second)
@@ -1006,7 +1006,7 @@ func waitForRecipeEvent(t *testing.T, recorder *eventRecorder, match func(models
 	}
 
 	t.Fatalf("timed out waiting for a recipe event; recorded: %+v", recorder.snapshot())
-	return models.RecipeProgressEventV1{}
+	return models.RecipeProgressEvent{}
 }
 
 func waitForPathGone(t *testing.T, path string) {

@@ -21,7 +21,7 @@ func TestMergePlanAutoOutputNextToFirstInput(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, nil))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -51,7 +51,7 @@ func TestMergePlanDefaultsOptions(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, nil))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -78,7 +78,7 @@ func TestMergePlanUsesChosenOutputDir(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	req := videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, map[string]any{"targetFormat": "webm"})
+	req := videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, map[string]any{"targetFormat": "webm"})
 	req.OutputDir = outDir
 	plan, planErr := newMergePlanTool().Plan(context.Background(), req)
 	if planErr != nil {
@@ -98,7 +98,7 @@ func TestMergePlanSuffixesExistingAutoOutput(t *testing.T) {
 	writeVideoFixture(t, second)
 	writeVideoFixture(t, filepath.Join(dir, "first_merged.mp4"))
 
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, nil))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -124,7 +124,7 @@ func TestMergePlanExplicitOutputConflict(t *testing.T) {
 	writeVideoFixture(t, second)
 	writeVideoFixture(t, outputPath)
 
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, map[string]any{"outputPath": outputPath}))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, map[string]any{"outputPath": outputPath}))
 	if planErr == nil {
 		t.Fatal("expected explicit output conflict")
 	}
@@ -157,7 +157,7 @@ func TestMergeExecuteSingleUsesPlannedOutput(t *testing.T) {
 	runner := &stubCommandRunner{}
 	tool := NewMergeToolWithDeps(stubRuntimeProbe{}, runner)
 
-	item, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil))
+	item, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, nil))
 	if itemErr != nil {
 		t.Fatalf("expected merge to succeed, got %v", itemErr)
 	}
@@ -177,7 +177,7 @@ func TestMergePlanRejectsFewerThanTwoInputs(t *testing.T) {
 	first := filepath.Join(dir, "first.mp4")
 	writeVideoFixture(t, first)
 
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first}, nil))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first}, nil))
 	if planErr == nil {
 		t.Fatal("expected insufficient inputs error")
 	}
@@ -195,7 +195,7 @@ func TestMergePlanMissingInput(t *testing.T) {
 	missing := filepath.Join(dir, "missing.mp4")
 	writeVideoFixture(t, first)
 
-	_, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, missing}, nil))
+	_, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, missing}, nil))
 	if planErr == nil {
 		t.Fatal("expected missing input error")
 	}
@@ -211,7 +211,7 @@ func TestMergeValidateWithoutOutputPath(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	validationErr := newMergePlanTool().Validate(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil))
+	validationErr := newMergePlanTool().Validate(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, nil))
 	if validationErr != nil {
 		t.Fatalf("expected merge validation without outputPath to pass, got %v", validationErr)
 	}
@@ -225,7 +225,7 @@ func TestMergePlanIncludesRemoveAudio(t *testing.T) {
 	writeVideoFixture(t, second)
 
 	options := map[string]any{"removeAudio": true}
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, options))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -242,7 +242,7 @@ func TestMergePlanDefaultsRemoveAudio(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, nil))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -260,7 +260,7 @@ func TestMergePlanRejectsInvalidRemoveAudio(t *testing.T) {
 	writeVideoFixture(t, second)
 
 	options := map[string]any{"removeAudio": "loud"}
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, options))
 	if planErr == nil {
 		t.Fatal("expected a validation error")
 	}
@@ -283,7 +283,7 @@ func TestMergeExecuteSingleAppliesRemoveAudio(t *testing.T) {
 	tool := NewMergeToolWithDeps(stubRuntimeProbe{}, runner)
 	options := map[string]any{"removeAudio": true, "mergeMode": engine.MergeModeReencode}
 
-	if _, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options)); itemErr != nil {
+	if _, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, options)); itemErr != nil {
 		t.Fatalf("expected merge to succeed, got %v", itemErr)
 	}
 
@@ -310,7 +310,7 @@ func TestMergeExecuteCopyAppliesRemoveAudio(t *testing.T) {
 	tool := NewMergeToolWithDeps(stubRuntimeProbe{}, runner)
 	options := map[string]any{"removeAudio": true, "mergeMode": engine.MergeModeCopy}
 
-	if _, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options)); itemErr != nil {
+	if _, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, options)); itemErr != nil {
 		t.Fatalf("expected merge to succeed, got %v", itemErr)
 	}
 
@@ -348,7 +348,7 @@ func TestMergePlanDefaultsTransitionOptions(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, nil))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, nil))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -369,7 +369,7 @@ func TestMergePlanIncludesTransitionOptions(t *testing.T) {
 	writeVideoFixture(t, second)
 
 	options := map[string]any{"transition": "crossfade", "transitionDuration": 1.5}
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, options))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -401,7 +401,7 @@ func TestMergePlanRejectsInvalidTransitionOptions(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, test.options))
+			plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, test.options))
 			if planErr == nil {
 				t.Fatal("expected a validation error")
 			}
@@ -423,7 +423,7 @@ func TestMergePlanAllowsNoneTransitionWithAnyDuration(t *testing.T) {
 	writeVideoFixture(t, second)
 
 	options := map[string]any{"transitionDuration": 5}
-	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	plan, planErr := newMergePlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, options))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -445,7 +445,7 @@ func TestMergeExecuteSingleUsesCrossfade(t *testing.T) {
 	stubMergeInputDuration(t, 10)
 	options := map[string]any{"transition": "crossfade", "transitionDuration": 1, "mergeMode": engine.MergeModeCopy}
 
-	item, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMergeV1, "single", []string{first, second}, options))
+	item, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoMerge, "single", []string{first, second}, options))
 	if itemErr != nil {
 		t.Fatalf("expected merge to succeed, got %v", itemErr)
 	}

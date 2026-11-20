@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	ToolIDPDFMergeV1 = "tool.pdf.merge"
+	ToolIDPDFMerge = "tool.pdf.merge"
 
 	mergeInputPageRangesOption = "inputPageRanges"
 )
@@ -25,21 +25,21 @@ func NewMergeTool() *MergeTool {
 }
 
 func (t *MergeTool) ID() string {
-	return ToolIDPDFMergeV1
+	return ToolIDPDFMerge
 }
 
 func (t *MergeTool) Capability() string {
 	return "tool.pdf.merge"
 }
 
-func (t *MergeTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *MergeTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "PDF Merge",
 		Description:      "Merge multiple PDF files into a single output PDF",
 		Domain:           "pdf",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    false,
 		InputExtensions:  []string{"pdf"},
@@ -51,11 +51,11 @@ func (t *MergeTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *MergeTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *MergeTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *MergeTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *MergeTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -63,11 +63,11 @@ func (t *MergeTool) Validate(ctx context.Context, req models.JobRequestV1) *mode
 // Plan resolves the merge destination without writing anything. An explicit
 // outputPath keeps the existing contract (it must not exist); otherwise the
 // output defaults to <firstStem>_merged.pdf next to the first input.
-func (t *MergeTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *MergeTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	if req.Mode != "single" {
-		return planFailure(plan, &models.JobErrorV1{Code: "VALIDATION_ERROR", Message: "mode must be single"})
+		return planFailure(plan, &models.JobError{Code: "VALIDATION_ERROR", Message: "mode must be single"})
 	}
 
 	pageRanges, rangesErr := parseMergeInputPageRanges(req)
@@ -89,7 +89,7 @@ func (t *MergeTool) Plan(_ context.Context, req models.JobRequestV1) (models.Pla
 		plan.EffectiveOptions = map[string]any{mergeInputPageRangesOption: pageRanges}
 	}
 
-	planned := models.PlannedOutputV1{
+	planned := models.PlannedOutput{
 		InputPath:  strings.Join(req.InputPaths, ","),
 		OutputPath: outputPath,
 		OutputKind: "file",
@@ -101,14 +101,14 @@ func (t *MergeTool) Plan(_ context.Context, req models.JobRequestV1) (models.Pla
 
 	plan.Success = true
 	plan.Message = fmt.Sprintf("Ready to merge %d PDFs.", len(req.InputPaths))
-	plan.Outputs = []models.PlannedOutputV1{planned}
+	plan.Outputs = []models.PlannedOutput{planned}
 
 	return plan, nil
 }
 
 // ExecuteSingle keeps the legacy single-executor contract by resolving the plan
 // first and then running that exact plan, so it cannot drift from ExecutePlan.
-func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	inputPath := strings.Join(req.InputPaths, ",")
 
 	plan, planErr := t.Plan(ctx, req)
@@ -131,7 +131,7 @@ func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) 
 
 // ExecutePlan merges exactly the resolved output and page ranges. It never
 // re-plans or re-resolves paths from req.Options: the engine owns planning.
-func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, _ func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, _ func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	inputPath := strings.Join(req.InputPaths, ",")
 	outputPath := plannedOutputPath(plan)
 	pageRanges := plannedMergePageRanges(plan)
@@ -139,10 +139,10 @@ func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, pl
 	err := engine.MergeWithPageRanges(ctx, req.InputPaths, outputPath, pageRanges)
 	if err != nil {
 		jobErr := mapMergeError(err)
-		return []models.JobResultItemV1{mergeFailureItem(inputPath, outputPath, jobErr)}, jobErr
+		return []models.JobResultItem{mergeFailureItem(inputPath, outputPath, jobErr)}, jobErr
 	}
 
-	return []models.JobResultItemV1{{
+	return []models.JobResultItem{{
 		InputPath:   inputPath,
 		OutputPath:  outputPath,
 		Outputs:     mergeOutputs(outputPath),
@@ -153,7 +153,7 @@ func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, pl
 }
 
 // plannedOutputPath returns the destination resolved by Plan.
-func plannedOutputPath(plan models.PlanJobResponseV1) string {
+func plannedOutputPath(plan models.PlanJobResponse) string {
 	if len(plan.Outputs) == 0 {
 		return ""
 	}
@@ -163,7 +163,7 @@ func plannedOutputPath(plan models.PlanJobResponseV1) string {
 
 // plannedMergePageRanges returns the page ranges stored in the plan. A missing
 // or mistyped value keeps the whole file for every input.
-func plannedMergePageRanges(plan models.PlanJobResponseV1) []string {
+func plannedMergePageRanges(plan models.PlanJobResponse) []string {
 	if plan.EffectiveOptions == nil {
 		return nil
 	}
@@ -176,8 +176,8 @@ func plannedMergePageRanges(plan models.PlanJobResponseV1) []string {
 	return ranges
 }
 
-func mergeFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
-	return models.JobResultItemV1{
+func mergeFailureItem(inputPath, outputPath string, jobErr *models.JobError) models.JobResultItem {
+	return models.JobResultItem{
 		InputPath:   inputPath,
 		OutputPath:  outputPath,
 		Outputs:     mergeOutputs(outputPath),
@@ -191,7 +191,7 @@ func mergeFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) m
 // parseMergeInputPageRanges reads the optional per-input page ranges. A nil
 // result means the option was not supplied. When supplied, the list must have
 // exactly one entry per input; empty entries keep the whole file.
-func parseMergeInputPageRanges(req models.JobRequestV1) ([]string, *models.JobErrorV1) {
+func parseMergeInputPageRanges(req models.JobRequest) ([]string, *models.JobError) {
 	if req.Options == nil {
 		return nil, nil
 	}
@@ -229,8 +229,8 @@ func parseMergeInputPageRanges(req models.JobRequestV1) ([]string, *models.JobEr
 	return ranges, nil
 }
 
-func invalidMergePageRangesError(message string) *models.JobErrorV1 {
-	return &models.JobErrorV1{
+func invalidMergePageRangesError(message string) *models.JobError {
+	return &models.JobError{
 		Code:       engine.ErrorCodeMergePageRangeInvalid,
 		DetailCode: engine.ErrorCodeMergePageRangeInvalid,
 		Message:    message,
@@ -296,7 +296,7 @@ func mergeOutputCount(outputPath string) int {
 	return 1
 }
 
-func planFailure(plan models.PlanJobResponseV1, jobErr *models.JobErrorV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func planFailure(plan models.PlanJobResponse, jobErr *models.JobError) (models.PlanJobResponse, *models.JobError) {
 	plan.Success = false
 	plan.Error = jobErr
 	if jobErr != nil && jobErr.Message != "" {
@@ -305,13 +305,13 @@ func planFailure(plan models.PlanJobResponseV1, jobErr *models.JobErrorV1) (mode
 	return plan, jobErr
 }
 
-func mapMergeError(err error) *models.JobErrorV1 {
+func mapMergeError(err error) *models.JobError {
 	var mergeErr *engine.MergeError
 	if !errors.As(err, &mergeErr) {
-		return &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
+		return &models.JobError{Code: "EXECUTION_ERROR", Message: err.Error()}
 	}
 
-	return &models.JobErrorV1{
+	return &models.JobError{
 		Code:       mergeErr.Code,
 		DetailCode: mergeErr.Code,
 		Message:    mergeErr.Message,

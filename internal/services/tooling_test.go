@@ -7,8 +7,8 @@ import (
 )
 
 func TestJobOutputPathsPrefersOutputsAndFallsBackToOutputPath(t *testing.T) {
-	job := models.JobResultV1{
-		Items: []models.JobResultItemV1{
+	job := models.JobResult{
+		Items: []models.JobResultItem{
 			{Outputs: []string{"/tmp/a.pdf", "/tmp/b.pdf"}, OutputPath: "/tmp/ignored.pdf"},
 			{OutputPath: "/tmp/c.pdf"},
 			{Outputs: []string{"  /tmp/a.pdf  "}, OutputPath: "/tmp/dup.pdf"},
@@ -29,7 +29,7 @@ func TestJobOutputPathsPrefersOutputsAndFallsBackToOutputPath(t *testing.T) {
 }
 
 func TestJobOutputPathsEmptyJob(t *testing.T) {
-	if paths := jobOutputPaths(models.JobResultV1{}); len(paths) != 0 {
+	if paths := jobOutputPaths(models.JobResult{}); len(paths) != 0 {
 		t.Fatalf("expected no paths, got %v", paths)
 	}
 }

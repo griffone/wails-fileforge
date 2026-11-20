@@ -37,7 +37,7 @@ func (e *Engine) runJob(state *jobState) {
 		)
 	}()
 
-	state.updateProgress(models.JobProgressV1{
+	state.updateProgress(models.JobProgress{
 		Current: 0,
 		Total:   len(state.request.InputPaths),
 		Stage:   StatusRunning,
@@ -69,14 +69,14 @@ func (e *Engine) runJob(state *jobState) {
 // runSingle prefers progress-aware single execution and falls back to the
 // plain single executor.
 func (e *Engine) runSingle(state *jobState) {
-	var execute func() (models.JobResultItemV1, *models.JobErrorV1)
+	var execute func() (models.JobResultItem, *models.JobError)
 
 	if withProgress, ok := state.tool.(tools.SingleExecutorWithProgress); ok {
-		execute = func() (models.JobResultItemV1, *models.JobErrorV1) {
+		execute = func() (models.JobResultItem, *models.JobError) {
 			return withProgress.ExecuteSingleWithProgress(state.ctx, state.request, state.updateProgress)
 		}
 	} else if single, ok := state.tool.(tools.SingleExecutor); ok {
-		execute = func() (models.JobResultItemV1, *models.JobErrorV1) {
+		execute = func() (models.JobResultItem, *models.JobError) {
 			return single.ExecuteSingle(state.ctx, state.request)
 		}
 	} else {
@@ -92,15 +92,15 @@ func (e *Engine) runSingle(state *jobState) {
 	item.RetryCount = max(0, attempts-1)
 
 	if state.ctx.Err() != nil {
-		state.complete(StatusCancelled, "job cancelled", []models.JobResultItemV1{item}, cancelledJobError(state.ctx, attempts, jobErr), time.Now().UnixMilli())
+		state.complete(StatusCancelled, "job cancelled", []models.JobResultItem{item}, cancelledJobError(state.ctx, attempts, jobErr), time.Now().UnixMilli())
 		return
 	}
 	if jobErr != nil {
-		state.complete(StatusFailed, "job failed", []models.JobResultItemV1{item}, normalizeJobError(jobErr), time.Now().UnixMilli())
+		state.complete(StatusFailed, "job failed", []models.JobResultItem{item}, normalizeJobError(jobErr), time.Now().UnixMilli())
 		return
 	}
 
-	state.complete(StatusSuccess, "job success", []models.JobResultItemV1{item}, nil, time.Now().UnixMilli())
+	state.complete(StatusSuccess, "job success", []models.JobResultItem{item}, nil, time.Now().UnixMilli())
 }
 
 // runBatch retries only failed, retryable items. Retry inputs are deduplicated
@@ -117,7 +117,7 @@ func (e *Engine) runBatch(state *jobState) {
 
 	req := state.request
 	originalTotal := len(req.InputPaths)
-	items := make([]models.JobResultItemV1, 0, originalTotal)
+	items := make([]models.JobResultItem, 0, originalTotal)
 	attempts := make([]int, originalTotal)
 	for index := range attempts {
 		attempts[index] = 1
@@ -130,7 +130,7 @@ func (e *Engine) runBatch(state *jobState) {
 
 	currentReq := req
 	retries := 0
-	var lastErr *models.JobErrorV1
+	var lastErr *models.JobError
 
 	for {
 		if state.ctx.Err() != nil {
@@ -217,7 +217,7 @@ func (e *Engine) runPlanned(state *jobState, executor tools.PlanExecutor) {
 
 	planOutputs := plan.Outputs
 	originalTotal := len(planOutputs)
-	items := make([]models.JobResultItemV1, 0, originalTotal)
+	items := make([]models.JobResultItem, 0, originalTotal)
 	attempts := make([]int, originalTotal)
 	for index := range attempts {
 		attempts[index] = 1
@@ -231,7 +231,7 @@ func (e *Engine) runPlanned(state *jobState, executor tools.PlanExecutor) {
 	currentPlan := *plan
 	currentPlan.Outputs = selectPlanOutputs(planOutputs, currentIndices)
 	retries := 0
-	var lastErr *models.JobErrorV1
+	var lastErr *models.JobError
 
 	for {
 		if state.ctx.Err() != nil {
@@ -298,8 +298,8 @@ func (e *Engine) runPlanned(state *jobState, executor tools.PlanExecutor) {
 
 // selectPlanOutputs returns the outputs at indices in order, cloned so a
 // reduced retry plan never aliases the stored plan.
-func selectPlanOutputs(outputs []models.PlannedOutputV1, indices []int) []models.PlannedOutputV1 {
-	selected := make([]models.PlannedOutputV1, 0, len(indices))
+func selectPlanOutputs(outputs []models.PlannedOutput, indices []int) []models.PlannedOutput {
+	selected := make([]models.PlannedOutput, 0, len(indices))
 	for _, index := range indices {
 		if index < 0 || index >= len(outputs) {
 			continue
@@ -313,8 +313,8 @@ func selectPlanOutputs(outputs []models.PlannedOutputV1, indices []int) []models
 // alignPlannedItems maps returned items onto planned outputs by input path
 // while preserving plan order. Missing outputs become PLAN_EXECUTION_MISMATCH
 // failures; unplanned items are appended unchanged in the tool's order.
-func alignPlannedItems(items []models.JobResultItemV1, outputs []models.PlannedOutputV1) []models.JobResultItemV1 {
-	aligned := make([]models.JobResultItemV1, len(outputs))
+func alignPlannedItems(items []models.JobResultItem, outputs []models.PlannedOutput) []models.JobResultItem {
+	aligned := make([]models.JobResultItem, len(outputs))
 	used := make([]bool, len(items))
 	remaining := make(map[string][]int, len(items))
 	for index, item := range items {
@@ -355,9 +355,9 @@ func alignPlannedItems(items []models.JobResultItemV1, outputs []models.PlannedO
 	return aligned
 }
 
-func plannedMismatchItem(output models.PlannedOutputV1) models.JobResultItemV1 {
+func plannedMismatchItem(output models.PlannedOutput) models.JobResultItem {
 	message := "tool returned no result for a planned output"
-	item := models.JobResultItemV1{
+	item := models.JobResultItem{
 		InputPath: output.InputPath,
 		Success:   false,
 		Message:   message,
@@ -376,7 +376,7 @@ func plannedMismatchItem(output models.PlannedOutputV1) models.JobResultItemV1 {
 
 // mergePlannedRetryItems copies retry results back onto the original output
 // positions after aligning them to the reduced retry plan.
-func mergePlannedRetryItems(items, retryItems []models.JobResultItemV1, retryIndices []int, retryOutputs []models.PlannedOutputV1) []models.JobResultItemV1 {
+func mergePlannedRetryItems(items, retryItems []models.JobResultItem, retryIndices []int, retryOutputs []models.PlannedOutput) []models.JobResultItem {
 	aligned := alignPlannedItems(retryItems, retryOutputs)
 	for position, index := range retryIndices {
 		if index < 0 || index >= len(items) || position >= len(retryOutputs) || position >= len(aligned) {
@@ -390,8 +390,8 @@ func mergePlannedRetryItems(items, retryItems []models.JobResultItemV1, retryInd
 
 // batchProgressHandler maps retry-local progress back to original input
 // positions so the UI never jumps backwards.
-func (e *Engine) batchProgressHandler(state *jobState, retrying bool, originalIndices []int, total int) func(models.JobProgressV1) {
-	return func(value models.JobProgressV1) {
+func (e *Engine) batchProgressHandler(state *jobState, retrying bool, originalIndices []int, total int) func(models.JobProgress) {
+	return func(value models.JobProgress) {
 		if retrying {
 			current := value.Current
 			if current >= 1 && current <= len(originalIndices) {
@@ -408,7 +408,7 @@ func (e *Engine) batchProgressHandler(state *jobState, retrying bool, originalIn
 
 // retryableFailedIndices returns failed item indices whose error is retryable.
 // When an item carries no error, the batch-level error is used as fallback.
-func (e *Engine) retryableFailedIndices(toolID string, items []models.JobResultItemV1, total int, execErr *models.JobErrorV1) []int {
+func (e *Engine) retryableFailedIndices(toolID string, items []models.JobResultItem, total int, execErr *models.JobError) []int {
 	failed := make([]int, 0)
 	for index := 0; index < total && index < len(items); index++ {
 		if items[index].Success {
@@ -427,7 +427,7 @@ func (e *Engine) retryableFailedIndices(toolID string, items []models.JobResultI
 	return failed
 }
 
-func (e *Engine) retryable(toolID string, jobErr *models.JobErrorV1) bool {
+func (e *Engine) retryable(toolID string, jobErr *models.JobError) bool {
 	if jobErr == nil {
 		return false
 	}
@@ -461,7 +461,7 @@ func dedupeRetryPaths(inputPaths []string, indices []int) []string {
 // mergeRetryBatchItems copies retry results back onto the original item
 // positions. Paths are matched first; a tool that echoes a different path falls
 // back to the retry request position.
-func mergeRetryBatchItems(items []models.JobResultItemV1, retryItems []models.JobResultItemV1, retryIndices []int, retryPaths []string, inputPaths []string) []models.JobResultItemV1 {
+func mergeRetryBatchItems(items []models.JobResultItem, retryItems []models.JobResultItem, retryIndices []int, retryPaths []string, inputPaths []string) []models.JobResultItem {
 	targetsByPath := make(map[string][]int, len(retryPaths))
 	allowed := make(map[int]struct{}, len(retryIndices))
 	for _, index := range retryIndices {
@@ -473,7 +473,7 @@ func mergeRetryBatchItems(items []models.JobResultItemV1, retryItems []models.Jo
 		targetsByPath[path] = append(targetsByPath[path], index)
 	}
 
-	apply := func(targets []int, item models.JobResultItemV1) {
+	apply := func(targets []int, item models.JobResultItem) {
 		for _, index := range targets {
 			if _, ok := allowed[index]; !ok {
 				continue
@@ -495,11 +495,11 @@ func mergeRetryBatchItems(items []models.JobResultItemV1, retryItems []models.Jo
 	return items
 }
 
-func (e *Engine) executeSingleWithRetry(state *jobState, execute func() (models.JobResultItemV1, *models.JobErrorV1)) (models.JobResultItemV1, *models.JobErrorV1, int) {
+func (e *Engine) executeSingleWithRetry(state *jobState, execute func() (models.JobResultItem, *models.JobError)) (models.JobResultItem, *models.JobError, int) {
 	attempts := 0
 	maxAttempts := state.maxAttempts
-	var item models.JobResultItemV1
-	var jobErr *models.JobErrorV1
+	var item models.JobResultItem
+	var jobErr *models.JobError
 
 	for attempts < maxAttempts {
 		attempts++
@@ -533,7 +533,7 @@ func (e *Engine) executeSingleWithRetry(state *jobState, execute func() (models.
 	return item, jobErr, attempts
 }
 
-func decorateSingleError(item *models.JobResultItemV1, jobErr *models.JobErrorV1, attempts int) {
+func decorateSingleError(item *models.JobResultItem, jobErr *models.JobError, attempts int) {
 	if item.Error == nil {
 		item.Error = jobErr
 	}
@@ -550,7 +550,7 @@ func decorateSingleError(item *models.JobResultItemV1, jobErr *models.JobErrorV1
 
 // cancelledJobError builds the canonical cancellation error used by queued and
 // running cancellation paths.
-func cancelledJobError(ctx context.Context, attempts int, lastErr *models.JobErrorV1) *models.JobErrorV1 {
+func cancelledJobError(ctx context.Context, attempts int, lastErr *models.JobError) *models.JobError {
 	message := "job cancelled"
 	if ctx != nil && ctx.Err() != nil {
 		message = ctx.Err().Error()
@@ -559,7 +559,7 @@ func cancelledJobError(ctx context.Context, attempts int, lastErr *models.JobErr
 	return models.NewCanonicalJobError("JOB_CANCELLED", message, retryMetadata(attempts, lastErr))
 }
 
-func normalizeItemError(item models.JobResultItemV1) models.JobResultItemV1 {
+func normalizeItemError(item models.JobResultItem) models.JobResultItem {
 	if item.Error != nil {
 		item.Error = normalizeJobError(item.Error)
 	}
@@ -567,8 +567,8 @@ func normalizeItemError(item models.JobResultItemV1) models.JobResultItemV1 {
 	return item
 }
 
-func normalizeItemsErrors(items []models.JobResultItemV1) []models.JobResultItemV1 {
-	normalized := make([]models.JobResultItemV1, len(items))
+func normalizeItemsErrors(items []models.JobResultItem) []models.JobResultItem {
+	normalized := make([]models.JobResultItem, len(items))
 	for index := range items {
 		normalized[index] = normalizeItemError(items[index])
 	}
@@ -577,7 +577,7 @@ func normalizeItemsErrors(items []models.JobResultItemV1) []models.JobResultItem
 }
 
 // deriveBatchFinalState maps per-item outcomes to the job status and message.
-func deriveBatchFinalState(items []models.JobResultItemV1) (string, string) {
+func deriveBatchFinalState(items []models.JobResultItem) (string, string) {
 	if len(items) == 0 {
 		return StatusFailed, "job failed"
 	}
@@ -601,14 +601,14 @@ func deriveBatchFinalState(items []models.JobResultItemV1) (string, string) {
 
 // alignBatchItems guarantees one item per input position. Missing results are
 // reported as failures and extra results are appended unchanged.
-func alignBatchItems(items []models.JobResultItemV1, inputPaths []string) []models.JobResultItemV1 {
-	aligned := make([]models.JobResultItemV1, 0, max(len(items), len(inputPaths)))
+func alignBatchItems(items []models.JobResultItem, inputPaths []string) []models.JobResultItem {
+	aligned := make([]models.JobResultItem, 0, max(len(items), len(inputPaths)))
 	for index, inputPath := range inputPaths {
 		if index < len(items) {
 			aligned = append(aligned, items[index])
 			continue
 		}
-		aligned = append(aligned, models.JobResultItemV1{
+		aligned = append(aligned, models.JobResultItem{
 			InputPath: inputPath,
 			Success:   false,
 			Message:   "no result returned for input",
@@ -632,8 +632,8 @@ func maxAttemptCount(attempts []int) int {
 }
 
 // decorateBatchItems records per-item attempts and derived retry counts.
-func decorateBatchItems(items []models.JobResultItemV1, attempts []int) []models.JobResultItemV1 {
-	decorated := make([]models.JobResultItemV1, len(items))
+func decorateBatchItems(items []models.JobResultItem, attempts []int) []models.JobResultItem {
+	decorated := make([]models.JobResultItem, len(items))
 	for index := range items {
 		item := items[index]
 		attempt := 1

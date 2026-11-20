@@ -13,7 +13,7 @@ import (
 	"fileforge-desktop/internal/toolchain"
 )
 
-const ToolIDImageBackgroundV1 = "tool.image.background"
+const ToolIDImageBackground = "tool.image.background"
 
 const (
 	imageBackgroundOutputExtension = "png"
@@ -89,21 +89,21 @@ func NewBackgroundRemoveToolWithRunner(runner RembgCommandRunner) *BackgroundRem
 }
 
 func (t *BackgroundRemoveTool) ID() string {
-	return ToolIDImageBackgroundV1
+	return ToolIDImageBackground
 }
 
 func (t *BackgroundRemoveTool) Capability() string {
-	return ToolIDImageBackgroundV1
+	return ToolIDImageBackground
 }
 
-func (t *BackgroundRemoveTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *BackgroundRemoveTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "Remove Background",
 		Description:      "Remove image backgrounds locally with a transparent PNG or a chosen background color",
 		Domain:           "image",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  append([]string(nil), imageInputExtensions...),
@@ -113,34 +113,34 @@ func (t *BackgroundRemoveTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *BackgroundRemoveTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
+func (t *BackgroundRemoveTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
 	if _, runtimeErr := resolveBackgroundRemoveRuntime(); runtimeErr != nil {
-		return models.ToolRuntimeStateV1{
+		return models.ToolRuntimeState{
 			Status:  "degraded",
 			Healthy: false,
 			Reason:  runtimeErr.Message,
 		}
 	}
 
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *BackgroundRemoveTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *BackgroundRemoveTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
 
 // Plan validates the pack, the inputs and the options, then resolves one
 // collision-safe <stem>_nobg.png per input without running Python.
-func (t *BackgroundRemoveTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *BackgroundRemoveTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	plan, _, planErr := t.planBackgroundRemoveRequest(ctx, req)
 	return plan, planErr
 }
 
-func (t *BackgroundRemoveTool) planBackgroundRemoveRequest(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, []preparedBackgroundRemove, *models.JobErrorV1) {
+func (t *BackgroundRemoveTool) planBackgroundRemoveRequest(_ context.Context, req models.JobRequest) (models.PlanJobResponse, []preparedBackgroundRemove, *models.JobError) {
 	parsed, parseErr := parseBackgroundRemoveRequest(req)
 	if parseErr != nil {
-		plan, _ := planFailure(models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}, parseErr)
+		plan, _ := planFailure(models.PlanJobResponse{Outputs: []models.PlannedOutput{}}, parseErr)
 		return plan, nil, parseErr
 	}
 
@@ -149,8 +149,8 @@ func (t *BackgroundRemoveTool) planBackgroundRemoveRequest(_ context.Context, re
 
 // planParsedBackgroundRemoveRequest resolves the runtime once per job and builds
 // every planned output plus the executor input.
-func (t *BackgroundRemoveTool) planParsedBackgroundRemoveRequest(parsed backgroundRemoveRequest) (models.PlanJobResponseV1, []preparedBackgroundRemove, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *BackgroundRemoveTool) planParsedBackgroundRemoveRequest(parsed backgroundRemoveRequest) (models.PlanJobResponse, []preparedBackgroundRemove, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	runtime, runtimeErr := resolveBackgroundRemoveRuntime()
 	if runtimeErr != nil {
@@ -210,7 +210,7 @@ func (t *BackgroundRemoveTool) planParsedBackgroundRemoveRequest(parsed backgrou
 		BackgroundColor: parsed.options.BackgroundColor,
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(parsed.inputPaths))
 	prepared := make([]preparedBackgroundRemove, 0, len(parsed.inputPaths))
 	warnings := make([]string, 0, len(parsed.inputPaths))
 
@@ -218,7 +218,7 @@ func (t *BackgroundRemoveTool) planParsedBackgroundRemoveRequest(parsed backgrou
 		base := backgroundRemoveOutputBaseName(inputPath)
 		outputPath, adjusted := outputplan.UniqueFilePath(targetDirs[index], base, imageBackgroundOutputExtension, used)
 
-		output := models.PlannedOutputV1{
+		output := models.PlannedOutput{
 			InputPath:   inputPath,
 			OutputPath:  outputPath,
 			OutputKind:  imageOutputKindFile,
@@ -256,13 +256,13 @@ func (t *BackgroundRemoveTool) planParsedBackgroundRemoveRequest(parsed backgrou
 
 // ExecuteSingle implements tools.SingleExecutor by delegating to the progress
 // variant with a no-op callback.
-func (t *BackgroundRemoveTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *BackgroundRemoveTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
 // ExecuteSingleWithProgress resolves the plan once and executes exactly that
 // plan, mapping bridge progress to job progress.
-func (t *BackgroundRemoveTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *BackgroundRemoveTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	inputPath := firstInputPath(req.InputPaths)
 
 	plan, planErr := t.Plan(ctx, req)
@@ -271,7 +271,7 @@ func (t *BackgroundRemoveTool) ExecuteSingleWithProgress(ctx context.Context, re
 	}
 
 	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "removing background 1/1"})
+		onProgress(models.JobProgress{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "removing background 1/1"})
 	}
 
 	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
@@ -289,7 +289,7 @@ func (t *BackgroundRemoveTool) ExecuteSingleWithProgress(ctx context.Context, re
 
 // ExecuteBatch plans the request once and then executes exactly that plan. It
 // never re-resolves output paths from the request.
-func (t *BackgroundRemoveTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *BackgroundRemoveTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := parseBackgroundRemoveRequest(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -309,7 +309,7 @@ func (t *BackgroundRemoveTool) ExecuteBatch(ctx context.Context, req models.JobR
 // ExecutePlan removes backgrounds for exactly the outputs resolved by Plan. The
 // runtime is resolved once and the bridge runs once for the whole plan, so a
 // reduced retry plan only processes the failed items.
-func (t *BackgroundRemoveTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *BackgroundRemoveTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := parseBackgroundRemoveRequest(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -350,7 +350,7 @@ func (t *BackgroundRemoveTool) ExecutePlan(ctx context.Context, req models.JobRe
 
 // executePreparedBackgroundRemove runs one bridge process for the prepared
 // items and maps its outcomes, progress, cancellations and per-item failures.
-func (t *BackgroundRemoveTool) executePreparedBackgroundRemove(ctx context.Context, mode string, prepared []preparedBackgroundRemove, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *BackgroundRemoveTool) executePreparedBackgroundRemove(ctx context.Context, mode string, prepared []preparedBackgroundRemove, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	detailCode := "IMAGE_BACKGROUND_BATCH_ITEM"
 	if mode == "single" {
 		detailCode = "IMAGE_BACKGROUND_EXECUTION"
@@ -373,7 +373,7 @@ func (t *BackgroundRemoveTool) executePreparedBackgroundRemove(ctx context.Conte
 			if onProgress == nil {
 				return
 			}
-			onProgress(models.JobProgressV1{
+			onProgress(models.JobProgress{
 				Current: current,
 				Total:   total,
 				Stage:   models.JobStatusRunning,
@@ -387,7 +387,7 @@ func (t *BackgroundRemoveTool) executePreparedBackgroundRemove(ctx context.Conte
 	// error is a successful run even if the context was cancelled afterwards.
 	if backgroundRemoveIsCancellation(execErr) {
 		cancelled := backgroundRemoveCancelledJobError(ctx, execErr)
-		results := make([]models.JobResultItemV1, 0, len(prepared))
+		results := make([]models.JobResultItem, 0, len(prepared))
 		for _, item := range prepared {
 			results = append(results, imageFailureItem(item.inputPath, item.outputPath, cancelled))
 		}
@@ -402,7 +402,7 @@ func (t *BackgroundRemoveTool) executePreparedBackgroundRemove(ctx context.Conte
 			fmt.Sprintf("The background removal engine produced no result for %s.", filepath.Base(item.inputPath)),
 			map[string]any{"inputPath": item.inputPath, "outputPath": item.outputPath},
 		)
-		return []models.JobResultItemV1{imageFailureItem(item.inputPath, item.outputPath, jobErr)}, jobErr
+		return []models.JobResultItem{imageFailureItem(item.inputPath, item.outputPath, jobErr)}, jobErr
 	}
 
 	outcomeByPath := make(map[string]BackgroundRemoveOutcome, len(outcomes))
@@ -423,8 +423,8 @@ func (t *BackgroundRemoveTool) executePreparedBackgroundRemove(ctx context.Conte
 		}
 	}
 
-	results := make([]models.JobResultItemV1, 0, len(prepared))
-	var firstErr *models.JobErrorV1
+	results := make([]models.JobResultItem, 0, len(prepared))
+	var firstErr *models.JobError
 
 	for index, item := range prepared {
 		if failure, failed := failures[index]; failed {
@@ -451,7 +451,7 @@ func (t *BackgroundRemoveTool) executePreparedBackgroundRemove(ctx context.Conte
 	return results, firstErr
 }
 
-func parseBackgroundRemoveRequest(req models.JobRequestV1) (backgroundRemoveRequest, *models.JobErrorV1) {
+func parseBackgroundRemoveRequest(req models.JobRequest) (backgroundRemoveRequest, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return backgroundRemoveRequest{}, models.NewCanonicalJobError("IMAGE_BACKGROUND_MODE_INVALID", "mode must be single or batch", nil)
@@ -496,7 +496,7 @@ func parseBackgroundRemoveRequest(req models.JobRequestV1) (backgroundRemoveRequ
 
 // backgroundRemoveColorOption validates the optional #RRGGBB color. An absent or
 // empty value means transparent output.
-func backgroundRemoveColorOption(options map[string]any) (string, *models.JobErrorV1) {
+func backgroundRemoveColorOption(options map[string]any) (string, *models.JobError) {
 	if !optionSupplied(options, "backgroundColor") {
 		return "", nil
 	}
@@ -609,13 +609,13 @@ func backgroundRemovePlanMessage(count int) string {
 	return fmt.Sprintf("Ready to remove the background of %d images.", count)
 }
 
-func backgroundRemoveSuccessItem(item preparedBackgroundRemove, outcome BackgroundRemoveOutcome) models.JobResultItemV1 {
+func backgroundRemoveSuccessItem(item preparedBackgroundRemove, outcome BackgroundRemoveOutcome) models.JobResultItem {
 	outputPath := item.outputPath
 	if strings.TrimSpace(outcome.OutputPath) != "" {
 		outputPath = outcome.OutputPath
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:   item.inputPath,
 		OutputPath:  outputPath,
 		Outputs:     []string{outputPath},
@@ -637,7 +637,7 @@ func backgroundRemoveResultMessage(outcome BackgroundRemoveOutcome, background s
 // backgroundRemoveEngineJobError maps a typed engine failure to a canonical job
 // error. The engine message stays user-facing; the raw cause only reaches
 // Details.
-func backgroundRemoveEngineJobError(rembgErr *BackgroundRemoveError, extraDetails map[string]any) *models.JobErrorV1 {
+func backgroundRemoveEngineJobError(rembgErr *BackgroundRemoveError, extraDetails map[string]any) *models.JobError {
 	details := make(map[string]any, len(extraDetails)+2)
 	for key, value := range extraDetails {
 		details[key] = value
@@ -667,7 +667,7 @@ func backgroundRemoveEngineJobError(rembgErr *BackgroundRemoveError, extraDetail
 	}
 }
 
-func backgroundRemoveFailureJobError(failure BackgroundRemoveItemFailure, inputPath, outputPath string, extraDetails map[string]any) *models.JobErrorV1 {
+func backgroundRemoveFailureJobError(failure BackgroundRemoveItemFailure, inputPath, outputPath string, extraDetails map[string]any) *models.JobError {
 	if strings.TrimSpace(inputPath) == "" {
 		inputPath = failure.InputPath
 	}
@@ -694,7 +694,7 @@ func backgroundRemoveFailureJobError(failure BackgroundRemoveItemFailure, inputP
 
 // backgroundRemoveExecutionError maps a failed execution to a job error.
 // Cancellation wins over the generic code, including the last batch item.
-func backgroundRemoveExecutionError(ctx context.Context, detailCode string, item preparedBackgroundRemove, execErr error) *models.JobErrorV1 {
+func backgroundRemoveExecutionError(ctx context.Context, detailCode string, item preparedBackgroundRemove, execErr error) *models.JobError {
 	if backgroundRemoveIsCancellation(execErr) {
 		return backgroundRemoveCancelledJobError(ctx, execErr)
 	}
@@ -735,7 +735,7 @@ func backgroundRemoveIsCancellation(execErr error) bool {
 	return errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded)
 }
 
-func backgroundRemoveCancelledJobError(ctx context.Context, execErr error) *models.JobErrorV1 {
+func backgroundRemoveCancelledJobError(ctx context.Context, execErr error) *models.JobError {
 	var cause error = context.Canceled
 	if ctx != nil && ctx.Err() != nil {
 		cause = ctx.Err()

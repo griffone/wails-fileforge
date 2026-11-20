@@ -14,14 +14,14 @@ import (
 
 func TestWatcherRunsRecipeOnceForNewFile(t *testing.T) {
 	runner := newFakeRecipeRunner()
-	events := make(chan models.AutomationRunEventV1, 16)
-	service, store := newTestService(t, runner, func(event models.AutomationRunEventV1) {
+	events := make(chan models.AutomationRunEvent, 16)
+	service, store := newTestService(t, runner, func(event models.AutomationRunEvent) {
 		events <- event
 	})
 
 	watch := t.TempDir()
 	output := t.TempDir()
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:      "Inbox",
 		Enabled:   true,
 		WatchDir:  watch,
@@ -35,7 +35,7 @@ func TestWatcherRunsRecipeOnceForNewFile(t *testing.T) {
 	source := filepath.Join(watch, "note.txt")
 	writeTestFile(t, source, "hello automation")
 
-	var request models.RecipeRequestV1
+	var request models.RecipeRequest
 	select {
 	case request = <-runner.runCh:
 	case <-time.After(3 * time.Second):
@@ -105,7 +105,7 @@ func TestWatcherDebouncesPartialWrites(t *testing.T) {
 	service, _ := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	saveTestRule(t, service, models.AutomationRuleV1{
+	saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -137,7 +137,7 @@ func TestWatcherIgnoresUnsupportedAndTemporaryFiles(t *testing.T) {
 	service, _ := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	saveTestRule(t, service, models.AutomationRuleV1{
+	saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -159,7 +159,7 @@ func TestWatcherDoesNotRunOnItsOwnOutput(t *testing.T) {
 	service, _ := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	saveTestRule(t, service, models.AutomationRuleV1{
+	saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -190,7 +190,7 @@ func TestWatcherIgnoresOutputSubfolder(t *testing.T) {
 	if err := os.Mkdir(output, 0o755); err != nil {
 		t.Fatalf("create output dir: %v", err)
 	}
-	saveTestRule(t, service, models.AutomationRuleV1{
+	saveTestRule(t, service, models.AutomationRule{
 		Name:      "Inbox",
 		Enabled:   true,
 		WatchDir:  watch,
@@ -231,7 +231,7 @@ func TestDeleteSourceOnlyOnUnchangedSuccess(t *testing.T) {
 
 			watch := t.TempDir()
 			output := t.TempDir()
-			rule := saveTestRule(t, service, models.AutomationRuleV1{
+			rule := saveTestRule(t, service, models.AutomationRule{
 				Name:         "Inbox",
 				Enabled:      true,
 				WatchDir:     watch,
@@ -268,7 +268,7 @@ func TestWatcherPollsUntilTerminal(t *testing.T) {
 	service, store := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -293,7 +293,7 @@ func TestShutdownStopsWatcher(t *testing.T) {
 	service, _ := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	saveTestRule(t, service, models.AutomationRuleV1{
+	saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -319,7 +319,7 @@ func TestShutdownDuringRunRecordsCancelled(t *testing.T) {
 	service, store := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -359,7 +359,7 @@ func TestWatcherErrorMarksRuleDegradedAndCanRecover(t *testing.T) {
 	service, _ := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,
@@ -402,7 +402,7 @@ func TestWatcherRecordsPlanFailure(t *testing.T) {
 	service, store := newTestService(t, runner, nil)
 
 	watch := t.TempDir()
-	rule := saveTestRule(t, service, models.AutomationRuleV1{
+	rule := saveTestRule(t, service, models.AutomationRule{
 		Name:     "Inbox",
 		Enabled:  true,
 		WatchDir: watch,

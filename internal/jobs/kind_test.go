@@ -15,13 +15,13 @@ func TestEngineKindTagsRecipeStepsAndHidesTheToolDefault(t *testing.T) {
 	emitter := &recordingEngineEmitter{}
 	tool := &engineFakeTool{
 		id: "tool.fake.kind",
-		single: func(_ context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+		single: func(_ context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 			path := firstEngineInput(req)
 			if onProgress != nil {
-				onProgress(models.JobProgressV1{Current: 1, Total: 1, Stage: "processing", Message: "working"})
+				onProgress(models.JobProgress{Current: 1, Total: 1, Stage: "processing", Message: "working"})
 			}
 
-			return models.JobResultItemV1{InputPath: path, Success: true, Message: "done"}, nil
+			return models.JobResultItem{InputPath: path, Success: true, Message: "done"}, nil
 		},
 	}
 	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
@@ -30,12 +30,12 @@ func TestEngineKindTagsRecipeStepsAndHidesTheToolDefault(t *testing.T) {
 		ProgressInterval: time.Hour,
 	})
 
-	toolSubmit := submitTestJob(t, engine, models.JobRequestV1{
+	toolSubmit := submitTestJob(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-kind-tool.txt"},
 	})
-	stepSubmit := submitTestJobWith(t, engine, models.JobRequestV1{
+	stepSubmit := submitTestJobWith(t, engine, models.JobRequest{
 		ToolID:     tool.id,
 		Mode:       "single",
 		InputPaths: []string{"/tmp/fileforge-kind-step.txt"},
@@ -75,7 +75,7 @@ func TestEngineKindTagsRecipeStepsAndHidesTheToolDefault(t *testing.T) {
 	}
 }
 
-func awaitJobResult(t *testing.T, engine *Engine, jobID string) models.JobResultV1 {
+func awaitJobResult(t *testing.T, engine *Engine, jobID string) models.JobResult {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

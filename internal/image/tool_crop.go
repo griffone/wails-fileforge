@@ -18,7 +18,7 @@ import (
 	"github.com/h2non/bimg"
 )
 
-const ToolIDImageCropV1 = "tool.image.crop"
+const ToolIDImageCrop = "tool.image.crop"
 
 var imageMimeByFormat = map[string]string{
 	"jpeg": "image/jpeg",
@@ -79,21 +79,21 @@ func NewCropTool() *CropTool {
 }
 
 func (t *CropTool) ID() string {
-	return ToolIDImageCropV1
+	return ToolIDImageCrop
 }
 
 func (t *CropTool) Capability() string {
-	return ToolIDImageCropV1
+	return ToolIDImageCrop
 }
 
-func (t *CropTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *CropTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "Image Crop",
 		Description:      "Crop images with ratio presets, batch mode and safe non-destructive output",
 		Domain:           "image",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  []string{"jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"},
@@ -103,11 +103,11 @@ func (t *CropTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *CropTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *CropTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *CropTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *CropTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -117,17 +117,17 @@ func (t *CropTool) Validate(ctx context.Context, req models.JobRequestV1) *model
 // request contract: it must differ from the input and the target must not
 // exist yet. Auto-derived names are suffixed (-2, -3, ...) instead of
 // overwriting anything.
-func (t *CropTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *CropTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	parsed, parseErr := parseCropRequest(req)
 	if parseErr != nil {
-		return planFailure(models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}, parseErr)
+		return planFailure(models.PlanJobResponse{Outputs: []models.PlannedOutput{}}, parseErr)
 	}
 
 	return planParsedCropRequest(parsed)
 }
 
-func planParsedCropRequest(parsed cropRequest) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func planParsedCropRequest(parsed cropRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	formats := make([]string, 0, len(parsed.inputPaths))
 	for _, inputPath := range parsed.inputPaths {
@@ -153,19 +153,19 @@ func planParsedCropRequest(parsed cropRequest) (models.PlanJobResponseV1, *model
 		planned, planErr := planSingleCropOutput(parsed, formats[0], used)
 		if planErr != nil {
 			if planned.OutputPath != "" {
-				plan.Outputs = []models.PlannedOutputV1{planned}
+				plan.Outputs = []models.PlannedOutput{planned}
 			}
 			return planFailure(plan, planErr)
 		}
 
 		if boundsErr := validateCropBoundsForPlan(planned.InputPath, parsed.x, parsed.y, parsed.width, parsed.height); boundsErr != nil {
-			plan.Outputs = []models.PlannedOutputV1{planned}
+			plan.Outputs = []models.PlannedOutput{planned}
 			return planFailure(plan, boundsErr)
 		}
 
 		plan.Success = true
 		plan.Message = cropPlanMessage(1)
-		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Outputs = []models.PlannedOutput{planned}
 		plan.Warnings = planned.Warnings
 		plan.EffectiveOptions = cropEffectiveOptions(parsed, formats)
 
@@ -178,7 +178,7 @@ func planParsedCropRequest(parsed cropRequest) (models.PlanJobResponseV1, *model
 		}
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(parsed.inputPaths))
 	warnings := make([]string, 0, len(parsed.inputPaths))
 	for index, inputPath := range parsed.inputPaths {
 		if boundsErr := validateCropBoundsForPlan(inputPath, parsed.x, parsed.y, parsed.width, parsed.height); boundsErr != nil {
@@ -228,12 +228,12 @@ func planParsedCropRequest(parsed cropRequest) (models.PlanJobResponseV1, *model
 
 // ExecuteSingle keeps the legacy single-executor contract by resolving the plan
 // first and then running that exact plan, so it cannot drift from ExecutePlan.
-func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	inputPath := firstPath(req.InputPaths)
 
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
-		return models.JobResultItemV1{
+		return models.JobResultItem{
 			InputPath:  inputPath,
 			OutputPath: plannedOutputPath(plan),
 			Success:    false,
@@ -252,7 +252,7 @@ func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (
 		jobErr = models.NewCanonicalJobError("IMAGE_CROP_EXECUTION", "crop returned no result", nil)
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:  inputPath,
 		OutputPath: plannedOutputPath(plan),
 		Success:    false,
@@ -263,7 +263,7 @@ func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (
 
 // ExecuteBatch plans the request once and then executes exactly that plan. It
 // never re-resolves output paths from the request.
-func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return nil, models.NewCanonicalJobError("IMAGE_CROP_MODE_INVALID", "mode must be single or batch", nil)
@@ -283,7 +283,7 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 // ExecutePlan crops exactly the outputs resolved by Plan. Options come from the
 // plan's effective values, so a reduced retry plan only processes the failed
 // items. Results keep plan order.
-func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	total := len(plan.Outputs)
 
 	// Resolve every prepared item sequentially; execution is what runs in
@@ -298,7 +298,7 @@ func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, pla
 		detailCode = "IMAGE_CROP_EXECUTION"
 	}
 
-	items := make([]models.JobResultItemV1, total)
+	items := make([]models.JobResultItem, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
 
@@ -306,7 +306,7 @@ func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, pla
 		prepared := preparedItems[index]
 		if err := executeCropToPath(ctx, prepared); err != nil {
 			itemErr := models.NewCanonicalJobError(detailCode, err.Error(), map[string]any{"inputPath": prepared.inputPath})
-			items[index] = models.JobResultItemV1{
+			items[index] = models.JobResultItem{
 				InputPath:  prepared.inputPath,
 				OutputPath: prepared.outputPath,
 				Success:    false,
@@ -314,7 +314,7 @@ func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, pla
 				Error:      itemErr,
 			}
 		} else {
-			items[index] = models.JobResultItemV1{
+			items[index] = models.JobResultItem{
 				InputPath:   prepared.inputPath,
 				OutputPath:  prepared.outputPath,
 				Outputs:     []string{prepared.outputPath},
@@ -341,10 +341,10 @@ func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, pla
 	return items, firstFailedItemError(items)
 }
 
-func (t *CropTool) GetImagePreviewSource(inputPath string) models.ImagePreviewSourceResponseV1 {
+func (t *CropTool) GetImagePreviewSource(inputPath string) models.ImagePreviewSourceResponse {
 	path := strings.TrimSpace(inputPath)
 	if path == "" {
-		return models.ImagePreviewSourceResponseV1{
+		return models.ImagePreviewSourceResponse{
 			Success: false,
 			Message: "Select a valid image path and retry.",
 			Error:   models.NewCanonicalJobError("IMAGE_PREVIEW_INVALID_PATH", "inputPath is required", nil),
@@ -354,7 +354,7 @@ func (t *CropTool) GetImagePreviewSource(inputPath string) models.ImagePreviewSo
 	bytes, fmtName, width, height, err := readAndNormalize(path)
 	if err != nil {
 		jobErr := models.NewCanonicalJobError("IMAGE_PREVIEW_READ_FAILED", err.Error(), nil)
-		return models.ImagePreviewSourceResponseV1{Success: false, Message: "Cannot load image preview source.", Error: jobErr}
+		return models.ImagePreviewSourceResponse{Success: false, Message: "Cannot load image preview source.", Error: jobErr}
 	}
 
 	mimeType := imageMimeByFormat[fmtName]
@@ -362,7 +362,7 @@ func (t *CropTool) GetImagePreviewSource(inputPath string) models.ImagePreviewSo
 		mimeType = "application/octet-stream"
 	}
 
-	return models.ImagePreviewSourceResponseV1{
+	return models.ImagePreviewSourceResponse{
 		Success:    true,
 		Message:    "image preview source loaded",
 		DataBase64: base64.StdEncoding.EncodeToString(bytes),
@@ -372,10 +372,10 @@ func (t *CropTool) GetImagePreviewSource(inputPath string) models.ImagePreviewSo
 	}
 }
 
-func (t *CropTool) GetImageCropPreview(req models.ImageCropPreviewRequestV1) models.ImageCropPreviewResponseV1 {
+func (t *CropTool) GetImageCropPreview(req models.ImageCropPreviewRequest) models.ImageCropPreviewResponse {
 	inputPath := strings.TrimSpace(req.InputPath)
 	if inputPath == "" {
-		return models.ImageCropPreviewResponseV1{
+		return models.ImageCropPreviewResponse{
 			Success: false,
 			Message: "Select a valid image path and retry.",
 			Error:   models.NewCanonicalJobError("IMAGE_CROP_PREVIEW_INVALID_PATH", "inputPath is required", nil),
@@ -383,7 +383,7 @@ func (t *CropTool) GetImageCropPreview(req models.ImageCropPreviewRequestV1) mod
 	}
 
 	if req.Width < 1 || req.Height < 1 {
-		return models.ImageCropPreviewResponseV1{
+		return models.ImageCropPreviewResponse{
 			Success: false,
 			Message: "Crop area must be at least 1x1.",
 			Error: models.NewCanonicalJobError(
@@ -395,35 +395,35 @@ func (t *CropTool) GetImageCropPreview(req models.ImageCropPreviewRequestV1) mod
 	}
 
 	if ratioErr := validateRatioPreset(strings.TrimSpace(req.RatioPreset), req.Width, req.Height); ratioErr != nil {
-		return models.ImageCropPreviewResponseV1{Success: false, Message: ratioErr.Message, Error: ratioErr}
+		return models.ImageCropPreviewResponse{Success: false, Message: ratioErr.Message, Error: ratioErr}
 	}
 
 	bytes, fmtName, _, _, err := readAndNormalize(inputPath)
 	if err != nil {
 		jobErr := models.NewCanonicalJobError("IMAGE_CROP_PREVIEW_READ_FAILED", err.Error(), nil)
-		return models.ImageCropPreviewResponseV1{Success: false, Message: "Cannot load image preview source.", Error: jobErr}
+		return models.ImageCropPreviewResponse{Success: false, Message: "Cannot load image preview source.", Error: jobErr}
 	}
 
 	img := bimg.NewImage(bytes)
 	size, sizeErr := img.Size()
 	if sizeErr != nil {
 		jobErr := models.NewCanonicalJobError("IMAGE_CROP_DIMENSIONS_READ_FAILED", sizeErr.Error(), nil)
-		return models.ImageCropPreviewResponseV1{Success: false, Message: "Cannot inspect image dimensions.", Error: jobErr}
+		return models.ImageCropPreviewResponse{Success: false, Message: "Cannot inspect image dimensions.", Error: jobErr}
 	}
 
 	if boundsErr := validateBoundsAgainstSize(req.X, req.Y, req.Width, req.Height, size.Width, size.Height); boundsErr != nil {
-		return models.ImageCropPreviewResponseV1{Success: false, Message: boundsErr.Message, Error: boundsErr}
+		return models.ImageCropPreviewResponse{Success: false, Message: boundsErr.Message, Error: boundsErr}
 	}
 
 	outputFmt, fmtErr := resolveOutputFormat(inputPath, strings.TrimSpace(req.Format))
 	if fmtErr != nil {
-		return models.ImageCropPreviewResponseV1{Success: false, Message: fmtErr.Message, Error: fmtErr}
+		return models.ImageCropPreviewResponse{Success: false, Message: fmtErr.Message, Error: fmtErr}
 	}
 
 	croppedBytes, err := cropInMemory(bytes, req.X, req.Y, req.Width, req.Height, outputFmt, cropTransform{})
 	if err != nil {
 		jobErr := models.NewCanonicalJobError("IMAGE_CROP_PREVIEW_EXECUTION", err.Error(), nil)
-		return models.ImageCropPreviewResponseV1{Success: false, Message: "Failed to generate preview.", Error: jobErr}
+		return models.ImageCropPreviewResponse{Success: false, Message: "Failed to generate preview.", Error: jobErr}
 	}
 
 	mimeType := imageMimeByFormat[outputFmt]
@@ -431,7 +431,7 @@ func (t *CropTool) GetImageCropPreview(req models.ImageCropPreviewRequestV1) mod
 		mimeType = imageMimeByFormat[fmtName]
 	}
 
-	return models.ImageCropPreviewResponseV1{
+	return models.ImageCropPreviewResponse{
 		Success:    true,
 		Message:    "image crop preview generated",
 		DataBase64: base64.StdEncoding.EncodeToString(croppedBytes),
@@ -441,7 +441,7 @@ func (t *CropTool) GetImageCropPreview(req models.ImageCropPreviewRequestV1) mod
 	}
 }
 
-func parseCropRequest(req models.JobRequestV1) (cropRequest, *models.JobErrorV1) {
+func parseCropRequest(req models.JobRequest) (cropRequest, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return cropRequest{}, models.NewCanonicalJobError("IMAGE_CROP_MODE_INVALID", "mode must be single or batch", nil)
@@ -558,7 +558,7 @@ func parseCropRequest(req models.JobRequestV1) (cropRequest, *models.JobErrorV1)
 // planSingleCropOutput resolves the one output of a single request. An
 // explicit outputPath keeps the old validation contract; otherwise the output
 // is auto-named next to the input or inside the chosen folder.
-func planSingleCropOutput(parsed cropRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
+func planSingleCropOutput(parsed cropRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutput, *models.JobError) {
 	inputPath := parsed.inputPaths[0]
 
 	if explicitOutput := strings.TrimSpace(parsed.outputPath); explicitOutput != "" {
@@ -573,8 +573,8 @@ func planSingleCropOutput(parsed cropRequest, outputFmt string, used map[string]
 	return planAutoCropOutput(inputPath, filepath.Clean(targetDir), outputFmt, used), nil
 }
 
-func planExplicitCropOutput(inputPath, explicitOutput string) (models.PlannedOutputV1, *models.JobErrorV1) {
-	planned := models.PlannedOutputV1{
+func planExplicitCropOutput(inputPath, explicitOutput string) (models.PlannedOutput, *models.JobError) {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputPath: filepath.Clean(strings.TrimSpace(explicitOutput)),
 		OutputKind: imageOutputKindFile,
@@ -612,8 +612,8 @@ func planExplicitCropOutput(inputPath, explicitOutput string) (models.PlannedOut
 }
 
 // planAutoCropOutput derives a collision-safe name inside dir. It never writes.
-func planAutoCropOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutputV1 {
-	planned := models.PlannedOutputV1{
+func planAutoCropOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutput {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputKind: imageOutputKindFile,
 	}
@@ -641,7 +641,7 @@ func cropOutputBaseName(inputPath string) string {
 
 // preparedCropFromPlan turns a planned output into executor input without
 // resolving any path again.
-func preparedCropFromPlan(planned models.PlannedOutputV1, effective map[string]any) preparedCrop {
+func preparedCropFromPlan(planned models.PlannedOutput, effective map[string]any) preparedCrop {
 	x, _ := numericOption(effective, "x")
 	y, _ := numericOption(effective, "y")
 	width, _ := numericOption(effective, "width")
@@ -700,7 +700,7 @@ func cropEffectiveOptions(parsed cropRequest, formats []string) map[string]any {
 	return effective
 }
 
-func validateCropBoundsForPlan(inputPath string, x, y, width, height int) *models.JobErrorV1 {
+func validateCropBoundsForPlan(inputPath string, x, y, width, height int) *models.JobError {
 	imageWidth, imageHeight, dimErr := readPlanImageDimensions(inputPath)
 	if dimErr != nil {
 		return models.NewCanonicalJobError("IMAGE_CROP_READ_FAILED", dimErr.Error(), map[string]any{"inputPath": inputPath})
@@ -709,7 +709,7 @@ func validateCropBoundsForPlan(inputPath string, x, y, width, height int) *model
 	return validateBoundsAgainstSize(x, y, width, height, imageWidth, imageHeight)
 }
 
-func validateCropOutputDir(outputDir string) *models.JobErrorV1 {
+func validateCropOutputDir(outputDir string) *models.JobError {
 	info, statErr := os.Stat(outputDir)
 	if statErr != nil {
 		return models.NewCanonicalJobError("IMAGE_CROP_OUTPUT_DIR_INVALID", fmt.Sprintf("outputDir is not accessible: %v", statErr), nil)
@@ -832,7 +832,7 @@ func cropInMemory(input []byte, x, y, width, height int, outputFmt string, trans
 	return bimg.NewImage(extracted).Process(options)
 }
 
-func validateCropBoundsFromBytes(input []byte, x, y, width, height int) *models.JobErrorV1 {
+func validateCropBoundsFromBytes(input []byte, x, y, width, height int) *models.JobError {
 	size, sizeErr := bimg.NewImage(input).Size()
 	if sizeErr != nil {
 		return models.NewCanonicalJobError("IMAGE_CROP_DIMENSIONS_READ_FAILED", sizeErr.Error(), nil)
@@ -841,7 +841,7 @@ func validateCropBoundsFromBytes(input []byte, x, y, width, height int) *models.
 	return validateBoundsAgainstSize(x, y, width, height, size.Width, size.Height)
 }
 
-func validateBoundsAgainstSize(x, y, width, height, imageWidth, imageHeight int) *models.JobErrorV1 {
+func validateBoundsAgainstSize(x, y, width, height, imageWidth, imageHeight int) *models.JobError {
 	if x < 0 || y < 0 {
 		return models.NewCanonicalJobError("IMAGE_CROP_COORDINATES_INVALID", "x and y must be >= 0", nil)
 	}
@@ -861,7 +861,7 @@ func validateBoundsAgainstSize(x, y, width, height, imageWidth, imageHeight int)
 	return nil
 }
 
-func validateRatioPreset(preset string, width, height int) *models.JobErrorV1 {
+func validateRatioPreset(preset string, width, height int) *models.JobError {
 	normalized := strings.ToLower(strings.TrimSpace(preset))
 	if normalized == "" {
 		normalized = "free"
@@ -901,7 +901,7 @@ func validateRatioPreset(preset string, width, height int) *models.JobErrorV1 {
 	return nil
 }
 
-func validateInputImagePath(inputPath string) *models.JobErrorV1 {
+func validateInputImagePath(inputPath string) *models.JobError {
 	if strings.TrimSpace(inputPath) == "" {
 		return models.NewCanonicalJobError("IMAGE_CROP_INPUT_REQUIRED", "inputPath is required", nil)
 	}
@@ -921,7 +921,7 @@ func validateInputImagePath(inputPath string) *models.JobErrorV1 {
 	return nil
 }
 
-func resolveOutputFormat(inputPath, requested string) (string, *models.JobErrorV1) {
+func resolveOutputFormat(inputPath, requested string) (string, *models.JobError) {
 	format := strings.ToLower(strings.TrimSpace(requested))
 	if format == "jpg" {
 		format = "jpeg"
@@ -969,7 +969,7 @@ func firstPath(paths []string) string {
 	return strings.TrimSpace(paths[0])
 }
 
-func optionInt(options map[string]any, key string) (int, *models.JobErrorV1) {
+func optionInt(options map[string]any, key string) (int, *models.JobError) {
 	if options == nil {
 		return 0, models.NewCanonicalJobError("IMAGE_CROP_OPTION_REQUIRED", fmt.Sprintf("options.%s is required", key), nil)
 	}
@@ -1007,7 +1007,7 @@ func cropOptionString(options map[string]any, key string) string {
 // cropOptionalInt reads an optional integer option and returns 0 when the
 // option is absent. Supplied values of the wrong type are rejected so a typo
 // never silently changes the output size.
-func cropOptionalInt(options map[string]any, key string) (int, *models.JobErrorV1) {
+func cropOptionalInt(options map[string]any, key string) (int, *models.JobError) {
 	if !optionSupplied(options, key) {
 		return 0, nil
 	}
@@ -1027,7 +1027,7 @@ func cropOptionalInt(options map[string]any, key string) (int, *models.JobErrorV
 // cropOptionalBool reads an optional boolean option and returns false when the
 // option is absent. Textual values are accepted because some callers serialize
 // checkboxes as strings.
-func cropOptionalBool(options map[string]any, key string) (bool, *models.JobErrorV1) {
+func cropOptionalBool(options map[string]any, key string) (bool, *models.JobError) {
 	if !optionSupplied(options, key) {
 		return false, nil
 	}

@@ -24,9 +24,9 @@ func writePlanFixture(t *testing.T, path string) {
 	}
 }
 
-func planImageRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDImageConvertV1,
+func planImageRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDImageConvert,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,
@@ -303,7 +303,7 @@ func TestExecuteBatchKeepsInputOrderWhenItemsFinishOutOfOrder(t *testing.T) {
 	}
 
 	var progress []int
-	items, execErr := adapter.ExecuteBatch(context.Background(), planImageRequest("batch", inputPaths, nil), func(event models.JobProgressV1) {
+	items, execErr := adapter.ExecuteBatch(context.Background(), planImageRequest("batch", inputPaths, nil), func(event models.JobProgress) {
 		progress = append(progress, event.Current)
 	})
 	if execErr != nil {
@@ -451,7 +451,7 @@ func TestImageConvertExecutePlanIsolatesItemFailures(t *testing.T) {
 	}
 
 	var progress []int
-	items, execErr := adapter.ExecutePlan(context.Background(), request, plan, func(event models.JobProgressV1) {
+	items, execErr := adapter.ExecutePlan(context.Background(), request, plan, func(event models.JobProgress) {
 		progress = append(progress, event.Current)
 	})
 	if execErr == nil {

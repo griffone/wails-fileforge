@@ -20,11 +20,11 @@ import (
 )
 
 const (
-	JobProgressEventNameV1 = "jobs/progress/v1"
+	JobProgressEventName = "jobs/progress/v1"
 
-	// JobStateEventNameV1 carries a full JobResultV1 snapshot whenever a job is
+	// JobStateEventName carries a full JobResult snapshot whenever a job is
 	// submitted or reaches a terminal status.
-	JobStateEventNameV1 = "jobs/state/v1"
+	JobStateEventName = "jobs/state/v1"
 )
 
 type ToolingService struct {
@@ -121,18 +121,18 @@ func (s *ToolingService) Registry() *registry.Registry {
 
 // JobProgress emits a coalesced progress event. It implements jobs.Emitter.
 // Recipe-step jobs are internal and never reach the user-facing event stream.
-func (s *ToolingService) JobProgress(evt models.JobProgressEventV1) {
+func (s *ToolingService) JobProgress(evt models.JobProgressEvent) {
 	if evt.Kind == jobs.KindRecipeStep {
 		return
 	}
 
-	s.emitEvent(JobProgressEventNameV1, evt)
+	s.emitEvent(JobProgressEventName, evt)
 }
 
 // JobState emits a full job snapshot so the frontend can merge it into the
 // activity list without polling. It implements jobs.Emitter. Recipe-step jobs
 // are internal and never reach the user-facing event stream.
-func (s *ToolingService) JobState(job models.JobResultV1) {
+func (s *ToolingService) JobState(job models.JobResult) {
 	if job.Kind == jobs.KindRecipeStep {
 		return
 	}
@@ -166,18 +166,18 @@ func (s *ToolingService) contextOrBackground() context.Context {
 	return s.ctx
 }
 
-func (s *ToolingService) ListToolsV1() models.ListToolsResponseV1 {
+func (s *ToolingService) ListTools() models.ListToolsResponse {
 	ctx := s.contextOrBackground()
-	tools := s.registry.ListToolsV2(ctx)
+	tools := s.registry.ListTools(ctx)
 
-	return models.ListToolsResponseV1{
+	return models.ListToolsResponse{
 		Success: true,
 		Message: "tools listed successfully",
 		Tools:   tools,
 	}
 }
 
-func (s *ToolingService) ValidateJobV1(req models.JobRequestV1) models.ValidateJobResponseV1 {
+func (s *ToolingService) ValidateJob(req models.JobRequest) models.ValidateJobResponse {
 	res := s.engine.Validate(s.contextOrBackground(), req)
 	if !res.Valid {
 		code := ""
@@ -189,7 +189,7 @@ func (s *ToolingService) ValidateJobV1(req models.JobRequestV1) models.ValidateJ
 	return res
 }
 
-func (s *ToolingService) PlanJobV1(req models.JobRequestV1) models.PlanJobResponseV1 {
+func (s *ToolingService) PlanJob(req models.JobRequest) models.PlanJobResponse {
 	plan := s.engine.Plan(s.contextOrBackground(), req)
 	if !plan.Success {
 		code := ""
@@ -201,7 +201,7 @@ func (s *ToolingService) PlanJobV1(req models.JobRequestV1) models.PlanJobRespon
 	return plan
 }
 
-func (s *ToolingService) RunJobV1(req models.JobRequestV1) models.RunJobResponseV1 {
+func (s *ToolingService) RunJob(req models.JobRequest) models.RunJobResponse {
 	res, err := s.engine.Submit(s.contextOrBackground(), req)
 	if err != nil {
 		log.Printf("tooling.run.submit_failed toolId=%s mode=%s err=%v", req.ToolID, req.Mode, err)
@@ -209,7 +209,7 @@ func (s *ToolingService) RunJobV1(req models.JobRequestV1) models.RunJobResponse
 		if errors.Is(err, jobs.ErrQueueFull) {
 			message = "job queue is full; wait for running jobs to finish and retry"
 		}
-		return models.RunJobResponseV1{
+		return models.RunJobResponse{
 			Success: false,
 			Message: message,
 			Status:  jobs.StatusFailed,
@@ -231,12 +231,12 @@ func (s *ToolingService) RunJobV1(req models.JobRequestV1) models.RunJobResponse
 	return res
 }
 
-// ListJobsV1 returns every tracked job snapshot, newest first. The UI uses it
+// ListJobs returns every tracked job snapshot, newest first. The UI uses it
 // to rebuild the activity list after navigation or reload. Internal recipe-step
 // jobs are filtered out; the recipe run that owns them is the visible unit.
-func (s *ToolingService) ListJobsV1(limit int) models.JobListResponseV1 {
+func (s *ToolingService) ListJobs(limit int) models.JobListResponse {
 	engineJobs := s.engine.List(limit)
-	visible := make([]models.JobResultV1, 0, len(engineJobs))
+	visible := make([]models.JobResult, 0, len(engineJobs))
 	for _, job := range engineJobs {
 		if job.Kind == jobs.KindRecipeStep {
 			continue
@@ -244,7 +244,7 @@ func (s *ToolingService) ListJobsV1(limit int) models.JobListResponseV1 {
 		visible = append(visible, job)
 	}
 
-	return models.JobListResponseV1{
+	return models.JobListResponse{
 		Success: true,
 		Message: "jobs listed",
 		Jobs:    visible,
@@ -264,18 +264,18 @@ func (s *ToolingService) emitJobSnapshot(jobID string) {
 
 // emitJobState publishes a full job snapshot so the frontend can merge it into
 // the activity list without polling.
-func (s *ToolingService) emitJobState(job models.JobResultV1) {
+func (s *ToolingService) emitJobState(job models.JobResult) {
 	if job.Kind == jobs.KindRecipeStep {
 		return
 	}
 
-	s.emitEvent(JobStateEventNameV1, job)
+	s.emitEvent(JobStateEventName, job)
 }
 
-func (s *ToolingService) CancelJobV1(jobID string) models.CancelJobResponseV1 {
+func (s *ToolingService) CancelJob(jobID string) models.CancelJobResponse {
 	if err := s.engine.Cancel(jobID); err != nil {
 		log.Printf("tooling.cancel.failed jobId=%s err=%v", jobID, err)
-		return models.CancelJobResponseV1{
+		return models.CancelJobResponse{
 			Success: false,
 			Message: "cancel failed",
 			JobID:   jobID,
@@ -284,18 +284,18 @@ func (s *ToolingService) CancelJobV1(jobID string) models.CancelJobResponseV1 {
 	}
 
 	log.Printf("tooling.cancel.requested jobId=%s", jobID)
-	return models.CancelJobResponseV1{
+	return models.CancelJobResponse{
 		Success: true,
 		Message: "cancel requested",
 		JobID:   jobID,
 	}
 }
 
-func (s *ToolingService) GetJobStatusV1(jobID string) models.JobStatusResponseV1 {
+func (s *ToolingService) GetJobStatus(jobID string) models.JobStatusResponse {
 	job, found := s.engine.Get(jobID)
 	if !found {
 		log.Printf("tooling.status.not_found jobId=%s", jobID)
-		return models.JobStatusResponseV1{
+		return models.JobStatusResponse{
 			Success: false,
 			Message: "job not found",
 			Found:   false,
@@ -303,7 +303,7 @@ func (s *ToolingService) GetJobStatusV1(jobID string) models.JobStatusResponseV1
 		}
 	}
 
-	return models.JobStatusResponseV1{
+	return models.JobStatusResponse{
 		Success: true,
 		Message: "job status retrieved",
 		Found:   true,
@@ -311,11 +311,11 @@ func (s *ToolingService) GetJobStatusV1(jobID string) models.JobStatusResponseV1
 	}
 }
 
-// VerifyJobV1 verifies every output produced by a terminal job. Missing or
+// VerifyJob verifies every output produced by a terminal job. Missing or
 // unreadable outputs are reported per output instead of failing the whole
 // report. Jobs that already left the engine are verified from recorded
 // history, so a result stays verifiable after a restart.
-func (s *ToolingService) VerifyJobV1(jobID string) models.VerificationReportV1 {
+func (s *ToolingService) VerifyJob(jobID string) models.VerificationReport {
 	trimmedID := strings.TrimSpace(jobID)
 
 	job, found := s.engine.Get(trimmedID)
@@ -330,19 +330,19 @@ func (s *ToolingService) VerifyJobV1(jobID string) models.VerificationReportV1 {
 	}
 
 	log.Printf("tooling.verify.not_found jobId=%s", trimmedID)
-	return models.VerificationReportV1{
+	return models.VerificationReport{
 		Success: false,
 		Message: fmt.Sprintf("job '%s' not found", trimmedID),
-		Outputs: []models.VerifiedOutputV1{},
+		Outputs: []models.VerifiedOutput{},
 	}
 }
 
-func (s *ToolingService) verifyJobOutputs(jobID string, paths []string) models.VerificationReportV1 {
+func (s *ToolingService) verifyJobOutputs(jobID string, paths []string) models.VerificationReport {
 	if len(paths) == 0 {
-		return models.VerificationReportV1{
+		return models.VerificationReport{
 			Success: false,
 			Message: "job has no outputs to verify",
-			Outputs: []models.VerifiedOutputV1{},
+			Outputs: []models.VerifiedOutput{},
 		}
 	}
 
@@ -356,7 +356,7 @@ func (s *ToolingService) verifyJobOutputs(jobID string, paths []string) models.V
 // historyOutputPaths returns the recorded outputs that should still exist at
 // their original path. Outputs moved to trash or pruned from it have no
 // original file left to verify.
-func historyOutputPaths(entry models.JobHistoryEntryV1) []string {
+func historyOutputPaths(entry models.JobHistoryEntry) []string {
 	paths := make([]string, 0, len(entry.Outputs))
 	seen := make(map[string]struct{}, len(entry.Outputs))
 	for _, output := range entry.Outputs {
@@ -377,7 +377,7 @@ func historyOutputPaths(entry models.JobHistoryEntryV1) []string {
 
 // jobOutputPaths collects declared outputs in order, falling back to the
 // single outputPath field used by older tools. Duplicate paths are ignored.
-func jobOutputPaths(job models.JobResultV1) []string {
+func jobOutputPaths(job models.JobResult) []string {
 	paths := make([]string, 0, len(job.Items))
 	seen := make(map[string]struct{}, len(job.Items))
 	add := func(path string) {
@@ -409,7 +409,7 @@ func jobOutputPaths(job models.JobResultV1) []string {
 // recordTerminalJob records a terminal job in the undo history. The engine
 // already emitted the terminal state before running this hook. Recipe-step jobs
 // are internal: the owning recipe run records its final outputs once.
-func (s *ToolingService) recordTerminalJob(job models.JobResultV1) {
+func (s *ToolingService) recordTerminalJob(job models.JobResult) {
 	if s.history == nil {
 		return
 	}
@@ -428,19 +428,19 @@ func (s *ToolingService) JobHistory() *jobhistory.Store {
 	return s.history
 }
 
-// ListJobHistoryV1 returns recorded terminal jobs, newest first.
-func (s *ToolingService) ListJobHistoryV1() []models.JobHistoryEntryV1 {
+// ListJobHistory returns recorded terminal jobs, newest first.
+func (s *ToolingService) ListJobHistory() []models.JobHistoryEntry {
 	entries := s.history.List()
 	if entries == nil {
-		entries = []models.JobHistoryEntryV1{}
+		entries = []models.JobHistoryEntry{}
 	}
 
 	return entries
 }
 
-// UndoJobV1 moves the untouched outputs of a recorded job to the app trash.
+// UndoJob moves the untouched outputs of a recorded job to the app trash.
 // Modified or missing outputs are skipped and reported.
-func (s *ToolingService) UndoJobV1(jobID string) models.UndoResultV1 {
+func (s *ToolingService) UndoJob(jobID string) models.UndoResult {
 	result := s.history.Undo(jobID)
 	if !result.Success {
 		log.Printf("tooling.undo.rejected jobId=%s message=%s", strings.TrimSpace(jobID), result.Message)
@@ -451,9 +451,9 @@ func (s *ToolingService) UndoJobV1(jobID string) models.UndoResultV1 {
 	return result
 }
 
-// RestoreJobV1 moves trashed outputs back to their original paths. Existing
+// RestoreJob moves trashed outputs back to their original paths. Existing
 // destinations are never overwritten.
-func (s *ToolingService) RestoreJobV1(jobID string) models.UndoResultV1 {
+func (s *ToolingService) RestoreJob(jobID string) models.UndoResult {
 	result := s.history.Restore(jobID)
 	if !result.Success {
 		log.Printf("tooling.restore.rejected jobId=%s message=%s", strings.TrimSpace(jobID), result.Message)
@@ -464,19 +464,19 @@ func (s *ToolingService) RestoreJobV1(jobID string) models.UndoResultV1 {
 	return result
 }
 
-// EmptyTrashV1 permanently removes the app-managed trash. History entries are
+// EmptyTrash permanently removes the app-managed trash. History entries are
 // kept and marked trashEmptied; user files outside the trash are never touched.
-func (s *ToolingService) EmptyTrashV1() models.PathActionResponseV1 {
+func (s *ToolingService) EmptyTrash() models.PathActionResponse {
 	if err := s.history.EmptyTrash(); err != nil {
 		log.Printf("tooling.trash.empty_failed err=%v", err)
-		return models.PathActionResponseV1{
+		return models.PathActionResponse{
 			Success: false,
 			Message: "The trash could not be emptied.",
 		}
 	}
 
 	log.Print("tooling.trash.emptied")
-	return models.PathActionResponseV1{
+	return models.PathActionResponse{
 		Success: true,
 		Message: "trash emptied",
 	}

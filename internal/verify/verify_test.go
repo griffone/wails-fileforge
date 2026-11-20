@@ -136,7 +136,7 @@ func writeVerifyVideo(t *testing.T, path string) {
 	}
 }
 
-func checksByKey(output models.VerifiedOutputV1) map[string]bool {
+func checksByKey(output models.VerifiedOutput) map[string]bool {
 	checks := make(map[string]bool, len(output.Checks))
 	for _, check := range output.Checks {
 		checks[check.Key] = check.Passed

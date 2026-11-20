@@ -59,7 +59,7 @@ func newStubTranscribeCapabilities(whisperPath, modelPath string, whisperPresent
 	}
 }
 
-func plannedTranscribeOutput(t *testing.T, plan models.PlanJobResponseV1, inputPath, format string) models.PlannedOutputV1 {
+func plannedTranscribeOutput(t *testing.T, plan models.PlanJobResponse, inputPath, format string) models.PlannedOutput {
 	t.Helper()
 
 	for _, planned := range plan.Outputs {
@@ -73,14 +73,14 @@ func plannedTranscribeOutput(t *testing.T, plan models.PlanJobResponseV1, inputP
 
 	t.Fatalf("no planned %s output for %s in %+v", format, inputPath, plan.Outputs)
 
-	return models.PlannedOutputV1{}
+	return models.PlannedOutput{}
 }
 
 func TestTranscribeToolManifest(t *testing.T) {
 	tool := NewTranscribeTool()
 	manifest := tool.Manifest()
 
-	if tool.ID() != ToolIDVideoTranscribeV1 || tool.Capability() != ToolIDVideoTranscribeV1 {
+	if tool.ID() != ToolIDVideoTranscribe || tool.Capability() != ToolIDVideoTranscribe {
 		t.Fatalf("unexpected tool identity: %s / %s", tool.ID(), tool.Capability())
 	}
 	if manifest.Name != "Video Transcribe" {
@@ -135,7 +135,7 @@ func TestTranscribePlanDefaultsAllFormats(t *testing.T) {
 	binaryPath, modelPath := writeTranscribeDeps(t, dir)
 
 	tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, nil))
+	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, nil))
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
 	}
@@ -189,7 +189,7 @@ func TestTranscribePlanExplicitOptions(t *testing.T) {
 	writeVideoFixture(t, customModel)
 
 	tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, map[string]any{
+	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, map[string]any{
 		"language":    "ES",
 		"formats":     []string{"vtt"},
 		"whisperPath": customBinary,
@@ -223,7 +223,7 @@ func TestTranscribePlanRejectsUnknownLanguage(t *testing.T) {
 	binaryPath, modelPath := writeTranscribeDeps(t, dir)
 
 	tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-	_, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, map[string]any{
+	_, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, map[string]any{
 		"language": "fr",
 	}))
 	if planErr == nil || planErr.Code != models.ErrorCodeValidationInvalidInput {
@@ -253,7 +253,7 @@ func TestTranscribePlanParsesFormatLists(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-			plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, map[string]any{
+			plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, map[string]any{
 				"formats": testCase.formats,
 			}))
 			if planErr != nil {
@@ -290,7 +290,7 @@ func TestTranscribePlanRejectsInvalidFormats(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-			_, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, map[string]any{
+			_, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, map[string]any{
 				"formats": testCase.formats,
 			}))
 			if planErr == nil || planErr.Code != models.ErrorCodeValidationInvalidInput {
@@ -320,7 +320,7 @@ func TestTranscribePlanMissingRuntime(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, testCase.whisperPresent, testCase.modelPresent))
-			_, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, nil))
+			_, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, nil))
 			if planErr == nil {
 				t.Fatal("expected a plan failure")
 			}
@@ -348,7 +348,7 @@ func TestTranscribePlanCollisionSafe(t *testing.T) {
 	binaryPath, modelPath := writeTranscribeDeps(t, dir)
 
 	tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, nil))
+	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, nil))
 	if planErr != nil {
 		t.Fatalf("unexpected plan error: %v", planErr)
 	}
@@ -383,7 +383,7 @@ func TestTranscribePlanBatchOutputs(t *testing.T) {
 	binaryPath, modelPath := writeTranscribeDeps(t, t.TempDir())
 	outputDir := t.TempDir()
 
-	request := videoToolRequest(ToolIDVideoTranscribeV1, "batch", []string{firstInput, secondInput}, nil)
+	request := videoToolRequest(ToolIDVideoTranscribe, "batch", []string{firstInput, secondInput}, nil)
 	request.OutputDir = outputDir
 
 	tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
@@ -429,7 +429,7 @@ func TestTranscribePlanRejectsMissingOutputDir(t *testing.T) {
 	writeVideoFixture(t, inputPath)
 	binaryPath, modelPath := writeTranscribeDeps(t, dir)
 
-	request := videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, nil)
+	request := videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, nil)
 	request.OutputDir = filepath.Join(dir, "missing")
 
 	tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
@@ -444,7 +444,7 @@ func TestTranscribePlanRejectsMissingInputFile(t *testing.T) {
 	binaryPath, modelPath := writeTranscribeDeps(t, dir)
 
 	tool := NewTranscribeToolWithDeps(nil, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
-	_, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{filepath.Join(dir, "missing.mp4")}, nil))
+	_, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTranscribe, "single", []string{filepath.Join(dir, "missing.mp4")}, nil))
 	if planErr == nil || planErr.Code != models.ErrorCodeValidationInvalidInput {
 		t.Fatalf("expected a validation error, got %v", planErr)
 	}
@@ -559,13 +559,13 @@ func TestTranscribeToolExecuteSingleWithProgress(t *testing.T) {
 	runner := newFakeToolTranscribeRunner()
 	tool := NewTranscribeToolWithDeps(runner, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
 
-	request := videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, map[string]any{
+	request := videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, map[string]any{
 		"language": "es",
 		"formats":  []string{"srt", "txt"},
 	})
 
-	var progress []models.JobProgressV1
-	item, jobErr := tool.ExecuteSingleWithProgress(context.Background(), request, func(update models.JobProgressV1) {
+	var progress []models.JobProgress
+	item, jobErr := tool.ExecuteSingleWithProgress(context.Background(), request, func(update models.JobProgress) {
 		progress = append(progress, update)
 	})
 	if jobErr != nil {
@@ -640,7 +640,7 @@ func TestTranscribeToolExecuteSingleEmptySpeechWarning(t *testing.T) {
 	runner.writeNothing = true
 	tool := NewTranscribeToolWithDeps(runner, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
 
-	request := videoToolRequest(ToolIDVideoTranscribeV1, "single", []string{inputPath}, map[string]any{
+	request := videoToolRequest(ToolIDVideoTranscribe, "single", []string{inputPath}, map[string]any{
 		"formats": []string{"vtt"},
 	})
 	item, jobErr := tool.ExecuteSingle(context.Background(), request)
@@ -676,11 +676,11 @@ func TestTranscribeToolExecuteBatch(t *testing.T) {
 	runner := newFakeToolTranscribeRunner()
 	tool := NewTranscribeToolWithDeps(runner, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
 
-	request := videoToolRequest(ToolIDVideoTranscribeV1, "batch", []string{firstInput, secondInput}, nil)
+	request := videoToolRequest(ToolIDVideoTranscribe, "batch", []string{firstInput, secondInput}, nil)
 	request.OutputDir = outputDir
 
-	var progress []models.JobProgressV1
-	items, jobErr := tool.ExecuteBatch(context.Background(), request, func(update models.JobProgressV1) {
+	var progress []models.JobProgress
+	items, jobErr := tool.ExecuteBatch(context.Background(), request, func(update models.JobProgress) {
 		progress = append(progress, update)
 	})
 	if jobErr != nil {
@@ -739,7 +739,7 @@ func TestTranscribeToolExecuteBatchPartialFailure(t *testing.T) {
 	runner.failOnWhisperCall = 2
 	tool := NewTranscribeToolWithDeps(runner, newStubTranscribeCapabilities(binaryPath, modelPath, true, true))
 
-	request := videoToolRequest(ToolIDVideoTranscribeV1, "batch", []string{firstInput, secondInput}, nil)
+	request := videoToolRequest(ToolIDVideoTranscribe, "batch", []string{firstInput, secondInput}, nil)
 	request.OutputDir = outputDir
 
 	items, jobErr := tool.ExecuteBatch(context.Background(), request, nil)
@@ -803,11 +803,11 @@ func TestMapTranscriptionErrorMappings(t *testing.T) {
 	}
 }
 
-func TestTranscriptionCapabilitiesV1ReportsProvidedRuntime(t *testing.T) {
+func TestTranscriptionCapabilitiesReportsProvidedRuntime(t *testing.T) {
 	dir := t.TempDir()
 	binaryPath, modelPath := writeTranscribeDeps(t, dir)
 
-	response := TranscriptionCapabilitiesV1(binaryPath, modelPath)
+	response := TranscriptionCapabilities(binaryPath, modelPath)
 	if !response.Success || !response.Available {
 		t.Fatalf("expected an available runtime, got %+v", response)
 	}

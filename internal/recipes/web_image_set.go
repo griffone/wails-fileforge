@@ -69,8 +69,8 @@ type webImageSetResolution struct {
 	Warnings    []string
 }
 
-func webImageSetRecipe() models.RecipeV1 {
-	return models.RecipeV1{
+func webImageSetRecipe() models.Recipe {
+	return models.Recipe{
 		ID:               RecipeIDWebImageSet,
 		Name:             "Web image set",
 		Description:      "Export responsive WebP and JPEG variants with a ZIP bundle and a ready-to-paste srcset snippet.",
@@ -79,11 +79,11 @@ func webImageSetRecipe() models.RecipeV1 {
 		AcceptExtensions: []string{"png", "jpg", "jpeg", "webp"},
 		MaxInputs:        1,
 		Highlights:       []string{"No upscaling", "WebP + JPEG", "ZIP + srcset"},
-		Steps: []models.RecipeStepV1{
+		Steps: []models.RecipeStep{
 			{
 				ID:     stepIDBuildVariants,
 				Name:   "Build responsive variants",
-				ToolID: image.ToolIDImageConvertV1,
+				ToolID: image.ToolIDImageConvert,
 				Detail: "WebP and JPEG at the widths your source can support",
 			},
 			{
@@ -100,7 +100,7 @@ func webImageSetRecipe() models.RecipeV1 {
 	}
 }
 
-func resolveWebImageSet(recipe *models.RecipeV1, req models.RecipeRequestV1) (*resolvedRecipe, *models.JobErrorV1) {
+func resolveWebImageSet(recipe *models.Recipe, req models.RecipeRequest) (*resolvedRecipe, *models.JobError) {
 	inputs, inputErr := validateWebImageSetInputs(req.InputPaths)
 	if inputErr != nil {
 		return nil, inputErr
@@ -149,7 +149,7 @@ func resolveWebImageSet(recipe *models.RecipeV1, req models.RecipeRequestV1) (*r
 	used := make(map[string]struct{}, len(widths)*2+2)
 
 	variants := make([]webImageSetVariant, 0, len(widths)*2)
-	planned := make([]models.PlannedOutputV1, 0, len(widths)*2+2)
+	planned := make([]models.PlannedOutput, 0, len(widths)*2+2)
 	for _, width := range widths {
 		height := int(math.Round(float64(info.Height) * float64(width) / float64(info.Width)))
 		for _, format := range []string{"webp", "jpeg"} {
@@ -168,7 +168,7 @@ func resolveWebImageSet(recipe *models.RecipeV1, req models.RecipeRequestV1) (*r
 				Width:   width,
 				Height:  height,
 			})
-			planned = append(planned, models.PlannedOutputV1{
+			planned = append(planned, models.PlannedOutput{
 				InputPath:   sourcePath,
 				OutputPath:  outputPath,
 				OutputKind:  "file",
@@ -178,7 +178,7 @@ func resolveWebImageSet(recipe *models.RecipeV1, req models.RecipeRequestV1) (*r
 	}
 
 	zipPath, _ := outputplan.UniqueFilePath(outputDir, stem+webImageSetZipSuffix, "zip", used)
-	planned = append(planned, models.PlannedOutputV1{
+	planned = append(planned, models.PlannedOutput{
 		InputPath:   sourcePath,
 		OutputPath:  zipPath,
 		OutputKind:  "file",
@@ -186,7 +186,7 @@ func resolveWebImageSet(recipe *models.RecipeV1, req models.RecipeRequestV1) (*r
 	})
 
 	snippetPath, _ := outputplan.UniqueFilePath(outputDir, stem+webImageSetSnippetSuffix, "html", used)
-	planned = append(planned, models.PlannedOutputV1{
+	planned = append(planned, models.PlannedOutput{
 		InputPath:   sourcePath,
 		OutputPath:  snippetPath,
 		OutputKind:  "file",
@@ -213,7 +213,7 @@ func resolveWebImageSet(recipe *models.RecipeV1, req models.RecipeRequestV1) (*r
 	}, nil
 }
 
-func validateWebImageSetInputs(rawInputs []string) ([]string, *models.JobErrorV1) {
+func validateWebImageSetInputs(rawInputs []string) ([]string, *models.JobError) {
 	if len(rawInputs) == 0 {
 		return nil, newRecipeError("RECIPE_INVALID_INPUT", "Choose one image for Web image set.", nil)
 	}
@@ -352,7 +352,7 @@ func (s *Service) executeWebImageSet(ctx context.Context, tracked *recipeJob, re
 		return
 	}
 	created = append(created, web.ZipPath)
-	tracked.setStep(createZipStepIndex, models.RecipeStepResultV1{
+	tracked.setStep(createZipStepIndex, models.RecipeStepResult{
 		ID:      zipStep.ID,
 		Name:    zipStep.Name,
 		ToolID:  zipStep.ToolID,
@@ -377,7 +377,7 @@ func (s *Service) executeWebImageSet(ctx context.Context, tracked *recipeJob, re
 		return
 	}
 	created = append(created, web.SnippetPath)
-	tracked.setStep(writeSnippetStepIndex, models.RecipeStepResultV1{
+	tracked.setStep(writeSnippetStepIndex, models.RecipeStepResult{
 		ID:      snippetStep.ID,
 		Name:    snippetStep.Name,
 		ToolID:  snippetStep.ToolID,
@@ -413,8 +413,8 @@ func (s *Service) executeWebImageSet(ctx context.Context, tracked *recipeJob, re
 
 // runWebImageSetVariants converts every planned variant with the image tool and
 // returns the files it actually wrote.
-func (s *Service) runWebImageSetVariants(ctx context.Context, tracked *recipeJob, web *webImageSetResolution, step models.RecipeStepV1, created *[]string) ([]builtWebImageSetVariant, *models.JobErrorV1) {
-	executor, planner, jobErr := s.singleExecutor(image.ToolIDImageConvertV1)
+func (s *Service) runWebImageSetVariants(ctx context.Context, tracked *recipeJob, web *webImageSetResolution, step models.RecipeStep, created *[]string) ([]builtWebImageSetVariant, *models.JobError) {
+	executor, planner, jobErr := s.singleExecutor(image.ToolIDImageConvert)
 	if jobErr != nil {
 		return nil, jobErr
 	}
@@ -468,7 +468,7 @@ func (s *Service) runWebImageSetVariants(ctx context.Context, tracked *recipeJob
 			return built, execErr
 		}
 		if !item.Success {
-			return built, stepItemError(item, image.ToolIDImageConvertV1)
+			return built, stepItemError(item, image.ToolIDImageConvert)
 		}
 
 		outputPath := strings.TrimSpace(item.OutputPath)
@@ -493,7 +493,7 @@ func (s *Service) runWebImageSetVariants(ctx context.Context, tracked *recipeJob
 	for _, variant := range built {
 		outputs = append(outputs, variant.Path)
 	}
-	tracked.setStep(buildVariantsStepIndex, models.RecipeStepResultV1{
+	tracked.setStep(buildVariantsStepIndex, models.RecipeStepResult{
 		ID:      step.ID,
 		Name:    step.Name,
 		ToolID:  step.ToolID,
@@ -506,7 +506,7 @@ func (s *Service) runWebImageSetVariants(ctx context.Context, tracked *recipeJob
 	return built, nil
 }
 
-func webImageSetVariantRequest(web *webImageSetResolution, variant webImageSetVariant) models.JobRequestV1 {
+func webImageSetVariantRequest(web *webImageSetResolution, variant webImageSetVariant) models.JobRequest {
 	options := map[string]any{
 		"format":        variant.Format,
 		"width":         variant.Width,
@@ -518,8 +518,8 @@ func webImageSetVariantRequest(web *webImageSetResolution, variant webImageSetVa
 		options["background"] = "#ffffff"
 	}
 
-	return models.JobRequestV1{
-		ToolID:     image.ToolIDImageConvertV1,
+	return models.JobRequest{
+		ToolID:     image.ToolIDImageConvert,
 		Mode:       "single",
 		InputPaths: []string{web.SourcePath},
 		OutputDir:  web.OutputDir,
@@ -588,7 +588,7 @@ func webImageSetSrcset(variants []builtWebImageSetVariant) string {
 // createWebImageSetZip writes the bundle to a temporary file in the output
 // folder and renames it into place. An existing destination is never
 // overwritten.
-func createWebImageSetZip(zipPath string, variants []builtWebImageSetVariant, snippet string) *models.JobErrorV1 {
+func createWebImageSetZip(zipPath string, variants []builtWebImageSetVariant, snippet string) *models.JobError {
 	tempFile, err := os.CreateTemp(filepath.Dir(zipPath), webImageSetZipTempPattern)
 	if err != nil {
 		return newRecipeError("RECIPE_ZIP_FAILED", fmt.Sprintf("Could not create the ZIP bundle: %v", err), nil)
@@ -664,7 +664,7 @@ func writeWebImageSetZipEntries(writer *zip.Writer, variants []builtWebImageSetV
 
 // writeWebImageSetSnippet writes the standalone HTML atomically. An existing
 // destination is never overwritten.
-func writeWebImageSetSnippet(snippetPath, snippet string) *models.JobErrorV1 {
+func writeWebImageSetSnippet(snippetPath, snippet string) *models.JobError {
 	tempFile, err := os.CreateTemp(filepath.Dir(snippetPath), webImageSetSnippetTempPattern)
 	if err != nil {
 		return newRecipeError("RECIPE_SNIPPET_FAILED", fmt.Sprintf("Could not create the srcset snippet: %v", err), nil)
@@ -704,7 +704,7 @@ func writeWebImageSetSnippet(snippetPath, snippet string) *models.JobErrorV1 {
 // addWebImageSetVariantWidthChecks appends one exact-width check per image
 // output. A mismatch marks the whole report as failed instead of silently
 // passing.
-func addWebImageSetVariantWidthChecks(report models.VerificationReportV1, variants []builtWebImageSetVariant) models.VerificationReportV1 {
+func addWebImageSetVariantWidthChecks(report models.VerificationReport, variants []builtWebImageSetVariant) models.VerificationReport {
 	widthFailed := false
 	for index, variant := range variants {
 		if index >= len(report.Outputs) {
@@ -725,7 +725,7 @@ func addWebImageSetVariantWidthChecks(report models.VerificationReportV1, varian
 			))
 		}
 
-		report.Outputs[index].Checks = append(report.Outputs[index].Checks, models.VerificationCheckV1{
+		report.Outputs[index].Checks = append(report.Outputs[index].Checks, models.VerificationCheck{
 			Key:    webImageSetVariantWidthCheck,
 			Label:  "Variant width",
 			Passed: passed,
@@ -751,6 +751,6 @@ func removeCreatedFiles(paths []string) {
 	}
 }
 
-func recipeCancelledError() *models.JobErrorV1 {
+func recipeCancelledError() *models.JobError {
 	return models.NewJobError(models.ErrorCodeCancelledByUser, "RECIPE_CANCELLED", "Recipe cancelled.", nil)
 }

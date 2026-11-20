@@ -21,14 +21,14 @@ const (
 
 // resolveVideoOutputOptions applies the shared preset defaults. The UI can rely
 // on these values being present even when the request omits them.
-func resolveVideoOutputOptions(options map[string]any, validationCode string) (string, string, *models.JobErrorV1) {
+func resolveVideoOutputOptions(options map[string]any, validationCode string) (string, string, *models.JobError) {
 	targetFormat := strings.ToLower(optionString(options, "targetFormat"))
 	switch targetFormat {
 	case "":
 		targetFormat = videoDefaultTargetFormat
 	case engine.TargetFormatMP4, engine.TargetFormatWebM:
 	default:
-		return "", "", &models.JobErrorV1{Code: validationCode, Message: "targetFormat must be mp4 or webm"}
+		return "", "", &models.JobError{Code: validationCode, Message: "targetFormat must be mp4 or webm"}
 	}
 
 	qualityPreset := strings.ToLower(optionString(options, "qualityPreset"))
@@ -37,7 +37,7 @@ func resolveVideoOutputOptions(options map[string]any, validationCode string) (s
 		qualityPreset = videoDefaultQualityPreset
 	case engine.QualityPresetHigh, engine.QualityPresetMedium, engine.QualityPresetLow:
 	default:
-		return "", "", &models.JobErrorV1{Code: validationCode, Message: "qualityPreset must be high, medium, or low"}
+		return "", "", &models.JobError{Code: validationCode, Message: "qualityPreset must be high, medium, or low"}
 	}
 
 	return targetFormat, qualityPreset, nil
@@ -46,8 +46,8 @@ func resolveVideoOutputOptions(options map[string]any, validationCode string) (s
 // planAutoVideoOutput resolves "<stem><suffix>.<format>" next to the input, or
 // inside outputDir when the user chose a folder. Reserved names and files on
 // disk are never reused; a suffixed name marks the plan as adjusted.
-func planAutoVideoOutput(inputPath, outputDir, suffix, format string, used map[string]struct{}) models.PlannedOutputV1 {
-	planned := models.PlannedOutputV1{
+func planAutoVideoOutput(inputPath, outputDir, suffix, format string, used map[string]struct{}) models.PlannedOutput {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputKind: videoOutputKindFile,
 	}
@@ -89,13 +89,13 @@ func reserveInputPaths(inputPaths []string) map[string]struct{} {
 // videoOptionInt reads an optional integer option and returns 0 when the option
 // is absent. Supplied values of the wrong type are rejected so a typo never
 // silently changes the output.
-func videoOptionInt(options map[string]any, key, validationCode string) (int, *models.JobErrorV1) {
+func videoOptionInt(options map[string]any, key, validationCode string) (int, *models.JobError) {
 	if !videoOptionSupplied(options, key) {
 		return 0, nil
 	}
 
 	if floatValue, isFloat := options[key].(float64); isFloat && floatValue != float64(int(floatValue)) {
-		return 0, &models.JobErrorV1{Code: validationCode, Message: fmt.Sprintf("options.%s must be an integer", key)}
+		return 0, &models.JobError{Code: validationCode, Message: fmt.Sprintf("options.%s must be an integer", key)}
 	}
 
 	switch value := options[key].(type) {
@@ -110,13 +110,13 @@ func videoOptionInt(options map[string]any, key, validationCode string) (int, *m
 	case int64:
 		return int(value), nil
 	default:
-		return 0, &models.JobErrorV1{Code: validationCode, Message: fmt.Sprintf("options.%s must be numeric", key)}
+		return 0, &models.JobError{Code: validationCode, Message: fmt.Sprintf("options.%s must be numeric", key)}
 	}
 }
 
 // videoOptionFloat reads an optional numeric option. Supplied values of the
 // wrong type are rejected. The boolean reports whether the option was supplied.
-func videoOptionFloat(options map[string]any, key, validationCode string) (float64, bool, *models.JobErrorV1) {
+func videoOptionFloat(options map[string]any, key, validationCode string) (float64, bool, *models.JobError) {
 	if !videoOptionSupplied(options, key) {
 		return 0, false, nil
 	}
@@ -133,14 +133,14 @@ func videoOptionFloat(options map[string]any, key, validationCode string) (float
 	case int64:
 		return float64(value), true, nil
 	default:
-		return 0, true, &models.JobErrorV1{Code: validationCode, Message: fmt.Sprintf("options.%s must be numeric", key)}
+		return 0, true, &models.JobError{Code: validationCode, Message: fmt.Sprintf("options.%s must be numeric", key)}
 	}
 }
 
 // videoOptionBool reads an optional boolean option and returns false when the
 // option is absent. Textual values are accepted because some callers serialize
 // checkboxes as strings.
-func videoOptionBool(options map[string]any, key, validationCode string) (bool, *models.JobErrorV1) {
+func videoOptionBool(options map[string]any, key, validationCode string) (bool, *models.JobError) {
 	if !videoOptionSupplied(options, key) {
 		return false, nil
 	}
@@ -155,7 +155,7 @@ func videoOptionBool(options map[string]any, key, validationCode string) (bool, 
 		}
 	}
 
-	return false, &models.JobErrorV1{Code: validationCode, Message: fmt.Sprintf("options.%s must be a boolean", key)}
+	return false, &models.JobError{Code: validationCode, Message: fmt.Sprintf("options.%s must be a boolean", key)}
 }
 
 // videoOptionSupplied reports whether a request option was provided with a value.
@@ -175,21 +175,21 @@ func resolveRuntimeProbe(probe engine.RuntimeProbe) engine.RuntimeProbe {
 	return engine.NewFFmpegRuntimeProbe()
 }
 
-func checkVideoRuntime(ctx context.Context, probe engine.RuntimeProbe) *models.JobErrorV1 {
+func checkVideoRuntime(ctx context.Context, probe engine.RuntimeProbe) *models.JobError {
 	if runtimeErr := resolveRuntimeProbe(probe).Check(ctx); runtimeErr != nil {
 		return mapVideoError(runtimeErr)
 	}
 	return nil
 }
 
-func firstPlannedOutputPath(plan models.PlanJobResponseV1) string {
+func firstPlannedOutputPath(plan models.PlanJobResponse) string {
 	if len(plan.Outputs) == 0 {
 		return ""
 	}
 	return plan.Outputs[0].OutputPath
 }
 
-func planFailure(plan models.PlanJobResponseV1, jobErr *models.JobErrorV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func planFailure(plan models.PlanJobResponse, jobErr *models.JobError) (models.PlanJobResponse, *models.JobError) {
 	plan.Success = false
 	plan.Error = jobErr
 	if jobErr != nil && jobErr.Message != "" {
@@ -198,8 +198,8 @@ func planFailure(plan models.PlanJobResponseV1, jobErr *models.JobErrorV1) (mode
 	return plan, jobErr
 }
 
-func videoPlanFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
-	item := models.JobResultItemV1{
+func videoPlanFailureItem(inputPath, outputPath string, jobErr *models.JobError) models.JobResultItem {
+	item := models.JobResultItem{
 		InputPath:  inputPath,
 		OutputPath: outputPath,
 		Success:    false,

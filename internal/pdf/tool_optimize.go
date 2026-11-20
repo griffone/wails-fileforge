@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	ToolIDPDFOptimizeV1 = "tool.pdf.optimize"
+	ToolIDPDFOptimize = "tool.pdf.optimize"
 
 	optimizeOutputKindFile = "file"
 	optimizeOutputSuffix   = "_optimized"
@@ -29,21 +29,21 @@ func NewOptimizeTool() *OptimizeTool {
 }
 
 func (t *OptimizeTool) ID() string {
-	return ToolIDPDFOptimizeV1
+	return ToolIDPDFOptimize
 }
 
 func (t *OptimizeTool) Capability() string {
-	return ToolIDPDFOptimizeV1
+	return ToolIDPDFOptimize
 }
 
-func (t *OptimizeTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *OptimizeTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "PDF Optimize",
 		Description:      "Compress PDFs and edit document metadata",
 		Domain:           "pdf",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  []string{"pdf"},
@@ -53,11 +53,11 @@ func (t *OptimizeTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *OptimizeTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *OptimizeTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *OptimizeTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *OptimizeTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -65,8 +65,8 @@ func (t *OptimizeTool) Validate(ctx context.Context, req models.JobRequestV1) *m
 // Plan resolves one collision-safe <stem>_optimized.pdf destination per input
 // without writing anything. An explicit options.outputPath is only accepted for
 // single mode; it must be a non-existing .pdf in a writable directory.
-func (t *OptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *OptimizeTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	parsed, parseErr := optimizeReqFields(req)
 	if parseErr != nil {
@@ -83,14 +83,14 @@ func (t *OptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (models.
 		planned, planErr := planExplicitOptimizeOutput(parsed)
 		if planErr != nil {
 			if planned.OutputPath != "" {
-				plan.Outputs = []models.PlannedOutputV1{planned}
+				plan.Outputs = []models.PlannedOutput{planned}
 			}
 			return planFailure(plan, planErr)
 		}
 
 		plan.Success = true
 		plan.Message = optimizePlanMessage(1)
-		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Outputs = []models.PlannedOutput{planned}
 		plan.Warnings = append(planned.Warnings, optimizeTargetWarnings(parsed)...)
 		plan.EffectiveOptions = optimizeEffectiveOptions(parsed)
 
@@ -110,7 +110,7 @@ func (t *OptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (models.
 		outputplan.MarkUsed(used, inputPath)
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.InputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(parsed.InputPaths))
 	warnings := make([]string, 0)
 	for _, inputPath := range parsed.InputPaths {
 		targetDir := parsed.OutputDir
@@ -134,7 +134,7 @@ func (t *OptimizeTool) Plan(_ context.Context, req models.JobRequestV1) (models.
 
 // ExecuteSingle keeps the legacy single-executor contract by resolving the plan
 // first and then running that exact plan, so it cannot drift from ExecutePlan.
-func (t *OptimizeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *OptimizeTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	parsed, parseErr := optimizeReqFields(req)
 	if parseErr != nil {
 		return optimizeFailureItem(firstInputPath(req.InputPaths), "", parseErr), parseErr
@@ -165,7 +165,7 @@ func (t *OptimizeTool) ExecuteSingle(ctx context.Context, req models.JobRequestV
 
 // ExecuteBatch plans the request once and then executes exactly that plan. It
 // never re-resolves output paths from the request.
-func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := optimizeReqFields(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -186,7 +186,7 @@ func (t *OptimizeTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 // ExecutePlan optimizes exactly the outputs resolved by Plan. Options come from
 // the plan's effective values, so a reduced retry plan only processes its own
 // outputs. Results keep plan order.
-func (t *OptimizeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *OptimizeTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := optimizeReqFields(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -194,14 +194,14 @@ func (t *OptimizeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1,
 
 	parsed = plannedOptimizeOptions(plan, parsed)
 
-	items := make([]models.JobResultItemV1, len(plan.Outputs))
-	itemErrors := make([]*models.JobErrorV1, len(plan.Outputs))
+	items := make([]models.JobResultItem, len(plan.Outputs))
+	itemErrors := make([]*models.JobError, len(plan.Outputs))
 	completed := make([]bool, len(plan.Outputs))
 	progress := newPDFBatchProgress(len(plan.Outputs), onProgress)
 
 	runErr := utils.ParallelForIndex(ctx, len(plan.Outputs), pdfBatchWorkerCount(), func(ctx context.Context, i int) error {
 		planned := plan.Outputs[i]
-		item := models.JobResultItemV1{
+		item := models.JobResultItem{
 			InputPath:  planned.InputPath,
 			OutputPath: planned.OutputPath,
 		}
@@ -229,7 +229,7 @@ func (t *OptimizeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1,
 
 	if runErr != nil {
 		if ctx.Err() != nil {
-			return completedPDFBatchItems(items, completed), &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
+			return completedPDFBatchItems(items, completed), &models.JobError{Code: "CANCELED", Message: ctx.Err().Error()}
 		}
 
 		return completedPDFBatchItems(items, completed), models.NewCanonicalJobError(engine.ErrorCodeOptimizeFailed, "batch optimize failed", map[string]any{"cause": runErr.Error()})
@@ -258,7 +258,7 @@ func (t *OptimizeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1,
 
 // plannedOptimizeOptions returns the optimize options resolved by Plan, falling
 // back to the re-parsed request when a plan was built by an older caller.
-func plannedOptimizeOptions(plan models.PlanJobResponseV1, parsed optimizeRequestFields) optimizeRequestFields {
+func plannedOptimizeOptions(plan models.PlanJobResponse, parsed optimizeRequestFields) optimizeRequestFields {
 	if plan.EffectiveOptions == nil {
 		return parsed
 	}
@@ -365,7 +365,7 @@ func (m optimizeMetadata) effective() map[string]string {
 	return values
 }
 
-func optimizeReqFields(req models.JobRequestV1) (optimizeRequestFields, *models.JobErrorV1) {
+func optimizeReqFields(req models.JobRequest) (optimizeRequestFields, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return optimizeRequestFields{}, optimizeRequestError(engine.ErrorCodeValidation, "mode must be single or batch")
@@ -434,7 +434,7 @@ func optimizeReqFields(req models.JobRequestV1) (optimizeRequestFields, *models.
 }
 
 // optimizeOptionBool defaults compress to true when the option is absent.
-func optimizeOptionBool(options map[string]any, key string) (bool, *models.JobErrorV1) {
+func optimizeOptionBool(options map[string]any, key string) (bool, *models.JobError) {
 	if options == nil {
 		return true, nil
 	}
@@ -461,7 +461,7 @@ func optimizeOptionBool(options map[string]any, key string) (bool, *models.JobEr
 
 // optimizeOptionTargetSize parses options.targetSizeBytes. Absent or null means
 // no target; numeric int/float values are accepted when positive and whole.
-func optimizeOptionTargetSize(options map[string]any, key string) (int64, *models.JobErrorV1) {
+func optimizeOptionTargetSize(options map[string]any, key string) (int64, *models.JobError) {
 	if options == nil {
 		return 0, nil
 	}
@@ -540,7 +540,7 @@ func optimizeOptionTargetSize(options map[string]any, key string) (int64, *model
 	}
 }
 
-func floatTargetSize(value float64) (int64, *models.JobErrorV1) {
+func floatTargetSize(value float64) (int64, *models.JobError) {
 	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
 		return 0, optimizeTargetError("options.targetSizeBytes must be greater than 0")
 	}
@@ -554,11 +554,11 @@ func floatTargetSize(value float64) (int64, *models.JobErrorV1) {
 	return int64(value), nil
 }
 
-func optimizeTargetError(message string) *models.JobErrorV1 {
+func optimizeTargetError(message string) *models.JobError {
 	return optimizeRequestError(engine.ErrorCodeOptimizeTargetInvalid, message)
 }
 
-func optimizeOptionMetadata(options map[string]any, key string) (optimizeMetadata, *models.JobErrorV1) {
+func optimizeOptionMetadata(options map[string]any, key string) (optimizeMetadata, *models.JobError) {
 	metadata := optimizeMetadata{}
 	if options == nil {
 		return metadata, nil
@@ -593,7 +593,7 @@ func optimizeOptionMetadata(options map[string]any, key string) (optimizeMetadat
 	return metadata, nil
 }
 
-func optimizeMetadataString(values map[string]any, field string) (string, *models.JobErrorV1) {
+func optimizeMetadataString(values map[string]any, field string) (string, *models.JobError) {
 	raw, ok := values[field]
 	if !ok || raw == nil {
 		return "", nil
@@ -612,14 +612,14 @@ func optimizeMetadataString(values map[string]any, field string) (string, *model
 	return value, nil
 }
 
-func optimizeMetadataError(message string) *models.JobErrorV1 {
+func optimizeMetadataError(message string) *models.JobError {
 	return optimizeRequestError(engine.ErrorCodeOptimizeMetadataInvalid, message)
 }
 
 // planExplicitOptimizeOutput resolves the one output of a single request that
 // supplied options.outputPath.
-func planExplicitOptimizeOutput(parsed optimizeRequestFields) (models.PlannedOutputV1, *models.JobErrorV1) {
-	planned := models.PlannedOutputV1{
+func planExplicitOptimizeOutput(parsed optimizeRequestFields) (models.PlannedOutput, *models.JobError) {
+	planned := models.PlannedOutput{
 		InputPath:   parsed.InputPath,
 		OutputPath:  parsed.OutputPath,
 		OutputKind:  optimizeOutputKindFile,
@@ -633,8 +633,8 @@ func planExplicitOptimizeOutput(parsed optimizeRequestFields) (models.PlannedOut
 	return planned, nil
 }
 
-func planAutoOptimizeOutput(inputPath, dir string, used map[string]struct{}) models.PlannedOutputV1 {
-	planned := models.PlannedOutputV1{
+func planAutoOptimizeOutput(inputPath, dir string, used map[string]struct{}) models.PlannedOutput {
+	planned := models.PlannedOutput{
 		InputPath:   inputPath,
 		OutputKind:  optimizeOutputKindFile,
 		OutputCount: 1,
@@ -760,8 +760,8 @@ func formatByteSize(bytes int64) string {
 	}
 }
 
-func optimizeFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
-	return models.JobResultItemV1{
+func optimizeFailureItem(inputPath, outputPath string, jobErr *models.JobError) models.JobResultItem {
+	return models.JobResultItem{
 		InputPath:  inputPath,
 		OutputPath: outputPath,
 		Success:    false,
@@ -770,7 +770,7 @@ func optimizeFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1
 	}
 }
 
-func optimizePlannedOutputPath(plan models.PlanJobResponseV1) string {
+func optimizePlannedOutputPath(plan models.PlanJobResponse) string {
 	if len(plan.Outputs) == 0 {
 		return ""
 	}
@@ -778,15 +778,15 @@ func optimizePlannedOutputPath(plan models.PlanJobResponseV1) string {
 	return plan.Outputs[0].OutputPath
 }
 
-func optimizeRequestError(code, message string) *models.JobErrorV1 {
-	return &models.JobErrorV1{Code: code, DetailCode: code, Message: message}
+func optimizeRequestError(code, message string) *models.JobError {
+	return &models.JobError{Code: code, DetailCode: code, Message: message}
 }
 
-func mapOptimizeError(err error) *models.JobErrorV1 {
+func mapOptimizeError(err error) *models.JobError {
 	var optimizeErr *engine.OptimizeError
 	if !errors.As(err, &optimizeErr) {
-		return &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
+		return &models.JobError{Code: "EXECUTION_ERROR", Message: err.Error()}
 	}
 
-	return &models.JobErrorV1{Code: optimizeErr.Code, DetailCode: optimizeErr.Code, Message: optimizeErr.Message}
+	return &models.JobError{Code: optimizeErr.Code, DetailCode: optimizeErr.Code, Message: optimizeErr.Message}
 }

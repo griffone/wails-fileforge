@@ -15,9 +15,9 @@ import (
 	"fileforge-desktop/internal/models"
 )
 
-func mergeTestRequest(inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDPDFMergeV1,
+func mergeTestRequest(inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDPDFMerge,
 		Mode:       "single",
 		InputPaths: inputPaths,
 		Options:    options,

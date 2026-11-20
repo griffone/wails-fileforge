@@ -41,7 +41,7 @@ func isTerminalJobStatus(status string) bool {
 
 // sortJobResults orders job snapshots newest first, breaking ties by job id so
 // list output stays deterministic.
-func sortJobResults(jobs []models.JobResultV1) {
+func sortJobResults(jobs []models.JobResult) {
 	sort.Slice(jobs, func(i, j int) bool {
 		if jobs[i].StartedAt != jobs[j].StartedAt {
 			return jobs[i].StartedAt > jobs[j].StartedAt

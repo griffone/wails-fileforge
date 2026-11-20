@@ -84,8 +84,8 @@ func writeVideoFixture(t *testing.T, path string) {
 	}
 }
 
-func videoToolRequest(toolID, mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
+func videoToolRequest(toolID, mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
 		ToolID:     toolID,
 		Mode:       mode,
 		InputPaths: inputPaths,

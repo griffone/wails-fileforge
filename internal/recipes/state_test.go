@@ -11,7 +11,7 @@ import (
 	"fileforge-desktop/internal/registry"
 )
 
-func seedRecipeRun(service *Service, result models.RecipeResultV1) {
+func seedRecipeRun(service *Service, result models.RecipeResult) {
 	service.jobs[result.JobID] = &recipeJob{result: result}
 }
 
@@ -22,10 +22,10 @@ func recipeRunIDForIndex(index int) string {
 func TestListRunsSortsNewestFirstAndAppliesLimit(t *testing.T) {
 	service := NewService(registry.NewRegistry(), nil, nil)
 	service.mu.Lock()
-	seedRecipeRun(service, models.RecipeResultV1{JobID: "recipe_old", StartedAt: 100, Status: models.JobStatusSuccess})
-	seedRecipeRun(service, models.RecipeResultV1{JobID: "recipe_tie_a", StartedAt: 200, Status: models.JobStatusFailed})
-	seedRecipeRun(service, models.RecipeResultV1{JobID: "recipe_tie_b", StartedAt: 200, Status: models.JobStatusSuccess})
-	seedRecipeRun(service, models.RecipeResultV1{JobID: "recipe_new", StartedAt: 300, Status: models.JobStatusRunning})
+	seedRecipeRun(service, models.RecipeResult{JobID: "recipe_old", StartedAt: 100, Status: models.JobStatusSuccess})
+	seedRecipeRun(service, models.RecipeResult{JobID: "recipe_tie_a", StartedAt: 200, Status: models.JobStatusFailed})
+	seedRecipeRun(service, models.RecipeResult{JobID: "recipe_tie_b", StartedAt: 200, Status: models.JobStatusSuccess})
+	seedRecipeRun(service, models.RecipeResult{JobID: "recipe_new", StartedAt: 300, Status: models.JobStatusRunning})
 	service.mu.Unlock()
 
 	runs := service.ListRuns(0)
@@ -61,14 +61,14 @@ func TestTerminalRunRetentionKeepsNewestTerminalRuns(t *testing.T) {
 	service := NewService(registry.NewRegistry(), nil, nil)
 	service.mu.Lock()
 	for index := 1; index <= retainedTerminalRuns+5; index++ {
-		seedRecipeRun(service, models.RecipeResultV1{
+		seedRecipeRun(service, models.RecipeResult{
 			JobID:     recipeRunIDForIndex(index),
 			StartedAt: int64(index),
 			Status:    models.JobStatusSuccess,
 		})
 	}
-	seedRecipeRun(service, models.RecipeResultV1{JobID: "recipe_active_old", StartedAt: 1, Status: models.JobStatusRunning})
-	seedRecipeRun(service, models.RecipeResultV1{JobID: "recipe_active_queued", StartedAt: 2, Status: models.JobStatusQueued})
+	seedRecipeRun(service, models.RecipeResult{JobID: "recipe_active_old", StartedAt: 1, Status: models.JobStatusRunning})
+	seedRecipeRun(service, models.RecipeResult{JobID: "recipe_active_queued", StartedAt: 2, Status: models.JobStatusQueued})
 	service.pruneTerminalRunsLocked()
 	service.mu.Unlock()
 
@@ -95,7 +95,7 @@ func TestRunPrunesOldTerminalRunsOnRegistration(t *testing.T) {
 
 	service.mu.Lock()
 	for index := 1; index <= retainedTerminalRuns+5; index++ {
-		seedRecipeRun(service, models.RecipeResultV1{
+		seedRecipeRun(service, models.RecipeResult{
 			JobID:     recipeRunIDForIndex(index),
 			StartedAt: int64(index),
 			Status:    models.JobStatusSuccess,
@@ -107,7 +107,7 @@ func TestRunPrunesOldTerminalRunsOnRegistration(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 1)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": testLargeTargetBytes},
@@ -136,8 +136,8 @@ func TestRunPrunesOldTerminalRunsOnRegistration(t *testing.T) {
 func TestRecipeStateEmitterReceivesQueuedAndTerminalSnapshots(t *testing.T) {
 	service, _, _ := newTestService(t)
 
-	snapshots := make(chan models.RecipeResultV1, 16)
-	service.SetStateEmitter(func(result models.RecipeResultV1) {
+	snapshots := make(chan models.RecipeResult, 16)
+	service.SetStateEmitter(func(result models.RecipeResult) {
 		snapshots <- result
 	})
 
@@ -145,7 +145,7 @@ func TestRecipeStateEmitterReceivesQueuedAndTerminalSnapshots(t *testing.T) {
 	input := filepath.Join(dir, "report.pdf")
 	writePDFFixture(t, input, 1)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDEmailPDF,
 		InputPaths: []string{input},
 		Options:    map[string]any{"targetSizeBytes": testLargeTargetBytes},
@@ -154,7 +154,7 @@ func TestRecipeStateEmitterReceivesQueuedAndTerminalSnapshots(t *testing.T) {
 		t.Fatalf("expected the recipe to be submitted, got %+v", run)
 	}
 
-	var queued models.RecipeResultV1
+	var queued models.RecipeResult
 	select {
 	case queued = <-snapshots:
 	case <-time.After(5 * time.Second):

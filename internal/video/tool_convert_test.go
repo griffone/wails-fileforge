@@ -19,7 +19,7 @@ func TestConvertPlanSingleAutoOutputNextToInput(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeVideoFixture(t, input)
 
-	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil))
+	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, nil))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -58,7 +58,7 @@ func TestConvertPlanBatchWithoutOutputDirPlansPerInputOutputs(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "batch", []string{first, second}, nil))
+	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "batch", []string{first, second}, nil))
 	if planErr != nil {
 		t.Fatalf("expected batch plan to succeed, got %v", planErr)
 	}
@@ -84,7 +84,7 @@ func TestConvertPlanUsesChosenOutputDir(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	req := videoToolRequest(ToolIDVideoConvertV1, "batch", []string{first, second}, map[string]any{"targetFormat": "webm"})
+	req := videoToolRequest(ToolIDVideoConvert, "batch", []string{first, second}, map[string]any{"targetFormat": "webm"})
 	req.OutputDir = outDir
 	plan, planErr := newConvertPlanTool().Plan(context.Background(), req)
 	if planErr != nil {
@@ -105,7 +105,7 @@ func TestConvertPlanSuffixesExistingAutoOutput(t *testing.T) {
 	writeVideoFixture(t, input)
 	writeVideoFixture(t, filepath.Join(dir, "clip_converted.mp4"))
 
-	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil))
+	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, nil))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -127,7 +127,7 @@ func TestConvertPlanDefaultsMissingOptions(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeVideoFixture(t, input)
 
-	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil))
+	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, nil))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -140,7 +140,7 @@ func TestConvertPlanDefaultsMissingOptions(t *testing.T) {
 
 	customDir := filepath.Join(dir, "custom")
 	writeVideoFixture(t, filepath.Join(customDir, "clip.mkv"))
-	customReq := videoToolRequest(ToolIDVideoConvertV1, "single", []string{filepath.Join(customDir, "clip.mkv")}, map[string]any{"targetFormat": "webm", "qualityPreset": "low"})
+	customReq := videoToolRequest(ToolIDVideoConvert, "single", []string{filepath.Join(customDir, "clip.mkv")}, map[string]any{"targetFormat": "webm", "qualityPreset": "low"})
 	customPlan, customErr := newConvertPlanTool().Plan(context.Background(), customReq)
 	if customErr != nil {
 		t.Fatalf("expected custom plan to succeed, got %v", customErr)
@@ -171,7 +171,7 @@ func TestConvertPlanRejectsInvalidOptions(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, testCase.options))
+			plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, testCase.options))
 			if planErr == nil {
 				t.Fatal("expected a validation error")
 			}
@@ -192,7 +192,7 @@ func TestConvertPlanExplicitOutputConflict(t *testing.T) {
 	writeVideoFixture(t, input)
 	writeVideoFixture(t, outputPath)
 
-	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, map[string]any{"outputPath": outputPath}))
+	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, map[string]any{"outputPath": outputPath}))
 	if planErr == nil {
 		t.Fatal("expected explicit output conflict")
 	}
@@ -223,7 +223,7 @@ func TestConvertPlanExplicitOutputExtensionMismatch(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeVideoFixture(t, input)
 
-	req := videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, map[string]any{
+	req := videoToolRequest(ToolIDVideoConvert, "single", []string{input}, map[string]any{
 		"outputPath":    filepath.Join(dir, "custom.webm"),
 		"targetFormat":  "mp4",
 		"qualityPreset": "medium",
@@ -244,7 +244,7 @@ func TestConvertValidateBatchWithoutOutputDir(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	validationErr := newConvertPlanTool().Validate(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "batch", []string{first, second}, nil))
+	validationErr := newConvertPlanTool().Validate(context.Background(), videoToolRequest(ToolIDVideoConvert, "batch", []string{first, second}, nil))
 	if validationErr != nil {
 		t.Fatalf("expected batch validation without outputDir to pass, got %v", validationErr)
 	}
@@ -256,7 +256,7 @@ func TestConvertPlanRuntimeUnavailable(t *testing.T) {
 	writeVideoFixture(t, input)
 
 	tool := NewConvertToolWithDeps(stubRuntimeProbe{err: &engine.VideoError{Code: engine.ErrorCodeRuntimeFFmpegNotFound, Message: "ffmpeg missing"}}, nil)
-	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil))
+	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, nil))
 	if planErr == nil {
 		t.Fatal("expected runtime error")
 	}
@@ -279,7 +279,7 @@ func TestConvertExecuteSingleUsesPlannedOutput(t *testing.T) {
 	runner := &stubCommandRunner{}
 	tool := NewConvertToolWithDeps(stubRuntimeProbe{}, runner)
 
-	item, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil))
+	item, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, nil))
 	if itemErr != nil {
 		t.Fatalf("expected conversion to succeed, got %v", itemErr)
 	}
@@ -301,7 +301,7 @@ func TestConvertPlanMissingInput(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "missing.mp4")
 
-	_, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil))
+	_, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, nil))
 	if planErr == nil {
 		t.Fatal("expected missing input error")
 	}
@@ -317,7 +317,7 @@ func TestConvertPlanSingleInputCount(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	_, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{first, second}, nil))
+	_, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{first, second}, nil))
 	if planErr == nil {
 		t.Fatal("expected input count error")
 	}
@@ -336,7 +336,7 @@ func TestConvertPlanIncludesVideoOutputControls(t *testing.T) {
 		"bitrateKbps": 3200,
 		"removeAudio": true,
 	}
-	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, options))
+	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, options))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -357,7 +357,7 @@ func TestConvertPlanDefaultsVideoOutputControls(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeVideoFixture(t, input)
 
-	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, nil))
+	plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, nil))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -390,7 +390,7 @@ func TestConvertPlanRejectsInvalidVideoOutputControls(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, testCase.options))
+			plan, planErr := newConvertPlanTool().Plan(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, testCase.options))
 			if planErr == nil {
 				t.Fatal("expected a validation error")
 			}
@@ -417,7 +417,7 @@ func TestConvertExecuteSingleAppliesVideoOutputControls(t *testing.T) {
 		"removeAudio": true,
 	}
 
-	if _, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "single", []string{input}, options)); itemErr != nil {
+	if _, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoConvert, "single", []string{input}, options)); itemErr != nil {
 		t.Fatalf("expected conversion to succeed, got %v", itemErr)
 	}
 
@@ -454,7 +454,7 @@ func TestConvertExecuteBatchAppliesVideoOutputControls(t *testing.T) {
 	tool := NewConvertToolWithDeps(stubRuntimeProbe{}, runner)
 	options := map[string]any{"resolution": "480p", "removeAudio": true}
 
-	items, batchErr := tool.ExecuteBatch(context.Background(), videoToolRequest(ToolIDVideoConvertV1, "batch", []string{first, second}, options), nil)
+	items, batchErr := tool.ExecuteBatch(context.Background(), videoToolRequest(ToolIDVideoConvert, "batch", []string{first, second}, options), nil)
 	if batchErr != nil {
 		t.Fatalf("expected batch conversion to succeed, got %v", batchErr)
 	}

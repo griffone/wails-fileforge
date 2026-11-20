@@ -40,18 +40,18 @@ const (
 // Emitter receives engine events. Implementations must be safe for concurrent
 // use: running jobs report progress from their own goroutines.
 type Emitter interface {
-	JobProgress(models.JobProgressEventV1)
-	JobState(models.JobResultV1)
+	JobProgress(models.JobProgressEvent)
+	JobState(models.JobResult)
 }
 
 // ToolResolver looks up a tool by its stable ID.
 type ToolResolver interface {
-	GetToolV2(toolID string) (tools.Tool, error)
+	GetTool(toolID string) (tools.Tool, error)
 }
 
 // RetryPolicy decides whether a failed attempt may be retried.
 type RetryPolicy interface {
-	Retryable(toolID string, err *models.JobErrorV1) bool
+	Retryable(toolID string, err *models.JobError) bool
 }
 
 // Options configures an Engine. Zero values select the documented defaults.
@@ -61,7 +61,7 @@ type Options struct {
 	PersistencePath  string
 	Emitter          Emitter
 	Logger           *slog.Logger
-	OnJobComplete    func(models.JobResultV1)
+	OnJobComplete    func(models.JobResult)
 	Retry            RetryPolicy
 	ProgressInterval time.Duration
 	Debounce         time.Duration
@@ -79,7 +79,7 @@ type SubmitOptions struct {
 
 	// OnProgress receives the same coalesced progress updates the engine
 	// emits. It is never called with a terminal status and may be nil.
-	OnProgress func(models.JobProgressV1)
+	OnProgress func(models.JobProgress)
 }
 
 // Engine is a priority-aware, class-limited job scheduler. One dispatcher
@@ -114,7 +114,7 @@ type Engine struct {
 
 type defaultRetryPolicy struct{}
 
-func (defaultRetryPolicy) Retryable(toolID string, jobErr *models.JobErrorV1) bool {
+func (defaultRetryPolicy) Retryable(toolID string, jobErr *models.JobError) bool {
 	return isRetryableError(toolID, jobErr)
 }
 
@@ -228,7 +228,7 @@ func (e *Engine) hasJobs() bool {
 // normalizeJobError returns a canonical copy of a tool error: the detail code
 // doubles as the canonical code and the details map is copied so callers never
 // share mutable state with a tool.
-func normalizeJobError(jobErr *models.JobErrorV1) *models.JobErrorV1 {
+func normalizeJobError(jobErr *models.JobError) *models.JobError {
 	if jobErr == nil {
 		return nil
 	}
@@ -275,7 +275,7 @@ func (e *Engine) resolveTool(toolID string) (tools.Tool, error) {
 		return nil, fmt.Errorf("tool registry is not configured")
 	}
 
-	return e.resolver.GetToolV2(toolID)
+	return e.resolver.GetTool(toolID)
 }
 
 // Recover loads the persisted snapshot, restores terminal jobs, marks every
@@ -296,7 +296,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 		return fmt.Errorf("stat persisted jobs: %w", err)
 	}
 
-	var persisted []models.JobResultV1
+	var persisted []models.JobResult
 	if err := jsonstore.Load(path, &persisted); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -336,7 +336,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 	return nil
 }
 
-func newRecoveredJobState(engine *Engine, result models.JobResultV1) *jobState {
+func newRecoveredJobState(engine *Engine, result models.JobResult) *jobState {
 	state := &jobState{
 		engine:   engine,
 		result:   result,
@@ -349,7 +349,7 @@ func newRecoveredJobState(engine *Engine, result models.JobResultV1) *jobState {
 }
 
 // Submit enqueues a tool job with interactive priority and the tool's class.
-func (e *Engine) Submit(ctx context.Context, req models.JobRequestV1) (models.RunJobResponseV1, error) {
+func (e *Engine) Submit(ctx context.Context, req models.JobRequest) (models.RunJobResponse, error) {
 	return e.SubmitWithOptions(ctx, req, SubmitOptions{
 		Kind:     KindTool,
 		Priority: PriorityInteractive,
@@ -359,19 +359,19 @@ func (e *Engine) Submit(ctx context.Context, req models.JobRequestV1) (models.Ru
 // SubmitWithOptions resolves the tool, plans the request once when the tool
 // supports it, and enqueues the job, returning immediately. The engine
 // dispatcher decides when it actually starts.
-func (e *Engine) SubmitWithOptions(ctx context.Context, req models.JobRequestV1, opts SubmitOptions) (models.RunJobResponseV1, error) {
+func (e *Engine) SubmitWithOptions(ctx context.Context, req models.JobRequest, opts SubmitOptions) (models.RunJobResponse, error) {
 	ctx = contextOrBackground(ctx)
 
 	tool, err := e.resolveTool(req.ToolID)
 	if err != nil {
-		return models.RunJobResponseV1{}, fmt.Errorf("tool lookup failed: %w", err)
+		return models.RunJobResponse{}, fmt.Errorf("tool lookup failed: %w", err)
 	}
 
 	opts = e.normalizeSubmitOptions(tool, req.ToolID, opts)
 
 	plan, rejectErr := e.planRequest(ctx, tool, req)
 	if rejectErr != nil {
-		return models.RunJobResponseV1{
+		return models.RunJobResponse{
 			Success: false,
 			Message: "job validation failed",
 			Status:  StatusFailed,
@@ -384,10 +384,10 @@ func (e *Engine) SubmitWithOptions(ctx context.Context, req models.JobRequestV1,
 
 	if err := e.enqueueNewJob(state); err != nil {
 		state.cancel()
-		return models.RunJobResponseV1{}, err
+		return models.RunJobResponse{}, err
 	}
 
-	return models.RunJobResponseV1{
+	return models.RunJobResponse{
 		Success: true,
 		Message: "job submitted",
 		JobID:   state.result.JobID,
@@ -397,7 +397,7 @@ func (e *Engine) SubmitWithOptions(ctx context.Context, req models.JobRequestV1,
 
 // planRequest resolves a request exactly once for planner tools and stores the
 // result on the job. Tools without a planner keep the legacy Validate contract.
-func (e *Engine) planRequest(ctx context.Context, tool tools.Tool, req models.JobRequestV1) (*models.PlanJobResponseV1, *models.JobErrorV1) {
+func (e *Engine) planRequest(ctx context.Context, tool tools.Tool, req models.JobRequest) (*models.PlanJobResponse, *models.JobError) {
 	planner, ok := tool.(tools.Planner)
 	if !ok {
 		return nil, tool.Validate(ctx, req)
@@ -520,10 +520,10 @@ func (e *Engine) Cancel(jobID string) error {
 }
 
 // Get returns one job snapshot.
-func (e *Engine) Get(jobID string) (models.JobResultV1, bool) {
+func (e *Engine) Get(jobID string) (models.JobResult, bool) {
 	state := e.lookup(jobID)
 	if state == nil {
-		return models.JobResultV1{}, false
+		return models.JobResult{}, false
 	}
 
 	return state.snapshot(), true
@@ -539,7 +539,7 @@ func (e *Engine) lookup(jobID string) *jobState {
 
 // List returns job snapshots newest first, capped to limit. A non-positive
 // limit uses 100.
-func (e *Engine) List(limit int) []models.JobResultV1 {
+func (e *Engine) List(limit int) []models.JobResult {
 	if limit <= 0 {
 		limit = defaultJobListLimit
 	}
@@ -551,7 +551,7 @@ func (e *Engine) List(limit int) []models.JobResultV1 {
 	}
 	e.mu.RUnlock()
 
-	jobs := make([]models.JobResultV1, 0, len(states))
+	jobs := make([]models.JobResult, 0, len(states))
 	for _, state := range states {
 		jobs = append(jobs, state.snapshot())
 	}
@@ -565,10 +565,10 @@ func (e *Engine) List(limit int) []models.JobResultV1 {
 }
 
 // Wait blocks until the job reaches a terminal state or ctx ends.
-func (e *Engine) Wait(ctx context.Context, jobID string) (models.JobResultV1, error) {
+func (e *Engine) Wait(ctx context.Context, jobID string) (models.JobResult, error) {
 	state := e.lookup(jobID)
 	if state == nil {
-		return models.JobResultV1{}, fmt.Errorf("job '%s' not found", jobID)
+		return models.JobResult{}, fmt.Errorf("job '%s' not found", jobID)
 	}
 
 	ctx = contextOrBackground(ctx)
@@ -581,12 +581,12 @@ func (e *Engine) Wait(ctx context.Context, jobID string) (models.JobResultV1, er
 }
 
 // Validate delegates to the tool's validation contract.
-func (e *Engine) Validate(ctx context.Context, req models.JobRequestV1) models.ValidateJobResponseV1 {
+func (e *Engine) Validate(ctx context.Context, req models.JobRequest) models.ValidateJobResponse {
 	ctx = contextOrBackground(ctx)
 
 	tool, err := e.resolveTool(req.ToolID)
 	if err != nil {
-		return models.ValidateJobResponseV1{
+		return models.ValidateJobResponse{
 			Success: false,
 			Message: "tool not found",
 			Valid:   false,
@@ -595,7 +595,7 @@ func (e *Engine) Validate(ctx context.Context, req models.JobRequestV1) models.V
 	}
 
 	if validationErr := tool.Validate(ctx, req); validationErr != nil {
-		return models.ValidateJobResponseV1{
+		return models.ValidateJobResponse{
 			Success: false,
 			Message: "validation failed",
 			Valid:   false,
@@ -603,7 +603,7 @@ func (e *Engine) Validate(ctx context.Context, req models.JobRequestV1) models.V
 		}
 	}
 
-	return models.ValidateJobResponseV1{
+	return models.ValidateJobResponse{
 		Success: true,
 		Message: "job request is valid",
 		Valid:   true,
@@ -611,15 +611,15 @@ func (e *Engine) Validate(ctx context.Context, req models.JobRequestV1) models.V
 }
 
 // Plan delegates to the tool's optional planner.
-func (e *Engine) Plan(ctx context.Context, req models.JobRequestV1) models.PlanJobResponseV1 {
+func (e *Engine) Plan(ctx context.Context, req models.JobRequest) models.PlanJobResponse {
 	ctx = contextOrBackground(ctx)
 
 	tool, err := e.resolveTool(req.ToolID)
 	if err != nil {
-		return models.PlanJobResponseV1{
+		return models.PlanJobResponse{
 			Success: false,
 			Message: "tool not found",
-			Outputs: []models.PlannedOutputV1{},
+			Outputs: []models.PlannedOutput{},
 			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", err.Error(), nil),
 		}
 	}
@@ -627,17 +627,17 @@ func (e *Engine) Plan(ctx context.Context, req models.JobRequestV1) models.PlanJ
 	planner, ok := tool.(tools.Planner)
 	if !ok {
 		message := "planning is not available for this tool"
-		return models.PlanJobResponseV1{
+		return models.PlanJobResponse{
 			Success: false,
 			Message: message,
-			Outputs: []models.PlannedOutputV1{},
+			Outputs: []models.PlannedOutput{},
 			Error:   models.NewCanonicalJobError("PLAN_UNSUPPORTED", message, nil),
 		}
 	}
 
 	plan, planErr := planner.Plan(ctx, req)
 	if plan.Outputs == nil {
-		plan.Outputs = []models.PlannedOutputV1{}
+		plan.Outputs = []models.PlannedOutput{}
 	}
 	if planErr == nil {
 		return plan
@@ -714,14 +714,14 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 	return firstErr
 }
 
-func (e *Engine) emitProgress(event models.JobProgressEventV1) {
+func (e *Engine) emitProgress(event models.JobProgressEvent) {
 	if e.opts.Emitter == nil {
 		return
 	}
 	e.opts.Emitter.JobProgress(event)
 }
 
-func (e *Engine) emitState(result models.JobResultV1) {
+func (e *Engine) emitState(result models.JobResult) {
 	if e.opts.Emitter == nil {
 		return
 	}
@@ -772,14 +772,14 @@ func (e *Engine) marshalSnapshot() ([]byte, error) {
 }
 
 // encodeJobsSnapshot renders a job list in the persisted shape.
-func encodeJobsSnapshot(jobs []models.JobResultV1) ([]byte, error) {
+func encodeJobsSnapshot(jobs []models.JobResult) ([]byte, error) {
 	return json.MarshalIndent(jobs, "", "  ")
 }
 
 // saveJobsSnapshot writes one full job snapshot atomically. The engine writes
 // the same payload through its debounced store; this synchronous helper backs
 // the persistence tests and benchmark.
-func saveJobsSnapshot(path string, jobs []models.JobResultV1) error {
+func saveJobsSnapshot(path string, jobs []models.JobResult) error {
 	payload, err := encodeJobsSnapshot(jobs)
 	if err != nil {
 		return fmt.Errorf("encode jobs snapshot: %w", err)
@@ -793,7 +793,7 @@ func saveJobsSnapshot(path string, jobs []models.JobResultV1) error {
 
 // jobSnapshot mirrors the old engine shape: active jobs plus the newest
 // Retention terminal jobs, all sorted newest first.
-func (e *Engine) jobSnapshot() []models.JobResultV1 {
+func (e *Engine) jobSnapshot() []models.JobResult {
 	e.mu.RLock()
 	states := make([]*jobState, 0, len(e.jobs))
 	for _, state := range e.jobs {
@@ -801,8 +801,8 @@ func (e *Engine) jobSnapshot() []models.JobResultV1 {
 	}
 	e.mu.RUnlock()
 
-	active := make([]models.JobResultV1, 0, len(states))
-	terminal := make([]models.JobResultV1, 0, len(states))
+	active := make([]models.JobResult, 0, len(states))
+	terminal := make([]models.JobResult, 0, len(states))
 	for _, state := range states {
 		snapshot := state.snapshot()
 		if isTerminalJobStatus(snapshot.Status) {
@@ -817,7 +817,7 @@ func (e *Engine) jobSnapshot() []models.JobResultV1 {
 		terminal = terminal[:e.opts.Retention]
 	}
 
-	jobs := make([]models.JobResultV1, 0, len(active)+len(terminal))
+	jobs := make([]models.JobResult, 0, len(active)+len(terminal))
 	jobs = append(jobs, active...)
 	jobs = append(jobs, terminal...)
 	sortJobResults(jobs)

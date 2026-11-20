@@ -16,7 +16,7 @@ import (
 type fakeBatchTool struct {
 	id      string
 	calls   [][]string
-	execute func(ctx context.Context, req models.JobRequestV1, call int, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1)
+	execute func(ctx context.Context, req models.JobRequest, call int, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError)
 }
 
 func (t *fakeBatchTool) ID() string {
@@ -27,19 +27,19 @@ func (t *fakeBatchTool) Capability() string {
 	return t.id
 }
 
-func (t *fakeBatchTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{ToolID: t.id}
+func (t *fakeBatchTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{ToolID: t.id}
 }
 
-func (t *fakeBatchTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *fakeBatchTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *fakeBatchTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *fakeBatchTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return nil
 }
 
-func (t *fakeBatchTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *fakeBatchTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	t.calls = append(t.calls, append([]string(nil), req.InputPaths...))
 
 	return t.execute(ctx, req, len(t.calls), onProgress)
@@ -64,19 +64,19 @@ func (t *fakeSingleFileTool) Capability() string {
 	return t.id
 }
 
-func (t *fakeSingleFileTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{ToolID: t.id}
+func (t *fakeSingleFileTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{ToolID: t.id}
 }
 
-func (t *fakeSingleFileTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *fakeSingleFileTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *fakeSingleFileTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *fakeSingleFileTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return nil
 }
 
-func (t *fakeSingleFileTool) ExecuteSingle(_ context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *fakeSingleFileTool) ExecuteSingle(_ context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	if t.started != nil {
 		t.started <- struct{}{}
 	}
@@ -89,20 +89,20 @@ func (t *fakeSingleFileTool) ExecuteSingle(_ context.Context, req models.JobRequ
 		inputPath = req.InputPaths[0]
 	}
 	if t.fail {
-		return models.JobResultItemV1{InputPath: inputPath, Success: false, Message: "fake failure"},
+		return models.JobResultItem{InputPath: inputPath, Success: false, Message: "fake failure"},
 			models.NewCanonicalJobError("FAKE_EXECUTION_FAILED", "fake failure", nil)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(t.outputPath), 0o755); err != nil {
-		return models.JobResultItemV1{InputPath: inputPath, Success: false, Message: err.Error()},
+		return models.JobResultItem{InputPath: inputPath, Success: false, Message: err.Error()},
 			models.NewCanonicalJobError("FAKE_WRITE_FAILED", err.Error(), nil)
 	}
 	if err := os.WriteFile(t.outputPath, []byte("converted"), 0o644); err != nil {
-		return models.JobResultItemV1{InputPath: inputPath, Success: false, Message: err.Error()},
+		return models.JobResultItem{InputPath: inputPath, Success: false, Message: err.Error()},
 			models.NewCanonicalJobError("FAKE_WRITE_FAILED", err.Error(), nil)
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:  inputPath,
 		OutputPath: t.outputPath,
 		Outputs:    []string{t.outputPath},
@@ -115,8 +115,8 @@ func (t *fakeSingleFileTool) ExecuteSingle(_ context.Context, req models.JobRequ
 // propagation can be asserted without a real tool.
 type fakePlannerTool struct {
 	id      string
-	plan    models.PlanJobResponseV1
-	planErr *models.JobErrorV1
+	plan    models.PlanJobResponse
+	planErr *models.JobError
 	called  bool
 }
 
@@ -128,19 +128,19 @@ func (t *fakePlannerTool) Capability() string {
 	return t.id
 }
 
-func (t *fakePlannerTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{ToolID: t.id}
+func (t *fakePlannerTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{ToolID: t.id}
 }
 
-func (t *fakePlannerTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *fakePlannerTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *fakePlannerTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *fakePlannerTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return nil
 }
 
-func (t *fakePlannerTool) Plan(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *fakePlannerTool) Plan(_ context.Context, _ models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	t.called = true
 
 	return t.plan, t.planErr
@@ -151,15 +151,15 @@ func (t *fakePlannerTool) Plan(_ context.Context, _ models.JobRequestV1) (models
 // receives so tests can assert the engine never re-plans.
 type plannedFakeTool struct {
 	id       string
-	manifest models.ToolManifestV1
-	planHook func(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1)
-	execHook func(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1)
+	manifest models.ToolManifest
+	planHook func(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError)
+	execHook func(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError)
 
 	planCalls atomic.Int32
 	execCalls atomic.Int32
 
 	mu            sync.Mutex
-	executedPlans []models.PlanJobResponseV1
+	executedPlans []models.PlanJobResponse
 }
 
 func (t *plannedFakeTool) ID() string {
@@ -170,29 +170,29 @@ func (t *plannedFakeTool) Capability() string {
 	return t.id
 }
 
-func (t *plannedFakeTool) Manifest() models.ToolManifestV1 {
+func (t *plannedFakeTool) Manifest() models.ToolManifest {
 	if t.manifest.ToolID == "" {
-		return models.ToolManifestV1{ToolID: t.id}
+		return models.ToolManifest{ToolID: t.id}
 	}
 
 	return t.manifest
 }
 
-func (t *plannedFakeTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *plannedFakeTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *plannedFakeTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *plannedFakeTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return nil
 }
 
-func (t *plannedFakeTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *plannedFakeTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	t.planCalls.Add(1)
 
 	return t.planHook(ctx, req)
 }
 
-func (t *plannedFakeTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *plannedFakeTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	t.execCalls.Add(1)
 	t.mu.Lock()
 	t.executedPlans = append(t.executedPlans, *cloneJobPlan(&plan))
@@ -205,18 +205,18 @@ func (t *plannedFakeTool) ExecutePlan(ctx context.Context, req models.JobRequest
 	return t.execHook(ctx, req, plan, onProgress)
 }
 
-func (t *plannedFakeTool) recordedPlans() []models.PlanJobResponseV1 {
+func (t *plannedFakeTool) recordedPlans() []models.PlanJobResponse {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	return append([]models.PlanJobResponseV1(nil), t.executedPlans...)
+	return append([]models.PlanJobResponse(nil), t.executedPlans...)
 }
 
 // plannerOnlyFakeTool implements Planner and the legacy single executor but not
 // PlanExecutor, proving a planned submission still runs through the old path.
 type plannerOnlyFakeTool struct {
 	id        string
-	plan      models.PlanJobResponseV1
+	plan      models.PlanJobResponse
 	calls     atomic.Int32
 	planCalls atomic.Int32
 }
@@ -229,28 +229,28 @@ func (t *plannerOnlyFakeTool) Capability() string {
 	return t.id
 }
 
-func (t *plannerOnlyFakeTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{ToolID: t.id}
+func (t *plannerOnlyFakeTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{ToolID: t.id}
 }
 
-func (t *plannerOnlyFakeTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *plannerOnlyFakeTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *plannerOnlyFakeTool) Validate(_ context.Context, _ models.JobRequestV1) *models.JobErrorV1 {
+func (t *plannerOnlyFakeTool) Validate(_ context.Context, _ models.JobRequest) *models.JobError {
 	return nil
 }
 
-func (t *plannerOnlyFakeTool) Plan(_ context.Context, _ models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *plannerOnlyFakeTool) Plan(_ context.Context, _ models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	t.planCalls.Add(1)
 
 	return t.plan, nil
 }
 
-func (t *plannerOnlyFakeTool) ExecuteSingle(_ context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *plannerOnlyFakeTool) ExecuteSingle(_ context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	t.calls.Add(1)
 
-	item := models.JobResultItemV1{InputPath: firstEngineInput(req), Success: true, Message: "legacy done"}
+	item := models.JobResultItem{InputPath: firstEngineInput(req), Success: true, Message: "legacy done"}
 	if len(t.plan.Outputs) > 0 {
 		item.OutputPath = t.plan.Outputs[0].OutputPath
 		item.Outputs = []string{t.plan.Outputs[0].OutputPath}
@@ -261,10 +261,10 @@ func (t *plannerOnlyFakeTool) ExecuteSingle(_ context.Context, req models.JobReq
 }
 
 // planSuccessItems builds one successful item per planned output.
-func planSuccessItems(plan models.PlanJobResponseV1) []models.JobResultItemV1 {
-	items := make([]models.JobResultItemV1, 0, len(plan.Outputs))
+func planSuccessItems(plan models.PlanJobResponse) []models.JobResultItem {
+	items := make([]models.JobResultItem, 0, len(plan.Outputs))
 	for _, output := range plan.Outputs {
-		items = append(items, models.JobResultItemV1{
+		items = append(items, models.JobResultItem{
 			InputPath:   output.InputPath,
 			OutputPath:  output.OutputPath,
 			Outputs:     mergePlannedOutputs(output.OutputPath),

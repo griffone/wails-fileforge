@@ -24,28 +24,28 @@ import (
 var updateGolden = flag.Bool("update", false, "update golden files")
 
 // toolIDs is the characterized catalog. It is explicit so the golden test can
-// read manifests through GetToolV2 without evaluating runtime state.
+// read manifests through GetTool without evaluating runtime state.
 var toolIDs = []string{
-	image.ToolIDImageConvertV1,
-	image.ToolIDImageCropV1,
-	image.ToolIDImageAnnotateV1,
-	image.ToolIDImageCompressV1,
-	image.ToolIDImageWatermarkV1,
-	image.ToolIDImageOCRV1,
-	image.ToolIDImageBackgroundV1,
-	pdf.ToolIDPDFMergeV1,
-	pdf.ToolIDPDFSplitV1,
-	pdf.ToolIDPDFCropV1,
-	pdf.ToolIDPDFOptimizeV1,
-	pdf.ToolIDPDFOCRV1,
-	pdf.ToolIDPDFImagesV1,
-	pdf.ToolIDPDFToDOCXV1,
-	video.ToolIDVideoConvertV1,
-	video.ToolIDVideoTrimV1,
-	video.ToolIDVideoMergeV1,
-	video.ToolIDVideoTranscribeV1,
-	doc.ToolIDDocMDToPDFV1,
-	doc.ToolIDDocDOCXToPDFV1,
+	image.ToolIDImageConvert,
+	image.ToolIDImageCrop,
+	image.ToolIDImageAnnotate,
+	image.ToolIDImageCompress,
+	image.ToolIDImageWatermark,
+	image.ToolIDImageOCR,
+	image.ToolIDImageBackground,
+	pdf.ToolIDPDFMerge,
+	pdf.ToolIDPDFSplit,
+	pdf.ToolIDPDFCrop,
+	pdf.ToolIDPDFOptimize,
+	pdf.ToolIDPDFOCR,
+	pdf.ToolIDPDFImages,
+	pdf.ToolIDPDFToDOCX,
+	video.ToolIDVideoConvert,
+	video.ToolIDVideoTrim,
+	video.ToolIDVideoMerge,
+	video.ToolIDVideoTranscribe,
+	doc.ToolIDDocMDToPDF,
+	doc.ToolIDDocDOCXToPDF,
 }
 
 func TestToolRegistryContract(t *testing.T) {
@@ -55,7 +55,7 @@ func TestToolRegistryContract(t *testing.T) {
 		t.Fatalf("registry reported initialization errors: %v", errs)
 	}
 
-	catalog := reg.ListToolsV2(context.Background())
+	catalog := reg.ListTools(context.Background())
 	if len(catalog) != 20 {
 		t.Fatalf("registered tools = %d, want 20", len(catalog))
 	}
@@ -119,15 +119,15 @@ func TestToolManifestsGolden(t *testing.T) {
 	}
 }
 
-// collectManifests reads every manifest through GetToolV2 so the golden file
+// collectManifests reads every manifest through GetTool so the golden file
 // never depends on RuntimeState or on the tools installed on the machine.
-func collectManifests(t *testing.T) []models.ToolManifestV1 {
+func collectManifests(t *testing.T) []models.ToolManifest {
 	t.Helper()
 
 	reg := registry.GetGlobalRegistry()
-	manifests := make([]models.ToolManifestV1, 0, len(toolIDs))
+	manifests := make([]models.ToolManifest, 0, len(toolIDs))
 	for _, toolID := range toolIDs {
-		tool, err := reg.GetToolV2(toolID)
+		tool, err := reg.GetTool(toolID)
 		if err != nil {
 			t.Fatalf("get tool %q: %v", toolID, err)
 		}

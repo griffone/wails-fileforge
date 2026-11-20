@@ -21,8 +21,8 @@ const (
 	ErrorCodeCancelledByUser        = "CANCELLED_BY_USER"
 )
 
-func NewJobError(code, detailCode, message string, details map[string]any) *JobErrorV1 {
-	err := &JobErrorV1{
+func NewJobError(code, detailCode, message string, details map[string]any) *JobError {
+	err := &JobError{
 		Code:       code,
 		DetailCode: detailCode,
 		Message:    message,
@@ -36,7 +36,7 @@ func NewJobError(code, detailCode, message string, details map[string]any) *JobE
 	return err
 }
 
-func NewCanonicalJobError(detailCode, message string, details map[string]any) *JobErrorV1 {
+func NewCanonicalJobError(detailCode, message string, details map[string]any) *JobError {
 	return NewJobError(CanonicalErrorCode(detailCode), detailCode, message, details)
 }
 

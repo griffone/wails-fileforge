@@ -86,8 +86,8 @@ func (r *Registry) WaitForInitialization() {
 	})
 }
 
-// RegisterToolV2 adds a Tool to the v2 tool registry.
-func (r *Registry) RegisterToolV2(tool tools.Tool) error {
+// RegisterTool adds a Tool to the registry.
+func (r *Registry) RegisterTool(tool tools.Tool) error {
 	if tool == nil {
 		return fmt.Errorf("tool cannot be nil")
 	}
@@ -108,9 +108,9 @@ func (r *Registry) RegisterToolV2(tool tools.Tool) error {
 	return nil
 }
 
-// SafeRegisterToolV2 stores registration errors in initErrors.
-func (r *Registry) SafeRegisterToolV2(tool tools.Tool) {
-	if err := r.RegisterToolV2(tool); err != nil {
+// SafeRegisterTool stores registration errors in initErrors.
+func (r *Registry) SafeRegisterTool(tool tools.Tool) {
+	if err := r.RegisterTool(tool); err != nil {
 		toolID := "<nil>"
 		if tool != nil {
 			toolID = tool.ID()
@@ -119,7 +119,7 @@ func (r *Registry) SafeRegisterToolV2(tool tools.Tool) {
 	}
 }
 
-func (r *Registry) GetToolV2(toolID string) (tools.Tool, error) {
+func (r *Registry) GetTool(toolID string) (tools.Tool, error) {
 	if !r.IsInitialized() {
 		r.WaitForInitialization()
 	}
@@ -139,7 +139,7 @@ func (r *Registry) GetToolV2(toolID string) (tools.Tool, error) {
 	return tool, nil
 }
 
-func (r *Registry) ListToolsV2(ctx context.Context) []models.ToolCatalogEntryV1 {
+func (r *Registry) ListTools(ctx context.Context) []models.ToolCatalogEntry {
 	if !r.IsInitialized() {
 		r.WaitForInitialization()
 	}
@@ -153,10 +153,10 @@ func (r *Registry) ListToolsV2(ctx context.Context) []models.ToolCatalogEntryV1 
 	}
 	sort.Strings(toolIDs)
 
-	catalog := make([]models.ToolCatalogEntryV1, 0, len(toolIDs))
+	catalog := make([]models.ToolCatalogEntry, 0, len(toolIDs))
 	for _, toolID := range toolIDs {
 		tool := r.tools[toolID]
-		catalog = append(catalog, models.ToolCatalogEntryV1{
+		catalog = append(catalog, models.ToolCatalogEntry{
 			Manifest: tool.Manifest(),
 			State:    tool.RuntimeState(ctx),
 		})
@@ -165,7 +165,7 @@ func (r *Registry) ListToolsV2(ctx context.Context) []models.ToolCatalogEntryV1 
 	return catalog
 }
 
-func (r *Registry) GetToolsByCapabilityV2(capability string) []models.ToolCatalogEntryV1 {
+func (r *Registry) GetToolsByCapability(capability string) []models.ToolCatalogEntry {
 	if !r.IsInitialized() {
 		r.WaitForInitialization()
 	}
@@ -181,11 +181,11 @@ func (r *Registry) GetToolsByCapabilityV2(capability string) []models.ToolCatalo
 	}
 	sort.Strings(toolIDs)
 
-	catalog := make([]models.ToolCatalogEntryV1, 0)
+	catalog := make([]models.ToolCatalogEntry, 0)
 	for _, toolID := range toolIDs {
 		tool := r.tools[toolID]
 		if tool.Capability() == capability {
-			catalog = append(catalog, models.ToolCatalogEntryV1{
+			catalog = append(catalog, models.ToolCatalogEntry{
 				Manifest: tool.Manifest(),
 				State:    tool.RuntimeState(ctx),
 			})
@@ -195,7 +195,7 @@ func (r *Registry) GetToolsByCapabilityV2(capability string) []models.ToolCatalo
 	return catalog
 }
 
-func (r *Registry) CountToolsV2() int {
+func (r *Registry) CountTools() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.tools)

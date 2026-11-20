@@ -55,18 +55,18 @@ func New(notifier *Notifier) *Services {
 	runtime := &Runtime{}
 	toolingService := services.NewToolingServiceWithBus(reg, WailsBus{})
 
-	recipeService := recipes.NewService(reg, toolingService.JobHistory(), func(evt models.RecipeProgressEventV1) {
-		WailsBus{}.Emit(recipes.ProgressEventNameV1, evt)
+	recipeService := recipes.NewService(reg, toolingService.JobHistory(), func(evt models.RecipeProgressEvent) {
+		WailsBus{}.Emit(recipes.ProgressEventName, evt)
 	})
 	// Recipe steps run on the same engine as direct tool jobs so one scheduler
 	// governs queueing, cancellation, and resource classes.
 	recipeService.SetEngine(toolingService.Engine())
-	recipeService.SetStateEmitter(func(result models.RecipeResultV1) {
-		WailsBus{}.Emit(recipes.StateEventNameV1, result)
+	recipeService.SetStateEmitter(func(result models.RecipeResult) {
+		WailsBus{}.Emit(recipes.StateEventName, result)
 	})
 	automationStore := automation.NewStore(automation.DefaultPath())
-	automationService := automation.NewService(automationStore, recipeService, func(evt models.AutomationRunEventV1) {
-		WailsBus{}.Emit(automation.RunEventNameV1, evt)
+	automationService := automation.NewService(automationStore, recipeService, func(evt models.AutomationRunEvent) {
+		WailsBus{}.Emit(automation.RunEventName, evt)
 	})
 	automationService.SetRunStore(automation.NewRunStore(automation.DefaultRunPath()))
 	// initialize preview service with sensible defaults; AllowedRoots: $HOME + TMP
@@ -121,8 +121,8 @@ func newToolchainService() *toolchain.Service {
 		toolchain.CurrentPlatform(),
 		&toolchain.HTTPDownloader{},
 		&toolchain.ExecCommandRunner{},
-		func(evt models.ToolchainInstallEventV1) {
-			WailsBus{}.Emit(toolchain.InstallEventNameV1, evt)
+		func(evt models.ToolchainInstallEvent) {
+			WailsBus{}.Emit(toolchain.InstallEventName, evt)
 		},
 	)
 }

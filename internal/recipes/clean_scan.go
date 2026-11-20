@@ -57,8 +57,8 @@ type ocrCapabilityProvider interface {
 	OCRCapabilities(ctx context.Context) engine.OCRCapabilities
 }
 
-func cleanScanRecipe() models.RecipeV1 {
-	return models.RecipeV1{
+func cleanScanRecipe() models.Recipe {
+	return models.Recipe{
 		ID:               RecipeIDCleanScan,
 		Name:             "Clean scan",
 		Description:      "Turn a scanned PDF into a searchable PDF with a local text sidecar.",
@@ -67,11 +67,11 @@ func cleanScanRecipe() models.RecipeV1 {
 		AcceptExtensions: []string{"pdf"},
 		MaxInputs:        1,
 		Highlights:       []string{"Local OCR", "Searchable PDF", "Text sidecar"},
-		Steps: []models.RecipeStepV1{
+		Steps: []models.RecipeStep{
 			{
 				ID:     stepIDCleanScanOCR,
 				Name:   "OCR every page",
-				ToolID: pdf.ToolIDPDFOCRV1,
+				ToolID: pdf.ToolIDPDFOCR,
 				Detail: "Rasterize at 300 DPI and recognize text locally",
 			},
 			{
@@ -85,7 +85,7 @@ func cleanScanRecipe() models.RecipeV1 {
 
 // resolveCleanScan validates the single PDF, the OCR runtime and language and
 // resolves the collision-safe searchable PDF plus text sidecar.
-func (s *Service) resolveCleanScan(recipe *models.RecipeV1, req models.RecipeRequestV1) (*resolvedRecipe, *models.JobErrorV1) {
+func (s *Service) resolveCleanScan(recipe *models.Recipe, req models.RecipeRequest) (*resolvedRecipe, *models.JobError) {
 	inputs, inputErr := validateCleanScanInputs(req.InputPaths)
 	if inputErr != nil {
 		return nil, inputErr
@@ -142,7 +142,7 @@ func (s *Service) resolveCleanScan(recipe *models.RecipeV1, req models.RecipeReq
 		warnings = append(warnings, engine.OCRWarningPDFToTextUnavailable)
 	}
 
-	planned := []models.PlannedOutputV1{
+	planned := []models.PlannedOutput{
 		{InputPath: sourcePath, OutputPath: pdfPath, OutputKind: "file", OutputCount: 1},
 		{InputPath: sourcePath, OutputPath: textPath, OutputKind: "file", OutputCount: 1},
 	}
@@ -166,7 +166,7 @@ func (s *Service) resolveCleanScan(recipe *models.RecipeV1, req models.RecipeReq
 	}, nil
 }
 
-func validateCleanScanInputs(rawInputs []string) ([]string, *models.JobErrorV1) {
+func validateCleanScanInputs(rawInputs []string) ([]string, *models.JobError) {
 	if len(rawInputs) == 0 {
 		return nil, newRecipeError("RECIPE_INVALID_INPUT", "Choose one PDF for Clean scan.", nil)
 	}
@@ -226,8 +226,8 @@ func validateCleanScanInputs(rawInputs []string) ([]string, *models.JobErrorV1) 
 
 // cleanScanCapabilities asks the OCR tool for its runtime state so the plan and
 // the tool page always agree on installed languages.
-func (s *Service) cleanScanCapabilities() (engine.OCRCapabilities, *models.JobErrorV1) {
-	tool, jobErr := s.toolFor(pdf.ToolIDPDFOCRV1)
+func (s *Service) cleanScanCapabilities() (engine.OCRCapabilities, *models.JobError) {
+	tool, jobErr := s.toolFor(pdf.ToolIDPDFOCR)
 	if jobErr != nil {
 		return engine.OCRCapabilities{}, jobErr
 	}
@@ -236,8 +236,8 @@ func (s *Service) cleanScanCapabilities() (engine.OCRCapabilities, *models.JobEr
 	if !ok {
 		return engine.OCRCapabilities{}, newRecipeError(
 			"RECIPE_TOOL_DEPENDENCY_MISSING",
-			fmt.Sprintf("Tool '%s' cannot report its OCR capabilities.", pdf.ToolIDPDFOCRV1),
-			map[string]any{"toolId": pdf.ToolIDPDFOCRV1},
+			fmt.Sprintf("Tool '%s' cannot report its OCR capabilities.", pdf.ToolIDPDFOCR),
+			map[string]any{"toolId": pdf.ToolIDPDFOCR},
 		)
 	}
 
@@ -259,7 +259,7 @@ func (s *Service) cleanScanCapabilities() (engine.OCRCapabilities, *models.JobEr
 
 // cleanScanLanguageOption reads options.language, defaulting to the recommended
 // installed language and rejecting an uninstalled one.
-func cleanScanLanguageOption(options map[string]any, capabilities engine.OCRCapabilities) (string, *models.JobErrorV1) {
+func cleanScanLanguageOption(options map[string]any, capabilities engine.OCRCapabilities) (string, *models.JobError) {
 	if options != nil {
 		if raw, exists := options["language"]; exists && raw != nil {
 			value, ok := raw.(string)
@@ -359,7 +359,7 @@ func (s *Service) executeCleanScan(ctx context.Context, tracked *recipeJob, reso
 		s.history.RecordOutputs(tracked.jobID(), cleanScanHistoryToolID, outputs)
 	}
 
-	tracked.setStep(cleanScanVerifyStepIndex, models.RecipeStepResultV1{
+	tracked.setStep(cleanScanVerifyStepIndex, models.RecipeStepResult{
 		ID:      verifyStep.ID,
 		Name:    verifyStep.Name,
 		ToolID:  verifyStep.ToolID,
@@ -375,8 +375,8 @@ func (s *Service) executeCleanScan(ctx context.Context, tracked *recipeJob, reso
 // runCleanScanOCRStep plans and runs the OCR tool and returns the paths it
 // actually wrote. Both final paths are claimed for cleanup before the tool can
 // write a partial file.
-func (s *Service) runCleanScanOCRStep(ctx context.Context, tracked *recipeJob, scan *cleanScanResolution, step models.RecipeStepV1, created *[]string) (string, string, string, *models.JobErrorV1) {
-	executor, planner, jobErr := s.singleExecutor(pdf.ToolIDPDFOCRV1)
+func (s *Service) runCleanScanOCRStep(ctx context.Context, tracked *recipeJob, scan *cleanScanResolution, step models.RecipeStep, created *[]string) (string, string, string, *models.JobError) {
+	executor, planner, jobErr := s.singleExecutor(pdf.ToolIDPDFOCR)
 	if jobErr != nil {
 		return "", "", "", jobErr
 	}
@@ -406,7 +406,7 @@ func (s *Service) runCleanScanOCRStep(ctx context.Context, tracked *recipeJob, s
 		return "", "", "", planErr
 	}
 
-	progress := func(progress models.JobProgressV1) {
+	progress := func(progress models.JobProgress) {
 		percent := 10
 		if progress.Total > 0 {
 			percent = 10 + int(math.Round(float64(progress.Current)/float64(progress.Total)*70))
@@ -417,7 +417,7 @@ func (s *Service) runCleanScanOCRStep(ctx context.Context, tracked *recipeJob, s
 		s.emitProgress(tracked, models.JobStatusRunning, step.Name, "ocr", progress.Message, percent)
 	}
 
-	var item models.JobResultItemV1
+	var item models.JobResultItem
 	if progressExecutor, ok := executor.(tools.SingleExecutorWithProgress); ok {
 		item, jobErr = progressExecutor.ExecuteSingleWithProgress(ctx, req, progress)
 	} else {
@@ -428,7 +428,7 @@ func (s *Service) runCleanScanOCRStep(ctx context.Context, tracked *recipeJob, s
 		return "", "", "", jobErr
 	}
 	if !item.Success {
-		return "", "", "", stepItemError(item, pdf.ToolIDPDFOCRV1)
+		return "", "", "", stepItemError(item, pdf.ToolIDPDFOCR)
 	}
 
 	pdfPath := strings.TrimSpace(item.OutputPath)
@@ -458,7 +458,7 @@ func (s *Service) runCleanScanOCRStep(ctx context.Context, tracked *recipeJob, s
 		)
 	}
 
-	tracked.setStep(cleanScanOCRStepIndex, models.RecipeStepResultV1{
+	tracked.setStep(cleanScanOCRStepIndex, models.RecipeStepResult{
 		ID:      step.ID,
 		Name:    step.Name,
 		ToolID:  step.ToolID,
@@ -470,9 +470,9 @@ func (s *Service) runCleanScanOCRStep(ctx context.Context, tracked *recipeJob, s
 	return pdfPath, textPath, item.Message, nil
 }
 
-func cleanScanOCRRequest(scan *cleanScanResolution) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     pdf.ToolIDPDFOCRV1,
+func cleanScanOCRRequest(scan *cleanScanResolution) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     pdf.ToolIDPDFOCR,
 		Mode:       "single",
 		InputPaths: []string{scan.SourcePath},
 		OutputDir:  scan.OutputDir,
@@ -485,7 +485,7 @@ func cleanScanOCRRequest(scan *cleanScanResolution) models.JobRequestV1 {
 }
 
 // cleanScanItemTextPath picks the text sidecar path from the OCR result.
-func cleanScanItemTextPath(item models.JobResultItemV1) string {
+func cleanScanItemTextPath(item models.JobResultItem) string {
 	for _, output := range item.Outputs {
 		trimmed := strings.TrimSpace(output)
 		if trimmed != "" && strings.EqualFold(filepath.Ext(trimmed), ".txt") {
@@ -517,7 +517,7 @@ func cleanScanOCRStepMessage(toolMessage string) string {
 // buildCleanScanReport verifies the generic output checks plus the recipe
 // guarantees: the page count matches the source, the PDF has a non-empty text
 // layer and the sidecar contains text.
-func buildCleanScanReport(ctx context.Context, scan *cleanScanResolution, pdfPath, textPath string) models.VerificationReportV1 {
+func buildCleanScanReport(ctx context.Context, scan *cleanScanResolution, pdfPath, textPath string) models.VerificationReport {
 	report := verify.VerifyPaths(cleanScanStepOutputs(pdfPath, textPath))
 	failed := false
 
@@ -534,7 +534,7 @@ func buildCleanScanReport(ctx context.Context, scan *cleanScanResolution, pdfPat
 			finalPages,
 		))
 	}
-	appendCleanScanCheck(&report, pdfPath, models.VerificationCheckV1{
+	appendCleanScanCheck(&report, pdfPath, models.VerificationCheck{
 		Key:    cleanScanSourcePageCountCheck,
 		Label:  "Source page count",
 		Passed: pagePassed,
@@ -561,7 +561,7 @@ func buildCleanScanReport(ctx context.Context, scan *cleanScanResolution, pdfPat
 		failed = true
 		report.Warnings = append(report.Warnings, engine.OCRWarningNoText)
 	}
-	appendCleanScanCheck(&report, pdfPath, models.VerificationCheckV1{
+	appendCleanScanCheck(&report, pdfPath, models.VerificationCheck{
 		Key:    cleanScanTextLayerCheck,
 		Label:  "Text layer",
 		Passed: layerPassed,
@@ -579,7 +579,7 @@ func buildCleanScanReport(ctx context.Context, scan *cleanScanResolution, pdfPat
 		failed = true
 		report.Warnings = append(report.Warnings, fmt.Sprintf("%s: no text was recognized in the sidecar", filepath.Base(textPath)))
 	}
-	appendCleanScanCheck(&report, textPath, models.VerificationCheckV1{
+	appendCleanScanCheck(&report, textPath, models.VerificationCheck{
 		Key:    cleanScanTextSidecarCheck,
 		Label:  "Text sidecar",
 		Passed: sidecarPassed,
@@ -597,7 +597,7 @@ func buildCleanScanReport(ctx context.Context, scan *cleanScanResolution, pdfPat
 // appendCleanScanCheck attaches a check to the verified output with the same
 // path. A missing entry falls back to the first output so a check is never
 // silently dropped.
-func appendCleanScanCheck(report *models.VerificationReportV1, path string, check models.VerificationCheckV1) {
+func appendCleanScanCheck(report *models.VerificationReport, path string, check models.VerificationCheck) {
 	key := canonicalInputKey(path)
 	for index := range report.Outputs {
 		if canonicalInputKey(report.Outputs[index].Path) == key {
@@ -611,7 +611,7 @@ func appendCleanScanCheck(report *models.VerificationReportV1, path string, chec
 	}
 }
 
-func cleanScanVerifyMessage(report models.VerificationReportV1) string {
+func cleanScanVerifyMessage(report models.VerificationReport) string {
 	if report.Success {
 		return "Page count and text layer verified."
 	}
@@ -619,7 +619,7 @@ func cleanScanVerifyMessage(report models.VerificationReportV1) string {
 	return "Verification found: " + report.Message + "."
 }
 
-func cleanScanPartialMessage(report models.VerificationReportV1, scan *cleanScanResolution, pdfPath string) string {
+func cleanScanPartialMessage(report models.VerificationReport, scan *cleanScanResolution, pdfPath string) string {
 	base := filepath.Base(pdfPath)
 	for _, output := range report.Outputs {
 		for _, check := range output.Checks {

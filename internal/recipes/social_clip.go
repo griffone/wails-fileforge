@@ -73,7 +73,7 @@ type socialClipResolution struct {
 
 // socialClipEncodeStage describes one video encode of the recipe.
 type socialClipEncodeStage struct {
-	Step          models.RecipeStepV1
+	Step          models.RecipeStep
 	StepIndex     int
 	Format        string
 	Path          string
@@ -83,8 +83,8 @@ type socialClipEncodeStage struct {
 	ToPercent     int
 }
 
-func socialClipRecipe() models.RecipeV1 {
-	return models.RecipeV1{
+func socialClipRecipe() models.Recipe {
+	return models.Recipe{
 		ID:               RecipeIDSocialClip,
 		Name:             "Social clip",
 		Description:      "Encode one video as MP4 and WebM and export a poster frame, ready for social uploads.",
@@ -93,17 +93,17 @@ func socialClipRecipe() models.RecipeV1 {
 		AcceptExtensions: []string{"mp4", "mov", "mkv", "webm", "avi"},
 		MaxInputs:        1,
 		Highlights:       []string{"MP4 + WebM", "Source resolution", "Poster frame"},
-		Steps: []models.RecipeStepV1{
+		Steps: []models.RecipeStep{
 			{
 				ID:     stepIDSocialMP4,
 				Name:   "Encode MP4",
-				ToolID: video.ToolIDVideoConvertV1,
+				ToolID: video.ToolIDVideoConvert,
 				Detail: "H.264 + AAC at the source resolution",
 			},
 			{
 				ID:     stepIDSocialWebM,
 				Name:   "Encode WebM",
-				ToolID: video.ToolIDVideoConvertV1,
+				ToolID: video.ToolIDVideoConvert,
 				Detail: "VP9 + Opus at the source resolution",
 			},
 			{
@@ -115,7 +115,7 @@ func socialClipRecipe() models.RecipeV1 {
 	}
 }
 
-func resolveSocialClip(recipe *models.RecipeV1, req models.RecipeRequestV1) (*resolvedRecipe, *models.JobErrorV1) {
+func resolveSocialClip(recipe *models.Recipe, req models.RecipeRequest) (*resolvedRecipe, *models.JobError) {
 	inputs, inputErr := validateSocialClipInputs(req.InputPaths)
 	if inputErr != nil {
 		return nil, inputErr
@@ -166,7 +166,7 @@ func resolveSocialClip(recipe *models.RecipeV1, req models.RecipeRequestV1) (*re
 	webmPath, _ := outputplan.UniqueFilePath(outputDir, stem+socialClipMP4Suffix, "webm", used)
 	posterPath, _ := outputplan.UniqueFilePath(outputDir, stem+socialClipPosterSuffix, "jpg", used)
 
-	planned := []models.PlannedOutputV1{
+	planned := []models.PlannedOutput{
 		{InputPath: sourcePath, OutputPath: mp4Path, OutputKind: "file", OutputCount: 1},
 		{InputPath: sourcePath, OutputPath: webmPath, OutputKind: "file", OutputCount: 1},
 		{InputPath: sourcePath, OutputPath: posterPath, OutputKind: "file", OutputCount: 1},
@@ -193,7 +193,7 @@ func resolveSocialClip(recipe *models.RecipeV1, req models.RecipeRequestV1) (*re
 	}, nil
 }
 
-func validateSocialClipInputs(rawInputs []string) ([]string, *models.JobErrorV1) {
+func validateSocialClipInputs(rawInputs []string) ([]string, *models.JobError) {
 	if len(rawInputs) == 0 {
 		return nil, newRecipeError("RECIPE_INVALID_INPUT", "Choose one video for Social clip.", nil)
 	}
@@ -360,7 +360,7 @@ func (s *Service) executeSocialClip(ctx context.Context, tracked *recipeJob, res
 
 // abortSocialClip removes the files this run created and reports the step
 // failure or the cancellation, never both.
-func (s *Service) abortSocialClip(ctx context.Context, tracked *recipeJob, step models.RecipeStepV1, stepIndex int, created []string, jobErr *models.JobErrorV1) {
+func (s *Service) abortSocialClip(ctx context.Context, tracked *recipeJob, step models.RecipeStep, stepIndex int, created []string, jobErr *models.JobError) {
 	removeCreatedFiles(created)
 	if isCancellation(ctx, jobErr) {
 		s.cancelJob(tracked)
@@ -373,12 +373,12 @@ func (s *Service) abortSocialClip(ctx context.Context, tracked *recipeJob, step 
 
 // runSocialClipEncode converts the source into one planned video output and
 // returns the path the tool actually wrote.
-func (s *Service) runSocialClipEncode(ctx context.Context, tracked *recipeJob, social *socialClipResolution, stage socialClipEncodeStage, created *[]string) (string, *models.JobErrorV1) {
+func (s *Service) runSocialClipEncode(ctx context.Context, tracked *recipeJob, social *socialClipResolution, stage socialClipEncodeStage, created *[]string) (string, *models.JobError) {
 	if ctx.Err() != nil {
 		return "", recipeCancelledError()
 	}
 
-	executor, _, jobErr := s.singleExecutor(video.ToolIDVideoConvertV1)
+	executor, _, jobErr := s.singleExecutor(video.ToolIDVideoConvert)
 	if jobErr != nil {
 		return "", jobErr
 	}
@@ -411,7 +411,7 @@ func (s *Service) runSocialClipEncode(ctx context.Context, tracked *recipeJob, s
 		return "", execErr
 	}
 	if !item.Success {
-		return "", stepItemError(item, video.ToolIDVideoConvertV1)
+		return "", stepItemError(item, video.ToolIDVideoConvert)
 	}
 
 	outputPath := strings.TrimSpace(item.OutputPath)
@@ -422,7 +422,7 @@ func (s *Service) runSocialClipEncode(ctx context.Context, tracked *recipeJob, s
 		*created = append(*created, outputPath)
 	}
 
-	tracked.setStep(stage.StepIndex, models.RecipeStepResultV1{
+	tracked.setStep(stage.StepIndex, models.RecipeStepResult{
 		ID:      stage.Step.ID,
 		Name:    stage.Step.Name,
 		ToolID:  stage.Step.ToolID,
@@ -435,9 +435,9 @@ func (s *Service) runSocialClipEncode(ctx context.Context, tracked *recipeJob, s
 	return outputPath, nil
 }
 
-func socialClipEncodeRequest(social *socialClipResolution, stage socialClipEncodeStage) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     video.ToolIDVideoConvertV1,
+func socialClipEncodeRequest(social *socialClipResolution, stage socialClipEncodeStage) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     video.ToolIDVideoConvert,
 		Mode:       "single",
 		InputPaths: []string{social.SourcePath},
 		OutputDir:  social.OutputDir,
@@ -453,7 +453,7 @@ func socialClipEncodeRequest(social *socialClipResolution, stage socialClipEncod
 // runSocialClipPosterStep extracts the poster frame into a temp file in the
 // output folder and only then renames it into place, so a half-written JPEG is
 // never left at the final destination.
-func (s *Service) runSocialClipPosterStep(ctx context.Context, tracked *recipeJob, social *socialClipResolution, step models.RecipeStepV1, created *[]string) (string, *models.JobErrorV1) {
+func (s *Service) runSocialClipPosterStep(ctx context.Context, tracked *recipeJob, social *socialClipResolution, step models.RecipeStep, created *[]string) (string, *models.JobError) {
 	if ctx.Err() != nil {
 		return "", recipeCancelledError()
 	}
@@ -503,7 +503,7 @@ func (s *Service) runSocialClipPosterStep(ctx context.Context, tracked *recipeJo
 	}
 	*created = append(*created, social.PosterPath)
 
-	tracked.setStep(socialPosterStepIndex, models.RecipeStepResultV1{
+	tracked.setStep(socialPosterStepIndex, models.RecipeStepResult{
 		ID:      step.ID,
 		Name:    step.Name,
 		ToolID:  step.ToolID,
@@ -527,7 +527,7 @@ type socialClipCodecExpectation struct {
 // addSocialClipChecks appends the recipe-specific codec and duration checks.
 // Any mismatch marks the whole report as failed so the run never reports a
 // silent success.
-func addSocialClipChecks(report models.VerificationReportV1, social *socialClipResolution, mp4Path, webmPath string) models.VerificationReportV1 {
+func addSocialClipChecks(report models.VerificationReport, social *socialClipResolution, mp4Path, webmPath string) models.VerificationReport {
 	expectations := []socialClipCodecExpectation{
 		{Index: 0, Path: mp4Path, VideoCodec: "h264", AudioCodec: "aac"},
 		{Index: 1, Path: webmPath, VideoCodec: "vp9", AudioCodec: "opus"},
@@ -557,7 +557,7 @@ func addSocialClipChecks(report models.VerificationReportV1, social *socialClipR
 				codecLabel(actual.VideoCodec),
 			))
 		}
-		report.Outputs[expectation.Index].Checks = append(report.Outputs[expectation.Index].Checks, models.VerificationCheckV1{
+		report.Outputs[expectation.Index].Checks = append(report.Outputs[expectation.Index].Checks, models.VerificationCheck{
 			Key:    socialClipExpectedVideoCodecCheck,
 			Label:  "Expected video codec",
 			Passed: videoPassed,
@@ -578,7 +578,7 @@ func addSocialClipChecks(report models.VerificationReportV1, social *socialClipR
 					codecLabel(actual.AudioCodec),
 				))
 			}
-			report.Outputs[expectation.Index].Checks = append(report.Outputs[expectation.Index].Checks, models.VerificationCheckV1{
+			report.Outputs[expectation.Index].Checks = append(report.Outputs[expectation.Index].Checks, models.VerificationCheck{
 				Key:    socialClipExpectedAudioCodecCheck,
 				Label:  "Expected audio codec",
 				Passed: audioPassed,
@@ -601,7 +601,7 @@ func addSocialClipChecks(report models.VerificationReportV1, social *socialClipR
 				actual.DurationSeconds,
 			))
 		}
-		report.Outputs[expectation.Index].Checks = append(report.Outputs[expectation.Index].Checks, models.VerificationCheckV1{
+		report.Outputs[expectation.Index].Checks = append(report.Outputs[expectation.Index].Checks, models.VerificationCheck{
 			Key:    socialClipSourceDurationCheck,
 			Label:  "Source duration",
 			Passed: durationPassed,

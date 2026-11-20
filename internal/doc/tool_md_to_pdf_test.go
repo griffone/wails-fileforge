@@ -24,9 +24,9 @@ func writeDocFixture(t *testing.T, path, content string) {
 	}
 }
 
-func mdPlanRequest(inputPath, outputDir string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDDocMDToPDFV1,
+func mdPlanRequest(inputPath, outputDir string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDDocMDToPDF,
 		Mode:       "single",
 		InputPaths: []string{inputPath},
 		OutputDir:  outputDir,
@@ -462,9 +462,9 @@ func TestMDExecuteSingleKeepsHeaderFooterWithCustomPageSetup(t *testing.T) {
 	assertFloat(t, "Legal height", dims[0].Height, 1008)
 }
 
-func mdBatchRequest(inputPaths []string, outputDir string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDDocMDToPDFV1,
+func mdBatchRequest(inputPaths []string, outputDir string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDDocMDToPDF,
 		Mode:       "batch",
 		InputPaths: inputPaths,
 		OutputDir:  outputDir,

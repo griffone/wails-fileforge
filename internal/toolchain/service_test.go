@@ -312,11 +312,11 @@ func preserveToolchainEnvironment(t *testing.T) {
 	})
 }
 
-func newTestToolchainService(t *testing.T, dataDir string, downloader Downloader, runner CommandRunner) (*Service, <-chan models.ToolchainInstallEventV1) {
+func newTestToolchainService(t *testing.T, dataDir string, downloader Downloader, runner CommandRunner) (*Service, <-chan models.ToolchainInstallEvent) {
 	t.Helper()
 
-	events := make(chan models.ToolchainInstallEventV1, 512)
-	service := NewService(dataDir, PlatformFor("linux", "amd64"), downloader, runner, func(event models.ToolchainInstallEventV1) {
+	events := make(chan models.ToolchainInstallEvent, 512)
+	service := NewService(dataDir, PlatformFor("linux", "amd64"), downloader, runner, func(event models.ToolchainInstallEvent) {
 		events <- event
 	})
 	t.Cleanup(func() {
@@ -326,10 +326,10 @@ func newTestToolchainService(t *testing.T, dataDir string, downloader Downloader
 	return service, events
 }
 
-func waitForTerminalEvent(t *testing.T, events <-chan models.ToolchainInstallEventV1) []models.ToolchainInstallEventV1 {
+func waitForTerminalEvent(t *testing.T, events <-chan models.ToolchainInstallEvent) []models.ToolchainInstallEvent {
 	t.Helper()
 
-	collected := make([]models.ToolchainInstallEventV1, 0, 64)
+	collected := make([]models.ToolchainInstallEvent, 0, 64)
 	timeout := time.NewTimer(10 * time.Second)
 	defer timeout.Stop()
 
@@ -346,10 +346,10 @@ func waitForTerminalEvent(t *testing.T, events <-chan models.ToolchainInstallEve
 	}
 }
 
-func componentsByID(t *testing.T, status models.ToolchainStatusV1) map[string]models.ToolchainComponentV1 {
+func componentsByID(t *testing.T, status models.ToolchainStatus) map[string]models.ToolchainComponent {
 	t.Helper()
 
-	byID := make(map[string]models.ToolchainComponentV1, len(status.Components))
+	byID := make(map[string]models.ToolchainComponent, len(status.Components))
 	for _, component := range status.Components {
 		if _, exists := byID[component.ID]; exists {
 			t.Fatalf("duplicate component id %q", component.ID)
@@ -374,7 +374,7 @@ func TestStatusWithoutDataDir(t *testing.T) {
 		t.Fatal("expected a message for an unconfigured service")
 	}
 
-	started := service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	started := service.Start(context.Background(), models.ToolchainInstallOptions{})
 	if started.Success || started.Error == "" {
 		t.Fatalf("expected Start to fail without a data directory: %+v", started)
 	}
@@ -437,7 +437,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	runner := &fakeRunner{}
 	service, events := newTestToolchainService(t, dataDir, downloader, runner)
 
-	started := service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	started := service.Start(context.Background(), models.ToolchainInstallOptions{})
 	if !started.Installing {
 		t.Fatalf("expected the install to start, got %+v", started)
 	}
@@ -613,7 +613,7 @@ func TestStatusToleratesVersionProbeFailures(t *testing.T) {
 	dataDir := t.TempDir()
 	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, &fakeRunner{failVersions: true})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 
 	status := service.Status()
@@ -635,11 +635,11 @@ func TestInstallSkipsAlreadyPresentComponents(t *testing.T) {
 	runner := &fakeRunner{}
 	service, events := newTestToolchainService(t, dataDir, downloader, runner)
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 	firstModelCalls := downloader.callsFor(mustModelURL(t, DefaultModel))
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 
 	if got := downloader.callsFor(mustModelURL(t, DefaultModel)); got != firstModelCalls {
@@ -688,11 +688,11 @@ func TestInstallForceDownloadsAgain(t *testing.T) {
 	runner := &fakeRunner{}
 	service, events := newTestToolchainService(t, dataDir, downloader, runner)
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 	firstModelCalls := downloader.callsFor(mustModelURL(t, DefaultModel))
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	service.Start(context.Background(), models.ToolchainInstallOptions{Force: true})
 	waitForTerminalEvent(t, events)
 
 	if got := downloader.callsFor(mustModelURL(t, DefaultModel)); got != firstModelCalls+1 {
@@ -754,7 +754,7 @@ func TestInstallFailureKeepsValidComponentsForRetry(t *testing.T) {
 	}
 	service, events := newTestToolchainService(t, dataDir, downloader, &fakeRunner{})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	collected := waitForTerminalEvent(t, events)
 
 	terminal := collected[len(collected)-1]
@@ -792,7 +792,7 @@ func TestInstallEnvironmentFailureReportsError(t *testing.T) {
 	dataDir := t.TempDir()
 	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, &fakeRunner{failOn: "create"})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	collected := waitForTerminalEvent(t, events)
 
 	terminal := collected[len(collected)-1]
@@ -818,7 +818,7 @@ func TestCancelStopsInstallAndCleansStaging(t *testing.T) {
 
 	service, events := newTestToolchainService(t, dataDir, downloader, &fakeRunner{})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	select {
 	case <-downloader.started:
 	case <-time.After(10 * time.Second):
@@ -868,10 +868,10 @@ func TestStartIsNotDuplicatedWhileInstalling(t *testing.T) {
 	downloader.started = make(chan string, 1)
 	service, events := newTestToolchainService(t, dataDir, downloader, &fakeRunner{})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	<-downloader.started
 
-	second := service.Start(context.Background(), models.ToolchainInstallOptionsV1{Model: "medium"})
+	second := service.Start(context.Background(), models.ToolchainInstallOptions{Model: "medium"})
 	if !second.Installing {
 		t.Fatalf("unexpected second start status: %+v", second)
 	}
@@ -889,7 +889,7 @@ func TestStartIsNotDuplicatedWhileInstalling(t *testing.T) {
 func TestStartValidatesOptions(t *testing.T) {
 	service, _ := newTestToolchainService(t, t.TempDir(), &fakeDownloader{}, &fakeRunner{})
 
-	tests := []models.ToolchainInstallOptionsV1{
+	tests := []models.ToolchainInstallOptions{
 		{Model: "tiny"},
 		{OCRLanguages: []string{"fra"}},
 	}
@@ -912,7 +912,7 @@ func TestStartRejectsUnsupportedPlatform(t *testing.T) {
 	downloader := &fakeDownloader{}
 	service := NewService(t.TempDir(), PlatformFor("windows", "arm64"), downloader, &fakeRunner{}, nil)
 
-	status := service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	status := service.Start(context.Background(), models.ToolchainInstallOptions{})
 	if status.Success {
 		t.Fatal("expected an unsupported platform failure")
 	}
@@ -936,7 +936,7 @@ func TestInstallSelectedModelAndLanguages(t *testing.T) {
 	downloader := &fakeDownloader{payloads: linuxToolchainPayloads(t)}
 	service, events := newTestToolchainService(t, dataDir, downloader, &fakeRunner{})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{
+	service.Start(context.Background(), models.ToolchainInstallOptions{
 		Model:        "medium",
 		OCRLanguages: []string{"eng"},
 	})
@@ -976,7 +976,7 @@ func TestMissingWhisperSharedLibraryIsNotReadyAndRepairs(t *testing.T) {
 	dataDir := t.TempDir()
 	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, &fakeRunner{})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 	if !service.Status().Ready {
 		t.Fatal("expected the initial install to be ready")
@@ -1015,7 +1015,7 @@ func TestMissingTessdataPDFAssetsIsNotReadyAndRepairs(t *testing.T) {
 	dataDir := t.TempDir()
 	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, &fakeRunner{})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 	if !service.Status().Ready {
 		t.Fatal("expected the initial install to be ready")
@@ -1055,7 +1055,7 @@ func TestPdf2DocxVenvIsOptionalAndRepairs(t *testing.T) {
 	runner := &fakeRunner{}
 	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, runner)
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 	if !service.Status().Ready {
 		t.Fatal("expected the initial install to be ready")
@@ -1092,7 +1092,7 @@ func TestPdf2DocxVenvIsOptionalAndRepairs(t *testing.T) {
 		t.Fatal("StartIfNeeded must not reinstall when only the optional pdf2docx venv is missing")
 	}
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	service.Start(context.Background(), models.ToolchainInstallOptions{Force: true})
 	// The fake installer can finish before Start returns, so wait for the new
 	// terminal event instead of racing the in-memory install status.
 	waitForTerminalEvent(t, events)
@@ -1127,7 +1127,7 @@ func TestRembgVenvIsOptionalAndRepairs(t *testing.T) {
 	runner := &fakeRunner{}
 	service, events := newTestToolchainService(t, dataDir, downloader, runner)
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 	if !service.Status().Ready {
 		t.Fatal("expected the initial install to be ready")
@@ -1193,7 +1193,7 @@ func TestRembgVenvIsOptionalAndRepairs(t *testing.T) {
 		t.Fatal("StartIfNeeded must not reinstall when only the optional background removal venv is missing")
 	}
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	service.Start(context.Background(), models.ToolchainInstallOptions{Force: true})
 	// The fake installer can finish before Start returns, so wait for the new
 	// terminal event instead of racing the in-memory install status.
 	waitForTerminalEvent(t, events)
@@ -1243,7 +1243,7 @@ func TestRembgVenvIsOptionalAndRepairs(t *testing.T) {
 		rembgModelSpec = injectedSpec
 	})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	service.Start(context.Background(), models.ToolchainInstallOptions{Force: true})
 	collected := waitForTerminalEvent(t, events)
 	terminal := collected[len(collected)-1]
 	if terminal.Error == "" || !terminal.Done {
@@ -1275,7 +1275,7 @@ func TestRembgVenvSkipAndForceContract(t *testing.T) {
 	runner := &fakeRunner{}
 	service, events := newTestToolchainService(t, dataDir, downloader, runner)
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 
 	root := filepath.Join(dataDir, ToolchainDirName)
@@ -1305,7 +1305,7 @@ func TestRembgVenvSkipAndForceContract(t *testing.T) {
 	creationsBefore := countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir)
 	venvCallsBefore := countRunnerCallsForBinary(runner.recordedCalls(), venvPython)
 	modelCallsBefore := downloader.callsFor(modelURL)
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 	if got := countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir); got != creationsBefore {
 		t.Fatalf("a skip install recreated the venv: %d creations, want %d", got, creationsBefore)
@@ -1324,7 +1324,7 @@ func TestRembgVenvSkipAndForceContract(t *testing.T) {
 	}
 	creationsBefore = countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir)
 	venvCallsBefore = countRunnerCallsForBinary(runner.recordedCalls(), venvPython)
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 	if got := countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir); got != creationsBefore+1 {
 		t.Fatalf("a missing marker must rebuild the venv: %d creations, want %d", got, creationsBefore+1)
@@ -1343,7 +1343,7 @@ func TestRembgVenvSkipAndForceContract(t *testing.T) {
 		t.Fatalf("pin the readiness marker mtime: %v", err)
 	}
 	creationsBefore = countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir)
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	service.Start(context.Background(), models.ToolchainInstallOptions{Force: true})
 	waitForTerminalEvent(t, events)
 	if got := countRunnerCallsForRembgVenvCreation(runner.recordedCalls(), venvDir); got != creationsBefore+1 {
 		t.Fatalf("a forced install must rebuild the venv: %d creations, want %d", got, creationsBefore+1)
@@ -1359,7 +1359,7 @@ func TestRembgVenvSkipAndForceContract(t *testing.T) {
 	// The stale marker is removed before pip: a failed rebuild must not leave
 	// the previous success behind.
 	runner.failRembgPip = true
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	service.Start(context.Background(), models.ToolchainInstallOptions{Force: true})
 	collected := waitForTerminalEvent(t, events)
 	terminal := collected[len(collected)-1]
 	if terminal.Error == "" {
@@ -1380,7 +1380,7 @@ func TestRembgModelFailureKeepsPreviousModelAndCleansTemp(t *testing.T) {
 	downloader := &fakeDownloader{payloads: linuxToolchainPayloads(t)}
 	service, events := newTestToolchainService(t, dataDir, downloader, &fakeRunner{})
 
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{})
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
 	waitForTerminalEvent(t, events)
 
 	root := filepath.Join(dataDir, ToolchainDirName)
@@ -1424,7 +1424,7 @@ func TestRembgModelFailureKeepsPreviousModelAndCleansTemp(t *testing.T) {
 
 	// A failed download keeps the previous model and cleans its temp file.
 	downloader.failURL = modelURL
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	service.Start(context.Background(), models.ToolchainInstallOptions{Force: true})
 	collected := waitForTerminalEvent(t, events)
 	if terminal := collected[len(collected)-1]; terminal.Error == "" {
 		t.Fatalf("expected the download failure to be reported, got %+v", terminal)
@@ -1433,7 +1433,7 @@ func TestRembgModelFailureKeepsPreviousModelAndCleansTemp(t *testing.T) {
 
 	// A failed checksum also keeps the previous model and cleans its temp file.
 	downloader.failURL = ""
-	service.Start(context.Background(), models.ToolchainInstallOptionsV1{Force: true})
+	service.Start(context.Background(), models.ToolchainInstallOptions{Force: true})
 	collected = waitForTerminalEvent(t, events)
 	terminal := collected[len(collected)-1]
 	if terminal.Error == "" || !strings.Contains(terminal.Error, "checksum") {
@@ -1557,7 +1557,7 @@ func TestWithEnvironmentReplacesExistingKeys(t *testing.T) {
 	}
 }
 
-func readManifestForTest(t *testing.T, path string) manifestV1 {
+func readManifestForTest(t *testing.T, path string) manifest {
 	t.Helper()
 
 	payload, err := os.ReadFile(path)
@@ -1565,7 +1565,7 @@ func readManifestForTest(t *testing.T, path string) manifestV1 {
 		t.Fatalf("read manifest: %v", err)
 	}
 
-	var manifest manifestV1
+	var manifest manifest
 	if err := json.Unmarshal(payload, &manifest); err != nil {
 		t.Fatalf("parse manifest: %v", err)
 	}
@@ -1603,7 +1603,7 @@ func TestToolchainRealInstallE2E(t *testing.T) {
 		t.Skipf("the managed toolchain is not supported here: %s", service.platform.Reason)
 	}
 
-	service.Start(ctx, models.ToolchainInstallOptionsV1{})
+	service.Start(ctx, models.ToolchainInstallOptions{})
 	deadline := time.Now().Add(30 * time.Minute)
 	for time.Now().Before(deadline) {
 		status := service.Status()

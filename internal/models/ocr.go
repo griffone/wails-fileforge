@@ -1,9 +1,9 @@
 package models
 
-// OCRCapabilitiesResponseV1 reports whether the local OCR pipeline can run.
+// OCRCapabilitiesResponse reports whether the local OCR pipeline can run.
 // Available requires pdftoppm, tesseract and at least one installed language
 // (osd alone does not count). Languages excludes osd and is sorted.
-type OCRCapabilitiesResponseV1 struct {
+type OCRCapabilitiesResponse struct {
 	Success             bool     `json:"success"`
 	Message             string   `json:"message"`
 	Available           bool     `json:"available"`

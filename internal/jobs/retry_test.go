@@ -37,7 +37,7 @@ func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			jobErr := &models.JobErrorV1{Code: "EXEC_IO_TRANSIENT", DetailCode: tt.detailCode}
+			jobErr := &models.JobError{Code: "EXEC_IO_TRANSIENT", DetailCode: tt.detailCode}
 			if got := isRetryableError(tt.toolID, jobErr); got != tt.want {
 				t.Fatalf("isRetryableError(%q, %q) = %v, want %v", tt.toolID, tt.detailCode, got, tt.want)
 			}
@@ -46,7 +46,7 @@ func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
 }
 
 func TestIsRetryableErrorFallsBackToCode(t *testing.T) {
-	jobErr := &models.JobErrorV1{Code: "VIDEO_CONVERT_EXECUTION_FAILED"}
+	jobErr := &models.JobError{Code: "VIDEO_CONVERT_EXECUTION_FAILED"}
 	if !isRetryableError("tool.video.convert", jobErr) {
 		t.Fatal("expected retryable when only code is set")
 	}

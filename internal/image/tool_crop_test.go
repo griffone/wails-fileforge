@@ -40,9 +40,9 @@ func writePlanPNG(t *testing.T, path string, width, height int) {
 	}
 }
 
-func cropTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDImageCropV1,
+func cropTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDImageCrop,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,
@@ -136,22 +136,22 @@ func TestCropPlanSingleChosenOutputDir(t *testing.T) {
 
 	cases := []struct {
 		name  string
-		apply func(request *models.JobRequestV1)
+		apply func(request *models.JobRequest)
 		want  string
 	}{
 		{
 			name:  "request output dir",
-			apply: func(request *models.JobRequestV1) { request.OutputDir = chosen },
+			apply: func(request *models.JobRequest) { request.OutputDir = chosen },
 			want:  filepath.Join(chosen, "photo_cropped.png"),
 		},
 		{
 			name:  "option output dir",
-			apply: func(request *models.JobRequestV1) { request.Options["outputDir"] = chosen },
+			apply: func(request *models.JobRequest) { request.Options["outputDir"] = chosen },
 			want:  filepath.Join(chosen, "photo_cropped.png"),
 		},
 		{
 			name: "request output dir wins over the option",
-			apply: func(request *models.JobRequestV1) {
+			apply: func(request *models.JobRequest) {
 				request.OutputDir = chosen
 				request.Options["outputDir"] = other
 			},
@@ -452,8 +452,8 @@ func TestCropExecutionReportsBatchItemFailures(t *testing.T) {
 		t.Fatalf("expected batch plan to succeed, got %v", planErr)
 	}
 
-	var progress []models.JobProgressV1
-	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgressV1) {
+	var progress []models.JobProgress
+	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgress) {
 		progress = append(progress, event)
 	})
 	if execErr == nil {
@@ -605,7 +605,7 @@ func TestCropExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
 	}
 
 	var progress []int
-	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgressV1) {
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgress) {
 		progress = append(progress, event.Current)
 	})
 	if execErr == nil {

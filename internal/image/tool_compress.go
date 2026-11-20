@@ -18,7 +18,7 @@ import (
 	"github.com/h2non/bimg"
 )
 
-const ToolIDImageCompressV1 = "tool.image.compress"
+const ToolIDImageCompress = "tool.image.compress"
 
 const compressAnimatedWarning = "animated input: only the first frame is compressed"
 
@@ -64,21 +64,21 @@ func NewCompressTool() *CompressTool {
 }
 
 func (t *CompressTool) ID() string {
-	return ToolIDImageCompressV1
+	return ToolIDImageCompress
 }
 
 func (t *CompressTool) Capability() string {
-	return ToolIDImageCompressV1
+	return ToolIDImageCompress
 }
 
-func (t *CompressTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *CompressTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "Image Compressor",
 		Description:      "Compress images to a target file size with quality search and optional downscaling",
 		Domain:           "image",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  append([]string(nil), imageInputExtensions...),
@@ -88,11 +88,11 @@ func (t *CompressTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *CompressTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *CompressTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *CompressTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *CompressTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -101,17 +101,17 @@ func (t *CompressTool) Validate(ctx context.Context, req models.JobRequestV1) *m
 // input and validates the compression options without encoding anything. An
 // explicit options.outputPath keeps the single request contract: it must differ
 // from the input and the target must not exist yet.
-func (t *CompressTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *CompressTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	parsed, parseErr := parseCompressRequest(req)
 	if parseErr != nil {
-		return planFailure(models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}, parseErr)
+		return planFailure(models.PlanJobResponse{Outputs: []models.PlannedOutput{}}, parseErr)
 	}
 
 	return planParsedCompressRequest(parsed)
 }
 
-func planParsedCompressRequest(parsed compressRequest) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func planParsedCompressRequest(parsed compressRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	formats := make([]string, 0, len(parsed.inputPaths))
 	inputWarnings := make([]string, 0)
@@ -142,14 +142,14 @@ func planParsedCompressRequest(parsed compressRequest) (models.PlanJobResponseV1
 		planned, planErr := planSingleCompressOutput(parsed, formats[0], used)
 		if planErr != nil {
 			if planned.OutputPath != "" {
-				plan.Outputs = []models.PlannedOutputV1{planned}
+				plan.Outputs = []models.PlannedOutput{planned}
 			}
 			return planFailure(plan, planErr)
 		}
 
 		plan.Success = true
 		plan.Message = compressPlanMessage(1)
-		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Outputs = []models.PlannedOutput{planned}
 		plan.Warnings = append(append([]string{}, planned.Warnings...), inputWarnings...)
 		plan.Warnings = append(plan.Warnings, optionWarnings...)
 		plan.EffectiveOptions = compressEffectiveOptions(parsed, formats)
@@ -163,7 +163,7 @@ func planParsedCompressRequest(parsed compressRequest) (models.PlanJobResponseV1
 		}
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(parsed.inputPaths))
 	warnings := make([]string, 0, len(parsed.inputPaths))
 	for index, inputPath := range parsed.inputPaths {
 		targetDir := parsed.outputDir
@@ -188,13 +188,13 @@ func planParsedCompressRequest(parsed compressRequest) (models.PlanJobResponseV1
 
 // ExecuteSingle implements tools.SingleExecutor by delegating to the progress
 // variant with a no-op callback.
-func (t *CompressTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CompressTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
 // ExecuteSingleWithProgress resolves the plan once and executes exactly that
 // plan, reporting stage level progress for the one-item job.
-func (t *CompressTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CompressTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	inputPath := firstInputPath(req.InputPaths)
 
 	plan, planErr := t.Plan(ctx, req)
@@ -203,7 +203,7 @@ func (t *CompressTool) ExecuteSingleWithProgress(ctx context.Context, req models
 	}
 
 	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "compressing 1/1"})
+		onProgress(models.JobProgress{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "compressing 1/1"})
 	}
 
 	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
@@ -221,7 +221,7 @@ func (t *CompressTool) ExecuteSingleWithProgress(ctx context.Context, req models
 
 // ExecuteBatch plans the whole request once and then executes exactly that
 // plan. It never re-resolves output paths from the request.
-func (t *CompressTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CompressTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return nil, models.NewCanonicalJobError("IMAGE_COMPRESS_MODE_INVALID", "mode must be single or batch", nil)
@@ -241,7 +241,7 @@ func (t *CompressTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 // ExecutePlan compresses exactly the outputs resolved by Plan. Options come from
 // the plan's effective values, so a reduced retry plan only processes the
 // failed items. Results keep plan order.
-func (t *CompressTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CompressTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	total := len(plan.Outputs)
 
 	// Resolve every prepared item sequentially; execution is what runs in
@@ -256,7 +256,7 @@ func (t *CompressTool) ExecutePlan(ctx context.Context, req models.JobRequestV1,
 		detailCode = "IMAGE_COMPRESS_EXECUTION"
 	}
 
-	items := make([]models.JobResultItemV1, total)
+	items := make([]models.JobResultItem, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
 
@@ -285,7 +285,7 @@ func (t *CompressTool) ExecutePlan(ctx context.Context, req models.JobRequestV1,
 	return items, firstFailedItemError(items)
 }
 
-func parseCompressRequest(req models.JobRequestV1) (compressRequest, *models.JobErrorV1) {
+func parseCompressRequest(req models.JobRequest) (compressRequest, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return compressRequest{}, models.NewCanonicalJobError("IMAGE_COMPRESS_MODE_INVALID", "mode must be single or batch", nil)
@@ -385,12 +385,12 @@ func parseCompressRequest(req models.JobRequestV1) (compressRequest, *models.Job
 // compressTargetSizeOption reads the required positive byte target. The numeric
 // surface mirrors internal/pdf/tool_optimize.go: every signed and unsigned
 // integer width, json.Number, and float32/float64 only when whole and finite.
-func compressTargetSizeOption(options map[string]any) (int64, *models.JobErrorV1) {
+func compressTargetSizeOption(options map[string]any) (int64, *models.JobError) {
 	if !optionSupplied(options, "targetSizeBytes") {
 		return 0, models.NewCanonicalJobError("IMAGE_COMPRESS_TARGET_REQUIRED", "options.targetSizeBytes is required", nil)
 	}
 
-	invalid := func() (int64, *models.JobErrorV1) {
+	invalid := func() (int64, *models.JobError) {
 		return 0, models.NewCanonicalJobError("IMAGE_COMPRESS_TARGET_INVALID", "options.targetSizeBytes must be a whole number of bytes greater than zero", nil)
 	}
 
@@ -464,8 +464,8 @@ func compressTargetSizeOption(options map[string]any) (int64, *models.JobErrorV1
 	}
 }
 
-func compressFloatTargetSize(value float64) (int64, *models.JobErrorV1) {
-	invalid := func() (int64, *models.JobErrorV1) {
+func compressFloatTargetSize(value float64) (int64, *models.JobError) {
+	invalid := func() (int64, *models.JobError) {
 		return 0, models.NewCanonicalJobError("IMAGE_COMPRESS_TARGET_INVALID", "options.targetSizeBytes must be a whole number of bytes greater than zero", nil)
 	}
 
@@ -487,7 +487,7 @@ func compressFloatTargetSize(value float64) (int64, *models.JobErrorV1) {
 	return converted, nil
 }
 
-func compressRequestedFormat(options map[string]any) (string, *models.JobErrorV1) {
+func compressRequestedFormat(options map[string]any) (string, *models.JobError) {
 	raw, exists := options["format"]
 	if !exists || raw == nil {
 		return imageAutoFormat, nil
@@ -514,7 +514,7 @@ func compressRequestedFormat(options map[string]any) (string, *models.JobErrorV1
 // compressOptionalInt reads an optional integer option. Supplied values of the
 // wrong type or with a fraction are rejected so a typo never silently changes
 // the encoder.
-func compressOptionalInt(options map[string]any, key string) (int, bool, *models.JobErrorV1) {
+func compressOptionalInt(options map[string]any, key string) (int, bool, *models.JobError) {
 	if !optionSupplied(options, key) {
 		return 0, false, nil
 	}
@@ -531,7 +531,7 @@ func compressOptionalInt(options map[string]any, key string) (int, bool, *models
 	return value, true, nil
 }
 
-func validateCompressInputPath(inputPath string) *models.JobErrorV1 {
+func validateCompressInputPath(inputPath string) *models.JobError {
 	trimmed := strings.TrimSpace(inputPath)
 	if trimmed == "" {
 		return models.NewCanonicalJobError("IMAGE_COMPRESS_INPUT_REQUIRED", "inputPath is required", nil)
@@ -711,7 +711,7 @@ func compressInputHasAlpha(inputPath string) bool {
 }
 
 // planSingleCompressOutput resolves the one output of a single request.
-func planSingleCompressOutput(parsed compressRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
+func planSingleCompressOutput(parsed compressRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutput, *models.JobError) {
 	inputPath := parsed.inputPaths[0]
 
 	if explicitOutput := strings.TrimSpace(parsed.outputPath); explicitOutput != "" {
@@ -726,8 +726,8 @@ func planSingleCompressOutput(parsed compressRequest, outputFmt string, used map
 	return planAutoCompressOutput(inputPath, filepath.Clean(targetDir), outputFmt, used), nil
 }
 
-func planExplicitCompressOutput(inputPath, explicitOutput, outputFormat string) (models.PlannedOutputV1, *models.JobErrorV1) {
-	planned := models.PlannedOutputV1{
+func planExplicitCompressOutput(inputPath, explicitOutput, outputFormat string) (models.PlannedOutput, *models.JobError) {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputPath: filepath.Clean(strings.TrimSpace(explicitOutput)),
 		OutputKind: imageOutputKindFile,
@@ -790,8 +790,8 @@ func compressOutputExtensionMessage(outputPath, outputFormat string) string {
 
 // planAutoCompressOutput derives a collision-safe name inside dir. It never
 // writes.
-func planAutoCompressOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutputV1 {
-	planned := models.PlannedOutputV1{
+func planAutoCompressOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutput {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputKind: imageOutputKindFile,
 	}
@@ -817,7 +817,7 @@ func compressOutputBaseName(inputPath string) string {
 	return stem + "_compressed"
 }
 
-func validateCompressOutputDir(outputDir string) *models.JobErrorV1 {
+func validateCompressOutputDir(outputDir string) *models.JobError {
 	info, statErr := os.Stat(outputDir)
 	if statErr != nil {
 		return models.NewCanonicalJobError(
@@ -891,7 +891,7 @@ func compressFormatsUsePNG(formats []string) bool {
 
 // preparedCompressFromPlan turns a planned output into executor input without
 // resolving any path again.
-func preparedCompressFromPlan(planned models.PlannedOutputV1, effective map[string]any) preparedCompress {
+func preparedCompressFromPlan(planned models.PlannedOutput, effective map[string]any) preparedCompress {
 	targetSizeBytes := compressInt64Option(effective, "targetSizeBytes")
 
 	allowDownscale := true
@@ -950,7 +950,7 @@ func compressInt64Option(options map[string]any, key string) int64 {
 
 // compressCancelledError builds the canonical cancellation error. It falls back
 // to context.Canceled when the context has no recorded cause.
-func compressCancelledError(ctx context.Context) *models.JobErrorV1 {
+func compressCancelledError(ctx context.Context) *models.JobError {
 	var cause error = context.Canceled
 	if ctx != nil && ctx.Err() != nil {
 		cause = ctx.Err()
@@ -964,7 +964,7 @@ func compressCancelledError(ctx context.Context) *models.JobErrorV1 {
 // wins over the generic execution/item code so the job engine reports
 // CANCELLED_BY_USER, including when the last batch item is interrupted. The raw
 // cause stays in Details while the message remains user-facing.
-func compressExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobErrorV1, bool) {
+func compressExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobError, bool) {
 	if compressIsCancellation(ctx, execErr) {
 		return compressCancelledError(ctx), true
 	}
@@ -1033,8 +1033,8 @@ func executeCompressToPath(ctx context.Context, prepared preparedCompress) (comp
 	return compressExecution{inputBytes: int64(len(input)), outcome: outcome}, nil
 }
 
-func compressSuccessItem(prepared preparedCompress, execution compressExecution) models.JobResultItemV1 {
-	return models.JobResultItemV1{
+func compressSuccessItem(prepared preparedCompress, execution compressExecution) models.JobResultItem {
+	return models.JobResultItem{
 		InputPath:   prepared.inputPath,
 		OutputPath:  prepared.outputPath,
 		Outputs:     []string{prepared.outputPath},

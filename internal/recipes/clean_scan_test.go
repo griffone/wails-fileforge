@@ -98,7 +98,7 @@ func TestPlanCleanScan(t *testing.T) {
 	input := filepath.Join(dir, "scan.pdf")
 	writeCleanScanTextPDF(t, input, 2)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDCleanScan,
 		InputPaths: []string{input},
 	})
@@ -114,7 +114,7 @@ func TestPlanCleanScan(t *testing.T) {
 	if len(plan.Recipe.Steps) != 2 {
 		t.Fatalf("expected 2 steps, got %+v", plan.Recipe.Steps)
 	}
-	if plan.Recipe.Steps[0].ToolID != pdf.ToolIDPDFOCRV1 || plan.Recipe.Steps[1].ToolID != "" {
+	if plan.Recipe.Steps[0].ToolID != pdf.ToolIDPDFOCR || plan.Recipe.Steps[1].ToolID != "" {
 		t.Fatalf("unexpected step tools: %+v", plan.Recipe.Steps)
 	}
 	if strings.Join(plan.Recipe.Highlights, ",") != "Local OCR,Searchable PDF,Text sidecar" {
@@ -170,7 +170,7 @@ func TestPlanCleanScanCollisionSafe(t *testing.T) {
 		}
 	}
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDCleanScan,
 		InputPaths: []string{input},
 	})
@@ -217,7 +217,7 @@ func TestPlanCleanScanRejectsInvalidInputs(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			plan := service.Plan(models.RecipeRequestV1{
+			plan := service.Plan(models.RecipeRequest{
 				RecipeID:   RecipeIDCleanScan,
 				InputPaths: testCase.inputs,
 			})
@@ -239,7 +239,7 @@ func TestPlanCleanScanRejectsUnknownLanguage(t *testing.T) {
 	input := filepath.Join(dir, "scan.pdf")
 	writeCleanScanTextPDF(t, input, 1)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDCleanScan,
 		InputPaths: []string{input},
 		Options:    map[string]any{"language": "not-a-language"},
@@ -260,7 +260,7 @@ func TestRunCleanScanProducesSearchableOutputs(t *testing.T) {
 	input := filepath.Join(dir, "scan.pdf")
 	writeCleanScanTextPDF(t, input, 2)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDCleanScan,
 		InputPaths: []string{input},
 	})
@@ -297,7 +297,7 @@ func TestRunCleanScanProducesSearchableOutputs(t *testing.T) {
 	if len(result.Steps) != 2 {
 		t.Fatalf("expected 2 step results, got %+v", result.Steps)
 	}
-	if result.Steps[0].Status != recipeStepStatusSuccess || result.Steps[0].ToolID != pdf.ToolIDPDFOCRV1 {
+	if result.Steps[0].Status != recipeStepStatusSuccess || result.Steps[0].ToolID != pdf.ToolIDPDFOCR {
 		t.Fatalf("unexpected OCR step: %+v", result.Steps[0])
 	}
 	if result.Steps[1].Status != recipeStepStatusSuccess {
@@ -321,7 +321,7 @@ func TestRunCleanScanProducesSearchableOutputs(t *testing.T) {
 		t.Fatalf("expected both outputs to be restorable, got %+v", restore)
 	}
 
-	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.Status == models.JobStatusSuccess && event.Percent == 100
 	})
 	if terminalEvent.RecipeID != RecipeIDCleanScan {
@@ -337,7 +337,7 @@ func TestRunCleanScanReportsPartialSuccessWithoutText(t *testing.T) {
 	input := filepath.Join(dir, "blank.pdf")
 	writeCleanScanBlankPDF(t, input)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDCleanScan,
 		InputPaths: []string{input},
 	})
@@ -378,7 +378,7 @@ func TestRunCleanScanCleansUpCreatedOutputsOnFailure(t *testing.T) {
 	input := filepath.Join(dir, "scan.pdf")
 	writeCleanScanTextPDF(t, input, 1)
 
-	run := failingService.Run(context.Background(), models.RecipeRequestV1{
+	run := failingService.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDCleanScan,
 		InputPaths: []string{input},
 	})
@@ -413,26 +413,26 @@ type failingPartialOCRTool struct {
 	*pdf.OCRTool
 }
 
-func (t *failingPartialOCRTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *failingPartialOCRTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
-func (t *failingPartialOCRTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, _ func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *failingPartialOCRTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	plan, planErr := t.OCRTool.Plan(ctx, req)
 	if planErr != nil {
-		return models.JobResultItemV1{Success: false, Message: planErr.Message, Error: planErr}, planErr
+		return models.JobResultItem{Success: false, Message: planErr.Message, Error: planErr}, planErr
 	}
 
 	for _, output := range plan.Outputs {
 		if writeErr := os.WriteFile(output.OutputPath, []byte("partial"), 0o644); writeErr != nil {
 			jobErr := models.NewJobError(models.ErrorCodeExecIOTransient, engine.OCRCodePublishFailed, "could not write the partial output", nil)
-			return models.JobResultItemV1{InputPath: req.InputPaths[0], Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
+			return models.JobResultItem{InputPath: req.InputPaths[0], Success: false, Message: jobErr.Message, Error: jobErr}, jobErr
 		}
 	}
 
 	jobErr := models.NewJobError(models.ErrorCodeExecIOTransient, engine.OCRCodeRecognizeFailed, "simulated OCR failure", nil)
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath: req.InputPaths[0],
 		Success:   false,
 		Message:   jobErr.Message,
@@ -442,7 +442,7 @@ func (t *failingPartialOCRTool) ExecuteSingleWithProgress(ctx context.Context, r
 
 // ExecutePlan mirrors the partial-output failure on the engine's plan-once path,
 // which the engine prefers over ExecuteSingle.
-func (t *failingPartialOCRTool) ExecutePlan(_ context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, _ func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *failingPartialOCRTool) ExecutePlan(_ context.Context, req models.JobRequest, plan models.PlanJobResponse, _ func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	for _, output := range plan.Outputs {
 		if writeErr := os.WriteFile(output.OutputPath, []byte("partial"), 0o644); writeErr != nil {
 			jobErr := models.NewJobError(models.ErrorCodeExecIOTransient, engine.OCRCodePublishFailed, "could not write the partial output", nil)

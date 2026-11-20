@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	ToolIDImageConvertV1 = "tool.image.convert"
+	ToolIDImageConvert = "tool.image.convert"
 
 	imageDefaultFormat  = "webp"
 	imageFallbackFormat = "png"
@@ -46,21 +46,21 @@ func NewImageToolAdapter(converter *ImageConverter) *ImageToolAdapter {
 }
 
 func (t *ImageToolAdapter) ID() string {
-	return ToolIDImageConvertV1
+	return ToolIDImageConvert
 }
 
 func (t *ImageToolAdapter) Capability() string {
 	return "tool.image.convert"
 }
 
-func (t *ImageToolAdapter) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *ImageToolAdapter) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "Image Converter",
-		Description:      "Image conversion tool exposed as Tool V1 jobs",
+		Description:      "Image conversion tool exposed through the job engine",
 		Domain:           "image",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  append([]string(nil), imageInputExtensions...),
@@ -70,18 +70,18 @@ func (t *ImageToolAdapter) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *ImageToolAdapter) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *ImageToolAdapter) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *ImageToolAdapter) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *ImageToolAdapter) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
 
 // Plan resolves every output path for the request without converting anything.
-func (t *ImageToolAdapter) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *ImageToolAdapter) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	if len(req.InputPaths) == 0 {
 		return planFailure(plan, models.NewCanonicalJobError("IMAGE_INPUT_REQUIRED", "Choose at least one image to convert.", nil))
@@ -115,7 +115,7 @@ func (t *ImageToolAdapter) Plan(_ context.Context, req models.JobRequestV1) (mod
 		outputplan.MarkUsed(used, inputPath)
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(req.InputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(req.InputPaths))
 	warnings := make([]string, 0)
 	for index, inputPath := range req.InputPaths {
 		allowExplicit := req.Mode == "single" && index == 0
@@ -143,7 +143,7 @@ func (t *ImageToolAdapter) Plan(_ context.Context, req models.JobRequestV1) (mod
 
 // ExecuteSingle keeps the legacy single-executor contract by resolving the plan
 // first and then running that exact plan, so it cannot drift from ExecutePlan.
-func (t *ImageToolAdapter) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImageToolAdapter) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	inputPath := firstInputPath(req.InputPaths)
 
 	plan, planErr := t.Plan(ctx, req)
@@ -166,7 +166,7 @@ func (t *ImageToolAdapter) ExecuteSingle(ctx context.Context, req models.JobRequ
 
 // ExecuteBatch plans the whole request once and then executes exactly that
 // plan. It never re-resolves output paths from the request.
-func (t *ImageToolAdapter) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImageToolAdapter) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	plan, planErr := t.Plan(ctx, req)
 	if planErr != nil {
 		return nil, planErr
@@ -178,7 +178,7 @@ func (t *ImageToolAdapter) ExecuteBatch(ctx context.Context, req models.JobReque
 // ExecutePlan converts exactly the outputs resolved by Plan. It never re-plans
 // or re-derives output paths from req.Options, so a reduced retry plan only
 // processes the failed items. Results keep plan order.
-func (t *ImageToolAdapter) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImageToolAdapter) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	total := len(plan.Outputs)
 	if total == 0 {
 		return nil, models.NewCanonicalJobError("IMAGE_INPUT_REQUIRED", "Choose at least one image to convert.", nil)
@@ -212,7 +212,7 @@ func (t *ImageToolAdapter) ExecutePlan(ctx context.Context, req models.JobReques
 		cancelCode = "IMAGE_SINGLE_EXECUTION"
 	}
 
-	items := make([]models.JobResultItemV1, total)
+	items := make([]models.JobResultItem, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
 
@@ -236,18 +236,18 @@ func (t *ImageToolAdapter) ExecutePlan(ctx context.Context, req models.JobReques
 type plannedConvertItem struct {
 	inputPath string
 	format    string
-	planned   models.PlannedOutputV1
+	planned   models.PlannedOutput
 }
 
 // executePlannedOutput runs one already-planned conversion. It never touches
 // the planning set, so it is safe to run concurrently.
-func (t *ImageToolAdapter) executePlannedOutput(ctx context.Context, inputPath string, planned models.PlannedOutputV1, format, detailCode string, options map[string]any) models.JobResultItemV1 {
+func (t *ImageToolAdapter) executePlannedOutput(ctx context.Context, inputPath string, planned models.PlannedOutput, format, detailCode string, options map[string]any) models.JobResultItem {
 	if err := t.convertSingle(ctx, inputPath, planned.OutputPath, format, options); err != nil {
 		jobErr := models.NewCanonicalJobError(detailCode, err.Error(), map[string]any{"inputPath": inputPath})
 		return imageFailureItem(inputPath, planned.OutputPath, jobErr)
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:   inputPath,
 		OutputPath:  planned.OutputPath,
 		Outputs:     []string{planned.OutputPath},
@@ -259,7 +259,7 @@ func (t *ImageToolAdapter) executePlannedOutput(ctx context.Context, inputPath s
 
 // planDestinations returns the fallback output directory and the explicit
 // output path from the request options.
-func (t *ImageToolAdapter) planDestinations(req models.JobRequestV1) (string, string) {
+func (t *ImageToolAdapter) planDestinations(req models.JobRequest) (string, string) {
 	outputDir := strings.TrimSpace(req.OutputDir)
 	if outputDir == "" {
 		outputDir = convertOptionString(req.Options, "outputDir")
@@ -274,8 +274,8 @@ func (t *ImageToolAdapter) planDestinations(req models.JobRequestV1) (string, st
 }
 
 // planOutput resolves one input into one planned output file. It never writes.
-func (t *ImageToolAdapter) planOutput(inputPath, outputDir, explicitOutput, format string, allowExplicit bool, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
-	planned := models.PlannedOutputV1{
+func (t *ImageToolAdapter) planOutput(inputPath, outputDir, explicitOutput, format string, allowExplicit bool, used map[string]struct{}) (models.PlannedOutput, *models.JobError) {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputKind: imageOutputKindFile,
 	}
@@ -346,7 +346,7 @@ func (t *ImageToolAdapter) planOutput(inputPath, outputDir, explicitOutput, form
 	return planned, nil
 }
 
-func (t *ImageToolAdapter) planExplicitOutput(inputPath, explicitOutput string, planned models.PlannedOutputV1) (models.PlannedOutputV1, *models.JobErrorV1) {
+func (t *ImageToolAdapter) planExplicitOutput(inputPath, explicitOutput string, planned models.PlannedOutput) (models.PlannedOutput, *models.JobError) {
 	outputPath := filepath.Clean(strings.TrimSpace(explicitOutput))
 	planned.OutputPath = outputPath
 
@@ -470,7 +470,7 @@ func (t *ImageToolAdapter) effectiveOptions(options map[string]any, requestedFor
 	return effective
 }
 
-func planFailure(plan models.PlanJobResponseV1, jobErr *models.JobErrorV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func planFailure(plan models.PlanJobResponse, jobErr *models.JobError) (models.PlanJobResponse, *models.JobError) {
 	plan.Success = false
 	plan.Error = jobErr
 	if jobErr != nil && jobErr.Message != "" {
@@ -486,7 +486,7 @@ func imagePlanMessage(count int) string {
 	return fmt.Sprintf("Ready to convert %d images.", count)
 }
 
-func imageInputAccessError(inputPath string, err error) *models.JobErrorV1 {
+func imageInputAccessError(inputPath string, err error) *models.JobError {
 	if errors.Is(err, os.ErrNotExist) {
 		return models.NewCanonicalJobError(
 			"IMAGE_INPUT_NOT_FOUND",
@@ -502,7 +502,7 @@ func imageInputAccessError(inputPath string, err error) *models.JobErrorV1 {
 	)
 }
 
-func ensureOutputDirectory(dir string) *models.JobErrorV1 {
+func ensureOutputDirectory(dir string) *models.JobError {
 	info, err := os.Stat(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -530,8 +530,8 @@ func ensureOutputDirectory(dir string) *models.JobErrorV1 {
 	return nil
 }
 
-func imageFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
-	item := models.JobResultItemV1{
+func imageFailureItem(inputPath, outputPath string, jobErr *models.JobError) models.JobResultItem {
+	item := models.JobResultItem{
 		InputPath:  inputPath,
 		OutputPath: outputPath,
 		Success:    false,
@@ -552,12 +552,12 @@ func imageFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) m
 // 1/3" even when two workers finish at the same time.
 type parallelProgress struct {
 	total      int
-	onProgress func(models.JobProgressV1)
+	onProgress func(models.JobProgress)
 	completed  atomic.Int64
 	mu         sync.Mutex
 }
 
-func newParallelProgress(total int, onProgress func(models.JobProgressV1)) *parallelProgress {
+func newParallelProgress(total int, onProgress func(models.JobProgress)) *parallelProgress {
 	if onProgress == nil {
 		return nil
 	}
@@ -575,7 +575,7 @@ func (p *parallelProgress) itemCompleted() {
 	defer p.mu.Unlock()
 
 	current := int(p.completed.Add(1))
-	p.onProgress(models.JobProgressV1{
+	p.onProgress(models.JobProgress{
 		Current: current,
 		Total:   p.total,
 		Stage:   models.JobStatusRunning,
@@ -587,8 +587,8 @@ func (p *parallelProgress) itemCompleted() {
 // dropping entries whose worker never ran (for example after cancellation).
 // Each completed flag is written by the goroutine that owns its index, so the
 // read after the workers join is race-free.
-func collectCompletedItems(items []models.JobResultItemV1, completed []bool) []models.JobResultItemV1 {
-	collected := make([]models.JobResultItemV1, 0, len(items))
+func collectCompletedItems(items []models.JobResultItem, completed []bool) []models.JobResultItem {
+	collected := make([]models.JobResultItem, 0, len(items))
 	for index, item := range items {
 		if completed[index] {
 			collected = append(collected, item)
@@ -600,7 +600,7 @@ func collectCompletedItems(items []models.JobResultItemV1, completed []bool) []m
 
 // firstFailedItemError returns the error of the first failed item in input
 // order, matching the sequential loop semantics.
-func firstFailedItemError(items []models.JobResultItemV1) *models.JobErrorV1 {
+func firstFailedItemError(items []models.JobResultItem) *models.JobError {
 	for _, item := range items {
 		if !item.Success && item.Error != nil {
 			return item.Error
@@ -630,7 +630,7 @@ func batchRunCancelled(ctx context.Context, runErr error) bool {
 	return errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)
 }
 
-func plannedOutputPath(plan models.PlanJobResponseV1) string {
+func plannedOutputPath(plan models.PlanJobResponse) string {
 	if len(plan.Outputs) == 0 {
 		return ""
 	}

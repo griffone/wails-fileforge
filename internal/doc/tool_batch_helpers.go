@@ -16,12 +16,12 @@ import (
 // 1/3" even when two workers finish at the same time.
 type docItemProgress struct {
 	total      int
-	onProgress func(models.JobProgressV1)
+	onProgress func(models.JobProgress)
 	completed  atomic.Int64
 	mu         sync.Mutex
 }
 
-func newDocItemProgress(total int, onProgress func(models.JobProgressV1)) *docItemProgress {
+func newDocItemProgress(total int, onProgress func(models.JobProgress)) *docItemProgress {
 	if onProgress == nil {
 		return nil
 	}
@@ -39,7 +39,7 @@ func (p *docItemProgress) itemCompleted() {
 	defer p.mu.Unlock()
 
 	current := int(p.completed.Add(1))
-	p.onProgress(models.JobProgressV1{
+	p.onProgress(models.JobProgress{
 		Current: current,
 		Total:   p.total,
 		Stage:   models.JobStatusRunning,
@@ -51,8 +51,8 @@ func (p *docItemProgress) itemCompleted() {
 // dropping entries whose worker never ran (for example after cancellation).
 // Each completed flag is written by the goroutine that owns its index, so the
 // read after the workers join is race-free.
-func collectCompletedDocItems(items []models.JobResultItemV1, completed []bool) []models.JobResultItemV1 {
-	collected := make([]models.JobResultItemV1, 0, len(items))
+func collectCompletedDocItems(items []models.JobResultItem, completed []bool) []models.JobResultItem {
+	collected := make([]models.JobResultItem, 0, len(items))
 	for index, item := range items {
 		if completed[index] {
 			collected = append(collected, item)
@@ -64,7 +64,7 @@ func collectCompletedDocItems(items []models.JobResultItemV1, completed []bool) 
 
 // firstFailedDocItemError returns the error of the first failed item in plan
 // order, matching sequential loop semantics.
-func firstFailedDocItemError(items []models.JobResultItemV1) *models.JobErrorV1 {
+func firstFailedDocItemError(items []models.JobResultItem) *models.JobError {
 	for _, item := range items {
 		if !item.Success && item.Error != nil {
 			return item.Error

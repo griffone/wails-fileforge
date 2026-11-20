@@ -43,17 +43,17 @@ func readTestFile(t *testing.T, path string) string {
 	return string(content)
 }
 
-func terminalJob(jobID, toolID, status string, outputs ...string) models.JobResultV1 {
-	items := make([]models.JobResultItemV1, 0, len(outputs))
+func terminalJob(jobID, toolID, status string, outputs ...string) models.JobResult {
+	items := make([]models.JobResultItem, 0, len(outputs))
 	for _, output := range outputs {
-		items = append(items, models.JobResultItemV1{
+		items = append(items, models.JobResultItem{
 			Success:    true,
 			OutputPath: output,
 			Outputs:    []string{output},
 		})
 	}
 
-	return models.JobResultV1{
+	return models.JobResult{
 		JobID:     jobID,
 		ToolID:    toolID,
 		Status:    status,
@@ -72,8 +72,8 @@ func TestRecordJobFingerprintsSuccessfulOutputs(t *testing.T) {
 
 	job := terminalJob("job_1", "tool.pdf.merge", models.JobStatusSuccess, pathA, pathB)
 	job.Items = append(job.Items,
-		models.JobResultItemV1{Success: true, OutputPath: pathA},
-		models.JobResultItemV1{Success: false, OutputPath: pathB},
+		models.JobResultItem{Success: true, OutputPath: pathA},
+		models.JobResultItem{Success: false, OutputPath: pathB},
 	)
 
 	store.RecordJob(job)
@@ -466,7 +466,7 @@ func TestMalformedHistoryIsTolerated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read rewritten history: %v", err)
 	}
-	persisted := make([]models.JobHistoryEntryV1, 0)
+	persisted := make([]models.JobHistoryEntry, 0)
 	if err := json.Unmarshal(content, &persisted); err != nil {
 		t.Fatalf("expected valid JSON after rewrite, got %v", err)
 	}
@@ -648,7 +648,7 @@ func TestListIsNotBlockedBySlowUndo(t *testing.T) {
 		return os.Rename(oldPath, newPath)
 	}
 
-	undoDone := make(chan models.UndoResultV1, 1)
+	undoDone := make(chan models.UndoResult, 1)
 	go func() {
 		undoDone <- store.Undo("job_1")
 	}()
@@ -863,11 +863,11 @@ func TestNewStorePrunesExpiredTrashOnLoad(t *testing.T) {
 	trashFile := filepath.Join(dir, "fileforge", "trash", "job_old", "0-out.pdf")
 	writeTestFile(t, trashFile, "stale")
 
-	entry := models.JobHistoryEntryV1{
+	entry := models.JobHistoryEntry{
 		JobID:  "job_old",
 		ToolID: "tool.pdf.merge",
 		Undone: true,
-		Outputs: []models.JobOutputRecordV1{{
+		Outputs: []models.JobOutputRecord{{
 			Path:        filepath.Join(dir, "out.pdf"),
 			SizeBytes:   int64(len("stale")),
 			ModifiedAt:  1700000000000,
@@ -875,7 +875,7 @@ func TestNewStorePrunesExpiredTrashOnLoad(t *testing.T) {
 			Undone:      true,
 		}},
 	}
-	payload, err := json.Marshal([]models.JobHistoryEntryV1{entry})
+	payload, err := json.Marshal([]models.JobHistoryEntry{entry})
 	if err != nil {
 		t.Fatalf("encode history: %v", err)
 	}

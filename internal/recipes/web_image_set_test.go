@@ -102,7 +102,7 @@ func TestPlanWebImageSetWideSource(t *testing.T) {
 	input := filepath.Join(dir, "photo.png")
 	writeRecipePNG(t, input, 2000, 1200, false)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDWebImageSet,
 		InputPaths: []string{input},
 	})
@@ -157,7 +157,7 @@ func TestPlanWebImageSetCapsTheWidestVariant(t *testing.T) {
 	input := filepath.Join(dir, "photo.png")
 	writeRecipePNG(t, input, 1200, 900, false)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDWebImageSet,
 		InputPaths: []string{input},
 	})
@@ -196,7 +196,7 @@ func TestPlanWebImageSetNarrowSourceProducesOneWidth(t *testing.T) {
 	input := filepath.Join(dir, "photo.png")
 	writeRecipePNG(t, input, 600, 400, false)
 
-	plan := service.Plan(models.RecipeRequestV1{
+	plan := service.Plan(models.RecipeRequest{
 		RecipeID:   RecipeIDWebImageSet,
 		InputPaths: []string{input},
 	})
@@ -266,32 +266,32 @@ func TestPlanWebImageSetRejectsInvalidRequests(t *testing.T) {
 
 	cases := []struct {
 		name       string
-		req        models.RecipeRequestV1
+		req        models.RecipeRequest
 		wantDetail string
 	}{
 		{
 			name:       "no inputs",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDWebImageSet},
+			req:        models.RecipeRequest{RecipeID: RecipeIDWebImageSet},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "blank input",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDWebImageSet, InputPaths: []string{"   "}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDWebImageSet, InputPaths: []string{"   "}},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "multiple inputs",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDWebImageSet, InputPaths: []string{imageOne, imageTwo}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDWebImageSet, InputPaths: []string{imageOne, imageTwo}},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "non image extension",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDWebImageSet, InputPaths: []string{textFile}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDWebImageSet, InputPaths: []string{textFile}},
 			wantDetail: "RECIPE_INVALID_INPUT",
 		},
 		{
 			name:       "missing image",
-			req:        models.RecipeRequestV1{RecipeID: RecipeIDWebImageSet, InputPaths: []string{filepath.Join(dir, "missing.png")}},
+			req:        models.RecipeRequest{RecipeID: RecipeIDWebImageSet, InputPaths: []string{filepath.Join(dir, "missing.png")}},
 			wantDetail: "RECIPE_INPUT_UNREADABLE",
 		},
 	}
@@ -322,7 +322,7 @@ func TestRunWebImageSetProducesVerifiedBundle(t *testing.T) {
 	input := filepath.Join(dir, "photo.png")
 	writeRecipePNG(t, input, 2000, 1200, false)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDWebImageSet,
 		InputPaths: []string{input},
 	})
@@ -477,7 +477,7 @@ func TestRunWebImageSetProducesVerifiedBundle(t *testing.T) {
 		}
 	}
 
-	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	terminalEvent := waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.Status == models.JobStatusSuccess && event.Percent == 100
 	})
 	if terminalEvent.JobID != run.JobID || terminalEvent.RecipeID != RecipeIDWebImageSet {
@@ -492,7 +492,7 @@ func TestRunWebImageSetFlattensTransparencyOnJPEG(t *testing.T) {
 	input := filepath.Join(dir, "logo.png")
 	writeRecipePNG(t, input, 40, 30, true)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDWebImageSet,
 		InputPaths: []string{input},
 	})
@@ -538,7 +538,7 @@ func TestRunWebImageSetFailureRemovesCreatedFiles(t *testing.T) {
 	input := filepath.Join(dir, "photo.png")
 	writeRecipePNG(t, input, 2000, 1200, false)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDWebImageSet,
 		InputPaths: []string{input},
 	})
@@ -580,7 +580,7 @@ func TestRunWebImageSetCancelRemovesPartialOutputs(t *testing.T) {
 	input := filepath.Join(dir, "photo.png")
 	writeRecipePNG(t, input, 2000, 1200, false)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDWebImageSet,
 		InputPaths: []string{input},
 	})
@@ -606,7 +606,7 @@ func TestRunWebImageSetCancelRemovesPartialOutputs(t *testing.T) {
 	if result.Error == nil || result.Error.Code != models.ErrorCodeCancelledByUser {
 		t.Fatalf("expected a cancellation error, got %+v", result.Error)
 	}
-	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEventV1) bool {
+	waitForRecipeEvent(t, recorder, func(event models.RecipeProgressEvent) bool {
 		return event.Status == models.JobStatusCancelled
 	})
 
@@ -620,7 +620,7 @@ func TestRunWebImageSetSanitizesSnippetNames(t *testing.T) {
 	input := filepath.Join(dir, "photo & friends.png")
 	writeRecipePNG(t, input, 2000, 1000, false)
 
-	run := service.Run(context.Background(), models.RecipeRequestV1{
+	run := service.Run(context.Background(), models.RecipeRequest{
 		RecipeID:   RecipeIDWebImageSet,
 		InputPaths: []string{input},
 	})
@@ -701,33 +701,33 @@ func (t *failingImageTool) ID() string { return t.inner.ID() }
 
 func (t *failingImageTool) Capability() string { return t.inner.Capability() }
 
-func (t *failingImageTool) Manifest() models.ToolManifestV1 { return t.inner.Manifest() }
+func (t *failingImageTool) Manifest() models.ToolManifest { return t.inner.Manifest() }
 
-func (t *failingImageTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 {
+func (t *failingImageTool) RuntimeState(ctx context.Context) models.ToolRuntimeState {
 	return t.inner.RuntimeState(ctx)
 }
 
-func (t *failingImageTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *failingImageTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	return t.inner.Validate(ctx, req)
 }
 
-func (t *failingImageTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *failingImageTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	return t.inner.Plan(ctx, req)
 }
 
-func (t *failingImageTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *failingImageTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	t.mu.Lock()
 	t.calls++
 	call := t.calls
 	t.mu.Unlock()
 
 	if call == t.failAt {
-		jobErr := &models.JobErrorV1{
+		jobErr := &models.JobError{
 			Code:       "IMAGE_TEST_FAILED",
 			DetailCode: "IMAGE_TEST_FAILED",
 			Message:    fmt.Sprintf("image conversion failed for test on call %d", call),
 		}
-		return models.JobResultItemV1{
+		return models.JobResultItem{
 			InputPath: firstRequestInput(req),
 			Success:   false,
 			Message:   jobErr.Message,
@@ -749,21 +749,21 @@ func (t *blockingImageTool) ID() string { return t.inner.ID() }
 
 func (t *blockingImageTool) Capability() string { return t.inner.Capability() }
 
-func (t *blockingImageTool) Manifest() models.ToolManifestV1 { return t.inner.Manifest() }
+func (t *blockingImageTool) Manifest() models.ToolManifest { return t.inner.Manifest() }
 
-func (t *blockingImageTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 {
+func (t *blockingImageTool) RuntimeState(ctx context.Context) models.ToolRuntimeState {
 	return t.inner.RuntimeState(ctx)
 }
 
-func (t *blockingImageTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *blockingImageTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	return t.inner.Validate(ctx, req)
 }
 
-func (t *blockingImageTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *blockingImageTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	return t.inner.Plan(ctx, req)
 }
 
-func (t *blockingImageTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *blockingImageTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	select {
 	case t.started <- struct{}{}:
 	default:
@@ -771,11 +771,11 @@ func (t *blockingImageTool) ExecuteSingle(ctx context.Context, req models.JobReq
 
 	<-ctx.Done()
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath: firstRequestInput(req),
 		Success:   false,
 		Message:   "image conversion canceled",
-	}, &models.JobErrorV1{
+	}, &models.JobError{
 		Code:       "CANCELED",
 		DetailCode: "IMAGE_TEST_CANCELED",
 		Message:    "image conversion canceled",

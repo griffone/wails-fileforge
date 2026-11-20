@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	ToolIDPDFCropV1 = "tool.pdf.crop"
+	ToolIDPDFCrop = "tool.pdf.crop"
 
 	cropOutputKindFile = "file"
 	cropOutputSuffix   = "_cropped"
@@ -27,21 +27,21 @@ func NewCropTool() *CropTool {
 }
 
 func (t *CropTool) ID() string {
-	return ToolIDPDFCropV1
+	return ToolIDPDFCrop
 }
 
 func (t *CropTool) Capability() string {
-	return ToolIDPDFCropV1
+	return ToolIDPDFCrop
 }
 
-func (t *CropTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *CropTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "PDF Crop",
 		Description:      "Crop PDF pages using presets or custom margins",
 		Domain:           "pdf",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  []string{"pdf"},
@@ -51,11 +51,11 @@ func (t *CropTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *CropTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *CropTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *CropTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *CropTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -65,8 +65,8 @@ func (t *CropTool) Validate(ctx context.Context, req models.JobRequestV1) *model
 // contract: it must be a .pdf whose parent exists and is writable, and the
 // target must not exist yet. Auto-derived names are suffixed (-2, -3, ...)
 // instead of overwriting anything.
-func (t *CropTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *CropTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	parsed, parseErr := cropReqFields(req)
 	if parseErr != nil {
@@ -87,14 +87,14 @@ func (t *CropTool) Plan(_ context.Context, req models.JobRequestV1) (models.Plan
 		planned, planErr := planSingleCropOutput(parsed)
 		if planErr != nil {
 			if planned.OutputPath != "" {
-				plan.Outputs = []models.PlannedOutputV1{planned}
+				plan.Outputs = []models.PlannedOutput{planned}
 			}
 			return planFailure(plan, planErr)
 		}
 
 		plan.Success = true
 		plan.Message = cropPlanMessage(1)
-		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Outputs = []models.PlannedOutput{planned}
 		plan.Warnings = planned.Warnings
 		plan.EffectiveOptions = cropEffectiveOptions(parsed)
 
@@ -114,7 +114,7 @@ func (t *CropTool) Plan(_ context.Context, req models.JobRequestV1) (models.Plan
 		outputplan.MarkUsed(used, inputPath)
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.InputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(parsed.InputPaths))
 	warnings := make([]string, 0)
 	for _, inputPath := range parsed.InputPaths {
 		targetDir := parsed.OutputDir
@@ -138,7 +138,7 @@ func (t *CropTool) Plan(_ context.Context, req models.JobRequestV1) (models.Plan
 
 // ExecuteSingle keeps the legacy single-executor contract by resolving the plan
 // first and then running that exact plan, so it cannot drift from ExecutePlan.
-func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	parsed, parseErr := cropReqFields(req)
 	if parseErr != nil {
 		return cropFailureItem(firstInputPath(req.InputPaths), "", parseErr), parseErr
@@ -169,7 +169,7 @@ func (t *CropTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (
 
 // ExecuteBatch plans the request once and then executes exactly that plan. It
 // never re-resolves output paths from the request.
-func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := cropReqFields(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -190,7 +190,7 @@ func (t *CropTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, on
 // ExecutePlan crops exactly the outputs resolved by Plan. Options come from the
 // plan's effective values, so a reduced retry plan only processes its own
 // outputs. Results keep plan order.
-func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := cropReqFields(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -198,14 +198,14 @@ func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, pla
 
 	pageSelection, cropPreset, margins := plannedCropOptions(plan, parsed)
 
-	items := make([]models.JobResultItemV1, len(plan.Outputs))
-	itemErrors := make([]*models.JobErrorV1, len(plan.Outputs))
+	items := make([]models.JobResultItem, len(plan.Outputs))
+	itemErrors := make([]*models.JobError, len(plan.Outputs))
 	completed := make([]bool, len(plan.Outputs))
 	progress := newPDFBatchProgress(len(plan.Outputs), onProgress)
 
 	runErr := utils.ParallelForIndex(ctx, len(plan.Outputs), pdfBatchWorkerCount(), func(ctx context.Context, i int) error {
 		planned := plan.Outputs[i]
-		item := models.JobResultItemV1{
+		item := models.JobResultItem{
 			InputPath:  planned.InputPath,
 			OutputPath: planned.OutputPath,
 		}
@@ -261,7 +261,7 @@ func (t *CropTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, pla
 
 // plannedCropOptions returns the crop options resolved by Plan, falling back to
 // the re-parsed request when a plan was built by an older caller.
-func plannedCropOptions(plan models.PlanJobResponseV1, parsed cropRequestFields) (string, string, *engine.CropMargins) {
+func plannedCropOptions(plan models.PlanJobResponse, parsed cropRequestFields) (string, string, *engine.CropMargins) {
 	pageSelection := stringOption(plan.EffectiveOptions, "pageSelection")
 	if pageSelection == "" {
 		pageSelection = parsed.PageSelection
@@ -293,7 +293,7 @@ type cropRequestFields struct {
 	Margins       *engine.CropMargins
 }
 
-func cropReqFields(req models.JobRequestV1) (cropRequestFields, *models.JobErrorV1) {
+func cropReqFields(req models.JobRequest) (cropRequestFields, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return cropRequestFields{}, cropRequestError(engine.ErrorCodeValidation, "mode must be single or batch")
@@ -361,8 +361,8 @@ func cropReqFields(req models.JobRequestV1) (cropRequestFields, *models.JobError
 // planSingleCropOutput resolves the one output of a single request. An
 // explicit outputPath keeps the old validation contract; otherwise the output
 // is auto-named next to the input or inside the chosen folder.
-func planSingleCropOutput(parsed cropRequestFields) (models.PlannedOutputV1, *models.JobErrorV1) {
-	planned := models.PlannedOutputV1{
+func planSingleCropOutput(parsed cropRequestFields) (models.PlannedOutput, *models.JobError) {
+	planned := models.PlannedOutput{
 		InputPath:   parsed.InputPath,
 		OutputKind:  cropOutputKindFile,
 		OutputCount: 1,
@@ -390,8 +390,8 @@ func planSingleCropOutput(parsed cropRequestFields) (models.PlannedOutputV1, *mo
 	return planAutoCropOutput(parsed.InputPath, targetDir, map[string]struct{}{}), nil
 }
 
-func planAutoCropOutput(inputPath, dir string, used map[string]struct{}) models.PlannedOutputV1 {
-	planned := models.PlannedOutputV1{
+func planAutoCropOutput(inputPath, dir string, used map[string]struct{}) models.PlannedOutput {
+	planned := models.PlannedOutput{
 		InputPath:   inputPath,
 		OutputKind:  cropOutputKindFile,
 		OutputCount: 1,
@@ -443,8 +443,8 @@ func cropPlanMessage(count int) string {
 	return fmt.Sprintf("Ready to crop %d PDFs.", count)
 }
 
-func cropFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
-	return models.JobResultItemV1{
+func cropFailureItem(inputPath, outputPath string, jobErr *models.JobError) models.JobResultItem {
+	return models.JobResultItem{
 		InputPath:  inputPath,
 		OutputPath: outputPath,
 		Success:    false,
@@ -453,7 +453,7 @@ func cropFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) mo
 	}
 }
 
-func cropPlannedOutputPath(plan models.PlanJobResponseV1) string {
+func cropPlannedOutputPath(plan models.PlanJobResponse) string {
 	if len(plan.Outputs) == 0 {
 		return ""
 	}
@@ -461,11 +461,11 @@ func cropPlannedOutputPath(plan models.PlanJobResponseV1) string {
 	return plan.Outputs[0].OutputPath
 }
 
-func cropRequestError(code, message string) *models.JobErrorV1 {
-	return &models.JobErrorV1{Code: code, DetailCode: code, Message: message}
+func cropRequestError(code, message string) *models.JobError {
+	return &models.JobError{Code: code, DetailCode: code, Message: message}
 }
 
-func optionMargins(options map[string]any, key string) (*engine.CropMargins, *models.JobErrorV1) {
+func optionMargins(options map[string]any, key string) (*engine.CropMargins, *models.JobError) {
 	if options == nil {
 		return nil, nil
 	}
@@ -500,7 +500,7 @@ func optionMargins(options map[string]any, key string) (*engine.CropMargins, *mo
 	return &engine.CropMargins{Top: top, Right: right, Bottom: bottom, Left: left}, nil
 }
 
-func optionNumberField(m map[string]any, key string) (float64, *models.JobErrorV1) {
+func optionNumberField(m map[string]any, key string) (float64, *models.JobError) {
 	v, ok := m[key]
 	if !ok {
 		return 0, cropRequestError(engine.ErrorCodeCropMarginsInvalid, fmt.Sprintf("options.margins.%s is required", key))
@@ -514,11 +514,11 @@ func optionNumberField(m map[string]any, key string) (float64, *models.JobErrorV
 	return n, nil
 }
 
-func mapCropError(err error) *models.JobErrorV1 {
+func mapCropError(err error) *models.JobError {
 	var cropErr *engine.CropError
 	if !errors.As(err, &cropErr) {
-		return &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
+		return &models.JobError{Code: "EXECUTION_ERROR", Message: err.Error()}
 	}
 
-	return &models.JobErrorV1{Code: cropErr.Code, DetailCode: cropErr.Code, Message: cropErr.Message, Details: cropErr.Details}
+	return &models.JobError{Code: cropErr.Code, DetailCode: cropErr.Code, Message: cropErr.Message, Details: cropErr.Details}
 }

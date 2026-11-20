@@ -26,50 +26,50 @@ type SystemService struct {
 	notifier *Notifier
 }
 
-// GetOCRCapabilitiesV1 reports whether local OCR can run: the pdftoppm,
+// GetOCRCapabilities reports whether local OCR can run: the pdftoppm,
 // tesseract and pdftotext binaries, the installed languages and the
 // recommended one. It is safe to call before any OCR job.
-func (s *SystemService) GetOCRCapabilitiesV1() models.OCRCapabilitiesResponseV1 {
-	return pdf.OCRCapabilitiesV1(s.runtime.ContextOrBackground())
+func (s *SystemService) GetOCRCapabilities() models.OCRCapabilitiesResponse {
+	return pdf.OCRCapabilities(s.runtime.ContextOrBackground())
 }
 
-// GetTranscriptionCapabilitiesV1 reports whether local Whisper transcription
+// GetTranscriptionCapabilities reports whether local Whisper transcription
 // can run: the resolved whisper-cli binary, the resolved model with its size,
 // and the supported languages. Empty paths resolve the installed defaults, so
 // the Settings panel can pass persisted overrides. It never fails: a missing
 // binary or model is reported with guidance, not an error.
-func (s *SystemService) GetTranscriptionCapabilitiesV1(whisperPath, modelPath string) models.TranscriptionCapabilitiesResponseV1 {
-	return video.TranscriptionCapabilitiesV1(whisperPath, modelPath)
+func (s *SystemService) GetTranscriptionCapabilities(whisperPath, modelPath string) models.TranscriptionCapabilitiesResponse {
+	return video.TranscriptionCapabilities(whisperPath, modelPath)
 }
 
-// GetLocalCapabilitiesV1 reports every external tool the local tools rely on,
+// GetLocalCapabilities reports every external tool the local tools rely on,
 // with availability, required/optional state and guidance, plus the installed
 // OCR languages. It never fails: a missing tool is reported, not an error.
-func (s *SystemService) GetLocalCapabilitiesV1() models.LocalCapabilitiesResponseV1 {
+func (s *SystemService) GetLocalCapabilities() models.LocalCapabilitiesResponse {
 	return capabilities.Detect(s.runtime.ContextOrBackground())
 }
 
-// InspectFilesV1 describes files for UI cards. Missing files are reported per
+// InspectFiles describes files for UI cards. Missing files are reported per
 // item instead of failing the batch.
-func (s *SystemService) InspectFilesV1(paths []string) models.InspectFilesResponseV1 {
-	return models.InspectFilesResponseV1{
+func (s *SystemService) InspectFiles(paths []string) models.InspectFilesResponse {
+	return models.InspectFilesResponse{
 		Success: true,
 		Message: "files inspected",
 		Files:   inspect.InspectFiles(paths),
 	}
 }
 
-// NotifyV1 sends a native desktop notification. Notifications are optional:
+// Notify sends a native desktop notification. Notifications are optional:
 // missing inputs or an unavailable notification service are reported, not fatal.
-func (s *SystemService) NotifyV1(title, body string) models.PathActionResponseV1 {
+func (s *SystemService) Notify(title, body string) models.PathActionResponse {
 	if strings.TrimSpace(title) == "" || strings.TrimSpace(body) == "" {
-		return models.PathActionResponseV1{
+		return models.PathActionResponse{
 			Success: false,
 			Message: "A notification needs a title and a body.",
 		}
 	}
 	if s.notifier == nil {
-		return models.PathActionResponseV1{
+		return models.PathActionResponse{
 			Success: false,
 			Message: "Notifications are not available.",
 		}
@@ -77,61 +77,61 @@ func (s *SystemService) NotifyV1(title, body string) models.PathActionResponseV1
 
 	if err := s.notifier.Notify(title, body); err != nil {
 		log.Printf("app.notify.failed err=%v", err)
-		return models.PathActionResponseV1{Success: false, Message: err.Error()}
+		return models.PathActionResponse{Success: false, Message: err.Error()}
 	}
 
-	return models.PathActionResponseV1{Success: true, Message: "notification sent"}
+	return models.PathActionResponse{Success: true, Message: "notification sent"}
 }
 
 // OpenPath opens an existing file with the operating system default handler.
-func (s *SystemService) OpenPath(path string) models.PathActionResponseV1 {
+func (s *SystemService) OpenPath(path string) models.PathActionResponse {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
-		return models.PathActionResponseV1{Success: false, Message: "Choose a file to open."}
+		return models.PathActionResponse{Success: false, Message: "Choose a file to open."}
 	}
 
 	info, err := os.Stat(trimmed)
 	if err != nil {
-		return models.PathActionResponseV1{Success: false, Message: "The file is no longer available."}
+		return models.PathActionResponse{Success: false, Message: "The file is no longer available."}
 	}
 	if info.IsDir() {
-		return models.PathActionResponseV1{Success: false, Message: "Choose a file to open, not a folder."}
+		return models.PathActionResponse{Success: false, Message: "Choose a file to open, not a folder."}
 	}
 
 	app := application.Get()
 	if app == nil || app.Browser == nil {
-		return models.PathActionResponseV1{Success: false, Message: "Opening files is only available in the desktop app."}
+		return models.PathActionResponse{Success: false, Message: "Opening files is only available in the desktop app."}
 	}
 
 	if err := app.Browser.OpenFile(trimmed); err != nil {
-		return models.PathActionResponseV1{Success: false, Message: "The file could not be opened."}
+		return models.PathActionResponse{Success: false, Message: "The file could not be opened."}
 	}
 
-	return models.PathActionResponseV1{Success: true, Message: "file opened"}
+	return models.PathActionResponse{Success: true, Message: "file opened"}
 }
 
 // RevealInFolder shows the given file or folder in the native file manager.
-func (s *SystemService) RevealInFolder(path string) models.PathActionResponseV1 {
+func (s *SystemService) RevealInFolder(path string) models.PathActionResponse {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
-		return models.PathActionResponseV1{Success: false, Message: "Choose a file or folder to show."}
+		return models.PathActionResponse{Success: false, Message: "Choose a file or folder to show."}
 	}
 
 	info, err := os.Stat(trimmed)
 	if err != nil {
-		return models.PathActionResponseV1{Success: false, Message: "The file is no longer available."}
+		return models.PathActionResponse{Success: false, Message: "The file is no longer available."}
 	}
 
 	app := application.Get()
 	if app == nil || app.Env == nil {
-		return models.PathActionResponseV1{Success: false, Message: "Showing files is only available in the desktop app."}
+		return models.PathActionResponse{Success: false, Message: "Showing files is only available in the desktop app."}
 	}
 
 	if err := app.Env.OpenFileManager(trimmed, !info.IsDir()); err != nil {
-		return models.PathActionResponseV1{Success: false, Message: "The file could not be shown in the folder."}
+		return models.PathActionResponse{Success: false, Message: "The file could not be shown in the folder."}
 	}
 
-	return models.PathActionResponseV1{Success: true, Message: "folder opened"}
+	return models.PathActionResponse{Success: true, Message: "folder opened"}
 }
 
 // OpenFileDialog opens a native file dialog and returns the selected file path
@@ -165,10 +165,10 @@ func (s *SystemService) OpenDirectoryDialog() (string, error) {
 	return dialog.PromptForSingleSelection()
 }
 
-func (s *SystemService) GetPDFPreviewSourceV1(inputPath string) models.PDFPreviewSourceResponseV1 {
+func (s *SystemService) GetPDFPreviewSource(inputPath string) models.PDFPreviewSourceResponse {
 	path := strings.TrimSpace(inputPath)
 	if path == "" {
-		return models.PDFPreviewSourceResponseV1{
+		return models.PDFPreviewSourceResponse{
 			Success: false,
 			Message: "Select a valid PDF file path and retry.",
 			Error:   models.NewCanonicalJobError("PDF_PREVIEW_INVALID_PATH", "inputPath is required", nil),
@@ -202,7 +202,7 @@ func (s *SystemService) GetPDFPreviewSourceV1(inputPath string) models.PDFPrevie
 	normalized = filepath.Clean(normalized)
 
 	if strings.ToLower(filepath.Ext(normalized)) != ".pdf" {
-		return models.PDFPreviewSourceResponseV1{
+		return models.PDFPreviewSourceResponse{
 			Success: false,
 			Message: "Preview supports only .pdf files.",
 			Error:   models.NewCanonicalJobError("PDF_PREVIEW_NOT_PDF", "inputPath must be a .pdf file", nil),
@@ -214,7 +214,7 @@ func (s *SystemService) GetPDFPreviewSourceV1(inputPath string) models.PDFPrevie
 	info, err := os.Stat(normalized)
 	if err != nil {
 		wrapped := fmt.Errorf("stat %s: %w", normalized, err)
-		return models.PDFPreviewSourceResponseV1{
+		return models.PDFPreviewSourceResponse{
 			Success: false,
 			Message: "Cannot access the selected PDF file.",
 			Error:   models.NewCanonicalJobError("PDF_PREVIEW_READ_FAILED", wrapped.Error(), nil),
@@ -222,7 +222,7 @@ func (s *SystemService) GetPDFPreviewSourceV1(inputPath string) models.PDFPrevie
 	}
 
 	if info.IsDir() {
-		return models.PDFPreviewSourceResponseV1{
+		return models.PDFPreviewSourceResponse{
 			Success: false,
 			Message: "Selected path is a directory, not a PDF file.",
 			Error:   models.NewCanonicalJobError("PDF_PREVIEW_INVALID_PATH", "inputPath points to a directory", nil),
@@ -230,7 +230,7 @@ func (s *SystemService) GetPDFPreviewSourceV1(inputPath string) models.PDFPrevie
 	}
 
 	if info.Size() > maxPreviewBytes {
-		return models.PDFPreviewSourceResponseV1{
+		return models.PDFPreviewSourceResponse{
 			Success: false,
 			Message: "PDF is too large for preview. Use a smaller file to inspect crop.",
 			Error:   models.NewCanonicalJobError("PDF_PREVIEW_TOO_LARGE", fmt.Sprintf("input size %d exceeds %d bytes", info.Size(), maxPreviewBytes), nil),
@@ -240,14 +240,14 @@ func (s *SystemService) GetPDFPreviewSourceV1(inputPath string) models.PDFPrevie
 	content, err := os.ReadFile(normalized)
 	if err != nil {
 		wrapped := fmt.Errorf("read %s: %w", normalized, err)
-		return models.PDFPreviewSourceResponseV1{
+		return models.PDFPreviewSourceResponse{
 			Success: false,
 			Message: "Failed to read PDF content for preview.",
 			Error:   models.NewCanonicalJobError("PDF_PREVIEW_READ_FAILED", wrapped.Error(), nil),
 		}
 	}
 
-	return models.PDFPreviewSourceResponseV1{
+	return models.PDFPreviewSourceResponse{
 		Success:    true,
 		Message:    "preview source loaded",
 		DataBase64: base64.StdEncoding.EncodeToString(content),
@@ -259,17 +259,17 @@ func (s *SystemService) GetPDFPreviewSourceV1(inputPath string) models.PDFPrevie
 // relative URL is served by the embedded asset server in production; the
 // loopback fallback covers Wails development mode, where the webview is served
 // by the frontend dev server and never reaches the asset middleware.
-func (s *SystemService) RegisterMediaPath(path string) models.MediaSourceResponseV1 {
+func (s *SystemService) RegisterMediaPath(path string) models.MediaSourceResponse {
 	if strings.TrimSpace(path) == "" {
-		return models.MediaSourceResponseV1{Success: false, Message: "Choose a file to preview."}
+		return models.MediaSourceResponse{Success: false, Message: "Choose a file to preview."}
 	}
 
 	token, err := media.Register(path)
 	if err != nil {
-		return models.MediaSourceResponseV1{Success: false, Message: "This file cannot be previewed."}
+		return models.MediaSourceResponse{Success: false, Message: "This file cannot be previewed."}
 	}
 
-	response := models.MediaSourceResponseV1{
+	response := models.MediaSourceResponse{
 		Success: true,
 		URL:     "/media/" + token,
 		Message: "ok",

@@ -36,9 +36,9 @@ func writeVerifyTestPNG(t *testing.T, path string) {
 	}
 }
 
-// TestVerifyJobV1ReadsHistoryWhenEngineLosesTheJob proves a recorded job stays
+// TestVerifyJobReadsHistoryWhenEngineLosesTheJob proves a recorded job stays
 // verifiable after the engine no longer holds its snapshot.
-func TestVerifyJobV1ReadsHistoryWhenEngineLosesTheJob(t *testing.T) {
+func TestVerifyJobReadsHistoryWhenEngineLosesTheJob(t *testing.T) {
 	service, _ := newHistoryTestService(t, &historyFakeTool{id: "tool.fake.verify"})
 	output := filepath.Join(t.TempDir(), "converted.png")
 	writeVerifyTestPNG(t, output)
@@ -46,7 +46,7 @@ func TestVerifyJobV1ReadsHistoryWhenEngineLosesTheJob(t *testing.T) {
 	history := service.JobHistory()
 	history.RecordOutputs("history_job_1", "tool.fake.verify", []string{output})
 
-	report := service.VerifyJobV1("history_job_1")
+	report := service.VerifyJob("history_job_1")
 	if !report.Success {
 		t.Fatalf("expected the history-only job to verify, got %s (%v)", report.Message, report.Warnings)
 	}
@@ -55,17 +55,17 @@ func TestVerifyJobV1ReadsHistoryWhenEngineLosesTheJob(t *testing.T) {
 	}
 
 	history.RecordOutputs("history_job_2", "tool.fake.verify", []string{output})
-	undo := service.UndoJobV1("history_job_2")
+	undo := service.UndoJob("history_job_2")
 	if !undo.Success {
 		t.Fatalf("expected undo success, got %+v", undo)
 	}
 
-	report = service.VerifyJobV1("history_job_2")
+	report = service.VerifyJob("history_job_2")
 	if report.Success || report.Message != "job has no outputs to verify" {
 		t.Fatalf("expected a trashed output to be excluded, got %+v", report)
 	}
 
-	missing := service.VerifyJobV1("job_not_recorded")
+	missing := service.VerifyJob("job_not_recorded")
 	if missing.Success || !strings.Contains(missing.Message, "not found") {
 		t.Fatalf("expected an unknown job to be reported, got %+v", missing)
 	}

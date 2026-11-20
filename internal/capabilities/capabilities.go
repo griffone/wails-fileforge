@@ -18,17 +18,17 @@ import (
 // independent from the machine. Detect wires the real PDF OCR detector.
 type Options struct {
 	LookPath func(string) (string, error)
-	OCR      func(context.Context) models.OCRCapabilitiesResponseV1
+	OCR      func(context.Context) models.OCRCapabilitiesResponse
 }
 
 // Detect probes the real machine: binaries through exec.LookPath and OCR
 // languages through the PDF OCR detector.
-func Detect(ctx context.Context) models.LocalCapabilitiesResponseV1 {
-	return DetectWith(ctx, Options{OCR: pdf.OCRCapabilitiesV1})
+func Detect(ctx context.Context) models.LocalCapabilitiesResponse {
+	return DetectWith(ctx, Options{OCR: pdf.OCRCapabilities})
 }
 
 // DetectWith probes the requested runtime with injectable dependencies.
-func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesResponseV1 {
+func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesResponse {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -39,8 +39,8 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 	}
 	ocr := opts.OCR
 	if ocr == nil {
-		ocr = func(context.Context) models.OCRCapabilitiesResponseV1 {
-			return models.OCRCapabilitiesResponseV1{}
+		ocr = func(context.Context) models.OCRCapabilitiesResponse {
+			return models.OCRCapabilitiesResponse{}
 		}
 	}
 
@@ -79,7 +79,7 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 		tesseractDetail = "Languages: " + strings.ToUpper(strings.Join(languages, ", "))
 	}
 
-	checks := []models.LocalCapabilityV1{
+	checks := []models.LocalCapability{
 		{
 			ID:         "pdftoppm",
 			Label:      "pdftoppm",
@@ -146,7 +146,7 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 		},
 	}
 
-	return models.LocalCapabilitiesResponseV1{
+	return models.LocalCapabilitiesResponse{
 		Success:                true,
 		Message:                "Local capabilities checked.",
 		Checks:                 checks,

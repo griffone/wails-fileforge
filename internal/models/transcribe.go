@@ -1,10 +1,10 @@
 package models
 
-// TranscriptionCapabilitiesResponseV1 reports whether local Whisper
+// TranscriptionCapabilitiesResponse reports whether local Whisper
 // transcription can run. Available requires both the whisper-cli binary and a
 // non-empty model file. Paths are the resolved ones: a user override wins when
 // it exists, otherwise the installed defaults are used.
-type TranscriptionCapabilitiesResponseV1 struct {
+type TranscriptionCapabilitiesResponse struct {
 	Success         bool     `json:"success"`
 	Message         string   `json:"message"`
 	Available       bool     `json:"available"`

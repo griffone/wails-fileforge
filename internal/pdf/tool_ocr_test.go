@@ -63,9 +63,9 @@ func writeOCRTextPDFFixture(t *testing.T, path string, pages int) {
 	}
 }
 
-func ocrTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDPDFOCRV1,
+func ocrTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDPDFOCR,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,
@@ -323,7 +323,7 @@ func TestOCRToolPlanRejectsInvalidRequests(t *testing.T) {
 	tool := newFakeCapabilityOCRTool()
 	cases := []struct {
 		name string
-		req  models.JobRequestV1
+		req  models.JobRequest
 	}{
 		{name: "invalid mode", req: ocrTestRequest("nope", []string{input}, nil)},
 		{name: "single with two inputs", req: ocrTestRequest("single", []string{input, other}, nil)},
@@ -353,8 +353,8 @@ func TestOCRToolExecuteSingleWithProgress(t *testing.T) {
 	tool := NewOCRTool()
 	req := ocrTestRequest("single", []string{input}, map[string]any{"language": language})
 
-	progress := make([]models.JobProgressV1, 0, 2)
-	item, jobErr := tool.ExecuteSingleWithProgress(context.Background(), req, func(update models.JobProgressV1) {
+	progress := make([]models.JobProgress, 0, 2)
+	item, jobErr := tool.ExecuteSingleWithProgress(context.Background(), req, func(update models.JobProgress) {
 		progress = append(progress, update)
 	})
 	if jobErr != nil {
@@ -562,7 +562,7 @@ func TestOCRToolRuntimeStateAndCapabilities(t *testing.T) {
 		t.Fatalf("unexpected degraded state: %+v", state)
 	}
 
-	response := OCRCapabilitiesV1(context.Background())
+	response := OCRCapabilities(context.Background())
 	if !response.Success || response.Message == "" {
 		t.Fatalf("unexpected capability response: %+v", response)
 	}

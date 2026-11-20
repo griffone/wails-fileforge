@@ -32,7 +32,7 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-const ToolIDImageAnnotateV1 = "tool.image.annotate"
+const ToolIDImageAnnotate = "tool.image.annotate"
 
 const (
 	annotateTypeText   = "text"
@@ -50,14 +50,14 @@ type annotateRequest struct {
 	outputPath string
 	outputDir  string
 	format     string
-	operations []models.ImageAnnotateOperationV1
+	operations []models.ImageAnnotateOperation
 }
 
 type preparedAnnotate struct {
 	inputPath  string
 	outputPath string
 	outputFmt  string
-	operations []models.ImageAnnotateOperationV1
+	operations []models.ImageAnnotateOperation
 }
 
 func NewAnnotateTool() *AnnotateTool {
@@ -65,21 +65,21 @@ func NewAnnotateTool() *AnnotateTool {
 }
 
 func (t *AnnotateTool) ID() string {
-	return ToolIDImageAnnotateV1
+	return ToolIDImageAnnotate
 }
 
 func (t *AnnotateTool) Capability() string {
-	return ToolIDImageAnnotateV1
+	return ToolIDImageAnnotate
 }
 
-func (t *AnnotateTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *AnnotateTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "Image Annotate",
 		Description:      "Annotate images with text, arrows, rectangles, blur and redact",
 		Domain:           "image",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  []string{"jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"},
@@ -89,11 +89,11 @@ func (t *AnnotateTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *AnnotateTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *AnnotateTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *AnnotateTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *AnnotateTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -102,17 +102,17 @@ func (t *AnnotateTool) Validate(ctx context.Context, req models.JobRequestV1) *m
 // input and validates the annotation operations against every image without
 // writing anything. An explicit options.outputPath keeps the single request
 // contract: it must differ from the input and the target must not exist yet.
-func (t *AnnotateTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *AnnotateTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	plan, _, planErr := t.planRequest(ctx, req)
 	return plan, planErr
 }
 
 // planRequest also returns the parsed request so execution can reuse the
 // normalized operations without resolving any path again.
-func (t *AnnotateTool) planRequest(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, annotateRequest, *models.JobErrorV1) {
+func (t *AnnotateTool) planRequest(_ context.Context, req models.JobRequest) (models.PlanJobResponse, annotateRequest, *models.JobError) {
 	parsed, parseErr := parseAnnotateRequest(req)
 	if parseErr != nil {
-		plan, _ := planFailure(models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}, parseErr)
+		plan, _ := planFailure(models.PlanJobResponse{Outputs: []models.PlannedOutput{}}, parseErr)
 		return plan, annotateRequest{}, parseErr
 	}
 
@@ -120,8 +120,8 @@ func (t *AnnotateTool) planRequest(_ context.Context, req models.JobRequestV1) (
 	return plan, parsed, planErr
 }
 
-func planParsedAnnotateRequest(parsed annotateRequest) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func planParsedAnnotateRequest(parsed annotateRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	formats := make([]string, 0, len(parsed.inputPaths))
 	for _, inputPath := range parsed.inputPaths {
@@ -156,14 +156,14 @@ func planParsedAnnotateRequest(parsed annotateRequest) (models.PlanJobResponseV1
 		planned, planErr := planSingleAnnotateOutput(parsed, formats[0], used)
 		if planErr != nil {
 			if planned.OutputPath != "" {
-				plan.Outputs = []models.PlannedOutputV1{planned}
+				plan.Outputs = []models.PlannedOutput{planned}
 			}
 			return planFailure(plan, planErr)
 		}
 
 		plan.Success = true
 		plan.Message = annotatePlanMessage(1)
-		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Outputs = []models.PlannedOutput{planned}
 		plan.Warnings = planned.Warnings
 		plan.EffectiveOptions = annotateEffectiveOptions(parsed, formats)
 
@@ -176,7 +176,7 @@ func planParsedAnnotateRequest(parsed annotateRequest) (models.PlanJobResponseV1
 		}
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(parsed.inputPaths))
 	warnings := make([]string, 0, len(parsed.inputPaths))
 	for index, inputPath := range parsed.inputPaths {
 		targetDir := parsed.outputDir
@@ -198,7 +198,7 @@ func planParsedAnnotateRequest(parsed annotateRequest) (models.PlanJobResponseV1
 	return plan, nil
 }
 
-func (t *AnnotateTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *AnnotateTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	inputPath := firstPath(req.InputPaths)
 
 	plan, planErr := t.Plan(ctx, req)
@@ -219,7 +219,7 @@ func (t *AnnotateTool) ExecuteSingle(ctx context.Context, req models.JobRequestV
 	return imageFailureItem(inputPath, plannedOutputPath(plan), jobErr), jobErr
 }
 
-func (t *AnnotateTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *AnnotateTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, jobErr := parseAnnotateRequest(req)
 	if jobErr != nil {
 		return nil, jobErr
@@ -240,7 +240,7 @@ func (t *AnnotateTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 // ExecutePlan annotates exactly the outputs resolved by Plan. The normalized
 // operations travel in the effective options, so a reduced retry plan only
 // processes the failed items without re-planning. Results keep plan order.
-func (t *AnnotateTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *AnnotateTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	total := len(plan.Outputs)
 	if total == 0 {
 		return nil, models.NewCanonicalJobError("IMAGE_ANNOTATE_INPUT_REQUIRED", "Choose at least one image to annotate.", nil)
@@ -263,7 +263,7 @@ func (t *AnnotateTool) ExecutePlan(ctx context.Context, req models.JobRequestV1,
 		detailCode = "IMAGE_ANNOTATE_EXECUTION"
 	}
 
-	items := make([]models.JobResultItemV1, total)
+	items := make([]models.JobResultItem, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
 
@@ -271,9 +271,9 @@ func (t *AnnotateTool) ExecutePlan(ctx context.Context, req models.JobRequestV1,
 		prepared := preparedItems[index]
 		if err := executeAnnotateToPath(ctx, prepared); err != nil {
 			itemErr := models.NewCanonicalJobError(detailCode, err.Error(), map[string]any{"inputPath": prepared.inputPath})
-			items[index] = models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Success: false, Message: "image annotate failed", Error: itemErr}
+			items[index] = models.JobResultItem{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Success: false, Message: "image annotate failed", Error: itemErr}
 		} else {
-			items[index] = models.JobResultItemV1{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Outputs: []string{prepared.outputPath}, OutputCount: 1, Success: true, Message: "image annotate successful"}
+			items[index] = models.JobResultItem{InputPath: prepared.inputPath, OutputPath: prepared.outputPath, Outputs: []string{prepared.outputPath}, OutputCount: 1, Success: true, Message: "image annotate successful"}
 		}
 		completed[index] = true
 		progress.itemCompleted()
@@ -296,9 +296,9 @@ func (t *AnnotateTool) ExecutePlan(ctx context.Context, req models.JobRequestV1,
 // annotatePlanOperations reads the normalized operations stored by Plan and
 // falls back to parsing the request options for legacy callers that never
 // planned. It never resolves output paths.
-func annotatePlanOperations(effective map[string]any, req models.JobRequestV1) ([]models.ImageAnnotateOperationV1, *models.JobErrorV1) {
+func annotatePlanOperations(effective map[string]any, req models.JobRequest) ([]models.ImageAnnotateOperation, *models.JobError) {
 	if effective != nil {
-		if operations, ok := effective["operations"].([]models.ImageAnnotateOperationV1); ok && len(operations) > 0 {
+		if operations, ok := effective["operations"].([]models.ImageAnnotateOperation); ok && len(operations) > 0 {
 			return operations, nil
 		}
 	}
@@ -311,10 +311,10 @@ func annotatePlanOperations(effective map[string]any, req models.JobRequestV1) (
 	return parsed.operations, nil
 }
 
-func (t *AnnotateTool) GetImageAnnotatePreviewV1(req models.ImageAnnotatePreviewRequestV1) models.ImageAnnotatePreviewResponseV1 {
+func (t *AnnotateTool) GetImageAnnotatePreview(req models.ImageAnnotatePreviewRequest) models.ImageAnnotatePreviewResponse {
 	inputPath := strings.TrimSpace(req.InputPath)
 	if inputPath == "" {
-		return models.ImageAnnotatePreviewResponseV1{
+		return models.ImageAnnotatePreviewResponse{
 			Success: false,
 			Message: "Select a valid image path and retry.",
 			Error:   models.NewCanonicalJobError("IMAGE_ANNOTATE_PREVIEW_INVALID_PATH", "inputPath is required", nil),
@@ -322,33 +322,33 @@ func (t *AnnotateTool) GetImageAnnotatePreviewV1(req models.ImageAnnotatePreview
 	}
 
 	if err := validateInputImagePath(inputPath); err != nil {
-		return models.ImageAnnotatePreviewResponseV1{Success: false, Message: err.Message, Error: err}
+		return models.ImageAnnotatePreviewResponse{Success: false, Message: err.Message, Error: err}
 	}
 
 	bytes, fmtName, width, height, err := readAndNormalize(inputPath)
 	if err != nil {
 		jobErr := models.NewCanonicalJobError("IMAGE_ANNOTATE_PREVIEW_READ_FAILED", err.Error(), nil)
-		return models.ImageAnnotatePreviewResponseV1{Success: false, Message: "Cannot load image preview source.", Error: jobErr}
+		return models.ImageAnnotatePreviewResponse{Success: false, Message: "Cannot load image preview source.", Error: jobErr}
 	}
 
 	outputFmt, fmtErr := resolveOutputFormat(inputPath, strings.TrimSpace(req.Format))
 	if fmtErr != nil {
-		return models.ImageAnnotatePreviewResponseV1{Success: false, Message: fmtErr.Message, Error: fmtErr}
+		return models.ImageAnnotatePreviewResponse{Success: false, Message: fmtErr.Message, Error: fmtErr}
 	}
 
 	ops, opErr := normalizeOperations(req.Operations)
 	if opErr != nil {
-		return models.ImageAnnotatePreviewResponseV1{Success: false, Message: opErr.Message, Error: opErr}
+		return models.ImageAnnotatePreviewResponse{Success: false, Message: opErr.Message, Error: opErr}
 	}
 
 	if validateErr := validateOperationsForImage(ops, width, height); validateErr != nil {
-		return models.ImageAnnotatePreviewResponseV1{Success: false, Message: validateErr.Message, Error: validateErr}
+		return models.ImageAnnotatePreviewResponse{Success: false, Message: validateErr.Message, Error: validateErr}
 	}
 
 	annotatedBytes, err := applyOperations(bytes, outputFmt, ops)
 	if err != nil {
 		jobErr := models.NewCanonicalJobError("IMAGE_ANNOTATE_PREVIEW_EXECUTION", err.Error(), nil)
-		return models.ImageAnnotatePreviewResponseV1{Success: false, Message: "Failed to generate annotate preview.", Error: jobErr}
+		return models.ImageAnnotatePreviewResponse{Success: false, Message: "Failed to generate annotate preview.", Error: jobErr}
 	}
 
 	mimeType := imageMimeByFormat[outputFmt]
@@ -356,7 +356,7 @@ func (t *AnnotateTool) GetImageAnnotatePreviewV1(req models.ImageAnnotatePreview
 		mimeType = imageMimeByFormat[fmtName]
 	}
 
-	return models.ImageAnnotatePreviewResponseV1{
+	return models.ImageAnnotatePreviewResponse{
 		Success:    true,
 		Message:    "image annotate preview generated",
 		DataBase64: base64.StdEncoding.EncodeToString(annotatedBytes),
@@ -366,7 +366,7 @@ func (t *AnnotateTool) GetImageAnnotatePreviewV1(req models.ImageAnnotatePreview
 	}
 }
 
-func parseAnnotateRequest(req models.JobRequestV1) (annotateRequest, *models.JobErrorV1) {
+func parseAnnotateRequest(req models.JobRequest) (annotateRequest, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return annotateRequest{}, models.NewCanonicalJobError("IMAGE_ANNOTATE_MODE_INVALID", "mode must be single or batch", nil)
@@ -423,15 +423,15 @@ func parseAnnotateRequest(req models.JobRequestV1) (annotateRequest, *models.Job
 	}, nil
 }
 
-func operationsFromAny(raw any) ([]models.ImageAnnotateOperationV1, *models.JobErrorV1) {
-	typed, ok := raw.([]models.ImageAnnotateOperationV1)
+func operationsFromAny(raw any) ([]models.ImageAnnotateOperation, *models.JobError) {
+	typed, ok := raw.([]models.ImageAnnotateOperation)
 	if ok {
 		return typed, nil
 	}
 
-	typedPtrs, ok := raw.([]*models.ImageAnnotateOperationV1)
+	typedPtrs, ok := raw.([]*models.ImageAnnotateOperation)
 	if ok {
-		out := make([]models.ImageAnnotateOperationV1, 0, len(typedPtrs))
+		out := make([]models.ImageAnnotateOperation, 0, len(typedPtrs))
 		for _, item := range typedPtrs {
 			if item == nil {
 				return nil, models.NewCanonicalJobError("IMAGE_ANNOTATE_OPERATION_INVALID", "each operation must be an object", nil)
@@ -450,7 +450,7 @@ func operationsFromAny(raw any) ([]models.ImageAnnotateOperationV1, *models.JobE
 		return nil, models.NewCanonicalJobError("IMAGE_ANNOTATE_OPERATIONS_EMPTY", "options.operations must include at least one operation", nil)
 	}
 
-	out := make([]models.ImageAnnotateOperationV1, 0, len(list))
+	out := make([]models.ImageAnnotateOperation, 0, len(list))
 	for _, item := range list {
 		mapped, ok := item.(map[string]any)
 		if !ok {
@@ -467,13 +467,13 @@ func operationsFromAny(raw any) ([]models.ImageAnnotateOperationV1, *models.JobE
 	return out, nil
 }
 
-func operationFromMap(m map[string]any) (models.ImageAnnotateOperationV1, *models.JobErrorV1) {
+func operationFromMap(m map[string]any) (models.ImageAnnotateOperation, *models.JobError) {
 	typeName := strings.ToLower(strings.TrimSpace(anyString(m["type"])))
 	if typeName == "" {
-		return models.ImageAnnotateOperationV1{}, models.NewCanonicalJobError("IMAGE_ANNOTATE_OPERATION_TYPE_REQUIRED", "operation.type is required", nil)
+		return models.ImageAnnotateOperation{}, models.NewCanonicalJobError("IMAGE_ANNOTATE_OPERATION_TYPE_REQUIRED", "operation.type is required", nil)
 	}
 
-	op := models.ImageAnnotateOperationV1{Type: typeName}
+	op := models.ImageAnnotateOperation{Type: typeName}
 
 	op.X = anyInt(m["x"])
 	op.Y = anyInt(m["y"])
@@ -491,12 +491,12 @@ func operationFromMap(m map[string]any) (models.ImageAnnotateOperationV1, *model
 	return op, nil
 }
 
-func normalizeOperations(ops []models.ImageAnnotateOperationV1) ([]models.ImageAnnotateOperationV1, *models.JobErrorV1) {
+func normalizeOperations(ops []models.ImageAnnotateOperation) ([]models.ImageAnnotateOperation, *models.JobError) {
 	if len(ops) == 0 {
 		return nil, models.NewCanonicalJobError("IMAGE_ANNOTATE_OPERATIONS_EMPTY", "operations must include at least one operation", nil)
 	}
 
-	normalized := make([]models.ImageAnnotateOperationV1, 0, len(ops))
+	normalized := make([]models.ImageAnnotateOperation, 0, len(ops))
 	for idx, raw := range ops {
 		op := raw
 		op.Type = strings.ToLower(strings.TrimSpace(op.Type))
@@ -531,7 +531,7 @@ func normalizeOperations(ops []models.ImageAnnotateOperationV1) ([]models.ImageA
 	return normalized, nil
 }
 
-func validateOperationsForImage(ops []models.ImageAnnotateOperationV1, imageWidth, imageHeight int) *models.JobErrorV1 {
+func validateOperationsForImage(ops []models.ImageAnnotateOperation, imageWidth, imageHeight int) *models.JobError {
 	if imageWidth < 1 || imageHeight < 1 {
 		return models.NewCanonicalJobError("IMAGE_ANNOTATE_DIMENSIONS_INVALID", "image dimensions are invalid", nil)
 	}
@@ -592,7 +592,7 @@ func validateOperationsForImage(ops []models.ImageAnnotateOperationV1, imageWidt
 	return nil
 }
 
-func validateRectOp(op models.ImageAnnotateOperationV1, imageWidth, imageHeight int, suffix string) *models.JobErrorV1 {
+func validateRectOp(op models.ImageAnnotateOperation, imageWidth, imageHeight int, suffix string) *models.JobError {
 	if op.Width < 1 || op.Height < 1 {
 		return models.NewCanonicalJobError("IMAGE_ANNOTATE_DIMENSIONS_INVALID", suffix+" width/height must be >= 1", nil)
 	}
@@ -618,7 +618,7 @@ func pointInBounds(x, y, width, height int) bool {
 // planSingleAnnotateOutput resolves the one output of a single request. An
 // explicit outputPath keeps the old validation contract; otherwise the output
 // is auto-named next to the input or inside the chosen folder.
-func planSingleAnnotateOutput(parsed annotateRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
+func planSingleAnnotateOutput(parsed annotateRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutput, *models.JobError) {
 	inputPath := parsed.inputPaths[0]
 
 	if explicitOutput := strings.TrimSpace(parsed.outputPath); explicitOutput != "" {
@@ -633,8 +633,8 @@ func planSingleAnnotateOutput(parsed annotateRequest, outputFmt string, used map
 	return planAutoAnnotateOutput(inputPath, filepath.Clean(targetDir), outputFmt, used), nil
 }
 
-func planExplicitAnnotateOutput(inputPath, explicitOutput string) (models.PlannedOutputV1, *models.JobErrorV1) {
-	planned := models.PlannedOutputV1{
+func planExplicitAnnotateOutput(inputPath, explicitOutput string) (models.PlannedOutput, *models.JobError) {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputPath: filepath.Clean(strings.TrimSpace(explicitOutput)),
 		OutputKind: imageOutputKindFile,
@@ -672,8 +672,8 @@ func planExplicitAnnotateOutput(inputPath, explicitOutput string) (models.Planne
 }
 
 // planAutoAnnotateOutput derives a collision-safe name inside dir. It never writes.
-func planAutoAnnotateOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutputV1 {
-	planned := models.PlannedOutputV1{
+func planAutoAnnotateOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutput {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputKind: imageOutputKindFile,
 	}
@@ -701,7 +701,7 @@ func annotateOutputBaseName(inputPath string) string {
 
 // preparedAnnotateFromPlan turns a planned output into executor input without
 // resolving any path again.
-func preparedAnnotateFromPlan(planned models.PlannedOutputV1, operations []models.ImageAnnotateOperationV1, effective map[string]any) preparedAnnotate {
+func preparedAnnotateFromPlan(planned models.PlannedOutput, operations []models.ImageAnnotateOperation, effective map[string]any) preparedAnnotate {
 	return preparedAnnotate{
 		inputPath:  planned.InputPath,
 		outputPath: planned.OutputPath,
@@ -713,7 +713,7 @@ func preparedAnnotateFromPlan(planned models.PlannedOutputV1, operations []model
 func annotateEffectiveOptions(parsed annotateRequest, formats []string) map[string]any {
 	effective := map[string]any{
 		"operationCount": len(parsed.operations),
-		"operations":     append([]models.ImageAnnotateOperationV1(nil), parsed.operations...),
+		"operations":     append([]models.ImageAnnotateOperation(nil), parsed.operations...),
 	}
 	if format, ok := commonPlannedFormat(formats); ok {
 		effective["format"] = format
@@ -722,7 +722,7 @@ func annotateEffectiveOptions(parsed annotateRequest, formats []string) map[stri
 	return effective
 }
 
-func validateAnnotateOutputDir(outputDir string) *models.JobErrorV1 {
+func validateAnnotateOutputDir(outputDir string) *models.JobError {
 	info, statErr := os.Stat(outputDir)
 	if statErr != nil {
 		return models.NewCanonicalJobError("IMAGE_ANNOTATE_OUTPUT_DIR_INVALID", fmt.Sprintf("outputDir is not accessible: %v", statErr), nil)
@@ -776,7 +776,7 @@ func executeAnnotateToPath(ctx context.Context, prepared preparedAnnotate) error
 	return nil
 }
 
-func applyOperations(input []byte, outputFmt string, operations []models.ImageAnnotateOperationV1) ([]byte, error) {
+func applyOperations(input []byte, outputFmt string, operations []models.ImageAnnotateOperation) ([]byte, error) {
 	decoded, _, err := image.Decode(bytes.NewReader(input))
 	if err != nil {
 		return nil, fmt.Errorf("decode image: %w", err)

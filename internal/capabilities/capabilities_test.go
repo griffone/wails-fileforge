@@ -25,16 +25,16 @@ func fakeLookPath(available ...string) func(string) (string, error) {
 	}
 }
 
-func fakeOCR(response models.OCRCapabilitiesResponseV1) func(context.Context) models.OCRCapabilitiesResponseV1 {
-	return func(context.Context) models.OCRCapabilitiesResponseV1 {
+func fakeOCR(response models.OCRCapabilitiesResponse) func(context.Context) models.OCRCapabilitiesResponse {
+	return func(context.Context) models.OCRCapabilitiesResponse {
 		return response
 	}
 }
 
-func checksByID(t *testing.T, response models.LocalCapabilitiesResponseV1) map[string]models.LocalCapabilityV1 {
+func checksByID(t *testing.T, response models.LocalCapabilitiesResponse) map[string]models.LocalCapability {
 	t.Helper()
 
-	byID := make(map[string]models.LocalCapabilityV1, len(response.Checks))
+	byID := make(map[string]models.LocalCapability, len(response.Checks))
 	for _, check := range response.Checks {
 		if _, exists := byID[check.ID]; exists {
 			t.Fatalf("duplicate capability id %q", check.ID)
@@ -48,7 +48,7 @@ func checksByID(t *testing.T, response models.LocalCapabilitiesResponseV1) map[s
 func TestDetectWithAllToolsAvailable(t *testing.T) {
 	response := DetectWith(context.Background(), Options{
 		LookPath: fakeLookPath(allChecks...),
-		OCR: fakeOCR(models.OCRCapabilitiesResponseV1{
+		OCR: fakeOCR(models.OCRCapabilitiesResponse{
 			Success:             true,
 			Available:           true,
 			Tesseract:           true,
@@ -114,7 +114,7 @@ func TestDetectWithAllToolsAvailable(t *testing.T) {
 func TestDetectWithMissingOptionalAndRequiredTools(t *testing.T) {
 	response := DetectWith(context.Background(), Options{
 		LookPath: fakeLookPath("pdftoppm", "tesseract", "pdftotext", "ffprobe", "libreoffice", "pandoc"),
-		OCR: fakeOCR(models.OCRCapabilitiesResponseV1{
+		OCR: fakeOCR(models.OCRCapabilitiesResponse{
 			Tesseract:           true,
 			Languages:           []string{"eng"},
 			RecommendedLanguage: "eng",
@@ -151,7 +151,7 @@ func TestDetectWithMissingOptionalAndRequiredTools(t *testing.T) {
 func TestDetectWithTesseractWithoutLanguageData(t *testing.T) {
 	response := DetectWith(context.Background(), Options{
 		LookPath: fakeLookPath("pdftoppm", "tesseract", "pdftotext", "ffmpeg", "ffprobe"),
-		OCR: fakeOCR(models.OCRCapabilitiesResponseV1{
+		OCR: fakeOCR(models.OCRCapabilitiesResponse{
 			Tesseract: true,
 			Languages: []string{},
 		}),
@@ -172,7 +172,7 @@ func TestDetectWithTesseractWithoutLanguageData(t *testing.T) {
 func TestDetectWithMissingTesseractBinary(t *testing.T) {
 	response := DetectWith(context.Background(), Options{
 		LookPath: fakeLookPath("pdftoppm", "pdftotext", "ffmpeg", "ffprobe"),
-		OCR: fakeOCR(models.OCRCapabilitiesResponseV1{
+		OCR: fakeOCR(models.OCRCapabilitiesResponse{
 			Tesseract: true,
 			Languages: []string{"eng"},
 		}),

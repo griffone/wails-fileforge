@@ -3,11 +3,11 @@ package pdf
 import "fileforge-desktop/internal/registry"
 
 func init() {
-	registry.GetGlobalRegistry().SafeRegisterToolV2(NewMergeTool())
-	registry.GetGlobalRegistry().SafeRegisterToolV2(NewSplitTool())
-	registry.GetGlobalRegistry().SafeRegisterToolV2(NewCropTool())
-	registry.GetGlobalRegistry().SafeRegisterToolV2(NewOptimizeTool())
-	registry.GetGlobalRegistry().SafeRegisterToolV2(NewOCRTool())
-	registry.GetGlobalRegistry().SafeRegisterToolV2(NewImagesToPDFTool())
-	registry.GetGlobalRegistry().SafeRegisterToolV2(NewPDFToDOCXTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewMergeTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewSplitTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewCropTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewOptimizeTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewOCRTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewImagesToPDFTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewPDFToDOCXTool())
 }

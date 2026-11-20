@@ -55,9 +55,9 @@ func writeBookmarkedPDFFixture(t *testing.T, path string, pages int, bookmarks [
 	}
 }
 
-func splitTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDPDFSplitV1,
+func splitTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDPDFSplit,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,

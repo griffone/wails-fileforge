@@ -16,7 +16,7 @@ func TestStoreSavesAndReloadsRules(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
 	store := NewStore(path)
 
-	rule := models.AutomationRuleV1{
+	rule := models.AutomationRule{
 		ID:            "rule_1",
 		Name:          "Inbox",
 		Enabled:       true,
@@ -67,7 +67,7 @@ func TestStoreDeleteRemovesRule(t *testing.T) {
 	store := NewStore(path)
 
 	for _, id := range []string{"rule_1", "rule_2"} {
-		if _, err := store.Save(models.AutomationRuleV1{ID: id, Name: id}); err != nil {
+		if _, err := store.Save(models.AutomationRule{ID: id, Name: id}); err != nil {
 			t.Fatalf("save %s: %v", id, err)
 		}
 	}
@@ -93,7 +93,7 @@ func TestStoreUpdateRunCapsOutputs(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
 	store := NewStore(path)
 
-	if _, err := store.Save(models.AutomationRuleV1{ID: "rule_1", Name: "Rule"}); err != nil {
+	if _, err := store.Save(models.AutomationRule{ID: "rule_1", Name: "Rule"}); err != nil {
 		t.Fatalf("save rule: %v", err)
 	}
 
@@ -131,7 +131,7 @@ func TestStoreSetEnabled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
 	store := NewStore(path)
 
-	if _, err := store.Save(models.AutomationRuleV1{ID: "rule_1", Name: "Rule", Enabled: false}); err != nil {
+	if _, err := store.Save(models.AutomationRule{ID: "rule_1", Name: "Rule", Enabled: false}); err != nil {
 		t.Fatalf("save rule: %v", err)
 	}
 	if err := store.SetEnabled("rule_1", true); err != nil {
@@ -165,7 +165,7 @@ func TestStoreToleratesMalformedJSON(t *testing.T) {
 		t.Fatalf("expected an empty list, got %+v", rules)
 	}
 
-	if _, err := store.Save(models.AutomationRuleV1{ID: "rule_1", Name: "Rule"}); err != nil {
+	if _, err := store.Save(models.AutomationRule{ID: "rule_1", Name: "Rule"}); err != nil {
 		t.Fatalf("save after malformed load: %v", err)
 	}
 	if rules := NewStore(path).List(); len(rules) != 1 {
@@ -179,7 +179,7 @@ func TestStoreCapsRuleCount(t *testing.T) {
 
 	for index := 0; index < 5; index++ {
 		id := "rule_" + string(rune('0'+index))
-		if _, err := store.Save(models.AutomationRuleV1{ID: id, Name: id}); err != nil {
+		if _, err := store.Save(models.AutomationRule{ID: id, Name: id}); err != nil {
 			t.Fatalf("save %s: %v", id, err)
 		}
 	}
@@ -195,7 +195,7 @@ func TestStoreCapsRuleCount(t *testing.T) {
 
 func TestStoreSaveRequiresID(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "automation_rules_v1.json"))
-	if _, err := store.Save(models.AutomationRuleV1{Name: "No id"}); err == nil {
+	if _, err := store.Save(models.AutomationRule{Name: "No id"}); err == nil {
 		t.Fatal("expected a missing-id error")
 	}
 }
@@ -215,7 +215,7 @@ func TestStoreConcurrentSavesKeepEveryRule(t *testing.T) {
 			defer group.Done()
 
 			id := fmt.Sprintf("rule_%d", index)
-			if _, err := store.Save(models.AutomationRuleV1{ID: id, Name: id}); err != nil {
+			if _, err := store.Save(models.AutomationRule{ID: id, Name: id}); err != nil {
 				t.Errorf("save %s: %v", id, err)
 			}
 		}(index)

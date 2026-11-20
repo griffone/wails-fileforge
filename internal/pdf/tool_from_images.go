@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	// ToolIDPDFImagesV1 places several images on a page grid and exports one PDF.
-	ToolIDPDFImagesV1 = "tool.pdf.images"
+	// ToolIDPDFImages places several images on a page grid and exports one PDF.
+	ToolIDPDFImages = "tool.pdf.images"
 
 	imagesOutputKindFile = "file"
 	imagesOutputSuffix   = "_images"
@@ -35,21 +35,21 @@ func NewImagesToPDFTool() *ImagesToPDFTool {
 }
 
 func (t *ImagesToPDFTool) ID() string {
-	return ToolIDPDFImagesV1
+	return ToolIDPDFImages
 }
 
 func (t *ImagesToPDFTool) Capability() string {
-	return ToolIDPDFImagesV1
+	return ToolIDPDFImages
 }
 
-func (t *ImagesToPDFTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *ImagesToPDFTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "Images to PDF",
 		Description:      "Place several images on a page grid and export one PDF.",
 		Domain:           "pdf",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    false,
 		InputExtensions:  []string{"jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"},
@@ -59,11 +59,11 @@ func (t *ImagesToPDFTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *ImagesToPDFTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *ImagesToPDFTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *ImagesToPDFTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *ImagesToPDFTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -71,13 +71,13 @@ func (t *ImagesToPDFTool) Validate(ctx context.Context, req models.JobRequestV1)
 // Plan validates the layout and resolves the destination PDF without writing
 // anything. An explicit outputPath must not exist; otherwise the output defaults
 // to <firstStem>_images.pdf in the chosen folder or next to the first input.
-func (t *ImagesToPDFTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *ImagesToPDFTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	// A single PDF is produced from every input, so "single" is the only valid
 	// mode even when the request carries more than one image.
 	if strings.TrimSpace(req.Mode) != "single" {
-		return planFailure(plan, &models.JobErrorV1{Code: "VALIDATION_ERROR", Message: "mode must be single"})
+		return planFailure(plan, &models.JobError{Code: "VALIDATION_ERROR", Message: "mode must be single"})
 	}
 
 	layout, layoutErr := imagesLayoutFromOptions(req.Options)
@@ -92,7 +92,7 @@ func (t *ImagesToPDFTool) Plan(_ context.Context, req models.JobRequestV1) (mode
 		return planFailure(plan, mapImagesPlanError(validationErr))
 	}
 
-	planned := models.PlannedOutputV1{
+	planned := models.PlannedOutput{
 		InputPath:   strings.Join(req.InputPaths, ","),
 		OutputPath:  outputPath,
 		OutputKind:  imagesOutputKindFile,
@@ -105,7 +105,7 @@ func (t *ImagesToPDFTool) Plan(_ context.Context, req models.JobRequestV1) (mode
 
 	plan.Success = true
 	plan.Message = fmt.Sprintf("Ready to place %d images on %d page(s).", len(req.InputPaths), pageCount)
-	plan.Outputs = []models.PlannedOutputV1{planned}
+	plan.Outputs = []models.PlannedOutput{planned}
 	plan.EffectiveOptions = imagesEffectiveOptions(normalizedLayout)
 
 	return plan, nil
@@ -113,13 +113,13 @@ func (t *ImagesToPDFTool) Plan(_ context.Context, req models.JobRequestV1) (mode
 
 // ExecuteSingle implements tools.SingleExecutor by delegating to the progress
 // variant with a no-op callback.
-func (t *ImagesToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImagesToPDFTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
 // ExecuteSingleWithProgress resolves the plan once, executes exactly that plan
 // and reports progress once per normalized input image.
-func (t *ImagesToPDFTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImagesToPDFTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	inputPath := strings.Join(req.InputPaths, ",")
 
 	plan, planErr := t.Plan(ctx, req)
@@ -142,25 +142,25 @@ func (t *ImagesToPDFTool) ExecuteSingleWithProgress(ctx context.Context, req mod
 
 // ExecutePlan renders the images into the destination resolved by Plan. It
 // re-normalizes the layout options but never re-resolves the output path.
-func (t *ImagesToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImagesToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	inputPath := strings.Join(req.InputPaths, ",")
 
 	layout, layoutErr := imagesLayoutFromOptions(req.Options)
 	if layoutErr != nil {
-		return []models.JobResultItemV1{imagesFailureItem(inputPath, imagesPlannedOutputPath(plan), layoutErr)}, layoutErr
+		return []models.JobResultItem{imagesFailureItem(inputPath, imagesPlannedOutputPath(plan), layoutErr)}, layoutErr
 	}
 
 	outputPath := imagesPlannedOutputPath(plan)
 	if outputPath == "" {
 		jobErr := models.NewCanonicalJobError("PDF_IMAGES_EXECUTION_MISSING_RESULT", "the plan resolved no output", nil)
-		return []models.JobResultItemV1{imagesFailureItem(inputPath, "", jobErr)}, jobErr
+		return []models.JobResultItem{imagesFailureItem(inputPath, "", jobErr)}, jobErr
 	}
 
 	progress := func(processed, total int) {
 		if onProgress == nil {
 			return
 		}
-		onProgress(models.JobProgressV1{
+		onProgress(models.JobProgress{
 			Current: processed,
 			Total:   total,
 			Stage:   "running",
@@ -171,10 +171,10 @@ func (t *ImagesToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequest
 	result, buildErr := engine.BuildImagesPDF(ctx, req.InputPaths, outputPath, layout, progress)
 	if buildErr != nil {
 		jobErr := mapImagesExecuteError(buildErr)
-		return []models.JobResultItemV1{imagesFailureItem(inputPath, outputPath, jobErr)}, jobErr
+		return []models.JobResultItem{imagesFailureItem(inputPath, outputPath, jobErr)}, jobErr
 	}
 
-	return []models.JobResultItemV1{{
+	return []models.JobResultItem{{
 		InputPath:   inputPath,
 		OutputPath:  result.OutputPath,
 		Outputs:     []string{result.OutputPath},
@@ -187,7 +187,7 @@ func (t *ImagesToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequest
 // imagesLayoutFromOptions reads the optional grid options and applies the
 // documented defaults. A value that is present but malformed is rejected
 // instead of silently replaced by its default.
-func imagesLayoutFromOptions(options map[string]any) (engine.ImagesLayout, *models.JobErrorV1) {
+func imagesLayoutFromOptions(options map[string]any) (engine.ImagesLayout, *models.JobError) {
 	layout := engine.ImagesLayout{
 		PageSize:    engine.ImagesPageA4,
 		Orientation: engine.ImagesOrientationPortrait,
@@ -202,7 +202,7 @@ func imagesLayoutFromOptions(options map[string]any) (engine.ImagesLayout, *mode
 		return layout, nil
 	}
 
-	var optionErr *models.JobErrorV1
+	var optionErr *models.JobError
 	if layout.PageSize, optionErr = imagesStringOption(options, "pageSize", layout.PageSize); optionErr != nil {
 		return engine.ImagesLayout{}, optionErr
 	}
@@ -234,7 +234,7 @@ func imagesLayoutFromOptions(options map[string]any) (engine.ImagesLayout, *mode
 	return layout, nil
 }
 
-func imagesStringOption(options map[string]any, key, fallback string) (string, *models.JobErrorV1) {
+func imagesStringOption(options map[string]any, key, fallback string) (string, *models.JobError) {
 	raw, exists := options[key]
 	if !exists || raw == nil {
 		return fallback, nil
@@ -253,7 +253,7 @@ func imagesStringOption(options map[string]any, key, fallback string) (string, *
 	return trimmed, nil
 }
 
-func imagesIntOption(options map[string]any, key string, fallback int) (int, *models.JobErrorV1) {
+func imagesIntOption(options map[string]any, key string, fallback int) (int, *models.JobError) {
 	raw, exists := options[key]
 	if !exists || raw == nil {
 		return fallback, nil
@@ -270,7 +270,7 @@ func imagesIntOption(options map[string]any, key string, fallback int) (int, *mo
 	return int(value), nil
 }
 
-func imagesFloatOption(options map[string]any, key string, fallback float64) (float64, *models.JobErrorV1) {
+func imagesFloatOption(options map[string]any, key string, fallback float64) (float64, *models.JobError) {
 	raw, exists := options[key]
 	if !exists || raw == nil {
 		return fallback, nil
@@ -287,7 +287,7 @@ func imagesFloatOption(options map[string]any, key string, fallback float64) (fl
 // imagesSlotsFromOptions accepts the JSON shape ([]any of map[string]any) and
 // the programmatic shape ([]engine.ImageSlot or []map[string]any). A nil result
 // lets the engine auto-fill the grid in input order.
-func imagesSlotsFromOptions(options map[string]any) ([]engine.ImageSlot, *models.JobErrorV1) {
+func imagesSlotsFromOptions(options map[string]any) ([]engine.ImageSlot, *models.JobError) {
 	raw, exists := options["slots"]
 	if !exists || raw == nil {
 		return nil, nil
@@ -305,7 +305,7 @@ func imagesSlotsFromOptions(options map[string]any) ([]engine.ImageSlot, *models
 	}
 }
 
-func imagesSlotsFromMaps(entries []map[string]any) ([]engine.ImageSlot, *models.JobErrorV1) {
+func imagesSlotsFromMaps(entries []map[string]any) ([]engine.ImageSlot, *models.JobError) {
 	slots := make([]engine.ImageSlot, 0, len(entries))
 	for index, entry := range entries {
 		slot, slotErr := imagesSlotFromMap(entry, index)
@@ -318,7 +318,7 @@ func imagesSlotsFromMaps(entries []map[string]any) ([]engine.ImageSlot, *models.
 	return slots, nil
 }
 
-func imagesSlotsFromAny(entries []any) ([]engine.ImageSlot, *models.JobErrorV1) {
+func imagesSlotsFromAny(entries []any) ([]engine.ImageSlot, *models.JobError) {
 	slots := make([]engine.ImageSlot, 0, len(entries))
 	for index, entry := range entries {
 		values, ok := entry.(map[string]any)
@@ -339,7 +339,7 @@ func imagesSlotsFromAny(entries []any) ([]engine.ImageSlot, *models.JobErrorV1) 
 	return slots, nil
 }
 
-func imagesSlotFromMap(values map[string]any, index int) (engine.ImageSlot, *models.JobErrorV1) {
+func imagesSlotFromMap(values map[string]any, index int) (engine.ImageSlot, *models.JobError) {
 	page, pageErr := imagesSlotField(values, index, "page")
 	if pageErr != nil {
 		return engine.ImageSlot{}, pageErr
@@ -356,7 +356,7 @@ func imagesSlotFromMap(values map[string]any, index int) (engine.ImageSlot, *mod
 	return engine.ImageSlot{Page: page, Cell: cell, InputIndex: inputIndex}, nil
 }
 
-func imagesSlotField(values map[string]any, index int, field string) (int, *models.JobErrorV1) {
+func imagesSlotField(values map[string]any, index int, field string) (int, *models.JobError) {
 	raw, exists := values[field]
 	if !exists || raw == nil {
 		return 0, imagesSlotError(index, fmt.Sprintf("options.slots[%d].%s is required", index, field), field)
@@ -370,11 +370,11 @@ func imagesSlotField(values map[string]any, index int, field string) (int, *mode
 	return int(value), nil
 }
 
-func imagesSlotError(index int, message, field string) *models.JobErrorV1 {
+func imagesSlotError(index int, message, field string) *models.JobError {
 	return imagesInvalidLayoutError(message, map[string]any{"slotIndex": index, "field": field})
 }
 
-func imagesInvalidLayoutError(message string, details map[string]any) *models.JobErrorV1 {
+func imagesInvalidLayoutError(message string, details map[string]any) *models.JobError {
 	return models.NewCanonicalJobError(engine.ImagesErrorInvalidLayout, message, details)
 }
 
@@ -434,8 +434,8 @@ func imagesEffectiveOptions(layout engine.ImagesLayout) map[string]any {
 	}
 }
 
-func imagesFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
-	return models.JobResultItemV1{
+func imagesFailureItem(inputPath, outputPath string, jobErr *models.JobError) models.JobResultItem {
+	return models.JobResultItem{
 		InputPath:  inputPath,
 		OutputPath: outputPath,
 		Success:    false,
@@ -444,7 +444,7 @@ func imagesFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) 
 	}
 }
 
-func imagesPlannedOutputPath(plan models.PlanJobResponseV1) string {
+func imagesPlannedOutputPath(plan models.PlanJobResponse) string {
 	if len(plan.Outputs) == 0 {
 		return ""
 	}
@@ -454,10 +454,10 @@ func imagesPlannedOutputPath(plan models.PlanJobResponseV1) string {
 
 // mapImagesPlanError keeps the engine detail code and applies the canonical
 // mapping for the top-level code, which is what planning failures need.
-func mapImagesPlanError(err error) *models.JobErrorV1 {
+func mapImagesPlanError(err error) *models.JobError {
 	var imagesErr *engine.ImagesError
 	if !errors.As(err, &imagesErr) {
-		return &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
+		return &models.JobError{Code: "EXECUTION_ERROR", Message: err.Error()}
 	}
 
 	return models.NewCanonicalJobError(imagesErr.Code, imagesErr.Message, imagesErr.Details)
@@ -466,17 +466,17 @@ func mapImagesPlanError(err error) *models.JobErrorV1 {
 // mapImagesExecuteError turns a build failure into a job error. Cancellation is
 // reported as CANCELLED_BY_USER so the job is cancelled instead of failed;
 // every other failure keeps the stable engine code in both code fields.
-func mapImagesExecuteError(err error) *models.JobErrorV1 {
+func mapImagesExecuteError(err error) *models.JobError {
 	var imagesErr *engine.ImagesError
 	if !errors.As(err, &imagesErr) {
-		return &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
+		return &models.JobError{Code: "EXECUTION_ERROR", Message: err.Error()}
 	}
 
 	if imagesErr.Code == engine.ImagesErrorCancelled {
 		return models.NewJobError(models.ErrorCodeCancelledByUser, engine.ImagesErrorCancelled, "Images to PDF was canceled.", imagesErr.Details)
 	}
 
-	return &models.JobErrorV1{
+	return &models.JobError{
 		Code:       imagesErr.Code,
 		DetailCode: imagesErr.Code,
 		Message:    imagesErr.Message,

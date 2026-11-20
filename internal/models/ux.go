@@ -1,6 +1,6 @@
 package models
 
-type PlannedOutputV1 struct {
+type PlannedOutput struct {
 	InputPath   string   `json:"inputPath"`
 	OutputPath  string   `json:"outputPath"`
 	OutputKind  string   `json:"outputKind"` // file | directory
@@ -10,16 +10,16 @@ type PlannedOutputV1 struct {
 	Warnings    []string `json:"warnings,omitempty"`
 }
 
-type PlanJobResponseV1 struct {
-	Success          bool              `json:"success"`
-	Message          string            `json:"message"`
-	Outputs          []PlannedOutputV1 `json:"outputs"`
-	EffectiveOptions map[string]any    `json:"effectiveOptions,omitempty"`
-	Warnings         []string          `json:"warnings,omitempty"`
-	Error            *JobErrorV1       `json:"error,omitempty"`
+type PlanJobResponse struct {
+	Success          bool            `json:"success"`
+	Message          string          `json:"message"`
+	Outputs          []PlannedOutput `json:"outputs"`
+	EffectiveOptions map[string]any  `json:"effectiveOptions,omitempty"`
+	Warnings         []string        `json:"warnings,omitempty"`
+	Error            *JobError       `json:"error,omitempty"`
 }
 
-type FileInfoV1 struct {
+type FileInfo struct {
 	Path             string  `json:"path"`
 	Name             string  `json:"name"`
 	Directory        string  `json:"directory"`
@@ -40,18 +40,18 @@ type FileInfoV1 struct {
 	Error            string  `json:"error,omitempty"`
 }
 
-type InspectFilesResponseV1 struct {
-	Success bool         `json:"success"`
-	Message string       `json:"message"`
-	Files   []FileInfoV1 `json:"files"`
+type InspectFilesResponse struct {
+	Success bool       `json:"success"`
+	Message string     `json:"message"`
+	Files   []FileInfo `json:"files"`
 }
 
-type PathActionResponseV1 struct {
+type PathActionResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-type MediaSourceResponseV1 struct {
+type MediaSourceResponse struct {
 	Success     bool   `json:"success"`
 	URL         string `json:"url,omitempty"`
 	FallbackURL string `json:"fallbackUrl,omitempty"`

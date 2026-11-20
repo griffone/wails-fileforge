@@ -8,11 +8,11 @@ import (
 	"fileforge-desktop/internal/registry"
 )
 
-func TestListJobsV1ReturnsEmptySliceForNewService(t *testing.T) {
+func TestListJobsReturnsEmptySliceForNewService(t *testing.T) {
 	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history_v1.json"))
 	service := newToolingService(registry.NewRegistry(), history)
 
-	response := service.ListJobsV1(0)
+	response := service.ListJobs(0)
 	if !response.Success {
 		t.Fatalf("expected a successful response, got %+v", response)
 	}

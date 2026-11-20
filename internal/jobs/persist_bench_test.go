@@ -39,7 +39,7 @@ func TestSaveJobsSnapshotWritesValidJSON(t *testing.T) {
 		t.Fatalf("read persisted jobs: %v", err)
 	}
 
-	var decoded []models.JobResultV1
+	var decoded []models.JobResult
 	if err := json.Unmarshal(content, &decoded); err != nil {
 		t.Fatalf("decode persisted jobs: %v", err)
 	}
@@ -53,27 +53,27 @@ func TestSaveJobsSnapshotWritesValidJSON(t *testing.T) {
 
 // benchmarkPersistedJobs builds 25 terminal job snapshots with one completed
 // item each, the shape written by the engine snapshot.
-func benchmarkPersistedJobs() []models.JobResultV1 {
+func benchmarkPersistedJobs() []models.JobResult {
 	started := time.Now().Add(-time.Hour).UnixMilli()
 	ended := time.Now().UnixMilli()
 
-	jobs := make([]models.JobResultV1, 0, 25)
+	jobs := make([]models.JobResult, 0, 25)
 	for i := 0; i < 25; i++ {
 		input := fmt.Sprintf("/tmp/fileforge/input_%02d.png", i)
 		output := fmt.Sprintf("/tmp/fileforge/output_%02d.jpg", i)
-		jobs = append(jobs, models.JobResultV1{
+		jobs = append(jobs, models.JobResult{
 			JobID:   fmt.Sprintf("job-%02d", i),
 			Success: true,
 			Message: "Job completed successfully",
 			ToolID:  "tool.image.convert",
 			Status:  "succeeded",
-			Progress: models.JobProgressV1{
+			Progress: models.JobProgress{
 				Current: 1,
 				Total:   1,
 				Stage:   "completed",
 				Message: "Converted 1 image",
 			},
-			Items: []models.JobResultItemV1{
+			Items: []models.JobResultItem{
 				{
 					InputPath:   input,
 					OutputPath:  output,

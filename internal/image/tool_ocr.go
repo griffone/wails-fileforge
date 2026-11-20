@@ -15,7 +15,7 @@ import (
 	"fileforge-desktop/internal/utils"
 )
 
-const ToolIDImageOCRV1 = "tool.image.ocr"
+const ToolIDImageOCR = "tool.image.ocr"
 
 const (
 	imageOCRTextExtension   = "txt"
@@ -63,21 +63,21 @@ func NewImageOCRToolWithRunner(runner engine.CommandRunner) *ImageOCRTool {
 }
 
 func (t *ImageOCRTool) ID() string {
-	return ToolIDImageOCRV1
+	return ToolIDImageOCR
 }
 
 func (t *ImageOCRTool) Capability() string {
-	return ToolIDImageOCRV1
+	return ToolIDImageOCR
 }
 
-func (t *ImageOCRTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *ImageOCRTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "Image OCR",
 		Description:      "Extract text from images with local Tesseract and optionally write a searchable PDF",
 		Domain:           "image",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  append([]string(nil), imageInputExtensions...),
@@ -97,35 +97,35 @@ func (t *ImageOCRTool) detectCapabilities(ctx context.Context) engine.OCRCapabil
 	return imageOCRDetectCapabilities(ctx, t.runner)
 }
 
-func (t *ImageOCRTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 {
+func (t *ImageOCRTool) RuntimeState(ctx context.Context) models.ToolRuntimeState {
 	capabilities := t.detectCapabilities(ctx)
 	if ImageOCRAvailable(capabilities) {
-		return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+		return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 	}
 
-	return models.ToolRuntimeStateV1{
+	return models.ToolRuntimeState{
 		Status:  "degraded",
 		Healthy: false,
 		Reason:  ImageOCRUnavailableReason(capabilities),
 	}
 }
 
-func (t *ImageOCRTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *ImageOCRTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
 
 // Plan validates the OCR runtime, language, DPI and inputs and resolves one
 // <stem>.txt plus an optional <stem>_ocr.pdf per input without writing anything.
-func (t *ImageOCRTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *ImageOCRTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	plan, _, planErr := t.planImageOCRRequest(ctx, req)
 	return plan, planErr
 }
 
-func (t *ImageOCRTool) planImageOCRRequest(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, []preparedImageOCRJob, *models.JobErrorV1) {
+func (t *ImageOCRTool) planImageOCRRequest(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, []preparedImageOCRJob, *models.JobError) {
 	parsed, parseErr := parseImageOCRRequest(req)
 	if parseErr != nil {
-		plan, _ := planFailure(models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}, parseErr)
+		plan, _ := planFailure(models.PlanJobResponse{Outputs: []models.PlannedOutput{}}, parseErr)
 		return plan, nil, parseErr
 	}
 
@@ -134,8 +134,8 @@ func (t *ImageOCRTool) planImageOCRRequest(ctx context.Context, req models.JobRe
 
 // planParsedImageOCRRequest detects capabilities once per job and builds every
 // planned output plus the executor input. It never runs Tesseract.
-func (t *ImageOCRTool) planParsedImageOCRRequest(ctx context.Context, parsed imageOCRRequest) (models.PlanJobResponseV1, []preparedImageOCRJob, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *ImageOCRTool) planParsedImageOCRRequest(ctx context.Context, parsed imageOCRRequest) (models.PlanJobResponse, []preparedImageOCRJob, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	capabilities := t.detectCapabilities(ctx)
 	if !ImageOCRAvailable(capabilities) {
@@ -215,7 +215,7 @@ func (t *ImageOCRTool) planParsedImageOCRRequest(ctx context.Context, parsed ima
 		outputplan.MarkUsed(used, inputPath)
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths)*2)
+	outputs := make([]models.PlannedOutput, 0, len(parsed.inputPaths)*2)
 	prepared := make([]preparedImageOCRJob, 0, len(parsed.inputPaths))
 	warnings := make([]string, 0, len(parsed.inputPaths)*2)
 
@@ -225,7 +225,7 @@ func (t *ImageOCRTool) planParsedImageOCRRequest(ctx context.Context, parsed ima
 		textBase, pdfBase := imageOCROutputBaseNames(inputPath)
 
 		textPath, textAdjusted := outputplan.UniqueFilePath(targetDir, textBase, imageOCRTextExtension, used)
-		textOutput := models.PlannedOutputV1{
+		textOutput := models.PlannedOutput{
 			InputPath:   inputPath,
 			OutputPath:  textPath,
 			OutputKind:  imageOutputKindFile,
@@ -248,7 +248,7 @@ func (t *ImageOCRTool) planParsedImageOCRRequest(ctx context.Context, parsed ima
 			adjustedPDFPath, pdfAdjusted := outputplan.UniqueFilePath(targetDir, pdfBase, imageOCRPDFExtension, used)
 			pdfPath = adjustedPDFPath
 
-			pdfOutput := models.PlannedOutputV1{
+			pdfOutput := models.PlannedOutput{
 				InputPath:   inputPath,
 				OutputPath:  pdfPath,
 				OutputKind:  imageOutputKindFile,
@@ -292,13 +292,13 @@ func (t *ImageOCRTool) planParsedImageOCRRequest(ctx context.Context, parsed ima
 
 // ExecuteSingle implements tools.SingleExecutor by delegating to the progress
 // variant with a no-op callback.
-func (t *ImageOCRTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImageOCRTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
 // ExecuteSingleWithProgress resolves the plan once, executes exactly that plan
 // and reports stage level progress for the one-item job.
-func (t *ImageOCRTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImageOCRTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	inputPath := firstInputPath(req.InputPaths)
 
 	plan, planErr := t.Plan(ctx, req)
@@ -307,7 +307,7 @@ func (t *ImageOCRTool) ExecuteSingleWithProgress(ctx context.Context, req models
 	}
 
 	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "recognizing 1/1"})
+		onProgress(models.JobProgress{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "recognizing 1/1"})
 	}
 
 	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
@@ -325,7 +325,7 @@ func (t *ImageOCRTool) ExecuteSingleWithProgress(ctx context.Context, req models
 
 // ExecuteBatch plans the request once and then executes exactly that plan. It
 // never re-resolves output paths from the request.
-func (t *ImageOCRTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImageOCRTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := parseImageOCRRequest(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -347,7 +347,7 @@ func (t *ImageOCRTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1
 // text file and, when writePdf is set, a PDF sidecar for the same input; the
 // plan emits them adjacently, so they are grouped into one Tesseract run per
 // input. Capabilities are detected once for the whole plan, never per item.
-func (t *ImageOCRTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *ImageOCRTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := parseImageOCRRequest(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -383,7 +383,7 @@ func (t *ImageOCRTool) ExecutePlan(ctx context.Context, req models.JobRequestV1,
 		detailCode = "IMAGE_OCR_EXECUTION"
 	}
 
-	items := make([]models.JobResultItemV1, total)
+	items := make([]models.JobResultItem, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(len(groups), onProgress)
 
@@ -428,7 +428,7 @@ type imageOCRPlanGroup struct {
 // plan order. A missing sidecar leaves the text output as a standalone job; an
 // orphan sidecar keeps its own output so it fails gracefully instead of being
 // dropped.
-func imageOCRPlanGroups(outputs []models.PlannedOutputV1, writePDF bool, template preparedImageOCRJob) []imageOCRPlanGroup {
+func imageOCRPlanGroups(outputs []models.PlannedOutput, writePDF bool, template preparedImageOCRJob) []imageOCRPlanGroup {
 	groups := make([]imageOCRPlanGroup, 0, len(outputs))
 
 	for index := 0; index < len(outputs); index++ {
@@ -471,12 +471,12 @@ func imageOCRIsPDFOutput(outputPath string) bool {
 // imageOCRPlannedSuccessItem reports one planned output. The text output keeps
 // the existing result shape with both declared outputs; the PDF sidecar
 // reports its own file.
-func imageOCRPlannedSuccessItem(job preparedImageOCRJob, planned models.PlannedOutputV1, outcome ImageOCRResult) models.JobResultItemV1 {
+func imageOCRPlannedSuccessItem(job preparedImageOCRJob, planned models.PlannedOutput, outcome ImageOCRResult) models.JobResultItem {
 	if strings.EqualFold(planned.OutputPath, job.textPath) {
 		return imageOCRSuccessItem(job, outcome)
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:   job.inputPath,
 		OutputPath:  planned.OutputPath,
 		Outputs:     []string{planned.OutputPath},
@@ -486,7 +486,7 @@ func imageOCRPlannedSuccessItem(job preparedImageOCRJob, planned models.PlannedO
 	}
 }
 
-func parseImageOCRRequest(req models.JobRequestV1) (imageOCRRequest, *models.JobErrorV1) {
+func parseImageOCRRequest(req models.JobRequest) (imageOCRRequest, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return imageOCRRequest{}, models.NewCanonicalJobError("IMAGE_OCR_MODE_INVALID", "mode must be single or batch", nil)
@@ -543,7 +543,7 @@ func parseImageOCRRequest(req models.JobRequestV1) (imageOCRRequest, *models.Job
 	}, nil
 }
 
-func imageOCRLanguageOption(options map[string]any) (string, *models.JobErrorV1) {
+func imageOCRLanguageOption(options map[string]any) (string, *models.JobError) {
 	if !optionSupplied(options, "language") {
 		return "", nil
 	}
@@ -558,7 +558,7 @@ func imageOCRLanguageOption(options map[string]any) (string, *models.JobErrorV1)
 
 // imageOCRDPIOption defaults to the engine's OCR DPI and accepts the shared
 // 150-600 range. It rejects fractions instead of silently truncating them.
-func imageOCRDPIOption(options map[string]any) (int, *models.JobErrorV1) {
+func imageOCRDPIOption(options map[string]any) (int, *models.JobError) {
 	dpi := engine.DefaultOCRDPI
 	if optionSupplied(options, "dpi") {
 		value, ok := watermarkFloatValue(options["dpi"])
@@ -611,13 +611,13 @@ func imageOCRPlanMessage(count int) string {
 
 // imageOCRSuccessItem reports the primary text output first and the optional
 // searchable PDF second.
-func imageOCRSuccessItem(item preparedImageOCRJob, outcome ImageOCRResult) models.JobResultItemV1 {
+func imageOCRSuccessItem(item preparedImageOCRJob, outcome ImageOCRResult) models.JobResultItem {
 	outputs := []string{item.textPath}
 	if item.pdfPath != "" {
 		outputs = append(outputs, item.pdfPath)
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:   item.inputPath,
 		OutputPath:  item.textPath,
 		Outputs:     outputs,
@@ -675,7 +675,7 @@ func imageOCRFormatCharacterCount(value int) string {
 
 // imageOCREngineJobError maps a typed engine failure to a canonical job error.
 // The engine messages are user-facing; the raw cause stays in Details["error"].
-func imageOCREngineJobError(ocrErr *ImageOCRError, extraDetails map[string]any) *models.JobErrorV1 {
+func imageOCREngineJobError(ocrErr *ImageOCRError, extraDetails map[string]any) *models.JobError {
 	details := make(map[string]any, len(extraDetails)+1)
 	for key, value := range extraDetails {
 		details[key] = value
@@ -709,7 +709,7 @@ func imageOCREngineJobError(ocrErr *ImageOCRError, extraDetails map[string]any) 
 // imageOCRExecutionError maps a failed execution to a job error. Cancellation
 // wins over the generic execution/item code so the job engine reports
 // CANCELLED_BY_USER, including when the last batch item is interrupted.
-func imageOCRExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobErrorV1, bool) {
+func imageOCRExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobError, bool) {
 	if imageOCRIsCancellation(ctx, execErr) {
 		return imageOCRCancelledJobError(ctx), true
 	}
@@ -727,7 +727,7 @@ func imageOCRExecutionError(ctx context.Context, detailCode, inputPath string, e
 	return models.NewCanonicalJobError(detailCode, "Could not OCR the image.", details), false
 }
 
-func imageOCRCancelledJobError(ctx context.Context) *models.JobErrorV1 {
+func imageOCRCancelledJobError(ctx context.Context) *models.JobError {
 	var cause error = context.Canceled
 	if ctx != nil && ctx.Err() != nil {
 		cause = ctx.Err()

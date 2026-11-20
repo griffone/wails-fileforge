@@ -17,9 +17,9 @@ import (
 	"github.com/h2non/bimg"
 )
 
-func watermarkTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     ToolIDImageWatermarkV1,
+func watermarkTestRequest(mode string, inputPaths []string, options map[string]any) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     ToolIDImageWatermark,
 		Mode:       mode,
 		InputPaths: inputPaths,
 		Options:    options,
@@ -67,11 +67,11 @@ func TestWatermarkToolManifest(t *testing.T) {
 	if manifest.Domain != "image" {
 		t.Fatalf("expected domain image, got %q", manifest.Domain)
 	}
-	if manifest.Capability != ToolIDImageWatermarkV1 {
-		t.Fatalf("expected capability %q, got %q", ToolIDImageWatermarkV1, manifest.Capability)
+	if manifest.Capability != ToolIDImageWatermark {
+		t.Fatalf("expected capability %q, got %q", ToolIDImageWatermark, manifest.Capability)
 	}
-	if manifest.Version != "v1" {
-		t.Fatalf("expected version v1, got %q", manifest.Version)
+	if manifest.Version != "1.0" {
+		t.Fatalf("expected version 1.0, got %q", manifest.Version)
 	}
 	if !manifest.SupportsSingle || !manifest.SupportsBatch {
 		t.Fatalf("expected single and batch support, got %+v", manifest)
@@ -795,8 +795,8 @@ func TestWatermarkExecutionSingleWithProgress(t *testing.T) {
 	tool := NewWatermarkTool()
 	request := watermarkTestRequest("single", []string{input}, watermarkRequestOptions())
 
-	var events []models.JobProgressV1
-	item, execErr := tool.ExecuteSingleWithProgress(context.Background(), request, func(event models.JobProgressV1) {
+	var events []models.JobProgress
+	item, execErr := tool.ExecuteSingleWithProgress(context.Background(), request, func(event models.JobProgress) {
 		events = append(events, event)
 	})
 	if execErr != nil {
@@ -876,8 +876,8 @@ func TestWatermarkExecutionBatchMixedExtensions(t *testing.T) {
 		}
 	}
 
-	var events []models.JobProgressV1
-	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgressV1) {
+	var events []models.JobProgress
+	items, execErr := tool.ExecuteBatch(context.Background(), request, func(event models.JobProgress) {
 		events = append(events, event)
 	})
 	if execErr != nil {
@@ -932,7 +932,7 @@ func TestWatermarkExecutionBatchCancellation(t *testing.T) {
 	defer cancel()
 
 	var progress []int
-	items, execErr := tool.ExecuteBatch(ctx, request, func(event models.JobProgressV1) {
+	items, execErr := tool.ExecuteBatch(ctx, request, func(event models.JobProgress) {
 		progress = append(progress, event.Current)
 		if event.Current == 1 {
 			cancel()
@@ -1678,7 +1678,7 @@ func TestWatermarkExecutePlanPreservesOrderAndItemFailures(t *testing.T) {
 	}
 
 	var progress []int
-	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgressV1) {
+	items, execErr := tool.ExecutePlan(context.Background(), request, plan, func(event models.JobProgress) {
 		progress = append(progress, event.Current)
 	})
 	if execErr == nil {

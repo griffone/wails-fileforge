@@ -9,27 +9,27 @@ import (
 type Tool interface {
 	ID() string
 	Capability() string
-	Manifest() models.ToolManifestV1
-	RuntimeState(ctx context.Context) models.ToolRuntimeStateV1
-	Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1
+	Manifest() models.ToolManifest
+	RuntimeState(ctx context.Context) models.ToolRuntimeState
+	Validate(ctx context.Context, req models.JobRequest) *models.JobError
 }
 
 type SingleExecutor interface {
-	ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1)
+	ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError)
 }
 
 type SingleExecutorWithProgress interface {
-	ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1)
+	ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError)
 }
 
 type BatchExecutor interface {
-	ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1)
+	ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError)
 }
 
 // Planner is an optional tool capability that resolves the exact output paths
 // and effective options for a request without touching the filesystem outputs.
 type Planner interface {
-	Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1)
+	Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError)
 }
 
 // PlanExecutor executes exactly the outputs in plan.Outputs. The engine may
@@ -38,5 +38,5 @@ type Planner interface {
 // req.InputPaths. The request is provided for input paths; it must not be
 // re-planned.
 type PlanExecutor interface {
-	ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1)
+	ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError)
 }

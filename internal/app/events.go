@@ -14,10 +14,10 @@ import (
 // generator emit typed event names and payload interfaces for the frontend.
 // The names are the current versioned ones; phase 6 renames them.
 func init() {
-	application.RegisterEvent[models.JobProgressEventV1](services.JobProgressEventNameV1)
-	application.RegisterEvent[models.JobResultV1](services.JobStateEventNameV1)
-	application.RegisterEvent[models.RecipeProgressEventV1](recipes.ProgressEventNameV1)
-	application.RegisterEvent[models.RecipeResultV1](recipes.StateEventNameV1)
-	application.RegisterEvent[models.AutomationRunEventV1](automation.RunEventNameV1)
-	application.RegisterEvent[models.ToolchainInstallEventV1](toolchain.InstallEventNameV1)
+	application.RegisterEvent[models.JobProgressEvent](services.JobProgressEventName)
+	application.RegisterEvent[models.JobResult](services.JobStateEventName)
+	application.RegisterEvent[models.RecipeProgressEvent](recipes.ProgressEventName)
+	application.RegisterEvent[models.RecipeResult](recipes.StateEventName)
+	application.RegisterEvent[models.AutomationRunEvent](automation.RunEventName)
+	application.RegisterEvent[models.ToolchainInstallEvent](toolchain.InstallEventName)
 }

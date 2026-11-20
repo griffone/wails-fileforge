@@ -21,7 +21,7 @@ import (
 	"github.com/h2non/bimg"
 )
 
-const ToolIDImageWatermarkV1 = "tool.image.watermark"
+const ToolIDImageWatermark = "tool.image.watermark"
 
 const (
 	watermarkDefaultMarginPercent    = 3.0
@@ -36,7 +36,7 @@ const (
 	watermarkOutputSuffix            = "_watermarked"
 )
 
-// WatermarkTool implements the image watermark Tool V1 contract.
+// WatermarkTool implements the image watermark tool contract.
 type WatermarkTool struct{}
 
 // watermarkRequest is the parsed, normalized request. The logo bytes are read
@@ -75,21 +75,21 @@ func NewWatermarkTool() *WatermarkTool {
 }
 
 func (t *WatermarkTool) ID() string {
-	return ToolIDImageWatermarkV1
+	return ToolIDImageWatermark
 }
 
 func (t *WatermarkTool) Capability() string {
-	return ToolIDImageWatermarkV1
+	return ToolIDImageWatermark
 }
 
-func (t *WatermarkTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *WatermarkTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "Image Watermark",
 		Description:      "Watermark images with text or a logo using nine anchors, opacity, scale, margin and tiling",
 		Domain:           "image",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  append([]string(nil), imageInputExtensions...),
@@ -99,11 +99,11 @@ func (t *WatermarkTool) Manifest() models.ToolManifestV1 {
 	}
 }
 
-func (t *WatermarkTool) RuntimeState(_ context.Context) models.ToolRuntimeStateV1 {
-	return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+func (t *WatermarkTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
+	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
-func (t *WatermarkTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *WatermarkTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
@@ -112,17 +112,17 @@ func (t *WatermarkTool) Validate(ctx context.Context, req models.JobRequestV1) *
 // input and validates every option without encoding anything. An explicit
 // options.outputPath keeps the single request contract: it must differ from the
 // input, agree with the resolved format, and not exist yet.
-func (t *WatermarkTool) Plan(_ context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
+func (t *WatermarkTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	plan, _, planErr := t.planRequest(req)
 	return plan, planErr
 }
 
 // planRequest also returns the prepared items so execution reuses the logo
 // bytes and background decisions resolved during planning.
-func (t *WatermarkTool) planRequest(req models.JobRequestV1) (models.PlanJobResponseV1, []preparedWatermark, *models.JobErrorV1) {
+func (t *WatermarkTool) planRequest(req models.JobRequest) (models.PlanJobResponse, []preparedWatermark, *models.JobError) {
 	parsed, parseErr := parseWatermarkRequest(req)
 	if parseErr != nil {
-		plan, _ := planFailure(models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}, parseErr)
+		plan, _ := planFailure(models.PlanJobResponse{Outputs: []models.PlannedOutput{}}, parseErr)
 		return plan, nil, parseErr
 	}
 
@@ -131,13 +131,13 @@ func (t *WatermarkTool) planRequest(req models.JobRequestV1) (models.PlanJobResp
 
 // ExecuteSingle implements tools.SingleExecutor by delegating to the progress
 // variant with a no-op callback.
-func (t *WatermarkTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *WatermarkTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
 // ExecuteSingleWithProgress resolves the plan once, executes exactly that plan
 // and reports stage level progress for the one-item job.
-func (t *WatermarkTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *WatermarkTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	inputPath := firstInputPath(req.InputPaths)
 
 	plan, planErr := t.Plan(ctx, req)
@@ -146,7 +146,7 @@ func (t *WatermarkTool) ExecuteSingleWithProgress(ctx context.Context, req model
 	}
 
 	if onProgress != nil {
-		onProgress(models.JobProgressV1{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "watermarking 1/1"})
+		onProgress(models.JobProgress{Current: 0, Total: 1, Stage: models.JobStatusRunning, Message: "watermarking 1/1"})
 	}
 
 	items, execErr := t.ExecutePlan(ctx, req, plan, onProgress)
@@ -164,7 +164,7 @@ func (t *WatermarkTool) ExecuteSingleWithProgress(ctx context.Context, req model
 
 // ExecuteBatch plans the request once and then executes exactly that plan. It
 // never re-resolves output paths from the request.
-func (t *WatermarkTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *WatermarkTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := parseWatermarkRequest(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -185,7 +185,7 @@ func (t *WatermarkTool) ExecuteBatch(ctx context.Context, req models.JobRequestV
 // ExecutePlan watermarks exactly the outputs resolved by Plan. The per-input
 // formats and alphas travel in the effective options, so a reduced retry plan
 // only processes the failed items. Results keep plan order.
-func (t *WatermarkTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *WatermarkTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	// Parsing reads the logo bytes and normalizes the options; it never
 	// resolves output paths, so execution cannot drift from the plan.
 	parsed, parseErr := parseWatermarkRequest(req)
@@ -225,7 +225,7 @@ func (t *WatermarkTool) ExecutePlan(ctx context.Context, req models.JobRequestV1
 		detailCode = "IMAGE_WATERMARK_EXECUTION"
 	}
 
-	items := make([]models.JobResultItemV1, total)
+	items := make([]models.JobResultItem, total)
 	completed := make([]bool, total)
 	progress := newParallelProgress(total, onProgress)
 
@@ -254,7 +254,7 @@ func (t *WatermarkTool) ExecutePlan(ctx context.Context, req models.JobRequestV1
 	return items, firstFailedItemError(items)
 }
 
-func parseWatermarkRequest(req models.JobRequestV1) (watermarkRequest, *models.JobErrorV1) {
+func parseWatermarkRequest(req models.JobRequest) (watermarkRequest, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return watermarkRequest{}, models.NewCanonicalJobError("IMAGE_WATERMARK_MODE_INVALID", "mode must be single or batch", nil)
@@ -419,7 +419,7 @@ func parseWatermarkRequest(req models.JobRequestV1) (watermarkRequest, *models.J
 	}, nil
 }
 
-func watermarkKindOption(options map[string]any) (string, *models.JobErrorV1) {
+func watermarkKindOption(options map[string]any) (string, *models.JobError) {
 	kind := strings.ToLower(convertOptionString(options, "kind"))
 	if kind == "" {
 		return watermarkKindText, nil
@@ -431,7 +431,7 @@ func watermarkKindOption(options map[string]any) (string, *models.JobErrorV1) {
 	return kind, nil
 }
 
-func watermarkTextOption(options map[string]any) (string, *models.JobErrorV1) {
+func watermarkTextOption(options map[string]any) (string, *models.JobError) {
 	if !optionSupplied(options, "text") {
 		return "", nil
 	}
@@ -447,7 +447,7 @@ func watermarkTextOption(options map[string]any) (string, *models.JobErrorV1) {
 // watermarkValidateTextOption enforces the text surface limits at plan time so
 // a bad request never reaches execution. The engine repeats the check as a
 // final guard.
-func watermarkValidateTextOption(kind, text string) *models.JobErrorV1 {
+func watermarkValidateTextOption(kind, text string) *models.JobError {
 	if kind != watermarkKindText {
 		return nil
 	}
@@ -471,7 +471,7 @@ func watermarkValidateTextOption(kind, text string) *models.JobErrorV1 {
 }
 
 // watermarkLogoOption loads and validates the logo exactly once per request.
-func watermarkLogoOption(options map[string]any) (string, []byte, *models.JobErrorV1) {
+func watermarkLogoOption(options map[string]any) (string, []byte, *models.JobError) {
 	logoPath := convertOptionString(options, "logoPath")
 	if logoPath == "" {
 		return "", nil, models.NewCanonicalJobError("IMAGE_WATERMARK_LOGO_REQUIRED", "options.logoPath is required for logo watermarks.", nil)
@@ -531,7 +531,7 @@ func watermarkLogoOption(options map[string]any) (string, []byte, *models.JobErr
 	return logoPath, logoBytes, nil
 }
 
-func watermarkAnchorOption(options map[string]any) (string, *models.JobErrorV1) {
+func watermarkAnchorOption(options map[string]any) (string, *models.JobError) {
 	anchor := strings.ToLower(convertOptionString(options, "anchor"))
 	if anchor == "" {
 		return watermarkDefaultAnchor, nil
@@ -550,7 +550,7 @@ func watermarkAnchorOption(options map[string]any) (string, *models.JobErrorV1) 
 // watermarkBoundedFloatOption reads one bounded float option. Supplied values
 // of the wrong type, NaN or infinity are rejected so a typo never silently
 // changes the drawn watermark.
-func watermarkBoundedFloatOption(options map[string]any, key string, defaultValue, min, max float64, invalidCode string) (float64, *models.JobErrorV1) {
+func watermarkBoundedFloatOption(options map[string]any, key string, defaultValue, min, max float64, invalidCode string) (float64, *models.JobError) {
 	value := defaultValue
 	if optionSupplied(options, key) {
 		parsed, ok := watermarkFloatValue(options[key])
@@ -616,7 +616,7 @@ func watermarkFloatValue(raw any) (float64, bool) {
 }
 
 // watermarkOptionalInt reads an optional integer option and rejects fractions.
-func watermarkOptionalInt(options map[string]any, key string) (int, bool, *models.JobErrorV1) {
+func watermarkOptionalInt(options map[string]any, key string) (int, bool, *models.JobError) {
 	if !optionSupplied(options, key) {
 		return 0, false, nil
 	}
@@ -633,7 +633,7 @@ func watermarkOptionalInt(options map[string]any, key string) (int, bool, *model
 	return value, true, nil
 }
 
-func watermarkColorOption(options map[string]any) (string, *models.JobErrorV1) {
+func watermarkColorOption(options map[string]any) (string, *models.JobError) {
 	color := convertOptionString(options, "color")
 	if color == "" {
 		return watermarkDefaultColor, nil
@@ -645,7 +645,7 @@ func watermarkColorOption(options map[string]any) (string, *models.JobErrorV1) {
 	return color, nil
 }
 
-func watermarkRequestedFormat(options map[string]any) (string, *models.JobErrorV1) {
+func watermarkRequestedFormat(options map[string]any) (string, *models.JobError) {
 	raw, exists := options["format"]
 	if !exists || raw == nil {
 		return imageAutoFormat, nil
@@ -669,7 +669,7 @@ func watermarkRequestedFormat(options map[string]any) (string, *models.JobErrorV
 	}
 }
 
-func validateWatermarkInputPath(inputPath string) *models.JobErrorV1 {
+func validateWatermarkInputPath(inputPath string) *models.JobError {
 	trimmed := strings.TrimSpace(inputPath)
 	if trimmed == "" {
 		return models.NewCanonicalJobError("IMAGE_WATERMARK_INPUT_REQUIRED", "inputPath is required", nil)
@@ -735,8 +735,8 @@ func resolveWatermarkOutputFormat(inputPath, requested string, meta planImageMet
 // planParsedWatermarkRequest builds the public plan plus one prepared item per
 // output. Engine options (logo bytes, background flattening) are resolved here
 // so execution performs no extra reads or metadata probes.
-func planParsedWatermarkRequest(parsed watermarkRequest) (models.PlanJobResponseV1, []preparedWatermark, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func planParsedWatermarkRequest(parsed watermarkRequest) (models.PlanJobResponse, []preparedWatermark, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	formats := make([]string, 0, len(parsed.inputPaths))
 	alphas := make([]bool, 0, len(parsed.inputPaths))
@@ -796,7 +796,7 @@ func planParsedWatermarkRequest(parsed watermarkRequest) (models.PlanJobResponse
 		planned, planErr := planSingleWatermarkOutput(parsed, formats[0], used)
 		if planErr != nil {
 			if planned.OutputPath != "" {
-				plan.Outputs = []models.PlannedOutputV1{planned}
+				plan.Outputs = []models.PlannedOutput{planned}
 			}
 			failedPlan, _ := planFailure(plan, planErr)
 			return failedPlan, nil, planErr
@@ -804,7 +804,7 @@ func planParsedWatermarkRequest(parsed watermarkRequest) (models.PlanJobResponse
 
 		plan.Success = true
 		plan.Message = watermarkPlanMessage(1)
-		plan.Outputs = []models.PlannedOutputV1{planned}
+		plan.Outputs = []models.PlannedOutput{planned}
 		plan.Warnings = append(append([]string{}, planned.Warnings...), inputWarnings...)
 		plan.Warnings = append(plan.Warnings, optionWarnings...)
 		plan.EffectiveOptions = watermarkEffectiveOptions(parsed, formats, alphas)
@@ -825,7 +825,7 @@ func planParsedWatermarkRequest(parsed watermarkRequest) (models.PlanJobResponse
 		}
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.inputPaths))
+	outputs := make([]models.PlannedOutput, 0, len(parsed.inputPaths))
 	preparedItems := make([]preparedWatermark, 0, len(parsed.inputPaths))
 	outputWarnings := make([]string, 0, len(parsed.inputPaths))
 
@@ -895,7 +895,7 @@ func watermarkEngineOptions(parsed watermarkRequest, outputFmt string, sourceHas
 }
 
 // planSingleWatermarkOutput resolves the one output of a single request.
-func planSingleWatermarkOutput(parsed watermarkRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutputV1, *models.JobErrorV1) {
+func planSingleWatermarkOutput(parsed watermarkRequest, outputFmt string, used map[string]struct{}) (models.PlannedOutput, *models.JobError) {
 	inputPath := parsed.inputPaths[0]
 
 	if explicitOutput := strings.TrimSpace(parsed.outputPath); explicitOutput != "" {
@@ -910,8 +910,8 @@ func planSingleWatermarkOutput(parsed watermarkRequest, outputFmt string, used m
 	return planAutoWatermarkOutput(inputPath, filepath.Clean(targetDir), outputFmt, used), nil
 }
 
-func planExplicitWatermarkOutput(inputPath, explicitOutput, outputFormat string) (models.PlannedOutputV1, *models.JobErrorV1) {
-	planned := models.PlannedOutputV1{
+func planExplicitWatermarkOutput(inputPath, explicitOutput, outputFormat string) (models.PlannedOutput, *models.JobError) {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputPath: filepath.Clean(strings.TrimSpace(explicitOutput)),
 		OutputKind: imageOutputKindFile,
@@ -958,8 +958,8 @@ func planExplicitWatermarkOutput(inputPath, explicitOutput, outputFormat string)
 
 // planAutoWatermarkOutput derives a collision-safe name inside dir. It never
 // writes.
-func planAutoWatermarkOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutputV1 {
-	planned := models.PlannedOutputV1{
+func planAutoWatermarkOutput(inputPath, dir, outputFmt string, used map[string]struct{}) models.PlannedOutput {
+	planned := models.PlannedOutput{
 		InputPath:  inputPath,
 		OutputKind: imageOutputKindFile,
 	}
@@ -985,7 +985,7 @@ func watermarkOutputBaseName(inputPath string) string {
 	return stem + watermarkOutputSuffix
 }
 
-func validateWatermarkOutputDir(outputDir string) *models.JobErrorV1 {
+func validateWatermarkOutputDir(outputDir string) *models.JobError {
 	info, statErr := os.Stat(outputDir)
 	if statErr != nil {
 		return models.NewCanonicalJobError(
@@ -1016,7 +1016,7 @@ func watermarkPlanMessage(count int) string {
 // watermarkPlanTextFitError rejects text that cannot fit even at the 12 px
 // floor, so the UI fails before execution. The execution path keeps the same
 // checks as a final defense.
-func watermarkPlanTextFitError(parsed watermarkRequest, inputPath string, width, height int) *models.JobErrorV1 {
+func watermarkPlanTextFitError(parsed watermarkRequest, inputPath string, width, height int) *models.JobError {
 	if width < 1 || height < 1 {
 		return nil
 	}
@@ -1099,7 +1099,7 @@ func watermarkEffectiveOptions(parsed watermarkRequest, formats []string, alphas
 
 // watermarkCancelledError builds the canonical cancellation error. It falls back
 // to context.Canceled when the context has no recorded cause.
-func watermarkCancelledError(ctx context.Context) *models.JobErrorV1 {
+func watermarkCancelledError(ctx context.Context) *models.JobError {
 	var cause error = context.Canceled
 	if ctx != nil && ctx.Err() != nil {
 		cause = ctx.Err()
@@ -1113,7 +1113,7 @@ func watermarkCancelledError(ctx context.Context) *models.JobErrorV1 {
 // wins over the generic execution/item code so the job engine reports
 // CANCELLED_BY_USER, including when the last batch item is interrupted. The raw
 // cause stays in Details while the message remains user-facing.
-func watermarkExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobErrorV1, bool) {
+func watermarkExecutionError(ctx context.Context, detailCode, inputPath string, execErr error) (*models.JobError, bool) {
 	if watermarkIsCancellation(ctx, execErr) {
 		return watermarkCancelledError(ctx), true
 	}
@@ -1181,8 +1181,8 @@ func executeWatermarkToPath(ctx context.Context, prepared preparedWatermark) (Wa
 	return outcome, nil
 }
 
-func watermarkSuccessItem(prepared preparedWatermark, outcome WatermarkOutcome) models.JobResultItemV1 {
-	return models.JobResultItemV1{
+func watermarkSuccessItem(prepared preparedWatermark, outcome WatermarkOutcome) models.JobResultItem {
+	return models.JobResultItem{
 		InputPath:   prepared.inputPath,
 		OutputPath:  prepared.outputPath,
 		Outputs:     []string{prepared.outputPath},

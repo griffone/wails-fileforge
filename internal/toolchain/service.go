@@ -14,8 +14,8 @@ import (
 	"fileforge-desktop/internal/platform/fsx"
 )
 
-// InstallEventNameV1 is the Wails event emitted while the toolchain installs.
-const InstallEventNameV1 = "toolchain/install/v1"
+// InstallEventName is the Wails event emitted while the toolchain installs.
+const InstallEventName = "toolchain/install/v1"
 
 // Install phases reported in status snapshots and progress events.
 const (
@@ -104,7 +104,7 @@ type Service struct {
 	platform   Platform
 	downloader Downloader
 	runner     CommandRunner
-	emit       func(models.ToolchainInstallEventV1)
+	emit       func(models.ToolchainInstallEvent)
 
 	mu     sync.Mutex
 	state  installState
@@ -130,7 +130,7 @@ type installState struct {
 // NewService builds the installer for one application data directory and
 // platform. A nil downloader or runner uses the real implementations; a nil
 // emitter disables events.
-func NewService(dataDir string, platform Platform, downloader Downloader, runner CommandRunner, emit func(models.ToolchainInstallEventV1)) *Service {
+func NewService(dataDir string, platform Platform, downloader Downloader, runner CommandRunner, emit func(models.ToolchainInstallEvent)) *Service {
 	if downloader == nil {
 		downloader = &HTTPDownloader{}
 	}
@@ -166,9 +166,9 @@ func (s *Service) Root() string {
 
 // Status verifies every managed component on disk and merges the current
 // install state. Version probes are best-effort and never fail the status.
-func (s *Service) Status() models.ToolchainStatusV1 {
+func (s *Service) Status() models.ToolchainStatus {
 	if s == nil {
-		return models.ToolchainStatusV1{
+		return models.ToolchainStatus{
 			Success: false,
 			Message: "The toolchain installer is not configured.",
 		}
@@ -180,9 +180,9 @@ func (s *Service) Status() models.ToolchainStatusV1 {
 // statusSnapshot builds the status. Version probes are skipped on hot paths
 // (startup readiness, install verification, start/cancel responses) because
 // they spawn processes; the UI-facing Status fills them in.
-func (s *Service) statusSnapshot(probeVersions bool) models.ToolchainStatusV1 {
+func (s *Service) statusSnapshot(probeVersions bool) models.ToolchainStatus {
 	if s == nil || strings.TrimSpace(s.root) == "" {
-		return models.ToolchainStatusV1{
+		return models.ToolchainStatus{
 			Success: false,
 			Message: "The toolchain installer is not configured.",
 		}
@@ -209,7 +209,7 @@ func (s *Service) statusSnapshot(probeVersions bool) models.ToolchainStatusV1 {
 		}
 	}
 
-	status := models.ToolchainStatusV1{
+	status := models.ToolchainStatus{
 		Success:      true,
 		Message:      "Local tools are ready.",
 		Ready:        ready,
@@ -286,7 +286,7 @@ func (s *Service) StartIfNeeded(ctx context.Context) {
 		return
 	}
 
-	s.Start(ctx, models.ToolchainInstallOptionsV1{})
+	s.Start(ctx, models.ToolchainInstallOptions{})
 }
 
 // toolchainReady verifies the required components without spawning version
@@ -312,9 +312,9 @@ func (s *Service) toolchainReady() bool {
 // Start validates the options and launches the install in one background
 // goroutine. A second call while installing returns the current snapshot
 // without starting a duplicate.
-func (s *Service) Start(ctx context.Context, options models.ToolchainInstallOptionsV1) models.ToolchainStatusV1 {
+func (s *Service) Start(ctx context.Context, options models.ToolchainInstallOptions) models.ToolchainStatus {
 	if s == nil {
-		return models.ToolchainStatusV1{Success: false, Message: "The toolchain installer is not configured."}
+		return models.ToolchainStatus{Success: false, Message: "The toolchain installer is not configured."}
 	}
 
 	model, modelErr := NormalizeModel(options.Model)
@@ -359,7 +359,7 @@ func (s *Service) Start(ctx context.Context, options models.ToolchainInstallOpti
 	}
 	s.mu.Unlock()
 
-	s.emitEvent(models.ToolchainInstallEventV1{
+	s.emitEvent(models.ToolchainInstallEvent{
 		Phase:   PhaseStarting,
 		Percent: 0,
 		Message: "Preparing the local toolchain…",
@@ -372,9 +372,9 @@ func (s *Service) Start(ctx context.Context, options models.ToolchainInstallOpti
 
 // Cancel stops the active install or download. The install goroutine cleans the
 // staging files and finishes with a cancelled state that is not ready.
-func (s *Service) Cancel() models.ToolchainStatusV1 {
+func (s *Service) Cancel() models.ToolchainStatus {
 	if s == nil {
-		return models.ToolchainStatusV1{Success: false, Message: "The toolchain installer is not configured."}
+		return models.ToolchainStatus{Success: false, Message: "The toolchain installer is not configured."}
 	}
 
 	s.mu.Lock()
@@ -397,7 +397,7 @@ func (s *Service) Cancel() models.ToolchainStatusV1 {
 		cancel()
 	}
 	if firstRequest {
-		s.emitEvent(models.ToolchainInstallEventV1{
+		s.emitEvent(models.ToolchainInstallEvent{
 			Phase:         "cancelling",
 			Percent:       s.currentPercent(),
 			Indeterminate: true,
@@ -977,7 +977,7 @@ func (s *Service) finishSuccess(model string, languages []string) {
 		cancel()
 	}
 
-	s.emitEvent(models.ToolchainInstallEventV1{
+	s.emitEvent(models.ToolchainInstallEvent{
 		Phase:   PhaseReady,
 		Percent: readyPercent,
 		Message: "Local tools are ready.",
@@ -1007,7 +1007,7 @@ func (s *Service) finishError(installErr error) {
 		cancel()
 	}
 
-	s.emitEvent(models.ToolchainInstallEventV1{
+	s.emitEvent(models.ToolchainInstallEvent{
 		Phase:   phase,
 		Percent: percent,
 		Message: "The local toolchain could not be installed.",
@@ -1034,7 +1034,7 @@ func (s *Service) finishCancelled() {
 		cancel()
 	}
 
-	s.emitEvent(models.ToolchainInstallEventV1{
+	s.emitEvent(models.ToolchainInstallEvent{
 		Phase:   PhaseCancelled,
 		Percent: percent,
 		Message: "Installation cancelled.",
@@ -1061,7 +1061,7 @@ func (s *Service) progress(phase string, percent int, message string, indetermin
 	s.state.detail = message
 	s.mu.Unlock()
 
-	s.emitEvent(models.ToolchainInstallEventV1{
+	s.emitEvent(models.ToolchainInstallEvent{
 		Phase:         phase,
 		Percent:       percent,
 		Indeterminate: indeterminate,
@@ -1106,7 +1106,7 @@ func (s *Service) progressRange(phase, message string, startPercent, endPercent 
 	}
 }
 
-func (s *Service) failureStatus(message string) models.ToolchainStatusV1 {
+func (s *Service) failureStatus(message string) models.ToolchainStatus {
 	status := s.statusSnapshot(false)
 	status.Success = false
 	status.Message = message
@@ -1115,7 +1115,7 @@ func (s *Service) failureStatus(message string) models.ToolchainStatusV1 {
 	return status
 }
 
-func (s *Service) emitEvent(event models.ToolchainInstallEventV1) {
+func (s *Service) emitEvent(event models.ToolchainInstallEvent) {
 	if s == nil || s.emit == nil {
 		return
 	}
@@ -1188,11 +1188,11 @@ var versionArgsByComponent = map[string][]string{
 	"ghostscript": {"--version"},
 }
 
-func (s *Service) buildComponents(model string, languages []string, probeVersions bool) []models.ToolchainComponentV1 {
-	components := make([]models.ToolchainComponentV1, 0, len(managedBinarySpecs)+8)
+func (s *Service) buildComponents(model string, languages []string, probeVersions bool) []models.ToolchainComponent {
+	components := make([]models.ToolchainComponent, 0, len(managedBinarySpecs)+8)
 
 	micromamba := micromambaPath(s.root, s.platform)
-	micromambaComponent := models.ToolchainComponentV1{
+	micromambaComponent := models.ToolchainComponent{
 		ID:       "micromamba",
 		Label:    "micromamba",
 		Ready:    fileWithContent(micromamba),
@@ -1208,7 +1208,7 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 	components = append(components, micromambaComponent)
 
 	for _, spec := range managedBinarySpecs {
-		component := models.ToolchainComponentV1{
+		component := models.ToolchainComponent{
 			ID:       spec.id,
 			Label:    spec.label,
 			Required: spec.required,
@@ -1226,7 +1226,7 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 
 	cliPath := whisperCLIPath(s.root, s.platform)
 	cliReady, cliDetail := whisperRuntimeState(s.root, s.platform)
-	cliComponent := models.ToolchainComponentV1{
+	cliComponent := models.ToolchainComponent{
 		ID:       "whisper-cli",
 		Label:    "Whisper runtime",
 		Ready:    cliReady,
@@ -1239,7 +1239,7 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 	components = append(components, cliComponent)
 
 	modelPath := modelFilePath(s.root, model)
-	modelComponent := models.ToolchainComponentV1{
+	modelComponent := models.ToolchainComponent{
 		ID:       "whisper-model",
 		Label:    "Whisper model",
 		Ready:    fileWithContent(modelPath),
@@ -1251,7 +1251,7 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 
 	for _, language := range SupportedOCRLanguages() {
 		path := tessdataFilePath(s.root, language)
-		components = append(components, models.ToolchainComponentV1{
+		components = append(components, models.ToolchainComponent{
 			ID:       "tesseract-" + language,
 			Label:    "Tesseract " + language,
 			Ready:    fileWithContent(path),
@@ -1262,7 +1262,7 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 	}
 
 	pdfAssetsReady, pdfAssetsDetail := tessdataPDFAssetsState(tessdataDir(s.root))
-	pdfAssetsComponent := models.ToolchainComponentV1{
+	pdfAssetsComponent := models.ToolchainComponent{
 		ID:       "tesseract-pdf",
 		Label:    "Tesseract PDF output",
 		Ready:    pdfAssetsReady,
@@ -1283,7 +1283,7 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 	if pdf2docxReady {
 		pdf2docxDetail = "Local PDF to DOCX conversion engine"
 	}
-	pdf2docxComponent := models.ToolchainComponentV1{
+	pdf2docxComponent := models.ToolchainComponent{
 		ID:       "pdf2docx",
 		Label:    "PDF to DOCX engine",
 		Ready:    pdf2docxReady,
@@ -1300,7 +1300,7 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 	// download, and neither gates the rest of the application. A missing pack
 	// reports the repair detail instead of a path that does not exist.
 	rembgReady, rembgDetail := rembgRuntimeState(s.root, s.platform.OS)
-	rembgComponent := models.ToolchainComponentV1{
+	rembgComponent := models.ToolchainComponent{
 		ID:       "rembg",
 		Label:    "Background removal engine",
 		Ready:    rembgReady,
@@ -1313,7 +1313,7 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 	components = append(components, rembgComponent)
 
 	rembgModelReady, rembgModelDetail := rembgModelState(s.root)
-	rembgModelComponent := models.ToolchainComponentV1{
+	rembgModelComponent := models.ToolchainComponent{
 		ID:       "rembg-model",
 		Label:    "Background removal model",
 		Ready:    rembgModelReady,
@@ -1384,7 +1384,7 @@ func containsLanguage(languages []string, target string) bool {
 	return false
 }
 
-func missingComponentSummary(components []models.ToolchainComponentV1) string {
+func missingComponentSummary(components []models.ToolchainComponent) string {
 	missing := make([]string, 0, len(components))
 	for _, component := range components {
 		if component.Required && !component.Ready {
@@ -1398,43 +1398,43 @@ func missingComponentSummary(components []models.ToolchainComponentV1) string {
 	return strings.Join(missing, ", ")
 }
 
-// manifestV1 is the informational install record. Status still verifies the
+// manifest is the informational install record. Status still verifies the
 // files directly, so a stale or missing manifest never marks components ready.
-type manifestV1 struct {
-	Version      int                   `json:"version"`
-	GeneratedAt  string                `json:"generatedAt"`
-	Model        string                `json:"model"`
-	OCRLanguages []string              `json:"ocrLanguages"`
-	Components   []manifestComponentV1 `json:"components"`
+type manifest struct {
+	Version      int                 `json:"version"`
+	GeneratedAt  string              `json:"generatedAt"`
+	Model        string              `json:"model"`
+	OCRLanguages []string            `json:"ocrLanguages"`
+	Components   []manifestComponent `json:"components"`
 }
 
-type manifestComponentV1 struct {
+type manifestComponent struct {
 	ID      string `json:"id"`
 	Path    string `json:"path,omitempty"`
 	Version string `json:"version,omitempty"`
 }
 
-func writeManifest(root, model string, languages []string, components []models.ToolchainComponentV1) error {
-	manifest := manifestV1{
+func writeManifest(root, model string, languages []string, components []models.ToolchainComponent) error {
+	record := manifest{
 		Version:      1,
 		GeneratedAt:  time.Now().UTC().Format(time.RFC3339),
 		Model:        model,
 		OCRLanguages: append([]string{}, languages...),
-		Components:   make([]manifestComponentV1, 0, len(components)),
+		Components:   make([]manifestComponent, 0, len(components)),
 	}
 	for _, component := range components {
 		if !component.Ready {
 			continue
 		}
 
-		manifest.Components = append(manifest.Components, manifestComponentV1{
+		record.Components = append(record.Components, manifestComponent{
 			ID:      component.ID,
 			Path:    component.Path,
 			Version: component.Version,
 		})
 	}
 
-	payload, err := json.MarshalIndent(manifest, "", "  ")
+	payload, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -1443,16 +1443,16 @@ func writeManifest(root, model string, languages []string, components []models.T
 	return fsx.WriteAtomic(manifestFilePath(root), payload, 0o644)
 }
 
-func readManifest(path string) (manifestV1, error) {
-	var manifest manifestV1
+func readManifest(path string) (manifest, error) {
+	var record manifest
 
 	payload, err := os.ReadFile(path)
 	if err != nil {
-		return manifest, err
+		return record, err
 	}
-	if err := json.Unmarshal(payload, &manifest); err != nil {
-		return manifestV1{}, err
+	if err := json.Unmarshal(payload, &record); err != nil {
+		return manifest{}, err
 	}
 
-	return manifest, nil
+	return record, nil
 }

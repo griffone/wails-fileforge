@@ -1,6 +1,6 @@
 package models
 
-type ToolManifestV1 struct {
+type ToolManifest struct {
 	ToolID           string   `json:"toolId"`
 	Name             string   `json:"name"`
 	Description      string   `json:"description"`
@@ -23,19 +23,19 @@ type ToolManifestV1 struct {
 	MaxWorkers int `json:"maxWorkers,omitempty"`
 }
 
-type ToolRuntimeStateV1 struct {
+type ToolRuntimeState struct {
 	Status  string `json:"status"` // enabled | disabled | degraded
 	Reason  string `json:"reason,omitempty"`
 	Healthy bool   `json:"healthy"`
 }
 
-type ToolCatalogEntryV1 struct {
-	Manifest ToolManifestV1     `json:"manifest"`
-	State    ToolRuntimeStateV1 `json:"state"`
+type ToolCatalogEntry struct {
+	Manifest ToolManifest     `json:"manifest"`
+	State    ToolRuntimeState `json:"state"`
 }
 
-type ListToolsResponseV1 struct {
-	Success bool                 `json:"success"`
-	Message string               `json:"message"`
-	Tools   []ToolCatalogEntryV1 `json:"tools"`
+type ListToolsResponse struct {
+	Success bool               `json:"success"`
+	Message string             `json:"message"`
+	Tools   []ToolCatalogEntry `json:"tools"`
 }

@@ -25,7 +25,7 @@ func TestTrimPlanSingleAutoOutputNextToInput(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeVideoFixture(t, input)
 
-	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, trimOptions(1, 5)))
+	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrim, "single", []string{input}, trimOptions(1, 5)))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -55,7 +55,7 @@ func TestTrimPlanBatchWithoutOutputDirPlansPerInputOutputs(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "batch", []string{first, second}, trimOptions(0, 3)))
+	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrim, "batch", []string{first, second}, trimOptions(0, 3)))
 	if planErr != nil {
 		t.Fatalf("expected batch plan to succeed, got %v", planErr)
 	}
@@ -79,7 +79,7 @@ func TestTrimPlanUsesChosenOutputDir(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeVideoFixture(t, input)
 
-	req := videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, trimOptions(2, 4))
+	req := videoToolRequest(ToolIDVideoTrim, "single", []string{input}, trimOptions(2, 4))
 	req.OutputDir = outDir
 	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), req)
 	if planErr != nil {
@@ -96,7 +96,7 @@ func TestTrimPlanDefaultsOptions(t *testing.T) {
 	input := filepath.Join(dir, "clip.mp4")
 	writeVideoFixture(t, input)
 
-	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, trimOptions(1, 5)))
+	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrim, "single", []string{input}, trimOptions(1, 5)))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -118,7 +118,7 @@ func TestTrimPlanSuffixesExistingAutoOutput(t *testing.T) {
 	writeVideoFixture(t, input)
 	writeVideoFixture(t, filepath.Join(dir, "clip_trimmed.mp4"))
 
-	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, trimOptions(1, 5)))
+	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrim, "single", []string{input}, trimOptions(1, 5)))
 	if planErr != nil {
 		t.Fatalf("expected plan to succeed, got %v", planErr)
 	}
@@ -154,7 +154,7 @@ func TestTrimPlanInvalidTimeRange(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, testCase.options))
+			plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrim, "single", []string{input}, testCase.options))
 			if planErr == nil {
 				t.Fatal("expected a time range error")
 			}
@@ -178,7 +178,7 @@ func TestTrimPlanExplicitOutputConflict(t *testing.T) {
 	options := trimOptions(1, 5)
 	options["outputPath"] = outputPath
 
-	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, options))
+	plan, planErr := newTrimPlanTool(t).Plan(context.Background(), videoToolRequest(ToolIDVideoTrim, "single", []string{input}, options))
 	if planErr == nil {
 		t.Fatal("expected explicit output conflict")
 	}
@@ -200,7 +200,7 @@ func TestTrimValidateBatchWithoutOutputDir(t *testing.T) {
 	writeVideoFixture(t, first)
 	writeVideoFixture(t, second)
 
-	validationErr := newTrimPlanTool(t).Validate(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "batch", []string{first, second}, trimOptions(1, 2)))
+	validationErr := newTrimPlanTool(t).Validate(context.Background(), videoToolRequest(ToolIDVideoTrim, "batch", []string{first, second}, trimOptions(1, 2)))
 	if validationErr != nil {
 		t.Fatalf("expected batch validation without outputDir to pass, got %v", validationErr)
 	}
@@ -215,7 +215,7 @@ func TestTrimExecuteSingleUsesPlannedOutput(t *testing.T) {
 	runner := &stubCommandRunner{}
 	tool := NewTrimToolWithDeps(stubRuntimeProbe{}, runner)
 
-	item, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, trimOptions(1, 5)))
+	item, itemErr := tool.ExecuteSingle(context.Background(), videoToolRequest(ToolIDVideoTrim, "single", []string{input}, trimOptions(1, 5)))
 	if itemErr != nil {
 		t.Fatalf("expected trim to succeed, got %v", itemErr)
 	}
@@ -238,7 +238,7 @@ func TestTrimPlanRejectsStartBeyondKnownDuration(t *testing.T) {
 	tool := newTrimPlanTool(t)
 	stubVideoDuration(t, 10, true)
 
-	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, trimOptions(30, 40)))
+	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTrim, "single", []string{input}, trimOptions(30, 40)))
 	if planErr == nil {
 		t.Fatal("expected start beyond duration to fail")
 	}
@@ -262,7 +262,7 @@ func TestTrimPlanAllowsEndBeyondKnownDuration(t *testing.T) {
 	stubVideoDuration(t, 10, true)
 
 	// ffmpeg stops at EOF, so a fixed endTime past the duration stays valid.
-	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTrimV1, "single", []string{input}, trimOptions(1, 30)))
+	plan, planErr := tool.Plan(context.Background(), videoToolRequest(ToolIDVideoTrim, "single", []string{input}, trimOptions(1, 30)))
 	if planErr != nil {
 		t.Fatalf("expected end past duration to pass, got %v", planErr)
 	}

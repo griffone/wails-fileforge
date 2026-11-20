@@ -46,12 +46,12 @@ const (
 // Clean scan recipe and Burn for the Burned-in subtitles recipe, whose plans are
 // fully resolved before execution.
 type resolvedRecipe struct {
-	Recipe          *models.RecipeV1
+	Recipe          *models.Recipe
 	Inputs          []string
 	OutputDir       string
 	TargetSizeBytes int64
 	FinalPath       string
-	PlannedOutputs  []models.PlannedOutputV1
+	PlannedOutputs  []models.PlannedOutput
 	PlanMessage     string
 	Web             *webImageSetResolution
 	Social          *socialClipResolution
@@ -60,8 +60,8 @@ type resolvedRecipe struct {
 	Warnings        []string
 }
 
-func emailPDFRecipe() models.RecipeV1 {
-	return models.RecipeV1{
+func emailPDFRecipe() models.Recipe {
+	return models.Recipe{
 		ID:          RecipeIDEmailPDF,
 		Name:        "Email PDF",
 		Description: "Merge one or more PDFs and compress the result to a size that is easy to send by email.",
@@ -72,17 +72,17 @@ func emailPDFRecipe() models.RecipeV1 {
 		},
 		MaxInputs:  0,
 		Highlights: []string{"Merge when needed", "Target size", "Verified + undo"},
-		Steps: []models.RecipeStepV1{
+		Steps: []models.RecipeStep{
 			{
 				ID:     stepIDMergePDFs,
 				Name:   "Merge PDFs",
-				ToolID: pdf.ToolIDPDFMergeV1,
+				ToolID: pdf.ToolIDPDFMerge,
 				Detail: "Only when there are two or more PDFs",
 			},
 			{
 				ID:     stepIDOptimizeTarget,
 				Name:   "Optimize to target",
-				ToolID: pdf.ToolIDPDFOptimizeV1,
+				ToolID: pdf.ToolIDPDFOptimize,
 				Detail: "Ghostscript when the target needs it",
 			},
 		},
@@ -90,9 +90,9 @@ func emailPDFRecipe() models.RecipeV1 {
 	}
 }
 
-func recipeByID(recipeID string) *models.RecipeV1 {
+func recipeByID(recipeID string) *models.Recipe {
 	trimmed := strings.TrimSpace(recipeID)
-	for _, recipe := range []models.RecipeV1{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe()} {
+	for _, recipe := range []models.Recipe{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe()} {
 		if recipe.ID == trimmed {
 			candidate := recipe
 			return &candidate
@@ -102,7 +102,7 @@ func recipeByID(recipeID string) *models.RecipeV1 {
 	return nil
 }
 
-func resolveEmailPDF(recipe *models.RecipeV1, req models.RecipeRequestV1) (*resolvedRecipe, *models.JobErrorV1) {
+func resolveEmailPDF(recipe *models.Recipe, req models.RecipeRequest) (*resolvedRecipe, *models.JobError) {
 	inputs, inputErr := validateEmailPDFInputs(req.InputPaths)
 	if inputErr != nil {
 		return nil, inputErr
@@ -136,7 +136,7 @@ func resolveEmailPDF(recipe *models.RecipeV1, req models.RecipeRequestV1) (*reso
 		OutputDir:       outputDir,
 		TargetSizeBytes: targetSizeBytes,
 		FinalPath:       finalPath,
-		PlannedOutputs: []models.PlannedOutputV1{{
+		PlannedOutputs: []models.PlannedOutput{{
 			InputPath:   strings.Join(inputs, ","),
 			OutputPath:  finalPath,
 			OutputKind:  "file",
@@ -147,7 +147,7 @@ func resolveEmailPDF(recipe *models.RecipeV1, req models.RecipeRequestV1) (*reso
 	}, nil
 }
 
-func validateEmailPDFInputs(rawInputs []string) ([]string, *models.JobErrorV1) {
+func validateEmailPDFInputs(rawInputs []string) ([]string, *models.JobError) {
 	if len(rawInputs) == 0 {
 		return nil, newRecipeError("RECIPE_INVALID_INPUT", "Choose at least one PDF for Email PDF.", nil)
 	}
@@ -208,7 +208,7 @@ func validateEmailPDFInputs(rawInputs []string) ([]string, *models.JobErrorV1) {
 // resolveRecipeOutputDir validates the destination folder shared by every
 // recipe: an empty value defaults to the first input's folder and the folder
 // must exist and accept a write probe.
-func resolveRecipeOutputDir(rawDir, firstInput string) (string, *models.JobErrorV1) {
+func resolveRecipeOutputDir(rawDir, firstInput string) (string, *models.JobError) {
 	dir := strings.TrimSpace(rawDir)
 	if dir == "" {
 		dir = filepath.Dir(firstInput)
@@ -240,7 +240,7 @@ func resolveRecipeOutputDir(rawDir, firstInput string) (string, *models.JobError
 // emailPDFTargetSize reads options.targetSizeBytes, accepting integer and
 // floating point values (JSON numbers arrive as float64). Absent or null keeps
 // the recipe default.
-func emailPDFTargetSize(options map[string]any, defaultTargetBytes int64) (int64, *models.JobErrorV1) {
+func emailPDFTargetSize(options map[string]any, defaultTargetBytes int64) (int64, *models.JobError) {
 	if options == nil {
 		return defaultRecipeTarget(defaultTargetBytes)
 	}
@@ -264,7 +264,7 @@ func emailPDFTargetSize(options map[string]any, defaultTargetBytes int64) (int64
 	return int64(value), nil
 }
 
-func defaultRecipeTarget(defaultTargetBytes int64) (int64, *models.JobErrorV1) {
+func defaultRecipeTarget(defaultTargetBytes int64) (int64, *models.JobError) {
 	if defaultTargetBytes <= 0 {
 		return 0, newRecipeError("RECIPE_INVALID_TARGET", "The recipe has no valid default target size.", nil)
 	}
@@ -329,8 +329,8 @@ func emailPDFPlanMessage(inputCount int) string {
 // optimizePlanWarnings asks the optimize tool to plan the final step. Plan is
 // side-effect free apart from a temporary write probe, and it contributes its
 // best-effort and Ghostscript warnings to the recipe plan.
-func (s *Service) optimizePlanWarnings(resolved *resolvedRecipe) ([]string, *models.JobErrorV1) {
-	tool, jobErr := s.toolFor(pdf.ToolIDPDFOptimizeV1)
+func (s *Service) optimizePlanWarnings(resolved *resolvedRecipe) ([]string, *models.JobError) {
+	tool, jobErr := s.toolFor(pdf.ToolIDPDFOptimize)
 	if jobErr != nil {
 		return nil, jobErr
 	}
@@ -339,8 +339,8 @@ func (s *Service) optimizePlanWarnings(resolved *resolvedRecipe) ([]string, *mod
 	if !ok {
 		return nil, newRecipeError(
 			"RECIPE_TOOL_DEPENDENCY_MISSING",
-			fmt.Sprintf("Tool '%s' cannot plan its output.", pdf.ToolIDPDFOptimizeV1),
-			map[string]any{"toolId": pdf.ToolIDPDFOptimizeV1},
+			fmt.Sprintf("Tool '%s' cannot plan its output.", pdf.ToolIDPDFOptimize),
+			map[string]any{"toolId": pdf.ToolIDPDFOptimize},
 		)
 	}
 
@@ -365,9 +365,9 @@ func (s *Service) optimizePlanWarnings(resolved *resolvedRecipe) ([]string, *mod
 
 // optimizeEmailPDFRequest builds the final step request: the merge output (or
 // the original PDF) is optimized into the explicit collision-safe destination.
-func optimizeEmailPDFRequest(resolved *resolvedRecipe, sourcePath, outputPath string) models.JobRequestV1 {
-	return models.JobRequestV1{
-		ToolID:     pdf.ToolIDPDFOptimizeV1,
+func optimizeEmailPDFRequest(resolved *resolvedRecipe, sourcePath, outputPath string) models.JobRequest {
+	return models.JobRequest{
+		ToolID:     pdf.ToolIDPDFOptimize,
 		Mode:       "single",
 		InputPaths: []string{sourcePath},
 		OutputDir:  resolved.OutputDir,
@@ -424,7 +424,7 @@ func (s *Service) executeEmailPDF(ctx context.Context, tracked *recipeJob, resol
 		}
 
 		sourcePath = mergedPath
-		tracked.setStep(mergeStepIndex, models.RecipeStepResultV1{
+		tracked.setStep(mergeStepIndex, models.RecipeStepResult{
 			ID:      mergeStep.ID,
 			Name:    mergeStep.Name,
 			ToolID:  mergeStep.ToolID,
@@ -435,7 +435,7 @@ func (s *Service) executeEmailPDF(ctx context.Context, tracked *recipeJob, resol
 		tracked.setCurrentStep(optimizeStepIndex + 1)
 		s.emitProgress(tracked, models.JobStatusRunning, optimizeStep.Name, "merged", fmt.Sprintf("Merged %d PDFs.", len(resolved.Inputs)), 40)
 	} else {
-		tracked.setStep(mergeStepIndex, models.RecipeStepResultV1{
+		tracked.setStep(mergeStepIndex, models.RecipeStepResult{
 			ID:      mergeStep.ID,
 			Name:    mergeStep.Name,
 			ToolID:  mergeStep.ToolID,
@@ -471,7 +471,7 @@ func (s *Service) executeEmailPDF(ctx context.Context, tracked *recipeJob, resol
 		return
 	}
 
-	tracked.setStep(optimizeStepIndex, models.RecipeStepResultV1{
+	tracked.setStep(optimizeStepIndex, models.RecipeStepResult{
 		ID:      optimizeStep.ID,
 		Name:    optimizeStep.Name,
 		ToolID:  optimizeStep.ToolID,
@@ -516,14 +516,14 @@ func (s *Service) executeEmailPDF(ctx context.Context, tracked *recipeJob, resol
 	s.emitProgress(tracked, models.JobStatusPartialSuccess, optimizeStep.Name, models.JobStatusPartialSuccess, message, 100)
 }
 
-func (s *Service) runEmailPDFMergeStep(ctx context.Context, inputPaths []string, tempDir string) (string, *models.JobErrorV1) {
-	executor, planner, jobErr := s.singleExecutor(pdf.ToolIDPDFMergeV1)
+func (s *Service) runEmailPDFMergeStep(ctx context.Context, inputPaths []string, tempDir string) (string, *models.JobError) {
+	executor, planner, jobErr := s.singleExecutor(pdf.ToolIDPDFMerge)
 	if jobErr != nil {
 		return "", jobErr
 	}
 
-	req := models.JobRequestV1{
-		ToolID:     pdf.ToolIDPDFMergeV1,
+	req := models.JobRequest{
+		ToolID:     pdf.ToolIDPDFMerge,
 		Mode:       "single",
 		InputPaths: inputPaths,
 		OutputDir:  tempDir,
@@ -540,7 +540,7 @@ func (s *Service) runEmailPDFMergeStep(ctx context.Context, inputPaths []string,
 		return "", execErr
 	}
 	if !item.Success {
-		return "", stepItemError(item, pdf.ToolIDPDFMergeV1)
+		return "", stepItemError(item, pdf.ToolIDPDFMerge)
 	}
 
 	outputPath := strings.TrimSpace(item.OutputPath)
@@ -554,8 +554,8 @@ func (s *Service) runEmailPDFMergeStep(ctx context.Context, inputPaths []string,
 	return outputPath, nil
 }
 
-func (s *Service) runEmailPDFOptimizeStep(ctx context.Context, sourcePath string, resolved *resolvedRecipe) (string, string, *models.JobErrorV1) {
-	executor, planner, jobErr := s.singleExecutor(pdf.ToolIDPDFOptimizeV1)
+func (s *Service) runEmailPDFOptimizeStep(ctx context.Context, sourcePath string, resolved *resolvedRecipe) (string, string, *models.JobError) {
+	executor, planner, jobErr := s.singleExecutor(pdf.ToolIDPDFOptimize)
 	if jobErr != nil {
 		return "", "", jobErr
 	}
@@ -580,7 +580,7 @@ func (s *Service) runEmailPDFOptimizeStep(ctx context.Context, sourcePath string
 		return "", "", execErr
 	}
 	if !item.Success {
-		return "", "", stepItemError(item, pdf.ToolIDPDFOptimizeV1)
+		return "", "", stepItemError(item, pdf.ToolIDPDFOptimize)
 	}
 
 	outputPath := strings.TrimSpace(item.OutputPath)
@@ -594,7 +594,7 @@ func (s *Service) runEmailPDFOptimizeStep(ctx context.Context, sourcePath string
 	return outputPath, item.Message, nil
 }
 
-func emailPDFResultMessage(finalPath string, targetSizeBytes int64, report models.VerificationReportV1) string {
+func emailPDFResultMessage(finalPath string, targetSizeBytes int64, report models.VerificationReport) string {
 	base := filepath.Base(finalPath)
 	if targetNotMet(report, targetSizeBytes) {
 		return fmt.Sprintf(
@@ -607,7 +607,7 @@ func emailPDFResultMessage(finalPath string, targetSizeBytes int64, report model
 	return fmt.Sprintf("Email PDF ready: %s, but verification reported: %s.", base, report.Message)
 }
 
-func targetNotMet(report models.VerificationReportV1, targetSizeBytes int64) bool {
+func targetNotMet(report models.VerificationReport, targetSizeBytes int64) bool {
 	if targetSizeBytes <= 0 {
 		return false
 	}
@@ -620,8 +620,8 @@ func targetNotMet(report models.VerificationReportV1, targetSizeBytes int64) boo
 	return false
 }
 
-func failedRecipeStep(step models.RecipeStepV1, jobErr *models.JobErrorV1) models.RecipeStepResultV1 {
-	result := models.RecipeStepResultV1{
+func failedRecipeStep(step models.RecipeStep, jobErr *models.JobError) models.RecipeStepResult {
+	result := models.RecipeStepResult{
 		ID:     step.ID,
 		Name:   step.Name,
 		ToolID: step.ToolID,
@@ -635,7 +635,7 @@ func failedRecipeStep(step models.RecipeStepV1, jobErr *models.JobErrorV1) model
 	return result
 }
 
-func stepItemError(item models.JobResultItemV1, toolID string) *models.JobErrorV1 {
+func stepItemError(item models.JobResultItem, toolID string) *models.JobError {
 	if item.Error != nil {
 		return item.Error
 	}
@@ -648,7 +648,7 @@ func stepItemError(item models.JobResultItemV1, toolID string) *models.JobErrorV
 	return newRecipeError("RECIPE_STEP_FAILED", message, map[string]any{"toolId": toolID})
 }
 
-func isCancellation(ctx context.Context, jobErr *models.JobErrorV1) bool {
+func isCancellation(ctx context.Context, jobErr *models.JobError) bool {
 	if ctx != nil && ctx.Err() != nil {
 		return true
 	}
@@ -660,17 +660,17 @@ func isCancellation(ctx context.Context, jobErr *models.JobErrorV1) bool {
 	return strings.Contains(codes, "CANCEL")
 }
 
-func recipePlanFailure(jobErr *models.JobErrorV1) models.RecipePlanResponseV1 {
+func recipePlanFailure(jobErr *models.JobError) models.RecipePlanResponse {
 	message := recipePlanFailureMessage
 	if jobErr != nil && jobErr.Message != "" {
 		message = jobErr.Message
 	}
 
-	return models.RecipePlanResponseV1{
+	return models.RecipePlanResponse{
 		Success:    false,
 		Message:    message,
 		InputPaths: []string{},
-		Outputs:    []models.PlannedOutputV1{},
+		Outputs:    []models.PlannedOutput{},
 		Error:      jobErr,
 	}
 }

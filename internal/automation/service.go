@@ -18,11 +18,11 @@ import (
 )
 
 const (
-	// RunEventNameV1 is the Wails event emitted for every automation run stage.
-	RunEventNameV1 = "automation/run/v1"
+	// RunEventName is the Wails event emitted for every automation run stage.
+	RunEventName = "automation/run/v1"
 
-	// AutomationRunEventNameV1 is kept as an explicit alias for the event name.
-	AutomationRunEventNameV1 = RunEventNameV1
+	// AutomationRunEventName is kept as an explicit alias for the event name.
+	AutomationRunEventName = RunEventName
 
 	// Runtime states reported by ListRules. They describe the watcher, not the
 	// persisted rule.
@@ -40,11 +40,11 @@ const (
 // RecipeRunner is the recipe surface the automation service depends on.
 // *recipes.Service satisfies it.
 type RecipeRunner interface {
-	List() []models.RecipeV1
-	Plan(models.RecipeRequestV1) models.RecipePlanResponseV1
-	Run(context.Context, models.RecipeRequestV1) models.RunRecipeResponseV1
-	Status(string) models.RecipeStatusResponseV1
-	Cancel(string) models.RecipeStatusResponseV1
+	List() []models.Recipe
+	Plan(models.RecipeRequest) models.RecipePlanResponse
+	Run(context.Context, models.RecipeRequest) models.RunRecipeResponse
+	Status(string) models.RecipeStatusResponse
+	Cancel(string) models.RecipeStatusResponse
 }
 
 // Service owns the automation rules and their watchers.
@@ -52,7 +52,7 @@ type Service struct {
 	store   *Store
 	runs    *RunStore
 	recipes RecipeRunner
-	emit    func(models.AutomationRunEventV1)
+	emit    func(models.AutomationRunEvent)
 
 	// Test-settable timings.
 	stabilityDelay     time.Duration
@@ -70,7 +70,7 @@ type Service struct {
 
 // NewService builds the automation service. emit may be nil in tests or
 // headless runs.
-func NewService(store *Store, recipes RecipeRunner, emit func(models.AutomationRunEventV1)) *Service {
+func NewService(store *Store, recipes RecipeRunner, emit func(models.AutomationRunEvent)) *Service {
 	service := &Service{
 		store:              store,
 		recipes:            recipes,
@@ -154,8 +154,8 @@ func (s *Service) Shutdown() {
 }
 
 // ListRules returns every saved rule with its current runtime state.
-func (s *Service) ListRules() models.ListAutomationRulesResponseV1 {
-	rules := []models.AutomationRuleV1{}
+func (s *Service) ListRules() models.ListAutomationRulesResponse {
+	rules := []models.AutomationRule{}
 	if s.store != nil {
 		rules = s.store.List()
 	}
@@ -184,7 +184,7 @@ func (s *Service) ListRules() models.ListAutomationRulesResponseV1 {
 		message = "No automation rules yet."
 	}
 
-	return models.ListAutomationRulesResponseV1{
+	return models.ListAutomationRulesResponse{
 		Success: true,
 		Message: message,
 		Rules:   rules,
@@ -193,14 +193,14 @@ func (s *Service) ListRules() models.ListAutomationRulesResponseV1 {
 
 // SaveRule validates, normalizes and persists a rule. When the service is
 // running the watcher is restarted to match the new state.
-func (s *Service) SaveRule(rule models.AutomationRuleV1) models.AutomationRuleActionResponseV1 {
+func (s *Service) SaveRule(rule models.AutomationRule) models.AutomationRuleActionResponse {
 	if s.store == nil {
 		return s.failure("Automation rules are not available.", "AUTOMATION_STORE_UNAVAILABLE", nil)
 	}
 
 	normalized, jobErr := s.validateRule(rule)
 	if jobErr != nil {
-		return models.AutomationRuleActionResponseV1{
+		return models.AutomationRuleActionResponse{
 			Success: false,
 			Message: jobErr.Message,
 			Error:   jobErr,
@@ -208,7 +208,7 @@ func (s *Service) SaveRule(rule models.AutomationRuleV1) models.AutomationRuleAc
 	}
 
 	now := time.Now()
-	var existing models.AutomationRuleV1
+	var existing models.AutomationRule
 	existingFound := false
 	if normalized.ID == "" {
 		normalized.ID = fmt.Sprintf("rule_%d", now.UnixNano())
@@ -255,7 +255,7 @@ func (s *Service) SaveRule(rule models.AutomationRuleV1) models.AutomationRuleAc
 
 	view := s.viewOf(saved)
 
-	return models.AutomationRuleActionResponseV1{
+	return models.AutomationRuleActionResponse{
 		Success: true,
 		Message: "Automation rule saved.",
 		Rule:    &view,
@@ -263,7 +263,7 @@ func (s *Service) SaveRule(rule models.AutomationRuleV1) models.AutomationRuleAc
 }
 
 // DeleteRule stops the watcher and removes the rule from the store.
-func (s *Service) DeleteRule(id string) models.AutomationRuleActionResponseV1 {
+func (s *Service) DeleteRule(id string) models.AutomationRuleActionResponse {
 	trimmed := strings.TrimSpace(id)
 	if trimmed == "" {
 		return s.failure("Choose an automation rule to delete.", "AUTOMATION_RULE_ID_REQUIRED", nil)
@@ -297,14 +297,14 @@ func (s *Service) DeleteRule(id string) models.AutomationRuleActionResponseV1 {
 	}
 	s.clearRuntimeError(trimmed)
 
-	return models.AutomationRuleActionResponseV1{
+	return models.AutomationRuleActionResponse{
 		Success: true,
 		Message: "Automation rule deleted.",
 	}
 }
 
 // SetRuleEnabled enables or disables a rule and starts or stops its watcher.
-func (s *Service) SetRuleEnabled(id string, enabled bool) models.AutomationRuleActionResponseV1 {
+func (s *Service) SetRuleEnabled(id string, enabled bool) models.AutomationRuleActionResponse {
 	trimmed := strings.TrimSpace(id)
 	if trimmed == "" {
 		return s.failure("Choose an automation rule.", "AUTOMATION_RULE_ID_REQUIRED", nil)
@@ -348,7 +348,7 @@ func (s *Service) SetRuleEnabled(id string, enabled bool) models.AutomationRuleA
 		message = "Automation rule enabled."
 	}
 
-	return models.AutomationRuleActionResponseV1{
+	return models.AutomationRuleActionResponse{
 		Success: true,
 		Message: message,
 		Rule:    &view,
@@ -356,8 +356,8 @@ func (s *Service) SetRuleEnabled(id string, enabled bool) models.AutomationRuleA
 }
 
 // Status returns the compact automation summary used by Home.
-func (s *Service) Status() models.AutomationStatusResponseV1 {
-	rules := []models.AutomationRuleV1{}
+func (s *Service) Status() models.AutomationStatusResponse {
+	rules := []models.AutomationRule{}
 	if s.store != nil {
 		rules = s.store.List()
 	}
@@ -371,7 +371,7 @@ func (s *Service) Status() models.AutomationStatusResponseV1 {
 	}
 	s.mu.Unlock()
 
-	response := models.AutomationStatusResponseV1{
+	response := models.AutomationStatusResponse{
 		Success:     true,
 		Message:     "Automation status loaded.",
 		TotalRules:  len(rules),
@@ -400,9 +400,9 @@ func (s *Service) Status() models.AutomationStatusResponseV1 {
 // ListRuns returns the persisted terminal run history, newest first. An empty
 // history is a successful empty response; a missing run store is reported as a
 // failure so the UI can explain why the panel is unavailable.
-func (s *Service) ListRuns(limit int) models.ListAutomationRunsResponseV1 {
+func (s *Service) ListRuns(limit int) models.ListAutomationRunsResponse {
 	if s.runs == nil {
-		return models.ListAutomationRunsResponseV1{
+		return models.ListAutomationRunsResponse{
 			Success: false,
 			Message: "Automation run history is not available.",
 		}
@@ -414,7 +414,7 @@ func (s *Service) ListRuns(limit int) models.ListAutomationRunsResponseV1 {
 		message = "No automation runs yet."
 	}
 
-	return models.ListAutomationRunsResponseV1{
+	return models.ListAutomationRunsResponse{
 		Success: true,
 		Message: message,
 		Runs:    runs,
@@ -422,9 +422,9 @@ func (s *Service) ListRuns(limit int) models.ListAutomationRunsResponseV1 {
 }
 
 // ClearRuns permanently removes the persisted run history.
-func (s *Service) ClearRuns() models.AutomationRunsActionResponseV1 {
+func (s *Service) ClearRuns() models.AutomationRunsActionResponse {
 	if s.runs == nil {
-		return models.AutomationRunsActionResponseV1{
+		return models.AutomationRunsActionResponse{
 			Success: false,
 			Message: "Automation run history is not available.",
 		}
@@ -432,19 +432,19 @@ func (s *Service) ClearRuns() models.AutomationRunsActionResponseV1 {
 
 	if err := s.runs.Clear(); err != nil {
 		log.Printf("automation.runs.clear.failed err=%v", err)
-		return models.AutomationRunsActionResponseV1{
+		return models.AutomationRunsActionResponse{
 			Success: false,
 			Message: "The automation run history could not be cleared.",
 		}
 	}
 
-	return models.AutomationRunsActionResponseV1{
+	return models.AutomationRunsActionResponse{
 		Success: true,
 		Message: "Automation run history cleared.",
 	}
 }
 
-func (s *Service) validateRule(rule models.AutomationRuleV1) (models.AutomationRuleV1, *models.JobErrorV1) {
+func (s *Service) validateRule(rule models.AutomationRule) (models.AutomationRule, *models.JobError) {
 	normalized := cloneRule(rule)
 	normalized.ID = strings.TrimSpace(normalized.ID)
 	normalized.Name = strings.TrimSpace(normalized.Name)
@@ -513,7 +513,7 @@ func (s *Service) validateRule(rule models.AutomationRuleV1) (models.AutomationR
 	return normalized, nil
 }
 
-func resolveExistingDirectory(raw, label string) (string, *models.JobErrorV1) {
+func resolveExistingDirectory(raw, label string) (string, *models.JobError) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "", automationError(
@@ -570,7 +570,7 @@ func probeWritableDirectory(directory string) error {
 	return nil
 }
 
-func (s *Service) startRule(rule models.AutomationRuleV1) {
+func (s *Service) startRule(rule models.AutomationRule) {
 	s.mu.Lock()
 	if !s.started || s.ctx == nil {
 		s.mu.Unlock()
@@ -638,7 +638,7 @@ func (s *Service) stopRule(id string) {
 	}
 }
 
-func (s *Service) checkRuleRuntime(rule models.AutomationRuleV1) string {
+func (s *Service) checkRuleRuntime(rule models.AutomationRule) string {
 	info, err := os.Stat(rule.WatchDir)
 	if err != nil || !info.IsDir() {
 		return fmt.Sprintf("The watch folder is not available: %s", rule.WatchDir)
@@ -650,7 +650,7 @@ func (s *Service) checkRuleRuntime(rule models.AutomationRuleV1) string {
 	return ""
 }
 
-func (s *Service) viewOf(rule models.AutomationRuleV1) models.AutomationRuleV1 {
+func (s *Service) viewOf(rule models.AutomationRule) models.AutomationRule {
 	view := cloneRule(rule)
 	view.RuntimeStatus = RuntimeStatusStopped
 	view.RuntimeReason = ""
@@ -721,7 +721,7 @@ func (s *Service) recordRun(ruleID, status, message, file string, outputs []stri
 		}
 	}
 
-	s.runs.Record(models.AutomationRunRecordV1{
+	s.runs.Record(models.AutomationRunRecord{
 		RuleID:   ruleID,
 		RuleName: ruleName,
 		FilePath: file,
@@ -732,7 +732,7 @@ func (s *Service) recordRun(ruleID, status, message, file string, outputs []stri
 	})
 }
 
-func (s *Service) emitRun(event models.AutomationRunEventV1) {
+func (s *Service) emitRun(event models.AutomationRunEvent) {
 	if s.emit == nil {
 		return
 	}
@@ -744,23 +744,23 @@ func (s *Service) emitRun(event models.AutomationRunEventV1) {
 	s.emit(event)
 }
 
-func (s *Service) failure(message, detailCode string, details map[string]any) models.AutomationRuleActionResponseV1 {
+func (s *Service) failure(message, detailCode string, details map[string]any) models.AutomationRuleActionResponse {
 	if details == nil {
 		details = map[string]any{}
 	}
 
-	return models.AutomationRuleActionResponseV1{
+	return models.AutomationRuleActionResponse{
 		Success: false,
 		Message: message,
 		Error:   models.NewCanonicalJobError(detailCode, message, details),
 	}
 }
 
-func automationError(detailCode, message string) *models.JobErrorV1 {
+func automationError(detailCode, message string) *models.JobError {
 	return models.NewCanonicalJobError(detailCode, message, nil)
 }
 
-func findRecipe(recipes []models.RecipeV1, id string) *models.RecipeV1 {
+func findRecipe(recipes []models.Recipe, id string) *models.Recipe {
 	trimmed := strings.TrimSpace(id)
 	if trimmed == "" {
 		return nil

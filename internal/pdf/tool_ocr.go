@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	// ToolIDPDFOCRV1 is the local OCR tool for scanned PDFs.
-	ToolIDPDFOCRV1 = "tool.pdf.ocr"
+	// ToolIDPDFOCR is the local OCR tool for scanned PDFs.
+	ToolIDPDFOCR = "tool.pdf.ocr"
 
 	ocrOutputKindFile = "file"
 	ocrOutputSuffix   = "_ocr"
@@ -40,21 +40,21 @@ func NewOCRToolWithDeps(runner engine.CommandRunner, capabilities func(context.C
 }
 
 func (t *OCRTool) ID() string {
-	return ToolIDPDFOCRV1
+	return ToolIDPDFOCR
 }
 
 func (t *OCRTool) Capability() string {
-	return ToolIDPDFOCRV1
+	return ToolIDPDFOCR
 }
 
-func (t *OCRTool) Manifest() models.ToolManifestV1 {
-	return models.ToolManifestV1{
+func (t *OCRTool) Manifest() models.ToolManifest {
+	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "PDF OCR",
 		Description:      "Make scanned PDFs searchable with local OCR",
 		Domain:           "pdf",
 		Capability:       t.Capability(),
-		Version:          "v1",
+		Version:          "1.0",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  []string{"pdf"},
@@ -70,28 +70,28 @@ func (t *OCRTool) OCRCapabilities(ctx context.Context) engine.OCRCapabilities {
 	return t.detectCapabilities(ctx)
 }
 
-func (t *OCRTool) RuntimeState(ctx context.Context) models.ToolRuntimeStateV1 {
+func (t *OCRTool) RuntimeState(ctx context.Context) models.ToolRuntimeState {
 	capabilities := t.detectCapabilities(ctx)
 	if capabilities.Available() {
-		return models.ToolRuntimeStateV1{Status: "enabled", Healthy: true}
+		return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 	}
 
-	return models.ToolRuntimeStateV1{
+	return models.ToolRuntimeState{
 		Status:  "degraded",
 		Healthy: false,
 		Reason:  OCRUnavailableReason(capabilities),
 	}
 }
 
-func (t *OCRTool) Validate(ctx context.Context, req models.JobRequestV1) *models.JobErrorV1 {
+func (t *OCRTool) Validate(ctx context.Context, req models.JobRequest) *models.JobError {
 	_, planErr := t.Plan(ctx, req)
 	return planErr
 }
 
 // Plan validates the OCR runtime, language, inputs and resolves the PDF plus
 // the optional text sidecar for every input without writing anything.
-func (t *OCRTool) Plan(ctx context.Context, req models.JobRequestV1) (models.PlanJobResponseV1, *models.JobErrorV1) {
-	plan := models.PlanJobResponseV1{Outputs: []models.PlannedOutputV1{}}
+func (t *OCRTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	parsed, parseErr := ocrReqFields(req)
 	if parseErr != nil {
@@ -165,7 +165,7 @@ func (t *OCRTool) Plan(ctx context.Context, req models.JobRequestV1) (models.Pla
 		outputplan.MarkUsed(used, inputPath)
 	}
 
-	outputs := make([]models.PlannedOutputV1, 0, len(parsed.InputPaths)*2)
+	outputs := make([]models.PlannedOutput, 0, len(parsed.InputPaths)*2)
 	for _, inputPath := range parsed.InputPaths {
 		targetDir := parsed.OutputDir
 		if targetDir == "" {
@@ -187,13 +187,13 @@ func (t *OCRTool) Plan(ctx context.Context, req models.JobRequestV1) (models.Pla
 
 // ExecuteSingle implements tools.SingleExecutor by delegating to the progress
 // variant with a no-op callback.
-func (t *OCRTool) ExecuteSingle(ctx context.Context, req models.JobRequestV1) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *OCRTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
 	return t.ExecuteSingleWithProgress(ctx, req, nil)
 }
 
 // ExecuteSingleWithProgress resolves the plan once, executes exactly that plan
 // and reports page-level progress for the one input.
-func (t *OCRTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) (models.JobResultItemV1, *models.JobErrorV1) {
+func (t *OCRTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
 	parsed, parseErr := ocrReqFields(req)
 	if parseErr != nil {
 		return ocrFailureItem(firstInputPath(req.InputPaths), "", parseErr), parseErr
@@ -224,7 +224,7 @@ func (t *OCRTool) ExecuteSingleWithProgress(ctx context.Context, req models.JobR
 
 // ExecuteBatch plans the request once and then executes exactly that plan. It
 // never re-resolves output paths from the request.
-func (t *OCRTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *OCRTool) ExecuteBatch(ctx context.Context, req models.JobRequest, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := ocrReqFields(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -245,7 +245,7 @@ func (t *OCRTool) ExecuteBatch(ctx context.Context, req models.JobRequestV1, onP
 // ExecutePlan runs OCR for exactly the inputs resolved by Plan. The runtime is
 // read from the plan, so the batch never probes Tesseract per input; inputs run
 // with a small bounded pool and results keep plan order.
-func (t *OCRTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan models.PlanJobResponseV1, onProgress func(models.JobProgressV1)) ([]models.JobResultItemV1, *models.JobErrorV1) {
+func (t *OCRTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	parsed, parseErr := ocrReqFields(req)
 	if parseErr != nil {
 		return nil, parseErr
@@ -275,8 +275,8 @@ func (t *OCRTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan
 		return nil, groupErr
 	}
 
-	items := make([]models.JobResultItemV1, len(plan.Outputs))
-	groupErrors := make([]*models.JobErrorV1, len(jobs))
+	items := make([]models.JobResultItem, len(plan.Outputs))
+	groupErrors := make([]*models.JobError, len(jobs))
 	completed := make([]bool, len(plan.Outputs))
 	singleInput := len(jobs) == 1
 
@@ -290,7 +290,7 @@ func (t *OCRTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan
 	runErr := utils.ParallelForIndex(ctx, len(jobs), ocrInputWorkerCount(), func(ctx context.Context, index int) error {
 		job := jobs[index]
 
-		var pageProgress func(models.JobProgressV1)
+		var pageProgress func(models.JobProgress)
 		if singleInput {
 			pageProgress = onProgress
 		}
@@ -325,7 +325,7 @@ func (t *OCRTool) ExecutePlan(ctx context.Context, req models.JobRequestV1, plan
 				}
 			}
 
-			return completedPDFBatchItems(items, completed), &models.JobErrorV1{Code: "CANCELED", Message: ctx.Err().Error()}
+			return completedPDFBatchItems(items, completed), &models.JobError{Code: "CANCELED", Message: ctx.Err().Error()}
 		}
 
 		return completedPDFBatchItems(items, completed), models.NewCanonicalJobError(engine.OCRCodeRecognizeFailed, "batch OCR failed", map[string]any{"cause": runErr.Error()})
@@ -378,12 +378,12 @@ type ocrPlannedJob struct {
 	outputIndices []int
 }
 
-func (t *OCRTool) runOCRWithCapabilities(ctx context.Context, job ocrPlannedJob, language string, dpi int, capabilities engine.OCRCapabilities, onProgress func(models.JobProgressV1)) (engine.OCRResult, *engine.OCRError) {
+func (t *OCRTool) runOCRWithCapabilities(ctx context.Context, job ocrPlannedJob, language string, dpi int, capabilities engine.OCRCapabilities, onProgress func(models.JobProgress)) (engine.OCRResult, *engine.OCRError) {
 	progress := func(current, total int, message string) {
 		if onProgress == nil {
 			return
 		}
-		onProgress(models.JobProgressV1{
+		onProgress(models.JobProgress{
 			Current: current,
 			Total:   total,
 			Stage:   "ocr",
@@ -400,13 +400,13 @@ func (t *OCRTool) runOCRWithCapabilities(ctx context.Context, job ocrPlannedJob,
 	}, progress)
 }
 
-func ocrSuccessItem(job ocrPlannedJob, outcome engine.OCRResult) models.JobResultItemV1 {
+func ocrSuccessItem(job ocrPlannedJob, outcome engine.OCRResult) models.JobResultItem {
 	outputs := []string{job.OutputPath}
 	if job.TextPath != "" {
 		outputs = append(outputs, job.TextPath)
 	}
 
-	return models.JobResultItemV1{
+	return models.JobResultItem{
 		InputPath:   job.InputPath,
 		OutputPath:  job.OutputPath,
 		Outputs:     outputs,
@@ -419,9 +419,9 @@ func ocrSuccessItem(job ocrPlannedJob, outcome engine.OCRResult) models.JobResul
 // ocrPlannedItem reports one planned output. The PDF output keeps the legacy
 // item shape with both declared outputs; the text sidecar reports its own file
 // so plan alignment stays 1:1.
-func ocrPlannedItem(job ocrPlannedJob, planned models.PlannedOutputV1, outcome engine.OCRResult) models.JobResultItemV1 {
+func ocrPlannedItem(job ocrPlannedJob, planned models.PlannedOutput, outcome engine.OCRResult) models.JobResultItem {
 	if job.TextPath != "" && strings.EqualFold(planned.OutputPath, job.TextPath) {
-		return models.JobResultItemV1{
+		return models.JobResultItem{
 			InputPath:   job.InputPath,
 			OutputPath:  planned.OutputPath,
 			Outputs:     []string{planned.OutputPath},
@@ -446,7 +446,7 @@ func ocrSuccessMessage(outcome engine.OCRResult) string {
 // groupOCROutputs pairs the flat planned outputs (PDF then TXT per input) with
 // their source paths. A reduced retry plan may contain only one side of a pair;
 // every planned output is still kept so it gets its own result or failure.
-func groupOCROutputs(outputs []models.PlannedOutputV1, textSidecar bool) ([]ocrPlannedJob, *models.JobErrorV1) {
+func groupOCROutputs(outputs []models.PlannedOutput, textSidecar bool) ([]ocrPlannedJob, *models.JobError) {
 	if len(outputs) == 0 {
 		return nil, ocrRequestError(models.ErrorCodeValidationInvalidInput, engine.ErrorCodeValidation, "the plan resolved no outputs")
 	}
@@ -516,7 +516,7 @@ type ocrRequestFields struct {
 	DPI         int
 }
 
-func ocrReqFields(req models.JobRequestV1) (ocrRequestFields, *models.JobErrorV1) {
+func ocrReqFields(req models.JobRequest) (ocrRequestFields, *models.JobError) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode != "single" && mode != "batch" {
 		return ocrRequestFields{}, ocrRequestError(models.ErrorCodeValidationInvalidInput, engine.ErrorCodeValidation, "mode must be single or batch")
@@ -578,7 +578,7 @@ func ocrReqFields(req models.JobRequestV1) (ocrRequestFields, *models.JobErrorV1
 }
 
 // ocrOptionBool defaults textSidecar to true when the option is absent.
-func ocrOptionBool(options map[string]any, key string) (bool, *models.JobErrorV1) {
+func ocrOptionBool(options map[string]any, key string) (bool, *models.JobError) {
 	if options == nil {
 		return true, nil
 	}
@@ -605,7 +605,7 @@ func ocrOptionBool(options map[string]any, key string) (bool, *models.JobErrorV1
 
 // ocrOptionDPI defaults dpi to engine.DefaultOCRDPI and accepts the
 // engine.MinOCRDPI–engine.MaxOCRDPI range.
-func ocrOptionDPI(options map[string]any) (int, *models.JobErrorV1) {
+func ocrOptionDPI(options map[string]any) (int, *models.JobError) {
 	dpi := engine.DefaultOCRDPI
 	if options != nil {
 		if raw, ok := options["dpi"]; ok && raw != nil {
@@ -666,7 +666,7 @@ func ocrNumericOption(raw any) (float64, bool) {
 	}
 }
 
-func planExplicitOCROutputs(parsed ocrRequestFields) ([]models.PlannedOutputV1, *models.JobErrorV1) {
+func planExplicitOCROutputs(parsed ocrRequestFields) ([]models.PlannedOutput, *models.JobError) {
 	outputPath := strings.TrimSpace(parsed.OutputPath)
 	if !strings.EqualFold(filepath.Ext(outputPath), ".pdf") {
 		return nil, ocrRequestError(models.ErrorCodeValidationInvalidInput, engine.ErrorCodeValidation, "options.outputPath must use .pdf extension")
@@ -680,7 +680,7 @@ func planExplicitOCROutputs(parsed ocrRequestFields) ([]models.PlannedOutputV1, 
 	outputplan.MarkUsed(used, parsed.InputPaths[0])
 	outputplan.MarkUsed(used, outputPath)
 
-	outputs := []models.PlannedOutputV1{{
+	outputs := []models.PlannedOutput{{
 		InputPath:   parsed.InputPaths[0],
 		OutputPath:  outputPath,
 		OutputKind:  ocrOutputKindFile,
@@ -690,7 +690,7 @@ func planExplicitOCROutputs(parsed ocrRequestFields) ([]models.PlannedOutputV1, 
 	if parsed.TextSidecar {
 		textPath, adjusted := outputplan.UniqueFilePath(filepath.Dir(outputPath), strings.TrimSuffix(filepath.Base(outputPath), filepath.Ext(outputPath)), ocrTextExtension, used)
 
-		textOutput := models.PlannedOutputV1{
+		textOutput := models.PlannedOutput{
 			InputPath:   parsed.InputPaths[0],
 			OutputPath:  textPath,
 			OutputKind:  ocrOutputKindFile,
@@ -707,11 +707,11 @@ func planExplicitOCROutputs(parsed ocrRequestFields) ([]models.PlannedOutputV1, 
 	return outputs, nil
 }
 
-func planAutoOCROutputs(inputPath, dir string, textSidecar bool, used map[string]struct{}) []models.PlannedOutputV1 {
+func planAutoOCROutputs(inputPath, dir string, textSidecar bool, used map[string]struct{}) []models.PlannedOutput {
 	base := ocrOutputBaseName(inputPath)
 	outputPath, adjusted := outputplan.UniqueFilePath(dir, base, "pdf", used)
 
-	pdfOutput := models.PlannedOutputV1{
+	pdfOutput := models.PlannedOutput{
 		InputPath:   inputPath,
 		OutputPath:  outputPath,
 		OutputKind:  ocrOutputKindFile,
@@ -722,7 +722,7 @@ func planAutoOCROutputs(inputPath, dir string, textSidecar bool, used map[string
 		pdfOutput.Warnings = append(pdfOutput.Warnings, fmt.Sprintf("%s already exists. Saving as %s.", base+".pdf", filepath.Base(outputPath)))
 	}
 
-	outputs := []models.PlannedOutputV1{pdfOutput}
+	outputs := []models.PlannedOutput{pdfOutput}
 	if !textSidecar {
 		return outputs
 	}
@@ -730,7 +730,7 @@ func planAutoOCROutputs(inputPath, dir string, textSidecar bool, used map[string
 	textBase := strings.TrimSuffix(filepath.Base(outputPath), filepath.Ext(outputPath))
 	textPath, textAdjusted := outputplan.UniqueFilePath(dir, textBase, ocrTextExtension, used)
 
-	textOutput := models.PlannedOutputV1{
+	textOutput := models.PlannedOutput{
 		InputPath:   inputPath,
 		OutputPath:  textPath,
 		OutputKind:  ocrOutputKindFile,
@@ -774,7 +774,7 @@ func ocrPlanMessage(inputCount int) string {
 
 // ocrPlanWarnings repeats the explicit tradeoff of the pipeline and explains
 // the installed-language state.
-func ocrPlanWarnings(outputs []models.PlannedOutputV1, language string, capabilities engine.OCRCapabilities) []string {
+func ocrPlanWarnings(outputs []models.PlannedOutput, language string, capabilities engine.OCRCapabilities) []string {
 	warnings := make([]string, 0, len(outputs)+2)
 	for _, output := range outputs {
 		warnings = append(warnings, output.Warnings...)
@@ -815,8 +815,8 @@ func OCRUnavailableReason(capabilities engine.OCRCapabilities) string {
 	return "Local OCR is unavailable."
 }
 
-func ocrFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) models.JobResultItemV1 {
-	return models.JobResultItemV1{
+func ocrFailureItem(inputPath, outputPath string, jobErr *models.JobError) models.JobResultItem {
+	return models.JobResultItem{
 		InputPath:  inputPath,
 		OutputPath: outputPath,
 		Success:    false,
@@ -825,7 +825,7 @@ func ocrFailureItem(inputPath, outputPath string, jobErr *models.JobErrorV1) mod
 	}
 }
 
-func ocrPlannedOutputPath(plan models.PlanJobResponseV1) string {
+func ocrPlannedOutputPath(plan models.PlanJobResponse) string {
 	if len(plan.Outputs) == 0 {
 		return ""
 	}
@@ -833,14 +833,14 @@ func ocrPlannedOutputPath(plan models.PlanJobResponseV1) string {
 	return plan.Outputs[0].OutputPath
 }
 
-func ocrRequestError(code, detailCode, message string) *models.JobErrorV1 {
+func ocrRequestError(code, detailCode, message string) *models.JobError {
 	return models.NewJobError(code, detailCode, message, nil)
 }
 
-func mapOCRError(err error) *models.JobErrorV1 {
+func mapOCRError(err error) *models.JobError {
 	var ocrErr *engine.OCRError
 	if !errors.As(err, &ocrErr) {
-		return &models.JobErrorV1{Code: "EXECUTION_ERROR", Message: err.Error()}
+		return &models.JobError{Code: "EXECUTION_ERROR", Message: err.Error()}
 	}
 
 	switch ocrErr.Code {
@@ -875,9 +875,9 @@ func intOption(options map[string]any, key string) int {
 	}
 }
 
-// OCRCapabilitiesV1 reports the local OCR state for the app capability
+// OCRCapabilities reports the local OCR state for the app capability
 // endpoint.
-func OCRCapabilitiesV1(ctx context.Context) models.OCRCapabilitiesResponseV1 {
+func OCRCapabilities(ctx context.Context) models.OCRCapabilitiesResponse {
 	capabilities := NewOCRTool().detectCapabilities(ctx)
 
 	message := "Local OCR is unavailable."
@@ -892,7 +892,7 @@ func OCRCapabilitiesV1(ctx context.Context) models.OCRCapabilitiesResponseV1 {
 		languages = []string{}
 	}
 
-	return models.OCRCapabilitiesResponseV1{
+	return models.OCRCapabilitiesResponse{
 		Success:             true,
 		Message:             message,
 		Available:           capabilities.Available(),

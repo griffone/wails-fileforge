@@ -17,71 +17,71 @@ type ToolService struct {
 	runtime  *Runtime
 }
 
-func (s *ToolService) ListToolsV1() models.ListToolsResponseV1 {
-	return s.tooling.ListToolsV1()
+func (s *ToolService) ListTools() models.ListToolsResponse {
+	return s.tooling.ListTools()
 }
 
-func (s *ToolService) ValidateJobV1(req models.JobRequestV1) models.ValidateJobResponseV1 {
-	return s.tooling.ValidateJobV1(req)
+func (s *ToolService) ValidateJob(req models.JobRequest) models.ValidateJobResponse {
+	return s.tooling.ValidateJob(req)
 }
 
-func (s *ToolService) PlanJobV1(req models.JobRequestV1) models.PlanJobResponseV1 {
-	return s.tooling.PlanJobV1(req)
+func (s *ToolService) PlanJob(req models.JobRequest) models.PlanJobResponse {
+	return s.tooling.PlanJob(req)
 }
 
-func (s *ToolService) RunJobV1(req models.JobRequestV1) models.RunJobResponseV1 {
-	return s.tooling.RunJobV1(req)
+func (s *ToolService) RunJob(req models.JobRequest) models.RunJobResponse {
+	return s.tooling.RunJob(req)
 }
 
-func (s *ToolService) CancelJobV1(jobID string) models.CancelJobResponseV1 {
-	return s.tooling.CancelJobV1(jobID)
+func (s *ToolService) CancelJob(jobID string) models.CancelJobResponse {
+	return s.tooling.CancelJob(jobID)
 }
 
-func (s *ToolService) GetJobStatusV1(jobID string) models.JobStatusResponseV1 {
-	return s.tooling.GetJobStatusV1(jobID)
+func (s *ToolService) GetJobStatus(jobID string) models.JobStatusResponse {
+	return s.tooling.GetJobStatus(jobID)
 }
 
-// ListJobsV1 returns every tracked tool job, newest first. The UI uses it to
+// ListJobs returns every tracked tool job, newest first. The UI uses it to
 // rebuild the background activity list without polling each job.
-func (s *ToolService) ListJobsV1(limit int) models.JobListResponseV1 {
-	return s.tooling.ListJobsV1(limit)
+func (s *ToolService) ListJobs(limit int) models.JobListResponse {
+	return s.tooling.ListJobs(limit)
 }
 
-// VerifyJobV1 verifies every output of a finished job: existence, readability,
+// VerifyJob verifies every output of a finished job: existence, readability,
 // size, file type and media-specific metadata. The report lists passing and
 // failing checks per output.
-func (s *ToolService) VerifyJobV1(jobID string) models.VerificationReportV1 {
-	return s.tooling.VerifyJobV1(jobID)
+func (s *ToolService) VerifyJob(jobID string) models.VerificationReport {
+	return s.tooling.VerifyJob(jobID)
 }
 
-// ListJobHistoryV1 returns recorded terminal jobs with their output
+// ListJobHistory returns recorded terminal jobs with their output
 // fingerprints, newest first. The history survives app restarts.
-func (s *ToolService) ListJobHistoryV1() []models.JobHistoryEntryV1 {
-	return s.tooling.ListJobHistoryV1()
+func (s *ToolService) ListJobHistory() []models.JobHistoryEntry {
+	return s.tooling.ListJobHistory()
 }
 
-// UndoJobV1 moves the untouched outputs of a recorded job to the app trash.
+// UndoJob moves the untouched outputs of a recorded job to the app trash.
 // Modified or missing outputs are skipped and reported per file.
-func (s *ToolService) UndoJobV1(jobID string) models.UndoResultV1 {
-	return s.tooling.UndoJobV1(jobID)
+func (s *ToolService) UndoJob(jobID string) models.UndoResult {
+	return s.tooling.UndoJob(jobID)
 }
 
-// RestoreJobV1 moves trashed outputs back to their original paths when the
+// RestoreJob moves trashed outputs back to their original paths when the
 // destination is free.
-func (s *ToolService) RestoreJobV1(jobID string) models.UndoResultV1 {
-	return s.tooling.RestoreJobV1(jobID)
+func (s *ToolService) RestoreJob(jobID string) models.UndoResult {
+	return s.tooling.RestoreJob(jobID)
 }
 
-// EmptyTrashV1 permanently removes the app-managed trash. User files outside
+// EmptyTrash permanently removes the app-managed trash. User files outside
 // the trash are never touched.
-func (s *ToolService) EmptyTrashV1() models.PathActionResponseV1 {
-	return s.tooling.EmptyTrashV1()
+func (s *ToolService) EmptyTrash() models.PathActionResponse {
+	return s.tooling.EmptyTrash()
 }
 
-func (s *ToolService) GetImagePreviewSourceV1(inputPath string) models.ImagePreviewSourceResponseV1 {
+func (s *ToolService) GetImagePreviewSource(inputPath string) models.ImagePreviewSourceResponse {
 	tool, ok := s.imageCropTool()
 	if !ok {
-		return models.ImagePreviewSourceResponseV1{
+		return models.ImagePreviewSourceResponse{
 			Success: false,
 			Message: "Image crop tool is unavailable.",
 			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", "tool.image.crop is not registered", nil),
@@ -91,10 +91,10 @@ func (s *ToolService) GetImagePreviewSourceV1(inputPath string) models.ImagePrev
 	return tool.GetImagePreviewSource(strings.TrimSpace(inputPath))
 }
 
-func (s *ToolService) GetImageCropPreviewV1(req models.ImageCropPreviewRequestV1) models.ImageCropPreviewResponseV1 {
+func (s *ToolService) GetImageCropPreview(req models.ImageCropPreviewRequest) models.ImageCropPreviewResponse {
 	tool, ok := s.imageCropTool()
 	if !ok {
-		return models.ImageCropPreviewResponseV1{
+		return models.ImageCropPreviewResponse{
 			Success: false,
 			Message: "Image crop tool is unavailable.",
 			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", "tool.image.crop is not registered", nil),
@@ -104,17 +104,17 @@ func (s *ToolService) GetImageCropPreviewV1(req models.ImageCropPreviewRequestV1
 	return tool.GetImageCropPreview(req)
 }
 
-func (s *ToolService) GetImageAnnotatePreviewV1(req models.ImageAnnotatePreviewRequestV1) models.ImageAnnotatePreviewResponseV1 {
+func (s *ToolService) GetImageAnnotatePreview(req models.ImageAnnotatePreviewRequest) models.ImageAnnotatePreviewResponse {
 	tool, ok := s.imageAnnotateTool()
 	if !ok {
-		return models.ImageAnnotatePreviewResponseV1{
+		return models.ImageAnnotatePreviewResponse{
 			Success: false,
 			Message: "Image annotate tool is unavailable.",
 			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", "tool.image.annotate is not registered", nil),
 		}
 	}
 
-	return tool.GetImageAnnotatePreviewV1(req)
+	return tool.GetImageAnnotatePreview(req)
 }
 
 func (s *ToolService) imageCropTool() (*image.CropTool, bool) {
@@ -122,7 +122,7 @@ func (s *ToolService) imageCropTool() (*image.CropTool, bool) {
 		return nil, false
 	}
 
-	rawTool, err := s.registry.GetToolV2(image.ToolIDImageCropV1)
+	rawTool, err := s.registry.GetTool(image.ToolIDImageCrop)
 	if err != nil {
 		return nil, false
 	}
@@ -140,7 +140,7 @@ func (s *ToolService) imageAnnotateTool() (*image.AnnotateTool, bool) {
 		return nil, false
 	}
 
-	rawTool, err := s.registry.GetToolV2(image.ToolIDImageAnnotateV1)
+	rawTool, err := s.registry.GetTool(image.ToolIDImageAnnotate)
 	if err != nil {
 		return nil, false
 	}
