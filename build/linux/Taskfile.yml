@@ -49,6 +49,9 @@ tasks:
       - cp {{.APP_BINARY}} {{.APP_NAME}}
       - cp ../../appicon.png appicon.png
       - wails3 generate appimage -binary {{.APP_NAME}} -icon {{.ICON}} -desktopfile {{.DESKTOP_FILE}} -outputdir {{.OUTPUT_DIR}} -builddir {{.ROOT_DIR}}/build/linux/appimage/build
+      # Drop the unused GTK3/WebKit2GTK 4.1 stack and repack with zstd. The
+      # script keeps the original AppImage if the optimization fails.
+      - ../../../scripts/optimize-appimage.sh ../../../bin
     vars:
       APP_NAME: "{{.APP_NAME}}"
       APP_BINARY: "../../../bin/{{.APP_NAME}}"
