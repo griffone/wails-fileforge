@@ -13,11 +13,10 @@ import (
 	"fileforge-desktop/internal/jobhistory"
 	"fileforge-desktop/internal/jobs"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/eventbus"
 	"fileforge-desktop/internal/platform/logx"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/verify"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const (
@@ -33,17 +32,26 @@ type ToolingService struct {
 	registry *registry.Registry
 	engine   *jobs.Engine
 	history  *jobhistory.Store
-
-	// eventSink overrides the Wails event emitter in tests. Production leaves
-	// it nil so events go through application.Get.
-	eventSink func(name string, payload any)
+	bus      eventbus.Bus
 }
 
+// NewToolingService builds the tooling service without an event bus. Events are
+// dropped; use NewToolingServiceWithBus when the caller can deliver them.
 func NewToolingService(reg *registry.Registry) *ToolingService {
 	return newToolingService(reg, jobhistory.NewStore(jobhistory.DefaultPath()))
 }
 
+// NewToolingServiceWithBus builds the tooling service with an event bus so
+// progress and state events reach the UI without importing the desktop runtime.
+func NewToolingServiceWithBus(reg *registry.Registry, bus eventbus.Bus) *ToolingService {
+	return newToolingServiceWithBus(reg, jobhistory.NewStore(jobhistory.DefaultPath()), bus)
+}
+
 func newToolingService(reg *registry.Registry, history *jobhistory.Store) *ToolingService {
+	return newToolingServiceWithBus(reg, history, nil)
+}
+
+func newToolingServiceWithBus(reg *registry.Registry, history *jobhistory.Store, bus eventbus.Bus) *ToolingService {
 	if reg == nil {
 		reg = registry.GetGlobalRegistry()
 	}
@@ -54,6 +62,7 @@ func newToolingService(reg *registry.Registry, history *jobhistory.Store) *Tooli
 	service := &ToolingService{
 		registry: reg,
 		history:  history,
+		bus:      bus,
 	}
 	service.engine = jobs.NewEngine(reg, jobs.Options{
 		Limits:          jobs.DefaultLimits(),
@@ -100,6 +109,16 @@ func (s *ToolingService) Engine() *jobs.Engine {
 	return s.engine
 }
 
+// Registry exposes the tool registry so the app preview endpoints can resolve
+// the concrete tools they render. It is nil-safe for uninitialized services.
+func (s *ToolingService) Registry() *registry.Registry {
+	if s == nil {
+		return nil
+	}
+
+	return s.registry
+}
+
 // JobProgress emits a coalesced progress event. It implements jobs.Emitter.
 // Recipe-step jobs are internal and never reach the user-facing event stream.
 func (s *ToolingService) JobProgress(evt models.JobProgressEventV1) {
@@ -121,20 +140,14 @@ func (s *ToolingService) JobState(job models.JobResultV1) {
 	s.emitJobState(job)
 }
 
-// emitEvent forwards one typed event to the Wails application. A missing
-// application (headless tests, early startup) skips emission.
+// emitEvent forwards one typed event to the injected bus. A missing bus
+// (headless tests, early startup) skips emission.
 func (s *ToolingService) emitEvent(name string, payload any) {
-	if sink := s.eventSink; sink != nil {
-		sink(name, payload)
+	if s.bus == nil {
 		return
 	}
 
-	app := application.Get()
-	if app == nil {
-		return
-	}
-
-	app.Event.Emit(name, payload)
+	s.bus.Emit(name, payload)
 }
 
 func defaultJobsPersistencePath() string {

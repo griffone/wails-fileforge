@@ -31,7 +31,7 @@ type serviceEventRecorder struct {
 	events []serviceEvent
 }
 
-func (r *serviceEventRecorder) record(name string, payload any) {
+func (r *serviceEventRecorder) Emit(name string, payload any) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -62,9 +62,8 @@ func (r *serviceEventRecorder) eventsForJob(jobID string) []serviceEvent {
 func TestToolingServiceHidesRecipeStepJobs(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "out", "step.pdf")
 	tool := &historyFakeTool{id: "tool.fake.recipe.step", outputPath: output}
-	service, _ := newHistoryTestService(t, tool)
 	recorder := &serviceEventRecorder{}
-	service.eventSink = recorder.record
+	service, _ := newHistoryTestServiceWithBus(t, tool, recorder)
 
 	submit, err := service.Engine().SubmitWithOptions(
 		context.Background(),
@@ -107,9 +106,8 @@ func TestToolingServiceHidesRecipeStepJobs(t *testing.T) {
 func TestToolingServiceExposesToolJobs(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "out", "converted.pdf")
 	tool := &historyFakeTool{id: "tool.fake.visible", outputPath: output}
-	service, _ := newHistoryTestService(t, tool)
 	recorder := &serviceEventRecorder{}
-	service.eventSink = recorder.record
+	service, _ := newHistoryTestServiceWithBus(t, tool, recorder)
 
 	submit := service.RunJobV1(models.JobRequestV1{
 		ToolID:     tool.id,

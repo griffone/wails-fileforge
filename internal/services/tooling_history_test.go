@@ -9,6 +9,7 @@ import (
 
 	"fileforge-desktop/internal/jobhistory"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/eventbus"
 	"fileforge-desktop/internal/registry"
 )
 
@@ -78,6 +79,12 @@ func (t *historyFakeTool) ExecuteSingle(_ context.Context, req models.JobRequest
 func newHistoryTestService(t *testing.T, tool *historyFakeTool) (*ToolingService, string) {
 	t.Helper()
 
+	return newHistoryTestServiceWithBus(t, tool, nil)
+}
+
+func newHistoryTestServiceWithBus(t *testing.T, tool *historyFakeTool, bus eventbus.Bus) (*ToolingService, string) {
+	t.Helper()
+
 	dir := t.TempDir()
 	reg := registry.NewRegistry()
 	if err := reg.RegisterToolV2(tool); err != nil {
@@ -87,7 +94,7 @@ func newHistoryTestService(t *testing.T, tool *historyFakeTool) (*ToolingService
 	history := jobhistory.NewStore(filepath.Join(dir, "history", "job_history_v1.json"))
 	// No SetContext call: the engine keeps an empty persistence path, so the
 	// test never touches the real user config directory.
-	return newToolingService(reg, history), dir
+	return newToolingServiceWithBus(reg, history, bus), dir
 }
 
 func waitForHistoryEntries(t *testing.T, service *ToolingService, want int) []models.JobHistoryEntryV1 {

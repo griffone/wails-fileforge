@@ -42,7 +42,7 @@ type App struct {
 
 func New(notifier *Notifier) *App {
 	reg := registry.GetGlobalRegistry()
-	toolingService := services.NewToolingService(reg)
+	toolingService := services.NewToolingServiceWithBus(reg, WailsBus{})
 	a := &App{
 		toolingService: toolingService,
 		notifier:       notifier,
