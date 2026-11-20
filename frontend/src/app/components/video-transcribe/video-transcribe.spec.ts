@@ -6,7 +6,7 @@ import {
   tick,
 } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { EMPTY } from 'rxjs';
+import { EMPTY, Subject } from 'rxjs';
 
 import { VideoTranscribe } from './video-transcribe';
 import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
@@ -26,6 +26,7 @@ describe('VideoTranscribe', () => {
   let fixture: ComponentFixture<VideoTranscribe>;
   let component: VideoTranscribe;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobStateSubject: Subject<JobResult>;
 
   function query<T extends Element>(selector: string): T | null {
     return fixture.nativeElement.querySelector(selector) as T | null;
@@ -155,6 +156,9 @@ describe('VideoTranscribe', () => {
       'revealInFolder',
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
+    jobStateSubject = new Subject<JobResult>();
+    (wailsSpy as unknown as { jobState$: unknown }).jobState$ =
+      jobStateSubject.asObservable();
 
     wailsSpy.getTranscriptionCapabilities.and.resolveTo(capabilities());
     wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
@@ -404,39 +408,28 @@ describe('VideoTranscribe', () => {
     expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
-  it('runs, polls to terminal and shows the transcript summary and result', fakeAsync(() => {
+  it('runs, observes to terminal and shows the transcript summary and result', fakeAsync(() => {
     create();
     flushMicrotasks();
 
-    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatus.calls.all().length;
-      if (calls <= 1) {
-        return Promise.resolve(
-          status(jobId, 'running', [], {
-            stage: 'transcribe',
-            current: 40,
-            total: 100,
-            message: 'Transcribing audio with Whisper…',
-          }),
-        );
-      }
-      return Promise.resolve(
-        status(jobId, 'success', [
-          {
-            inputPath: '/tmp/in/talk.mp4',
-            outputPath: '/tmp/in/talk.srt',
-            outputs: [
-              '/tmp/in/talk.srt',
-              '/tmp/in/talk.vtt',
-              '/tmp/in/talk.txt',
-            ],
-            outputCount: 3,
-            success: true,
-            message: 'Transcribed: 8 segments, 412 characters.',
-          },
-        ]),
-      );
-    });
+    wailsSpy.getJobStatus.and.resolveTo(
+      status('transcribe-job-1', 'running', [], {
+        stage: 'transcribe',
+        current: 40,
+        total: 100,
+        message: 'Transcribing audio with Whisper…',
+      }),
+    );
+    const completed = status('transcribe-job-1', 'success', [
+      {
+        inputPath: '/tmp/in/talk.mp4',
+        outputPath: '/tmp/in/talk.srt',
+        outputs: ['/tmp/in/talk.srt', '/tmp/in/talk.vtt', '/tmp/in/talk.txt'],
+        outputCount: 3,
+        success: true,
+        message: 'Transcribed: 8 segments, 412 characters.',
+      },
+    ]);
 
     component.onPathsSelected(['/tmp/in/talk.mp4']);
     tick(250);
@@ -455,7 +448,7 @@ describe('VideoTranscribe', () => {
       'Transcribing audio with Whisper…',
     );
 
-    tick(1000);
+    jobStateSubject.next(completed.result!);
     flushMicrotasks();
     fixture.detectChanges();
 

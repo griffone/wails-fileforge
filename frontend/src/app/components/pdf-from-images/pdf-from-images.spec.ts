@@ -29,6 +29,7 @@ describe('PdfFromImages', () => {
   let component: PdfFromImages;
   let wailsSpy: jasmine.SpyObj<Wails>;
   let jobProgressSubject: Subject<JobProgressEvent>;
+  let jobStateSubject: Subject<JobResult>;
   let inspectCalls: string[][];
 
   const outputPath = '/tmp/out/album_images.pdf';
@@ -159,6 +160,9 @@ describe('PdfFromImages', () => {
     jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
+    jobStateSubject = new Subject<JobResult>();
+    (wailsSpy as unknown as { jobState$: unknown }).jobState$ =
+      jobStateSubject.asObservable();
 
     wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
@@ -389,13 +393,8 @@ describe('PdfFromImages', () => {
       jobId: 'job-7',
       status: 'queued',
     });
-    let pollCount = 0;
-    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
-      pollCount += 1;
-      return Promise.resolve(
-        pollCount === 1 ? runningStatus(jobId) : terminalStatus(jobId),
-      );
-    });
+    wailsSpy.getJobStatus.and.resolveTo(runningStatus('job-7'));
+    const completed = terminalStatus('job-7');
 
     select(['/tmp/a.png', '/tmp/b.png']);
 
@@ -413,7 +412,7 @@ describe('PdfFromImages', () => {
     expect(component.isPolling()).toBeTrue();
     expect(component.activeJobId()).toBe('job-7');
 
-    tick(1000);
+    jobStateSubject.next(completed.result!);
     flushMicrotasks();
 
     expect(component.jobResult()?.status).toBe('success');

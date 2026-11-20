@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { PdfMerge } from './pdf-merge';
+import { ActivityService, ActivityTask } from '../../services/activity.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -23,6 +24,7 @@ describe('PdfMerge', () => {
   let component: PdfMerge;
   let wailsSpy: jasmine.SpyObj<Wails>;
   let jobProgressSubject: Subject<JobProgressEvent>;
+  let jobStateSubject: Subject<JobResult>;
 
   function fileInfo(path: string): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
@@ -165,6 +167,9 @@ describe('PdfMerge', () => {
     jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
+    jobStateSubject = new Subject<JobResult>();
+    (wailsSpy as unknown as { jobState$: unknown }).jobState$ =
+      jobStateSubject.asObservable();
 
     wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
@@ -439,6 +444,107 @@ describe('PdfMerge', () => {
     expect(component.activeJobId()).toBe('job-1');
 
     fixture.destroy();
+  }));
+
+  it('drives progress and the terminal result from job events', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(component.isPolling()).toBeTrue();
+
+    jobProgressSubject.next({
+      jobId: 'job-1',
+      toolId: 'tool.pdf.merge',
+      status: 'running',
+      progress: {
+        current: 1,
+        total: 2,
+        stage: 'merge',
+        message: 'Merging 1 of 2',
+        etaSeconds: 3,
+      },
+    });
+    fixture.detectChanges();
+
+    expect(component.jobResult()?.status).toBe('running');
+    expect(component.jobResult()?.progress.stage).toBe('merge');
+    expect(fixture.nativeElement.textContent).toContain('Merging 1 of 2');
+
+    const completed = successStatus('job-1', '/tmp/a_merged.pdf');
+    jobStateSubject.next(completed.result!);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.terminalJob()?.status).toBe('success');
+    expect(component.isPolling()).toBeFalse();
+    expect(component.activeJobId()).toBe('');
+    expect(component.outputInfos()['/tmp/a_merged.pdf'].sizeBytes).toBe(4096);
+  }));
+
+  it('resumes an active job after navigation and follows its events', fakeAsync(() => {
+    const task: ActivityTask = {
+      id: 'job-resumed',
+      kind: 'tool',
+      title: 'PDF Merge',
+      route: '/pdf-merge',
+      toolId: 'tool.pdf.merge',
+      status: 'running',
+      stage: 'merge',
+      message: 'Merging 1 of 2',
+      current: 1,
+      total: 2,
+      percent: 50,
+      startedAt: 1,
+      endedAt: null,
+      etaSeconds: 3,
+      inputCount: 2,
+      outputCount: 0,
+      errorMessage: '',
+    };
+    const activity = TestBed.inject(ActivityService);
+    spyOn(activity, 'activeJobForTool').and.returnValue(task);
+    wailsSpy.getJobStatus.and.resolveTo(runningStatus('job-resumed'));
+
+    const resumedFixture = TestBed.createComponent(PdfMerge);
+    resumedFixture.detectChanges();
+    flushMicrotasks();
+
+    const resumed = resumedFixture.componentInstance;
+    expect(resumed.activeJobId()).toBe('job-resumed');
+    expect(resumed.jobResult()?.status).toBe('running');
+    expect(resumed.isPolling()).toBeTrue();
+
+    jobProgressSubject.next({
+      jobId: 'job-resumed',
+      toolId: 'tool.pdf.merge',
+      status: 'running',
+      progress: {
+        current: 2,
+        total: 2,
+        stage: 'finalize',
+        message: 'Writing the merged PDF',
+      },
+    });
+    resumedFixture.detectChanges();
+
+    expect(resumed.jobResult()?.progress.stage).toBe('finalize');
+    expect(resumedFixture.nativeElement.textContent).toContain(
+      'Writing the merged PDF',
+    );
+
+    const completed = successStatus('job-resumed', '/tmp/a_merged.pdf');
+    jobStateSubject.next(completed.result!);
+    flushMicrotasks();
+    resumedFixture.detectChanges();
+
+    expect(resumed.terminalJob()?.status).toBe('success');
+    expect(resumed.isPolling()).toBeFalse();
+    expect(resumed.activeJobId()).toBe('');
+
+    resumedFixture.destroy();
   }));
 
   it('loads output details on terminal success and opens the result', fakeAsync(() => {

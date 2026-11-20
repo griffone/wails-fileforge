@@ -5,7 +5,7 @@ import {
   TestBed,
   tick,
 } from '@angular/core/testing';
-import { EMPTY } from 'rxjs';
+import { EMPTY, Subject } from 'rxjs';
 
 import { ImageOcr } from './image-ocr';
 import { DropIntakeService } from '../../services/drop-intake.service';
@@ -24,6 +24,7 @@ describe('ImageOcr', () => {
   let fixture: ComponentFixture<ImageOcr>;
   let component: ImageOcr;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobStateSubject: Subject<JobResult>;
 
   function query<T extends Element>(selector: string): T | null {
     return fixture.nativeElement.querySelector(selector) as T | null;
@@ -164,6 +165,9 @@ describe('ImageOcr', () => {
       'verifyJob',
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
+    jobStateSubject = new Subject<JobResult>();
+    (wailsSpy as unknown as { jobState$: unknown }).jobState$ =
+      jobStateSubject.asObservable();
 
     wailsSpy.getOCRCapabilities.and.resolveTo(capabilities());
     wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
@@ -404,7 +408,7 @@ describe('ImageOcr', () => {
     expect(lastPlanRequest().options['dpi']).toBe(300);
   }));
 
-  it('runs, polls to terminal and shows the recognized summary', fakeAsync(() => {
+  it('runs, observes to terminal and shows the recognized summary', fakeAsync(() => {
     create();
     flushMicrotasks();
 
@@ -413,32 +417,21 @@ describe('ImageOcr', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatus.calls.all().length;
-      if (calls <= 1) {
-        return Promise.resolve(status(jobId, 'running', []));
-      }
-      return Promise.resolve(
-        status(jobId, 'success', [
-          {
-            inputPath: '/tmp/in/screenshot.png',
-            outputPath: '/tmp/in/screenshot.txt',
-            outputs: [
-              '/tmp/in/screenshot.txt',
-              '/tmp/in/screenshot_ocr.pdf',
-            ],
-            success: true,
-            message: '1,234 characters recognized',
-          },
-        ]),
-      );
-    });
+    wailsSpy.getJobStatus.and.resolveTo(
+      status('image-ocr-job-1', 'running', []),
+    );
+    const completed = status('image-ocr-job-1', 'success', [
+      {
+        inputPath: '/tmp/in/screenshot.png',
+        outputPath: '/tmp/in/screenshot.txt',
+        outputs: ['/tmp/in/screenshot.txt', '/tmp/in/screenshot_ocr.pdf'],
+        success: true,
+        message: '1,234 characters recognized',
+      },
+    ]);
 
     void component.run();
     flushMicrotasks();
-    tick(1000);
-    flushMicrotasks();
-    fixture.detectChanges();
 
     expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
     const request = wailsSpy.runJob.calls.mostRecent().args[0] as JobRequest;
@@ -448,6 +441,11 @@ describe('ImageOcr', () => {
       writePdf: false,
       dpi: 300,
     });
+    expect(component.isPolling()).toBeTrue();
+
+    jobStateSubject.next(completed.result!);
+    flushMicrotasks();
+    fixture.detectChanges();
 
     expect(component.jobResult()?.status).toBe('success');
     expect(component.isPolling()).toBeFalse();

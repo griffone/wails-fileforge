@@ -5,7 +5,7 @@ import {
   TestBed,
   tick,
 } from '@angular/core/testing';
-import { EMPTY } from 'rxjs';
+import { EMPTY, Subject } from 'rxjs';
 
 import { PdfOcr } from './pdf-ocr';
 import {
@@ -24,6 +24,7 @@ describe('PdfOcr', () => {
   let fixture: ComponentFixture<PdfOcr>;
   let component: PdfOcr;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobStateSubject: Subject<JobResult>;
 
   function query<T extends Element>(selector: string): T | null {
     return fixture.nativeElement.querySelector(selector) as T | null;
@@ -160,6 +161,9 @@ describe('PdfOcr', () => {
       'revealInFolder',
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
+    jobStateSubject = new Subject<JobResult>();
+    (wailsSpy as unknown as { jobState$: unknown }).jobState$ =
+      jobStateSubject.asObservable();
 
     wailsSpy.getOCRCapabilities.and.resolveTo(capabilities());
     wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
@@ -356,35 +360,28 @@ describe('PdfOcr', () => {
     expect(component.plan()?.outputs.length).toBe(4);
   }));
 
-  it('runs, polls to terminal and shows the recognized summary and result', fakeAsync(() => {
+  it('runs, observes to terminal and shows the recognized summary and result', fakeAsync(() => {
     create();
     flushMicrotasks();
 
-    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatus.calls.all().length;
-      if (calls <= 1) {
-        return Promise.resolve(
-          status(jobId, 'running', [], {
-            stage: 'ocr',
-            current: 3,
-            total: 5,
-            message: 'recognizing page 3/5',
-          }),
-        );
-      }
-      return Promise.resolve(
-        status(jobId, 'success', [
-          {
-            inputPath: '/tmp/in/scan.pdf',
-            outputPath: '/tmp/in/scan_ocr.pdf',
-            outputs: ['/tmp/in/scan_ocr.pdf', '/tmp/in/scan_ocr.txt'],
-            outputCount: 2,
-            success: true,
-            message: 'OCR finished: 5 pages, 1234 characters recognized.',
-          },
-        ]),
-      );
-    });
+    wailsSpy.getJobStatus.and.resolveTo(
+      status('ocr-job-1', 'running', [], {
+        stage: 'ocr',
+        current: 3,
+        total: 5,
+        message: 'recognizing page 3/5',
+      }),
+    );
+    const completed = status('ocr-job-1', 'success', [
+      {
+        inputPath: '/tmp/in/scan.pdf',
+        outputPath: '/tmp/in/scan_ocr.pdf',
+        outputs: ['/tmp/in/scan_ocr.pdf', '/tmp/in/scan_ocr.txt'],
+        outputCount: 2,
+        success: true,
+        message: 'OCR finished: 5 pages, 1234 characters recognized.',
+      },
+    ]);
 
     component.onPathsSelected(['/tmp/in/scan.pdf']);
     tick(250);
@@ -400,7 +397,7 @@ describe('PdfOcr', () => {
     expect(component.pageProgressLabel()).toBe('OCR page 3 of 5');
     expect(fixture.nativeElement.textContent).toContain('OCR page 3 of 5');
 
-    tick(1000);
+    jobStateSubject.next(completed.result!);
     flushMicrotasks();
     fixture.detectChanges();
 
@@ -480,6 +477,14 @@ describe('PdfOcr', () => {
     flushMicrotasks();
 
     expect(wailsSpy.cancelJob).toHaveBeenCalledWith('ocr-job-1');
+
+    jobStateSubject.next(status('ocr-job-1', 'cancelled', []).result!);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.terminalJob()?.status).toBe('cancelled');
+    expect(component.isPolling()).toBeFalse();
+    expect(component.activeJobId()).toBe('');
 
     component.reset();
     flushMicrotasks();

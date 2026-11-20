@@ -6,7 +6,7 @@ import {
   tick,
 } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { EMPTY } from 'rxjs';
+import { EMPTY, Subject } from 'rxjs';
 
 import { PdfToDocx } from './pdf-to-docx';
 import {
@@ -24,6 +24,7 @@ describe('PdfToDocx', () => {
   let fixture: ComponentFixture<PdfToDocx>;
   let component: PdfToDocx;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobStateSubject: Subject<JobResult>;
 
   function query<T extends Element>(selector: string): T | null {
     return fixture.nativeElement.querySelector(selector) as T | null;
@@ -140,6 +141,9 @@ describe('PdfToDocx', () => {
       'validateJob',
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
+    jobStateSubject = new Subject<JobResult>();
+    (wailsSpy as unknown as { jobState$: unknown }).jobState$ =
+      jobStateSubject.asObservable();
 
     wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
@@ -339,34 +343,27 @@ describe('PdfToDocx', () => {
     expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
-  it('runs, polls to terminal and shows the DOCX output with the backend message', fakeAsync(() => {
+  it('runs, observes to terminal and shows the DOCX output with the backend message', fakeAsync(() => {
     const backendMessage =
       'DOCX created: 12 paragraphs, 4 bold runs, 2 images, 1 table.';
-    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatus.calls.all().length;
-      if (calls <= 1) {
-        return Promise.resolve(
-          status(jobId, 'running', [], {
-            stage: 'processing',
-            current: 40,
-            total: 100,
-            message: 'Converting page 2 of 5',
-          }),
-        );
-      }
-      return Promise.resolve(
-        status(jobId, 'success', [
-          {
-            inputPath: '/tmp/in/report.pdf',
-            outputPath: '/tmp/in/report.docx',
-            outputs: ['/tmp/in/report.docx'],
-            outputCount: 1,
-            success: true,
-            message: backendMessage,
-          },
-        ]),
-      );
-    });
+    wailsSpy.getJobStatus.and.resolveTo(
+      status('docx-job-1', 'running', [], {
+        stage: 'processing',
+        current: 40,
+        total: 100,
+        message: 'Converting page 2 of 5',
+      }),
+    );
+    const completed = status('docx-job-1', 'success', [
+      {
+        inputPath: '/tmp/in/report.pdf',
+        outputPath: '/tmp/in/report.docx',
+        outputs: ['/tmp/in/report.docx'],
+        outputCount: 1,
+        success: true,
+        message: backendMessage,
+      },
+    ]);
 
     create();
     flushMicrotasks();
@@ -387,7 +384,7 @@ describe('PdfToDocx', () => {
     expect(component.showProgress()).toBeTrue();
     expect(fixture.nativeElement.textContent).toContain('Converting page 2 of 5');
 
-    tick(1000);
+    jobStateSubject.next(completed.result!);
     flushMicrotasks();
     fixture.detectChanges();
 

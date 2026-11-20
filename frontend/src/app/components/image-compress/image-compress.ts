@@ -6,8 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { Subject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { Subscription } from 'rxjs';
 import {
   FolderOpen,
   LucideAngularModule,
@@ -32,6 +31,7 @@ import {
   InspectFilesResponse,
   JobError,
   JobExecutionStatus,
+  JobProgressEvent,
   JobRequest,
   JobResult,
   JobStatusResponse,
@@ -45,10 +45,10 @@ import {
   formatBytes,
   formatCount,
 } from '../../utils/format';
+import { observeJob } from '../../utils/job-stream';
 import { resumeToolJob } from '../../utils/resume-task';
 
 const IMAGE_TOOL_ID = 'tool.image.compress';
-const POLLING_INTERVAL_MS = 1000;
 const SETTINGS_PLAN_DEBOUNCE_MS = 200;
 const THUMBNAIL_SIZE = 160;
 const BYTES_PER_MB = 1024 * 1024;
@@ -114,7 +114,6 @@ interface Notice {
   styleUrl: './image-compress.css',
 })
 export class ImageCompress implements OnDestroy, OnInit {
-  private readonly destroy$ = new Subject<void>();
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
@@ -340,46 +339,16 @@ export class ImageCompress implements OnDestroy, OnInit {
       : null;
   });
 
-  private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private jobSubscription: Subscription | null = null;
   private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private planToken = 0;
   private fileItemsGeneration = 0;
 
-  constructor(private readonly wailsService: Wails) {
-    this.wailsService.jobProgress$
-      .pipe(takeUntil(this.destroy$))
-      .subscribe((event) => {
-        if (!event || event.jobId !== this.activeJobId()) {
-          return;
-        }
-
-        const current = this.jobResult();
-        if (!current) {
-          return;
-        }
-
-        this.jobResult.set({
-          ...current,
-          message: event.progress.message,
-          progress: event.progress,
-          // Wait for the status endpoint to settle the final items. The event
-          // can arrive before the job store has the complete result.
-          status: this.isTerminalStatus(event.status)
-            ? current.status
-            : (event.status as JobExecutionStatus),
-        });
-
-        if (this.isTerminalStatus(event.status)) {
-          void this.pollJobStatus();
-        }
-      });
-  }
+  constructor(private readonly wailsService: Wails) {}
 
   ngOnDestroy(): void {
-    this.stopPolling();
+    this.stopObserving();
     this.clearPlanRefreshTimer();
-    this.destroy$.next();
-    this.destroy$.complete();
   }
 
   ngOnInit(): void {
@@ -610,7 +579,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     });
     this.isSubmitting.set(false);
     this.isPolling.set(true);
-    this.startPolling();
+    this.startObserving();
   }
 
   async cancel(): Promise<void> {
@@ -666,7 +635,7 @@ export class ImageCompress implements OnDestroy, OnInit {
   }
 
   reset(): void {
-    this.stopPolling();
+    this.stopObserving();
     this.clearPlanRefreshTimer();
     this.planToken += 1;
     this.fileItemsGeneration += 1;
@@ -791,69 +760,113 @@ export class ImageCompress implements OnDestroy, OnInit {
       activeJobId: this.activeJobId,
       jobResult: this.jobResult,
       jobError: this.jobError,
-      startPolling: () => this.startPolling(),
+      startObserving: () => this.startObserving(),
     });
   }
 
-  private startPolling(): void {
-    this.stopPolling();
+  private startObserving(): void {
+    this.stopObserving();
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      return;
+    }
+
     this.isPolling.set(true);
-    void this.pollJobStatus();
-    this.pollingTimer = setInterval(() => {
-      void this.pollJobStatus();
-    }, POLLING_INTERVAL_MS);
+    this.jobSubscription = observeJob(this.wailsService, jobId, {
+      onProgress: (event) => this.applyJobProgress(event),
+      onState: (result) => this.applyJobStatus(result),
+      onMissing: (response) => this.handleMissingJob(response),
+    });
   }
 
-  private stopPolling(): void {
-    if (this.pollingTimer) {
-      clearInterval(this.pollingTimer);
-      this.pollingTimer = null;
+  private stopObserving(): void {
+    if (this.jobSubscription) {
+      this.jobSubscription.unsubscribe();
+      this.jobSubscription = null;
     }
     this.isPolling.set(false);
   }
 
-  private async pollJobStatus(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      this.stopPolling();
+  private applyJobProgress(event: JobProgressEvent): void {
+    if (!event) {
       return;
     }
 
-    const response: JobStatusResponse = await this.wailsService
+    const current = this.jobResult();
+    if (!current) {
+      return;
+    }
+
+    this.jobResult.set({
+      ...current,
+      message: event.progress.message,
+      progress: event.progress,
+      // The terminal snapshot arrives on jobs/state; a progress event can
+      // overtake the complete result, so the current status is kept.
+      status: this.isTerminalStatus(event.status)
+        ? current.status
+        : (event.status as JobExecutionStatus),
+    });
+
+    if (this.isTerminalStatus(event.status)) {
+      void this.reconcileJobStatus();
+    }
+  }
+
+  private applyJobStatus(result: JobResult): void {
+    if (!result) {
+      return;
+    }
+
+    this.jobResult.set(result);
+    if (this.isTerminalStatus(result.status)) {
+      this.stopObserving();
+      this.activeJobId.set('');
+      void this.loadOutputInfos();
+    }
+  }
+
+  /** The backend no longer tracks the adopted job (restart or retention). */
+  private handleMissingJob(response: JobStatusResponse): void {
+    if (!this.activeJobId()) {
+      return;
+    }
+
+    this.stopObserving();
+    this.activeJobId.set('');
+    this.jobError.set(
+      response.error ?? {
+        code: 'EXEC_IO_TRANSIENT',
+        detail_code: 'JOB_STATUS_MISSING',
+        message: response.message || 'The job status could not be read.',
+      },
+    );
+  }
+
+  /**
+   * One-shot recovery when a terminal progress event arrives before its
+   * jobs/state snapshot. This is never a timer, and it is a no-op once the
+   * page has already settled the job.
+   */
+  private async reconcileJobStatus(): Promise<void> {
+    const jobId = this.activeJobId();
+    if (!jobId) {
+      return;
+    }
+
+    const response = await this.wailsService
       .getJobStatus(jobId)
-      .catch(() => ({
-        success: false,
-        message: 'The job status could not be read.',
-        found: false,
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'JOB_STATUS_FAILED',
-          message: 'The job status could not be read.',
-        },
-      }));
-    if (this.activeJobId() !== jobId) {
+      .catch(() => null);
+    if (!response || this.activeJobId() !== jobId) {
       return;
     }
 
     if (!response.found || !response.result) {
-      this.stopPolling();
-      this.activeJobId.set('');
-      this.jobError.set(
-        response.error ?? {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'JOB_STATUS_MISSING',
-          message: response.message || 'The job status could not be read.',
-        },
-      );
+      this.handleMissingJob(response);
       return;
     }
 
-    this.jobResult.set(response.result);
-    if (this.isTerminalStatus(response.result.status)) {
-      this.stopPolling();
-      this.activeJobId.set('');
-      void this.loadOutputInfos();
-    }
+    this.applyJobStatus(response.result);
   }
 
   private async loadOutputInfos(): Promise<void> {

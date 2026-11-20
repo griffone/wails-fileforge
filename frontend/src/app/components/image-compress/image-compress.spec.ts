@@ -336,7 +336,7 @@ describe('ImageCompress', () => {
     expect(request.options['stripMetadata']).toBeFalse();
   }));
 
-  it('runs, polls and reports the terminal result with sizes', fakeAsync(() => {
+  it('runs, observes and reports the terminal result with sizes', fakeAsync(() => {
     const inputPath = '/tmp/in/photo.png';
     const outputPath = '/tmp/in/photo_compressed.webp';
     const inputBytes = 2 * 1024 * 1024;

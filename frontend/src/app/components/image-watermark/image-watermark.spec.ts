@@ -528,7 +528,7 @@ describe('ImageWatermark', () => {
     expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
-  it('runs, polls and reports the watermarked result', fakeAsync(() => {
+  it('runs, observes and reports the watermarked result', fakeAsync(() => {
     const inputPath = '/tmp/in/photo.png';
     const outputPath = '/tmp/in/photo_watermarked.png';
 

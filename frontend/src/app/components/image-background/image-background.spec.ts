@@ -6,7 +6,7 @@ import {
   tick,
 } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { EMPTY } from 'rxjs';
+import { EMPTY, Subject } from 'rxjs';
 
 import { ImageBackground } from './image-background';
 import { DropIntakeService } from '../../services/drop-intake.service';
@@ -25,6 +25,7 @@ describe('ImageBackground', () => {
   let fixture: ComponentFixture<ImageBackground>;
   let component: ImageBackground;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let jobStateSubject: Subject<JobResult>;
 
   function query<T extends Element>(selector: string): T | null {
     return fixture.nativeElement.querySelector(selector) as T | null;
@@ -181,6 +182,9 @@ describe('ImageBackground', () => {
       'verifyJob',
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
+    jobStateSubject = new Subject<JobResult>();
+    (wailsSpy as unknown as { jobState$: unknown }).jobState$ =
+      jobStateSubject.asObservable();
 
     wailsSpy.getToolchainStatus.and.resolveTo(readyToolchain());
     wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
@@ -401,7 +405,7 @@ describe('ImageBackground', () => {
     expect(component.canRun()).toBeTrue();
   }));
 
-  it('runs, polls and reports the processed summary', fakeAsync(() => {
+  it('runs, observes and reports the processed summary', fakeAsync(() => {
     create();
     flushMicrotasks();
 
@@ -410,34 +414,31 @@ describe('ImageBackground', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatus.calls.all().length;
-      if (calls <= 1) {
-        return Promise.resolve(status(jobId, 'running', []));
-      }
-      return Promise.resolve(
-        status(jobId, 'success', [
-          {
-            inputPath: '/tmp/in/photo.png',
-            outputPath: '/tmp/in/photo_nobg.png',
-            outputs: ['/tmp/in/photo_nobg.png'],
-            success: true,
-            message: 'transparent PNG 640×480',
-          },
-        ]),
-      );
-    });
+    wailsSpy.getJobStatus.and.resolveTo(
+      status('background-job-1', 'running', []),
+    );
+    const completed = status('background-job-1', 'success', [
+      {
+        inputPath: '/tmp/in/photo.png',
+        outputPath: '/tmp/in/photo_nobg.png',
+        outputs: ['/tmp/in/photo_nobg.png'],
+        success: true,
+        message: 'transparent PNG 640×480',
+      },
+    ]);
 
     void component.run();
     flushMicrotasks();
-    tick(1000);
-    flushMicrotasks();
-    fixture.detectChanges();
 
     expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
     const request = wailsSpy.runJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.toolId).toBe('tool.image.background');
     expect(request.options).toEqual({});
+    expect(component.isPolling()).toBeTrue();
+
+    jobStateSubject.next(completed.result!);
+    flushMicrotasks();
+    fixture.detectChanges();
 
     expect(component.jobResult()?.status).toBe('success');
     expect(component.isPolling()).toBeFalse();

@@ -383,7 +383,7 @@ describe('PdfOptimize', () => {
     expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
-  it('plans and runs without a validation step, then polls', fakeAsync(() => {
+  it('plans and runs without a validation step, then observes', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
     flushMicrotasks();
 

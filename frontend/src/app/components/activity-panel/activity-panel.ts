@@ -68,6 +68,8 @@ export class ActivityPanel {
   @ViewChild('drawer') private drawer?: ElementRef<HTMLElement>;
 
   constructor() {
+    // Elapsed-time labels only: job and recipe status arrive from the shared
+    // event streams, so this timer never talks to the backend.
     const ticker = setInterval(() => this.now.set(Date.now()), 1000);
     this.destroyRef.onDestroy(() => clearInterval(ticker));
 

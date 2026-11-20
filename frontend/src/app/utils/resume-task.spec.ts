@@ -39,14 +39,14 @@ function activityStub(job: ActivityTask | null, recipe: ActivityTask | null) {
 }
 
 describe('resumeToolJob', () => {
-  it('seeds the page snapshot and starts polling for the active job', () => {
+  it('seeds the page snapshot and starts observing for the active job', () => {
     const activeJobId = signal('');
     const jobResult = signal<JobResult | null>(null);
     const jobError = signal<JobError | null>({
       code: 'EXEC_IO_TRANSIENT',
       message: 'stale',
     });
-    const startPolling = jasmine.createSpy('startPolling');
+    const startObserving = jasmine.createSpy('startObserving');
 
     const resumed = resumeToolJob({
       activity: activityStub(task(), null),
@@ -54,7 +54,7 @@ describe('resumeToolJob', () => {
       activeJobId,
       jobResult,
       jobError,
-      startPolling,
+      startObserving,
     });
 
     expect(resumed).toBeTrue();
@@ -64,37 +64,37 @@ describe('resumeToolJob', () => {
     expect(jobResult()?.progress.current).toBe(1);
     expect(jobResult()?.progress.total).toBe(2);
     expect(jobResult()?.startedAt).toBe(1000);
-    expect(startPolling).toHaveBeenCalled();
+    expect(startObserving).toHaveBeenCalled();
   });
 
   it('does nothing when the page already owns a job', () => {
-    const startPolling = jasmine.createSpy('startPolling');
+    const startObserving = jasmine.createSpy('startObserving');
     const resumed = resumeToolJob({
       activity: activityStub(task(), null),
       toolId: 'tool.image.compress',
       activeJobId: signal('job-existing'),
       jobResult: signal<JobResult | null>(null),
       jobError: signal<JobError | null>(null),
-      startPolling,
+      startObserving,
     });
 
     expect(resumed).toBeFalse();
-    expect(startPolling).not.toHaveBeenCalled();
+    expect(startObserving).not.toHaveBeenCalled();
   });
 
   it('does nothing when no job is active for the tool', () => {
-    const startPolling = jasmine.createSpy('startPolling');
+    const startObserving = jasmine.createSpy('startObserving');
     const resumed = resumeToolJob({
       activity: activityStub(null, null),
       toolId: 'tool.image.compress',
       activeJobId: signal(''),
       jobResult: signal<JobResult | null>(null),
       jobError: signal<JobError | null>(null),
-      startPolling,
+      startObserving,
     });
 
     expect(resumed).toBeFalse();
-    expect(startPolling).not.toHaveBeenCalled();
+    expect(startObserving).not.toHaveBeenCalled();
   });
 });
 

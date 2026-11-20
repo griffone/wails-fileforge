@@ -10,11 +10,11 @@ import {
 /**
  * Reattaches a tool page to a job that is still running in the background.
  *
- * Tool pages own their polling timer and result signals, so navigation
- * destroys all local state while the backend job keeps running. When the user
- * comes back, the page asks the global ActivityService for the newest active
- * job of its tool, seeds a minimal snapshot and restarts the page's own
- * polling. Returns true when a job was adopted.
+ * Tool pages own their result signals, so navigation destroys all local state
+ * while the backend job keeps running. When the user comes back, the page asks
+ * the global ActivityService for the newest active job of its tool, seeds a
+ * minimal snapshot and reattaches the page's event observer. Returns true when
+ * a job was adopted.
  */
 export interface ResumeToolJobOptions {
   activity: ActivityService;
@@ -22,7 +22,7 @@ export interface ResumeToolJobOptions {
   activeJobId: WritableSignal<string>;
   jobResult: WritableSignal<JobResult | null>;
   jobError: WritableSignal<JobError | null>;
-  startPolling: () => void;
+  startObserving: () => void;
 }
 
 export function resumeToolJob(options: ResumeToolJobOptions): boolean {
@@ -53,7 +53,7 @@ export function resumeToolJob(options: ResumeToolJobOptions): boolean {
     items: [],
     startedAt: task.startedAt,
   });
-  options.startPolling();
+  options.startObserving();
 
   return true;
 }
