@@ -15,87 +15,87 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as models$0 from "../models/models.js";
 
-export function CancelJobV1(jobID: string): $CancellablePromise<models$0.CancelJobResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.CancelJobV1", jobID);
+export function CancelJob(jobID: string): $CancellablePromise<models$0.CancelJobResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.CancelJob", jobID);
 }
 
 /**
- * EmptyTrashV1 permanently removes the app-managed trash. User files outside
+ * EmptyTrash permanently removes the app-managed trash. User files outside
  * the trash are never touched.
  */
-export function EmptyTrashV1(): $CancellablePromise<models$0.PathActionResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.EmptyTrashV1");
+export function EmptyTrash(): $CancellablePromise<models$0.PathActionResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.EmptyTrash");
 }
 
-export function GetImageAnnotatePreviewV1(req: models$0.ImageAnnotatePreviewRequestV1): $CancellablePromise<models$0.ImageAnnotatePreviewResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImageAnnotatePreviewV1", req);
+export function GetImageAnnotatePreview(req: models$0.ImageAnnotatePreviewRequest): $CancellablePromise<models$0.ImageAnnotatePreviewResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImageAnnotatePreview", req);
 }
 
-export function GetImageCropPreviewV1(req: models$0.ImageCropPreviewRequestV1): $CancellablePromise<models$0.ImageCropPreviewResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImageCropPreviewV1", req);
+export function GetImageCropPreview(req: models$0.ImageCropPreviewRequest): $CancellablePromise<models$0.ImageCropPreviewResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImageCropPreview", req);
 }
 
-export function GetImagePreviewSourceV1(inputPath: string): $CancellablePromise<models$0.ImagePreviewSourceResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImagePreviewSourceV1", inputPath);
+export function GetImagePreviewSource(inputPath: string): $CancellablePromise<models$0.ImagePreviewSourceResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImagePreviewSource", inputPath);
 }
 
-export function GetJobStatusV1(jobID: string): $CancellablePromise<models$0.JobStatusResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetJobStatusV1", jobID);
+export function GetJobStatus(jobID: string): $CancellablePromise<models$0.JobStatusResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetJobStatus", jobID);
 }
 
 /**
- * ListJobHistoryV1 returns recorded terminal jobs with their output
+ * ListJobHistory returns recorded terminal jobs with their output
  * fingerprints, newest first. The history survives app restarts.
  */
-export function ListJobHistoryV1(): $CancellablePromise<models$0.JobHistoryEntryV1[] | null> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.ListJobHistoryV1");
+export function ListJobHistory(): $CancellablePromise<models$0.JobHistoryEntry[] | null> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.ListJobHistory");
 }
 
 /**
- * ListJobsV1 returns every tracked tool job, newest first. The UI uses it to
+ * ListJobs returns every tracked tool job, newest first. The UI uses it to
  * rebuild the background activity list without polling each job.
  */
-export function ListJobsV1(limit: number): $CancellablePromise<models$0.JobListResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.ListJobsV1", limit);
+export function ListJobs(limit: number): $CancellablePromise<models$0.JobListResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.ListJobs", limit);
 }
 
-export function ListToolsV1(): $CancellablePromise<models$0.ListToolsResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.ListToolsV1");
+export function ListTools(): $CancellablePromise<models$0.ListToolsResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.ListTools");
 }
 
-export function PlanJobV1(req: models$0.JobRequestV1): $CancellablePromise<models$0.PlanJobResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.PlanJobV1", req);
+export function PlanJob(req: models$0.JobRequest): $CancellablePromise<models$0.PlanJobResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.PlanJob", req);
 }
 
 /**
- * RestoreJobV1 moves trashed outputs back to their original paths when the
+ * RestoreJob moves trashed outputs back to their original paths when the
  * destination is free.
  */
-export function RestoreJobV1(jobID: string): $CancellablePromise<models$0.UndoResultV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.RestoreJobV1", jobID);
+export function RestoreJob(jobID: string): $CancellablePromise<models$0.UndoResult> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.RestoreJob", jobID);
 }
 
-export function RunJobV1(req: models$0.JobRequestV1): $CancellablePromise<models$0.RunJobResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.RunJobV1", req);
+export function RunJob(req: models$0.JobRequest): $CancellablePromise<models$0.RunJobResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.RunJob", req);
 }
 
 /**
- * UndoJobV1 moves the untouched outputs of a recorded job to the app trash.
+ * UndoJob moves the untouched outputs of a recorded job to the app trash.
  * Modified or missing outputs are skipped and reported per file.
  */
-export function UndoJobV1(jobID: string): $CancellablePromise<models$0.UndoResultV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.UndoJobV1", jobID);
+export function UndoJob(jobID: string): $CancellablePromise<models$0.UndoResult> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.UndoJob", jobID);
 }
 
-export function ValidateJobV1(req: models$0.JobRequestV1): $CancellablePromise<models$0.ValidateJobResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.ValidateJobV1", req);
+export function ValidateJob(req: models$0.JobRequest): $CancellablePromise<models$0.ValidateJobResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.ValidateJob", req);
 }
 
 /**
- * VerifyJobV1 verifies every output of a finished job: existence, readability,
+ * VerifyJob verifies every output of a finished job: existence, readability,
  * size, file type and media-specific metadata. The report lists passing and
  * failing checks per output.
  */
-export function VerifyJobV1(jobID: string): $CancellablePromise<models$0.VerificationReportV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolService.VerifyJobV1", jobID);
+export function VerifyJob(jobID: string): $CancellablePromise<models$0.VerificationReport> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.VerifyJob", jobID);
 }

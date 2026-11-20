@@ -16,52 +16,52 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as models$0 from "../models/models.js";
 
 /**
- * GetLocalCapabilitiesV1 reports every external tool the local tools rely on,
+ * GetLocalCapabilities reports every external tool the local tools rely on,
  * with availability, required/optional state and guidance, plus the installed
  * OCR languages. It never fails: a missing tool is reported, not an error.
  */
-export function GetLocalCapabilitiesV1(): $CancellablePromise<models$0.LocalCapabilitiesResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetLocalCapabilitiesV1");
+export function GetLocalCapabilities(): $CancellablePromise<models$0.LocalCapabilitiesResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetLocalCapabilities");
 }
 
 /**
- * GetOCRCapabilitiesV1 reports whether local OCR can run: the pdftoppm,
+ * GetOCRCapabilities reports whether local OCR can run: the pdftoppm,
  * tesseract and pdftotext binaries, the installed languages and the
  * recommended one. It is safe to call before any OCR job.
  */
-export function GetOCRCapabilitiesV1(): $CancellablePromise<models$0.OCRCapabilitiesResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetOCRCapabilitiesV1");
+export function GetOCRCapabilities(): $CancellablePromise<models$0.OCRCapabilitiesResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetOCRCapabilities");
 }
 
-export function GetPDFPreviewSourceV1(inputPath: string): $CancellablePromise<models$0.PDFPreviewSourceResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetPDFPreviewSourceV1", inputPath);
+export function GetPDFPreviewSource(inputPath: string): $CancellablePromise<models$0.PDFPreviewSourceResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetPDFPreviewSource", inputPath);
 }
 
 /**
- * GetTranscriptionCapabilitiesV1 reports whether local Whisper transcription
+ * GetTranscriptionCapabilities reports whether local Whisper transcription
  * can run: the resolved whisper-cli binary, the resolved model with its size,
  * and the supported languages. Empty paths resolve the installed defaults, so
  * the Settings panel can pass persisted overrides. It never fails: a missing
  * binary or model is reported with guidance, not an error.
  */
-export function GetTranscriptionCapabilitiesV1(whisperPath: string, modelPath: string): $CancellablePromise<models$0.TranscriptionCapabilitiesResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetTranscriptionCapabilitiesV1", whisperPath, modelPath);
+export function GetTranscriptionCapabilities(whisperPath: string, modelPath: string): $CancellablePromise<models$0.TranscriptionCapabilitiesResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetTranscriptionCapabilities", whisperPath, modelPath);
 }
 
 /**
- * InspectFilesV1 describes files for UI cards. Missing files are reported per
+ * InspectFiles describes files for UI cards. Missing files are reported per
  * item instead of failing the batch.
  */
-export function InspectFilesV1(paths: string[] | null): $CancellablePromise<models$0.InspectFilesResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.SystemService.InspectFilesV1", paths);
+export function InspectFiles(paths: string[] | null): $CancellablePromise<models$0.InspectFilesResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.InspectFiles", paths);
 }
 
 /**
- * NotifyV1 sends a native desktop notification. Notifications are optional:
+ * Notify sends a native desktop notification. Notifications are optional:
  * missing inputs or an unavailable notification service are reported, not fatal.
  */
-export function NotifyV1(title: string, body: string): $CancellablePromise<models$0.PathActionResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.SystemService.NotifyV1", title, body);
+export function Notify(title: string, body: string): $CancellablePromise<models$0.PathActionResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.Notify", title, body);
 }
 
 export function OpenDirectoryDialog(): $CancellablePromise<string> {
@@ -85,7 +85,7 @@ export function OpenMultipleFilesDialog(): $CancellablePromise<string[] | null> 
 /**
  * OpenPath opens an existing file with the operating system default handler.
  */
-export function OpenPath(path: string): $CancellablePromise<models$0.PathActionResponseV1> {
+export function OpenPath(path: string): $CancellablePromise<models$0.PathActionResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.SystemService.OpenPath", path);
 }
 
@@ -95,13 +95,13 @@ export function OpenPath(path: string): $CancellablePromise<models$0.PathActionR
  * loopback fallback covers Wails development mode, where the webview is served
  * by the frontend dev server and never reaches the asset middleware.
  */
-export function RegisterMediaPath(path: string): $CancellablePromise<models$0.MediaSourceResponseV1> {
+export function RegisterMediaPath(path: string): $CancellablePromise<models$0.MediaSourceResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.SystemService.RegisterMediaPath", path);
 }
 
 /**
  * RevealInFolder shows the given file or folder in the native file manager.
  */
-export function RevealInFolder(path: string): $CancellablePromise<models$0.PathActionResponseV1> {
+export function RevealInFolder(path: string): $CancellablePromise<models$0.PathActionResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.SystemService.RevealInFolder", path);
 }

@@ -12,12 +12,12 @@ import type * as models$0 from "../../../../../fileforge-desktop/internal/models
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
-            "automation/run/v1": models$0.AutomationRunEventV1;
-            "jobs/progress/v1": models$0.JobProgressEventV1;
-            "jobs/state/v1": models$0.JobResultV1;
-            "recipes/progress/v1": models$0.RecipeProgressEventV1;
-            "recipes/state/v1": models$0.RecipeResultV1;
-            "toolchain/install/v1": models$0.ToolchainInstallEventV1;
+            "automation/run": models$0.AutomationRunEvent;
+            "jobs/progress": models$0.JobProgressEvent;
+            "jobs/state": models$0.JobResult;
+            "recipes/progress": models$0.RecipeProgressEvent;
+            "recipes/state": models$0.RecipeResult;
+            "toolchain/install": models$0.ToolchainInstallEvent;
         }
     }
 }

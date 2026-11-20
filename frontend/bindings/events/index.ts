@@ -9,32 +9,32 @@ import type {} from "../github.com/wailsapp/wails/v3/internal/eventdata.js";
 import "../github.com/wailsapp/wails/v3/internal/eventcreate.js";
 
 /**
- * Name of the custom event "automation/run/v1".
+ * Name of the custom event "automation/run".
  */
-export const AutomationRunV1 = "automation/run/v1";
+export const AutomationRun = "automation/run";
 
 /**
- * Name of the custom event "jobs/progress/v1".
+ * Name of the custom event "jobs/progress".
  */
-export const JobsProgressV1 = "jobs/progress/v1";
+export const JobsProgress = "jobs/progress";
 
 /**
- * Name of the custom event "jobs/state/v1".
+ * Name of the custom event "jobs/state".
  */
-export const JobsStateV1 = "jobs/state/v1";
+export const JobsState = "jobs/state";
 
 /**
- * Name of the custom event "recipes/progress/v1".
+ * Name of the custom event "recipes/progress".
  */
-export const RecipesProgressV1 = "recipes/progress/v1";
+export const RecipesProgress = "recipes/progress";
 
 /**
- * Name of the custom event "recipes/state/v1".
+ * Name of the custom event "recipes/state".
  */
-export const RecipesStateV1 = "recipes/state/v1";
+export const RecipesState = "recipes/state";
 
 /**
- * Name of the custom event "toolchain/install/v1".
+ * Name of the custom event "toolchain/install".
  */
-export const ToolchainInstallV1 = "toolchain/install/v1";
+export const ToolchainInstall = "toolchain/install";
 

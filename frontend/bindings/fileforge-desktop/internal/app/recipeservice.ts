@@ -15,45 +15,45 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as models$0 from "../models/models.js";
 
 /**
- * CancelRecipeV1 requests cancellation of a running recipe.
+ * CancelRecipe requests cancellation of a running recipe.
  */
-export function CancelRecipeV1(jobID: string): $CancellablePromise<models$0.RecipeStatusResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.CancelRecipeV1", jobID);
+export function CancelRecipe(jobID: string): $CancellablePromise<models$0.RecipeStatusResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.CancelRecipe", jobID);
 }
 
 /**
- * GetRecipeStatusV1 returns the per-step snapshot of a recipe run.
+ * GetRecipeStatus returns the per-step snapshot of a recipe run.
  */
-export function GetRecipeStatusV1(jobID: string): $CancellablePromise<models$0.RecipeStatusResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.GetRecipeStatusV1", jobID);
+export function GetRecipeStatus(jobID: string): $CancellablePromise<models$0.RecipeStatusResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.GetRecipeStatus", jobID);
 }
 
 /**
- * ListRecipeRunsV1 returns every tracked recipe run, newest first. The result
+ * ListRecipeRuns returns every tracked recipe run, newest first. The result
  * is always a slice so the frontend can render an empty activity list.
  */
-export function ListRecipeRunsV1(limit: number): $CancellablePromise<models$0.RecipeResultV1[] | null> {
-    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.ListRecipeRunsV1", limit);
+export function ListRecipeRuns(limit: number): $CancellablePromise<models$0.RecipeResult[] | null> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.ListRecipeRuns", limit);
 }
 
 /**
- * ListRecipesV1 lists the built-in outcome recipes. Email PDF is first.
+ * ListRecipes lists the built-in outcome recipes. Email PDF is first.
  */
-export function ListRecipesV1(): $CancellablePromise<models$0.ListRecipesResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.ListRecipesV1");
+export function ListRecipes(): $CancellablePromise<models$0.ListRecipesResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.ListRecipes");
 }
 
 /**
- * PlanRecipeV1 validates a recipe request and resolves its final output
+ * PlanRecipe validates a recipe request and resolves its final output
  * without running any tool.
  */
-export function PlanRecipeV1(req: models$0.RecipeRequestV1): $CancellablePromise<models$0.RecipePlanResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.PlanRecipeV1", req);
+export function PlanRecipe(req: models$0.RecipeRequest): $CancellablePromise<models$0.RecipePlanResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.PlanRecipe", req);
 }
 
 /**
- * RunRecipeV1 starts a recipe chain in the background and returns its job id.
+ * RunRecipe starts a recipe chain in the background and returns its job id.
  */
-export function RunRecipeV1(req: models$0.RecipeRequestV1): $CancellablePromise<models$0.RunRecipeResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.RunRecipeV1", req);
+export function RunRecipe(req: models$0.RecipeRequest): $CancellablePromise<models$0.RunRecipeResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.RunRecipe", req);
 }

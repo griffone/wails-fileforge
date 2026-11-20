@@ -15,36 +15,36 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as models$0 from "../models/models.js";
 
 /**
- * CancelToolchainInstallV1 stops the active install and cleans its staging
+ * CancelToolchainInstall stops the active install and cleans its staging
  * files. A cancelled install is never reported as ready.
  */
-export function CancelToolchainInstallV1(): $CancellablePromise<models$0.ToolchainStatusV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolchainService.CancelToolchainInstallV1");
+export function CancelToolchainInstall(): $CancellablePromise<models$0.ToolchainStatus> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolchainService.CancelToolchainInstall");
 }
 
 /**
- * GetToolchainInstallStateV1 returns the same snapshot as GetToolchainStatusV1.
+ * GetToolchainInstallState returns the same snapshot as GetToolchainStatus.
  * It exists so a UI that loads after the install events fired can render the
  * current phase, percent and error immediately.
  */
-export function GetToolchainInstallStateV1(): $CancellablePromise<models$0.ToolchainStatusV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolchainService.GetToolchainInstallStateV1");
+export function GetToolchainInstallState(): $CancellablePromise<models$0.ToolchainStatus> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolchainService.GetToolchainInstallState");
 }
 
 /**
- * GetToolchainStatusV1 returns the managed toolchain snapshot: component
+ * GetToolchainStatus returns the managed toolchain snapshot: component
  * readiness, the selected Whisper model, the OCR languages and the current
  * install state. It is safe to poll while an install runs.
  */
-export function GetToolchainStatusV1(): $CancellablePromise<models$0.ToolchainStatusV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolchainService.GetToolchainStatusV1");
+export function GetToolchainStatus(): $CancellablePromise<models$0.ToolchainStatus> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolchainService.GetToolchainStatus");
 }
 
 /**
- * StartToolchainInstallV1 starts or repairs the managed toolchain. Invalid
+ * StartToolchainInstall starts or repairs the managed toolchain. Invalid
  * options and unsupported platforms return a status with Error instead of
  * starting a background install.
  */
-export function StartToolchainInstallV1(options: models$0.ToolchainInstallOptionsV1): $CancellablePromise<models$0.ToolchainStatusV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.ToolchainService.StartToolchainInstallV1", options);
+export function StartToolchainInstall(options: models$0.ToolchainInstallOptions): $CancellablePromise<models$0.ToolchainStatus> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolchainService.StartToolchainInstall", options);
 }

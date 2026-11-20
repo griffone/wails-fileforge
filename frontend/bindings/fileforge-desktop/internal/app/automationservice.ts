@@ -15,52 +15,52 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as models$0 from "../models/models.js";
 
 /**
- * ClearAutomationRunsV1 permanently removes the persisted run history.
+ * ClearAutomationRuns permanently removes the persisted run history.
  */
-export function ClearAutomationRunsV1(): $CancellablePromise<models$0.AutomationRunsActionResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.ClearAutomationRunsV1");
+export function ClearAutomationRuns(): $CancellablePromise<models$0.AutomationRunsActionResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.ClearAutomationRuns");
 }
 
 /**
- * DeleteAutomationRuleV1 stops and removes a watch-folder rule.
+ * DeleteAutomationRule stops and removes a watch-folder rule.
  */
-export function DeleteAutomationRuleV1(id: string): $CancellablePromise<models$0.AutomationRuleActionResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.DeleteAutomationRuleV1", id);
+export function DeleteAutomationRule(id: string): $CancellablePromise<models$0.AutomationRuleActionResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.DeleteAutomationRule", id);
 }
 
 /**
- * GetAutomationStatusV1 returns the compact automation summary used on Home.
+ * GetAutomationStatus returns the compact automation summary used on Home.
  */
-export function GetAutomationStatusV1(): $CancellablePromise<models$0.AutomationStatusResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.GetAutomationStatusV1");
+export function GetAutomationStatus(): $CancellablePromise<models$0.AutomationStatusResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.GetAutomationStatus");
 }
 
 /**
- * ListAutomationRulesV1 lists the saved watch-folder rules with their current
+ * ListAutomationRules lists the saved watch-folder rules with their current
  * runtime state (watching, stopped or degraded).
  */
-export function ListAutomationRulesV1(): $CancellablePromise<models$0.ListAutomationRulesResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.ListAutomationRulesV1");
+export function ListAutomationRules(): $CancellablePromise<models$0.ListAutomationRulesResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.ListAutomationRules");
 }
 
 /**
- * ListAutomationRunsV1 returns the persisted terminal automation runs, newest
+ * ListAutomationRuns returns the persisted terminal automation runs, newest
  * first. A zero limit uses the service default.
  */
-export function ListAutomationRunsV1(limit: number): $CancellablePromise<models$0.ListAutomationRunsResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.ListAutomationRunsV1", limit);
+export function ListAutomationRuns(limit: number): $CancellablePromise<models$0.ListAutomationRunsResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.ListAutomationRuns", limit);
 }
 
 /**
- * SaveAutomationRuleV1 validates and persists a watch-folder rule.
+ * SaveAutomationRule validates and persists a watch-folder rule.
  */
-export function SaveAutomationRuleV1(rule: models$0.AutomationRuleV1): $CancellablePromise<models$0.AutomationRuleActionResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.SaveAutomationRuleV1", rule);
+export function SaveAutomationRule(rule: models$0.AutomationRule): $CancellablePromise<models$0.AutomationRuleActionResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.SaveAutomationRule", rule);
 }
 
 /**
- * SetAutomationRuleEnabledV1 starts or stops a rule's watcher.
+ * SetAutomationRuleEnabled starts or stops a rule's watcher.
  */
-export function SetAutomationRuleEnabledV1(id: string, enabled: boolean): $CancellablePromise<models$0.AutomationRuleActionResponseV1> {
-    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.SetAutomationRuleEnabledV1", id, enabled);
+export function SetAutomationRuleEnabled(id: string, enabled: boolean): $CancellablePromise<models$0.AutomationRuleActionResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.SetAutomationRuleEnabled", id, enabled);
 }
