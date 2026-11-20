@@ -5,10 +5,16 @@
 From the repository root on Linux:
 
 ```bash
-task build:windows
+task package
 ```
 
-The task runs `scripts/build-windows.sh`, which performs the complete pipeline:
+`task package` runs the Windows cross-build described here and then builds the
+optimized Linux AppImage, so one command produces the Windows installer, the
+portable ZIP and `bin/fileforge-desktop-x86_64.AppImage`. To build only the
+Windows artifacts, run `task package-windows` (or `task build:windows`).
+
+The Windows task runs `scripts/build-windows.sh`, which performs the complete
+pipeline:
 
 1. Checks the cross-build tools (`go`, `node`, `npm`, `wails3`, `makensis`,
    `mingw-w64`, `pkg-config`, `curl`, `python3`, `zip`).
@@ -31,15 +37,16 @@ bin/fileforge-desktop-windows-amd64.zip     (~23.0 MiB)
 ```
 
 The staged bundle is about 57 MiB: a 27.6 MiB executable plus 48 libvips DLLs
-(29.8 MiB). The ZIP contains a `FileForge Desktop/` folder with the exe and the
-pruned DLL set. The optional libvips modules are not bundled because the app
-only uses the core loaders (JPEG, PNG, WebP, GIF, TIFF, BMP); JXL,
-ImageMagick, Poppler and OpenSlide are unnecessary. The version metadata comes
-from `build/windows/info.json` and the `INFO_PRODUCTVERSION` define in
-`build/windows/nsis/project.nsi`. The libvips cache lives in
-`~/.cache/fileforge-windows`; override it with `FILEFORGE_WINDOWS_CACHE`. The
-Wails CLI is resolved from `PATH`, then `$HOME/go/bin/wails3`; override it with
-`WAILS3_BIN`.
+(29.8 MiB). The sizes above are the optimized ones: the installer uses a 64 MB
+LZMA dictionary and the ZIP is written with maximum deflate. The ZIP contains a
+`FileForge Desktop/` folder with the exe and the pruned DLL set. The optional
+libvips modules are not bundled because the app only uses the core loaders
+(JPEG, PNG, WebP, GIF, TIFF, BMP); JXL, ImageMagick, Poppler and OpenSlide are
+unnecessary. The version metadata comes from `build/windows/info.json` and the
+`INFO_PRODUCTVERSION` define in `build/windows/nsis/project.nsi`. The libvips
+cache lives in `~/.cache/fileforge-windows`; override it with
+`FILEFORGE_WINDOWS_CACHE`. The Wails CLI is resolved from `PATH`, then
+`$HOME/go/bin/wails3`; override it with `WAILS3_BIN`.
 
 ### Bundle pruning
 
@@ -104,6 +111,11 @@ The NSIS installer defaults to a per-machine install:
   libvips-42.dll + dependencies
   uninstall.exe
 ```
+
+The NSIS installer shows the standard directory page, with a Browse button, so
+the destination can be changed. The default is the path above. The chosen
+folder is stored in the uninstall registry key (`InstallDir`) and restored on
+the next install or upgrade, so the installer remembers the previous location.
 
 The installer requests administrator rights. The portable ZIP contains the
 same folder and can be extracted anywhere; keep the exe and DLLs together.
@@ -232,9 +244,9 @@ that, conversion and transcription run locally.
 
 ## Uninstall and cleanup
 
-The NSIS uninstaller removes `%ProgramFiles%\FileForge\FileForge Desktop` and
-the WebView2 profile. It does **not** remove the managed toolchain or the
-history. For a clean removal, delete:
+The NSIS uninstaller removes the install directory (by default
+`%ProgramFiles%\FileForge\FileForge Desktop`) and the WebView2 profile. It does
+**not** remove the managed toolchain or the history. For a clean removal, delete:
 
 ```text
 %LOCALAPPDATA%\FileForge

@@ -43,14 +43,23 @@ task dev
 # Production build
 task build
 
-# Windows installer + portable ZIP (cross-build from Linux)
-task build:windows
+# Optimized Windows installer + portable ZIP and Linux AppImage
+task package
+
+# Package only the current OS
+task package-native
+
+# Full Linux package set (AppImage, deb, rpm, aur)
+task package-linux-full
 ```
 
 The Windows build and the Windows install layout are documented in
 [docs/windows-build.md](docs/windows-build.md).
 
 ## Release artifacts
+
+`task package` builds all three from Linux in one run: the optimized Windows
+installer, the portable ZIP (both cross-built), and the optimized AppImage.
 
 | Artifact | Size |
 | --- | --- |
