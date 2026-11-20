@@ -9,13 +9,13 @@ import { Subject } from 'rxjs';
 
 import { PdfOptimize } from './pdf-optimize';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultItemV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResultItem,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -23,9 +23,9 @@ describe('PdfOptimize', () => {
   let fixture: ComponentFixture<PdfOptimize>;
   let component: PdfOptimize;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -49,7 +49,7 @@ describe('PdfOptimize', () => {
     return name.replace(/\.pdf$/i, '');
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const outputs = request.inputPaths.map((inputPath) => {
       const dir = request.outputDir || firstDir(inputPath);
       const name = `${fileStem(inputPath)}_optimized.pdf`;
@@ -73,9 +73,9 @@ describe('PdfOptimize', () => {
 
   function status(
     jobId: string,
-    jobStatus: JobResultV1['status'],
-    items: JobResultItemV1[],
-  ): JobStatusResponseV1 {
+    jobStatus: JobResult['status'],
+    items: JobResultItem[],
+  ): JobStatusResponse {
     return {
       success: true,
       message: jobStatus,
@@ -103,36 +103,36 @@ describe('PdfOptimize', () => {
     return { target: { value } } as unknown as Event;
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'inspectFiles',
       'getThumbnail',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'listToolsV1',
+      'listTools',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -140,16 +140,16 @@ describe('PdfOptimize', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(status(jobId, 'running', [])),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -162,7 +162,7 @@ describe('PdfOptimize', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
@@ -187,7 +187,7 @@ describe('PdfOptimize', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
     const request = lastPlanRequest();
     expect(request.toolId).toBe('tool.pdf.optimize');
     expect(request.mode).toBe('single');
@@ -323,7 +323,7 @@ describe('PdfOptimize', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('uses the chosen destination folder in the plan', fakeAsync(() => {
@@ -356,7 +356,7 @@ describe('PdfOptimize', () => {
   }));
 
   it('keeps a failed plan as the source of truth and blocks the run', fakeAsync(() => {
-    wailsSpy.planJobV1.and.resolveTo({
+    wailsSpy.planJob.and.resolveTo({
       success: false,
       message: 'options.metadata.title must be at most 512 characters',
       outputs: [],
@@ -380,7 +380,7 @@ describe('PdfOptimize', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('plans and runs without a validation step, then polls', fakeAsync(() => {
@@ -390,29 +390,29 @@ describe('PdfOptimize', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.pdf.optimize');
     expect(request.mode).toBe('batch');
     expect(request.inputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(2);
     expect(
-      (wailsSpy as unknown as { validateJobV1?: unknown }).validateJobV1,
+      (wailsSpy as unknown as { validateJob?: unknown }).validateJob,
     ).toBeUndefined();
-    expect(wailsSpy.getJobStatusV1).toHaveBeenCalled();
+    expect(wailsSpy.getJobStatus).toHaveBeenCalled();
     expect(component.isPolling()).toBeTrue();
     expect(component.activeJobId()).toBe('job-1');
   }));
 
   it('renders the optimized result and opens the output', fakeAsync(() => {
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       status('job-2', 'success', [
         {
           inputPath: '/tmp/a.pdf',
@@ -437,7 +437,7 @@ describe('PdfOptimize', () => {
     expect(text).toContain('1 PDF optimized');
     expect(text).toContain('a_optimized.pdf');
 
-    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+    const inspectedPaths = wailsSpy.inspectFiles.calls
       .allArgs()
       .map((args) => args[0] as string[]);
     expect(

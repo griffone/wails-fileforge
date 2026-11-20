@@ -12,7 +12,7 @@ import {
 
 import type { ToolDefinition } from '../../config/tools';
 import { ToolRegistryService } from '../../services/tool-registry.service';
-import { ToolCatalogEntryV1, Wails } from '../../services/wails';
+import { ToolCatalogEntry, Wails } from '../../services/wails';
 
 @Component({
   selector: 'app-tool-catalog',
@@ -28,7 +28,7 @@ export class ToolCatalog implements OnInit {
   readonly arrowIcon = ArrowUpRight;
   readonly skeletonRows = [0, 1, 2, 3];
 
-  tools: ToolCatalogEntryV1[] = [];
+  tools: ToolCatalogEntry[] = [];
   loading = false;
   errorMessage = '';
   runtimeConnected = false;
@@ -49,7 +49,7 @@ export class ToolCatalog implements OnInit {
     this.errorMessage = '';
 
     try {
-      const response = await this.wailsService.listToolsV1();
+      const response = await this.wailsService.listTools();
       if (!response.success) {
         this.errorMessage = this.friendlyError(response.message);
         this.tools = [];
@@ -92,15 +92,15 @@ export class ToolCatalog implements OnInit {
   }
 
   /** Registry definition for a backend tool id, when one exists. */
-  toolDefinition(tool: ToolCatalogEntryV1): ToolDefinition | null {
+  toolDefinition(tool: ToolCatalogEntry): ToolDefinition | null {
     return this.registry.findById(tool.manifest.toolId);
   }
 
-  toolIcon(tool: ToolCatalogEntryV1): LucideIconData {
+  toolIcon(tool: ToolCatalogEntry): LucideIconData {
     return this.toolDefinition(tool)?.icon ?? this.activityIcon;
   }
 
-  categoryTone(tool: ToolCatalogEntryV1): string {
+  categoryTone(tool: ToolCatalogEntry): string {
     return this.toolDefinition(tool)?.category ?? 'system';
   }
 
@@ -108,13 +108,13 @@ export class ToolCatalog implements OnInit {
     return this.registry.findById(toolId)?.route ?? null;
   }
 
-  ioLabel(tool: ToolCatalogEntryV1): string {
+  ioLabel(tool: ToolCatalogEntry): string {
     const input = tool.manifest.inputExtensions.join(', ') || '—';
     const output = tool.manifest.outputExtensions.join(', ') || '—';
     return `${input} → ${output}`;
   }
 
-  modeLabel(tool: ToolCatalogEntryV1): string {
+  modeLabel(tool: ToolCatalogEntry): string {
     const modes = [
       tool.manifest.supportsSingle ? 'single' : '',
       tool.manifest.supportsBatch ? 'batch' : '',
@@ -122,7 +122,7 @@ export class ToolCatalog implements OnInit {
     return modes.length > 0 ? modes.join(' + ') : 'n/a';
   }
 
-  trackByToolId(_index: number, tool: ToolCatalogEntryV1): string {
+  trackByToolId(_index: number, tool: ToolCatalogEntry): string {
     return tool.manifest.toolId;
   }
 }

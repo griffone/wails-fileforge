@@ -17,20 +17,20 @@ describe('Wails', () => {
     expect(service).toBeTruthy();
   });
 
-  it('should return safe fallback when listToolsV1 fails', async () => {
-    spyOn(ipc, 'listToolsV1').and.rejectWith(new Error('ipc unavailable'));
+  it('should return safe fallback when listTools fails', async () => {
+    spyOn(ipc, 'listTools').and.rejectWith(new Error('ipc unavailable'));
 
-    const result = await service.listToolsV1();
+    const result = await service.listTools();
 
     expect(result.success).toBeFalse();
     expect(result.tools).toEqual([]);
     expect(result.message).toContain('ipc unavailable');
   });
 
-  it('should return canonical coded fallback when runJobV1 fails', async () => {
-    spyOn(ipc, 'runJobV1').and.rejectWith(new Error('timeout'));
+  it('should return canonical coded fallback when runJob fails', async () => {
+    spyOn(ipc, 'runJob').and.rejectWith(new Error('timeout'));
 
-    const result = await service.runJobV1({
+    const result = await service.runJob({
       toolId: 'tool.pdf.merge',
       mode: 'single',
       inputPaths: ['/tmp/input-a.pdf', '/tmp/input-b.pdf'],
@@ -57,12 +57,12 @@ describe('Wails', () => {
   });
 
   it('should return safe fallbacks for the plan and inspect calls', async () => {
-    spyOn(ipc, 'planJobV1').and.rejectWith(new Error('ipc down'));
-    spyOn(ipc, 'inspectFilesV1').and.rejectWith(new Error('ipc down'));
+    spyOn(ipc, 'planJob').and.rejectWith(new Error('ipc down'));
+    spyOn(ipc, 'inspectFiles').and.rejectWith(new Error('ipc down'));
     spyOn(ipc, 'openPath').and.rejectWith(new Error('ipc down'));
     spyOn(ipc, 'revealInFolder').and.rejectWith(new Error('ipc down'));
 
-    const plan = await service.planJobV1({
+    const plan = await service.planJob({
       toolId: 'tool.image.convert',
       mode: 'batch',
       inputPaths: ['/tmp/a.png'],
@@ -73,7 +73,7 @@ describe('Wails', () => {
     expect(plan.outputs).toEqual([]);
     expect(plan.error?.detail_code).toBe('IPC_PLAN_FAILED');
 
-    const inspect = await service.inspectFilesV1(['/tmp/a.png']);
+    const inspect = await service.inspectFiles(['/tmp/a.png']);
     expect(inspect.success).toBeFalse();
     expect(inspect.files).toEqual([]);
 

@@ -10,8 +10,8 @@ describe('ToolCatalog', () => {
   let wailsSpy: jasmine.SpyObj<Wails>;
 
   beforeEach(async () => {
-    wailsSpy = jasmine.createSpyObj<Wails>('Wails', ['listToolsV1', 'isRuntimeAvailable']);
-    wailsSpy.listToolsV1.and.returnValue(
+    wailsSpy = jasmine.createSpyObj<Wails>('Wails', ['listTools', 'isRuntimeAvailable']);
+    wailsSpy.listTools.and.returnValue(
       Promise.resolve({ success: true, message: 'ok', tools: [] }),
     );
     wailsSpy.isRuntimeAvailable.and.returnValue(true);

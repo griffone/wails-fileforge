@@ -5,13 +5,13 @@ import { provideRouter } from '@angular/router';
 import { ToolchainSetup } from './toolchain-setup';
 import { ToolchainStateService } from '../../services/toolchain-state.service';
 import {
-  ToolchainInstallEventV1,
-  ToolchainStatusV1,
+  ToolchainInstallEvent,
+  ToolchainStatus,
 } from '../../services/wails';
 
 class ToolchainStateStub {
-  readonly status = signal<ToolchainStatusV1 | null>(null);
-  readonly event = signal<ToolchainInstallEventV1 | null>(null);
+  readonly status = signal<ToolchainStatus | null>(null);
+  readonly event = signal<ToolchainInstallEvent | null>(null);
   readonly loading = signal(false);
   readonly isBusy = computed(() => this.status()?.installing === true);
 
@@ -22,8 +22,8 @@ class ToolchainStateStub {
 }
 
 function toolchainStatus(
-  overrides: Partial<ToolchainStatusV1> = {},
-): ToolchainStatusV1 {
+  overrides: Partial<ToolchainStatus> = {},
+): ToolchainStatus {
   return {
     success: true,
     message: 'Local tools are not installed.',

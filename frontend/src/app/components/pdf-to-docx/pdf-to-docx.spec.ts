@@ -10,13 +10,13 @@ import { EMPTY } from 'rxjs';
 
 import { PdfToDocx } from './pdf-to-docx';
 import {
-  FileInfoV1,
-  JobProgressV1,
-  JobRequestV1,
-  JobResultItemV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgress,
+  JobRequest,
+  JobResultItem,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -33,7 +33,7 @@ describe('PdfToDocx', () => {
     return fixture.nativeElement.querySelectorAll(selector) as NodeListOf<HTMLElement>;
   }
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     return {
       path,
       name: path.split(/[\\/]/).pop() ?? path,
@@ -56,7 +56,7 @@ describe('PdfToDocx', () => {
     return name.replace(/\.pdf$/i, '');
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const inputPath = request.inputPaths[0] ?? '/tmp/in/document.pdf';
     const dir = request.outputDir || firstDir(inputPath);
     const stem = fileStem(inputPath);
@@ -81,10 +81,10 @@ describe('PdfToDocx', () => {
 
   function status(
     jobId: string,
-    jobStatus: JobResultV1['status'],
-    items: JobResultItemV1[],
-    progress: Partial<JobProgressV1> = {},
-  ): JobStatusResponseV1 {
+    jobStatus: JobResult['status'],
+    items: JobResultItem[],
+    progress: Partial<JobProgress> = {},
+  ): JobStatusResponse {
     return {
       success: true,
       message: jobStatus,
@@ -126,39 +126,39 @@ describe('PdfToDocx', () => {
     localStorage.removeItem('ff-preferences');
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
+      'inspectFiles',
       'openFileDialog',
       'openDirectoryDialog',
       'openPath',
       'revealInFolder',
       'isRuntimeAvailable',
-      'listToolsV1',
-      'validateJobV1',
+      'listTools',
+      'validateJob',
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'docx-job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(status(jobId, 'running', [])),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancel requested',
       jobId: 'docx-job-1',
     });
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -170,12 +170,12 @@ describe('PdfToDocx', () => {
     wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
     wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
     wailsSpy.isRuntimeAvailable.and.returnValue(false);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
     });
-    wailsSpy.validateJobV1.and.resolveTo({
+    wailsSpy.validateJob.and.resolveTo({
       success: true,
       message: 'ok',
       valid: true,
@@ -231,7 +231,7 @@ describe('PdfToDocx', () => {
 
     selectPdf('/tmp/in/report.pdf');
 
-    const request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.toolId).toBe('tool.pdf.to_docx');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/in/report.pdf']);
@@ -278,7 +278,7 @@ describe('PdfToDocx', () => {
     expect(component.notice()?.text).toBe(
       "notes.txt wasn't added because it isn't a PDF.",
     );
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     component.onPathsSelected([
       '/tmp/in/first.pdf',
@@ -293,7 +293,7 @@ describe('PdfToDocx', () => {
     expect(component.notice()?.text).toBe(
       'PDF to DOCX converts one PDF at a time. Only first.pdf was added. notes.txt wasn\'t added because it isn\'t a PDF.',
     );
-    expect(wailsSpy.planJobV1.calls.mostRecent().args[0].inputPaths).toEqual([
+    expect(wailsSpy.planJob.calls.mostRecent().args[0].inputPaths).toEqual([
       '/tmp/in/first.pdf',
     ]);
     expect(component.plan()?.outputs[0].outputPath).toBe('/tmp/in/first.docx');
@@ -305,7 +305,7 @@ describe('PdfToDocx', () => {
       detail_code: 'PDF_DOCX_RUNTIME_UNAVAILABLE',
       message: 'The PDF to DOCX engine is not installed. Run Install / repair.',
     };
-    wailsSpy.planJobV1.and.resolveTo({
+    wailsSpy.planJob.and.resolveTo({
       success: false,
       message: planError.message,
       outputs: [],
@@ -336,14 +336,14 @@ describe('PdfToDocx', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('runs, polls to terminal and shows the DOCX output with the backend message', fakeAsync(() => {
     const backendMessage =
       'DOCX created: 12 paragraphs, 4 bold runs, 2 images, 1 table.';
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatusV1.calls.all().length;
+    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
+      const calls = wailsSpy.getJobStatus.calls.all().length;
       if (calls <= 1) {
         return Promise.resolve(
           status(jobId, 'running', [], {
@@ -377,9 +377,9 @@ describe('PdfToDocx', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const runRequest = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const runRequest = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(runRequest.toolId).toBe('tool.pdf.to_docx');
     expect(runRequest.mode).toBe('single');
     expect(runRequest.options).toEqual({});
@@ -402,7 +402,7 @@ describe('PdfToDocx', () => {
     expect(pageText).toContain('report.docx');
     expect(query('app-result-card')).not.toBeNull();
 
-    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+    const inspectedPaths = wailsSpy.inspectFiles.calls
       .allArgs()
       .map((args) => args[0] as string[]);
     expect(
@@ -427,7 +427,7 @@ describe('PdfToDocx', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(component.outputDir()).toBe('/tmp/out');
     expect(component.destinationLabel()).toBe('/tmp/out');
     expect(component.isDefaultDestination()).toBeFalse();
@@ -441,7 +441,7 @@ describe('PdfToDocx', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(component.outputDir()).toBe('');
     expect(request.outputDir).toBe('');
     expect(component.plan()?.outputs[0].outputPath).toBe(
@@ -463,7 +463,7 @@ describe('PdfToDocx', () => {
 
     void component.cancel();
     flushMicrotasks();
-    expect(wailsSpy.cancelJobV1).toHaveBeenCalledWith('docx-job-1');
+    expect(wailsSpy.cancelJob).toHaveBeenCalledWith('docx-job-1');
 
     component.reset();
     flushMicrotasks();

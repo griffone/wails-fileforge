@@ -10,12 +10,12 @@ import { Subject } from 'rxjs';
 import { ImageCompress } from './image-compress';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -23,9 +23,9 @@ describe('ImageCompress', () => {
   let fixture: ComponentFixture<ImageCompress>;
   let component: ImageCompress;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     return {
       success: true,
       message: 'ok',
@@ -41,7 +41,7 @@ describe('ImageCompress', () => {
     };
   }
 
-  function fileInfo(path: string, sizeBytes = 2048): FileInfoV1 {
+  function fileInfo(path: string, sizeBytes = 2048): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -64,16 +64,16 @@ describe('ImageCompress', () => {
     return { target: { checked } } as unknown as Event;
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
   function terminalStatus(
     jobId: string,
     inputPath: string,
     outputPath: string,
-  ): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  ): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: true,
       message: 'done',
@@ -103,27 +103,27 @@ describe('ImageCompress', () => {
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'inspectFiles',
       'getThumbnail',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
-      'verifyJobV1',
+      'verifyJob',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -131,13 +131,13 @@ describe('ImageCompress', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-default',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo({
+    wailsSpy.getJobStatus.and.resolveTo({
       success: true,
       message: 'running',
       found: true,
@@ -157,7 +157,7 @@ describe('ImageCompress', () => {
         startedAt: 1,
       },
     });
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -169,7 +169,7 @@ describe('ImageCompress', () => {
     });
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
-    wailsSpy.verifyJobV1.and.resolveTo({
+    wailsSpy.verifyJob.and.resolveTo({
       success: false,
       message: 'unavailable',
       outputs: [],
@@ -194,7 +194,7 @@ describe('ImageCompress', () => {
     component.onPathsSelected(['/tmp/photo.png']);
     flushMicrotasks();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
     const request = lastPlanRequest();
     expect(request.toolId).toBe('tool.image.compress');
     expect(request.mode).toBe('single');
@@ -232,7 +232,7 @@ describe('ImageCompress', () => {
   it('blocks the run and the plan for an invalid target', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.png']);
     flushMicrotasks();
-    const planCalls = wailsSpy.planJobV1.calls.count();
+    const planCalls = wailsSpy.planJob.calls.count();
 
     component.onTargetInput(inputEvent('0'));
     tick(200);
@@ -243,12 +243,12 @@ describe('ImageCompress', () => {
     expect(component.actionHelper()).toBe(
       'Enter a target size greater than 0 MB.',
     );
-    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls);
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls);
 
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('omits empty optional values and sends provided ones', fakeAsync(() => {
@@ -296,7 +296,7 @@ describe('ImageCompress', () => {
   it('rejects an extreme target that would break the byte conversion', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.png']);
     flushMicrotasks();
-    const planCalls = wailsSpy.planJobV1.calls.count();
+    const planCalls = wailsSpy.planJob.calls.count();
 
     component.onTargetInput(inputEvent('1e308'));
     tick(200);
@@ -314,11 +314,11 @@ describe('ImageCompress', () => {
     expect(component.actionHelper()).toBe(
       'Enter a target size of 1,000,000 MB or less.',
     );
-    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls);
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls);
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('sends format, downscale and metadata toggles', fakeAsync(() => {
@@ -342,16 +342,16 @@ describe('ImageCompress', () => {
     const inputBytes = 2 * 1024 * 1024;
     const outputBytes = 400 * 1024;
 
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       terminalStatus('job-2', inputPath, outputPath),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -369,9 +369,9 @@ describe('ImageCompress', () => {
     tick(1000);
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.image.compress');
     expect(request.options['targetSizeBytes']).toBe(1024 * 1024);
 
@@ -400,10 +400,10 @@ describe('ImageCompress', () => {
     const inputPath = '/tmp/in/photo.png';
     const outputPath = '/tmp/in/photo_compressed.webp';
 
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       terminalStatus('job-target', inputPath, outputPath),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -442,10 +442,10 @@ describe('ImageCompress', () => {
     const outputPath = '/tmp/in/photo_compressed.png';
     const outputBytes = 3 * 1024 * 1024;
 
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       terminalStatus('job-miss', inputPath, outputPath),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -476,7 +476,7 @@ describe('ImageCompress', () => {
     expect(component.notice()?.text).toBe(
       "1 file wasn't added. HEIC isn't supported.",
     );
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 
   it('uses the chosen output folder in the plan request', fakeAsync(() => {
@@ -507,7 +507,7 @@ describe('ImageCompress', () => {
       '/tmp/queued-one.png',
       '/tmp/queued-two.jpg',
     ]);
-    expect(wailsSpy.planJobV1).toHaveBeenCalled();
+    expect(wailsSpy.planJob).toHaveBeenCalled();
 
     queuedFixture.destroy();
   }));

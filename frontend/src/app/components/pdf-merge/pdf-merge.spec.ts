@@ -9,12 +9,12 @@ import { Subject } from 'rxjs';
 
 import { PdfMerge } from './pdf-merge';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -22,9 +22,9 @@ describe('PdfMerge', () => {
   let fixture: ComponentFixture<PdfMerge>;
   let component: PdfMerge;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -43,7 +43,7 @@ describe('PdfMerge', () => {
     return index > 0 ? path.slice(0, index) : '';
   }
 
-  function plannedOutput(request: JobRequestV1): string {
+  function plannedOutput(request: JobRequest): string {
     const explicit = String(request.options['outputPath'] ?? '');
     if (explicit) {
       return explicit;
@@ -58,7 +58,7 @@ describe('PdfMerge', () => {
     return dir ? `${dir}/${name}` : name;
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const outputPath = plannedOutput(request);
     return {
       success: true,
@@ -79,9 +79,9 @@ describe('PdfMerge', () => {
 
   function result(
     jobId: string,
-    status: JobResultV1['status'],
-    items: JobResultV1['items'],
-  ): JobStatusResponseV1 {
+    status: JobResult['status'],
+    items: JobResult['items'],
+  ): JobStatusResponse {
     return {
       success: true,
       message: status,
@@ -105,11 +105,11 @@ describe('PdfMerge', () => {
     };
   }
 
-  function runningStatus(jobId: string): JobStatusResponseV1 {
+  function runningStatus(jobId: string): JobStatusResponse {
     return result(jobId, 'running', []);
   }
 
-  function successStatus(jobId: string, outputPath: string): JobStatusResponseV1 {
+  function successStatus(jobId: string, outputPath: string): JobStatusResponse {
     return result(jobId, 'success', [
       {
         inputPath: '/tmp/a.pdf,/tmp/b.pdf',
@@ -121,7 +121,7 @@ describe('PdfMerge', () => {
     ]);
   }
 
-  function failedStatus(jobId: string): JobStatusResponseV1 {
+  function failedStatus(jobId: string): JobStatusResponse {
     return result(jobId, 'failed', [
       {
         inputPath: '/tmp/a.pdf,/tmp/b.pdf',
@@ -141,35 +141,35 @@ describe('PdfMerge', () => {
     return { target: { value } } as unknown as Event;
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'inspectFiles',
       'getThumbnail',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'listToolsV1',
+      'listTools',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -177,16 +177,16 @@ describe('PdfMerge', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(runningStatus(jobId)),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -199,7 +199,7 @@ describe('PdfMerge', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
@@ -224,7 +224,7 @@ describe('PdfMerge', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
     expect(component.canRun()).toBeFalse();
     const primary = fixture.nativeElement.querySelector(
       '.action-primary',
@@ -235,9 +235,9 @@ describe('PdfMerge', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.pdf.merge');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/one.pdf', '/tmp/two.pdf']);
@@ -263,7 +263,7 @@ describe('PdfMerge', () => {
     expect(component.notice()?.text).toContain('notes.txt');
     expect(component.notice()?.text).toContain("isn't a PDF");
     expect(component.notice()?.text).toContain('a.pdf is already in the queue.');
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 
   it('reordering changes the input order in the plan request', fakeAsync(() => {
@@ -279,10 +279,10 @@ describe('PdfMerge', () => {
       'a.pdf',
     ]);
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.inputPaths).toEqual(['/tmp/b.pdf', '/tmp/a.pdf']);
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(2);
   }));
 
   it('sends one page range per input in queue order', fakeAsync(() => {
@@ -380,7 +380,7 @@ describe('PdfMerge', () => {
     component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
     flushMicrotasks();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) => {
+    wailsSpy.planJob.and.callFake((request: JobRequest) => {
       const ranges = request.options['inputPageRanges'] as
         | string[]
         | undefined;
@@ -416,25 +416,25 @@ describe('PdfMerge', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
-  it('runs through runJobV1 without a validation step and starts polling', fakeAsync(() => {
+  it('runs through runJob without a validation step and starts polling', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
     flushMicrotasks();
 
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.pdf.merge');
     expect(request.inputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
     expect(
-      (wailsSpy as unknown as { validateJobV1?: unknown }).validateJobV1,
+      (wailsSpy as unknown as { validateJob?: unknown }).validateJob,
     ).toBeUndefined();
-    expect(wailsSpy.getJobStatusV1).toHaveBeenCalled();
+    expect(wailsSpy.getJobStatus).toHaveBeenCalled();
     expect(component.isPolling()).toBeTrue();
     expect(component.activeJobId()).toBe('job-1');
 
@@ -443,13 +443,13 @@ describe('PdfMerge', () => {
 
   it('loads output details on terminal success and opens the result', fakeAsync(() => {
     const outputPath = '/tmp/a_merged.pdf';
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(successStatus('job-2', outputPath));
+    wailsSpy.getJobStatus.and.resolveTo(successStatus('job-2', outputPath));
 
     component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
     flushMicrotasks();
@@ -461,7 +461,7 @@ describe('PdfMerge', () => {
     expect(component.isPolling()).toBeFalse();
     expect(component.activeJobId()).toBe('');
 
-    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+    const inspectedPaths = wailsSpy.inspectFiles.calls
       .allArgs()
       .map((args) => args[0] as string[]);
     expect(
@@ -499,8 +499,8 @@ describe('PdfMerge', () => {
     expect(component.isDefaultDestination()).toBeFalse();
     expect(component.destinationLabel()).toBe('/tmp/out');
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.outputDir).toBe('/tmp/out');
     expect(component.plan()?.outputs[0].outputPath).toBe(
       '/tmp/out/a_merged.pdf',
@@ -511,8 +511,8 @@ describe('PdfMerge', () => {
 
     expect(component.outputDir()).toBe('');
     expect(component.destinationLabel()).toBe('Next to the first PDF');
-    const resetRequest = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const resetRequest = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(resetRequest.outputDir).toBe('');
   }));
 
@@ -531,8 +531,8 @@ describe('PdfMerge', () => {
     tick(250);
     flushMicrotasks();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['outputPath']).toBe('/tmp/out/Final.pdf');
     expect(component.plan()?.outputs[0].outputPath).toBe('/tmp/out/Final.pdf');
 
@@ -543,8 +543,8 @@ describe('PdfMerge', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(component.customNameInvalid()).toBeTrue();
     expect(request.options['outputPath']).toBeUndefined();
     expect(fixture.nativeElement.textContent).toContain(
@@ -571,8 +571,8 @@ describe('PdfMerge', () => {
     tick(250);
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['outputPath']).toBe('C:\\Out\\Final.pdf');
   }));
 
@@ -580,7 +580,7 @@ describe('PdfMerge', () => {
     component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
     flushMicrotasks();
 
-    wailsSpy.planJobV1.and.callFake(() =>
+    wailsSpy.planJob.and.callFake(() =>
       Promise.resolve({
         success: false,
         message: 'output file already exists',
@@ -613,17 +613,17 @@ describe('PdfMerge', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('retries a failed merge with the same inputs and options', fakeAsync(() => {
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-3',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(failedStatus('job-3'));
+    wailsSpy.getJobStatus.and.resolveTo(failedStatus('job-3'));
 
     component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
     flushMicrotasks();
@@ -636,10 +636,10 @@ describe('PdfMerge', () => {
     void component.retry();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(2);
-    const firstRequest = wailsSpy.runJobV1.calls.first().args[0] as JobRequestV1;
-    const retryRequest = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(2);
+    const firstRequest = wailsSpy.runJob.calls.first().args[0] as JobRequest;
+    const retryRequest = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(retryRequest.inputPaths).toEqual(firstRequest.inputPaths);
     expect(retryRequest.options).toEqual(firstRequest.options);
 

@@ -13,12 +13,12 @@ import { RECIPES } from '../config/recipes';
 import { ToastService } from './toast.service';
 import { ToolRegistryService } from './tool-registry.service';
 import {
-  JobListResponseV1,
-  JobProgressEventV1,
-  JobResultItemV1,
-  JobResultV1,
-  RecipeProgressEventV1,
-  RecipeResultV1,
+  JobListResponse,
+  JobProgressEvent,
+  JobResultItem,
+  JobResult,
+  RecipeProgressEvent,
+  RecipeResult,
   Wails,
 } from './wails';
 
@@ -121,16 +121,16 @@ export class ActivityService implements OnDestroy {
   readonly panelOpen: Signal<boolean> = this.panelOpenState.asReadonly();
 
   constructor() {
-    this.subscribeStream<JobResultV1>('jobState$', (snapshot) =>
+    this.subscribeStream<JobResult>('jobState$', (snapshot) =>
       this.applyJobSnapshot(snapshot),
     );
-    this.subscribeStream<RecipeResultV1>('recipeState$', (snapshot) =>
+    this.subscribeStream<RecipeResult>('recipeState$', (snapshot) =>
       this.applyRecipeSnapshot(snapshot),
     );
-    this.subscribeStream<JobProgressEventV1>('jobProgress$', (event) =>
+    this.subscribeStream<JobProgressEvent>('jobProgress$', (event) =>
       this.applyJobProgress(event),
     );
-    this.subscribeStream<RecipeProgressEventV1>('recipeProgress$', (event) =>
+    this.subscribeStream<RecipeProgressEvent>('recipeProgress$', (event) =>
       this.applyRecipeProgress(event),
     );
   }
@@ -269,32 +269,32 @@ export class ActivityService implements OnDestroy {
     }
   }
 
-  private async fetchJobs(limit: number): Promise<readonly JobResultV1[]> {
+  private async fetchJobs(limit: number): Promise<readonly JobResult[]> {
     const list = (this.wails as unknown as Record<string, unknown>)[
-      'listJobsV1'
+      'listJobs'
     ];
     if (typeof list !== 'function') {
       return [];
     }
 
     const response = await (
-      list as (count: number) => Promise<JobListResponseV1>
+      list as (count: number) => Promise<JobListResponse>
     ).call(this.wails, limit);
     return Array.isArray(response?.jobs) ? response.jobs : [];
   }
 
   private async fetchRecipeRuns(
     limit: number,
-  ): Promise<readonly RecipeResultV1[]> {
+  ): Promise<readonly RecipeResult[]> {
     const list = (this.wails as unknown as Record<string, unknown>)[
-      'listRecipeRunsV1'
+      'listRecipeRuns'
     ];
     if (typeof list !== 'function') {
       return [];
     }
 
     const response = await (
-      list as (count: number) => Promise<RecipeResultV1[]>
+      list as (count: number) => Promise<RecipeResult[]>
     ).call(this.wails, limit);
     return Array.isArray(response) ? response : [];
   }
@@ -302,7 +302,7 @@ export class ActivityService implements OnDestroy {
   private async requestCancel(
     task: ActivityTask,
   ): Promise<{ success: boolean; message: string }> {
-    const methodName = task.kind === 'recipe' ? 'cancelRecipeV1' : 'cancelJobV1';
+    const methodName = task.kind === 'recipe' ? 'cancelRecipe' : 'cancelJob';
     const cancel = (this.wails as unknown as Record<string, unknown>)[methodName];
     if (typeof cancel !== 'function') {
       return { success: false, message: 'Cancelling is not available right now.' };
@@ -332,7 +332,7 @@ export class ActivityService implements OnDestroy {
     }
   }
 
-  private applyJobSnapshot(result: JobResultV1): void {
+  private applyJobSnapshot(result: JobResult): void {
     if (
       !result ||
       typeof result.jobId !== 'string' ||
@@ -352,7 +352,7 @@ export class ActivityService implements OnDestroy {
     this.maybeNotify(previous, task);
   }
 
-  private applyRecipeSnapshot(result: RecipeResultV1): void {
+  private applyRecipeSnapshot(result: RecipeResult): void {
     if (
       !result ||
       typeof result.jobId !== 'string' ||
@@ -370,7 +370,7 @@ export class ActivityService implements OnDestroy {
     this.maybeNotify(previous, task);
   }
 
-  private applyJobProgress(event: JobProgressEventV1): void {
+  private applyJobProgress(event: JobProgressEvent): void {
     if (
       !event ||
       typeof event.jobId !== 'string' ||
@@ -414,7 +414,7 @@ export class ActivityService implements OnDestroy {
     this.maybeNotify(existing, updated);
   }
 
-  private applyRecipeProgress(event: RecipeProgressEventV1): void {
+  private applyRecipeProgress(event: RecipeProgressEvent): void {
     if (
       !event ||
       typeof event.jobId !== 'string' ||
@@ -460,7 +460,7 @@ export class ActivityService implements OnDestroy {
   }
 
   private buildJobTask(
-    result: JobResultV1,
+    result: JobResult,
     previous: ActivityTask | null,
   ): ActivityTask {
     const toolId = textOf(result.toolId);
@@ -504,7 +504,7 @@ export class ActivityService implements OnDestroy {
   }
 
   private buildRecipeTask(
-    result: RecipeResultV1,
+    result: RecipeResult,
     previous: ActivityTask | null,
   ): ActivityTask {
     const recipeId = textOf(result.recipeId);
@@ -543,7 +543,7 @@ export class ActivityService implements OnDestroy {
     };
   }
 
-  private jobOutputCount(items: readonly JobResultItemV1[]): number {
+  private jobOutputCount(items: readonly JobResultItem[]): number {
     let count = 0;
     for (const item of items) {
       if (!item || item.success !== true) {
@@ -627,7 +627,7 @@ export class ActivityService implements OnDestroy {
 
   private safeNotify(title: string, body: string): void {
     const notify = (this.wails as unknown as Record<string, unknown>)[
-      'notifyV1'
+      'notify'
     ];
     if (typeof notify !== 'function') {
       return;

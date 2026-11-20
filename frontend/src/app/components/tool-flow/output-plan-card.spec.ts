@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { PlanJobResponseV1 } from '../../services/wails';
+import { PlanJobResponse } from '../../services/wails';
 import { OutputPlanCard } from './output-plan-card';
 
 describe('OutputPlanCard', () => {
@@ -12,7 +12,7 @@ describe('OutputPlanCard', () => {
     component = fixture.componentInstance;
   });
 
-  function planWith(outputs: PlanJobResponseV1['outputs']): PlanJobResponseV1 {
+  function planWith(outputs: PlanJobResponse['outputs']): PlanJobResponse {
     return {
       success: true,
       message: 'ok',

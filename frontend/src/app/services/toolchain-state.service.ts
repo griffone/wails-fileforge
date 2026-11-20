@@ -2,9 +2,9 @@ import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core'
 import { Subscription } from 'rxjs';
 
 import {
-  ToolchainInstallEventV1,
-  ToolchainInstallOptionsV1,
-  ToolchainStatusV1,
+  ToolchainInstallEvent,
+  ToolchainInstallOptions,
+  ToolchainStatus,
   Wails,
 } from './wails';
 
@@ -25,8 +25,8 @@ export class ToolchainStateService {
   private readonly wails = inject(Wails);
   private readonly destroyRef = inject(DestroyRef);
 
-  private readonly statusState = signal<ToolchainStatusV1 | null>(null);
-  private readonly eventState = signal<ToolchainInstallEventV1 | null>(null);
+  private readonly statusState = signal<ToolchainStatus | null>(null);
+  private readonly eventState = signal<ToolchainInstallEvent | null>(null);
   private readonly loadingState = signal(false);
 
   readonly status = this.statusState.asReadonly();
@@ -61,7 +61,7 @@ export class ToolchainStateService {
     this.loadingState.set(true);
 
     try {
-      const response = await this.wails.getToolchainStatusV1();
+      const response = await this.wails.getToolchainStatus();
       if (response?.success) {
         this.applyStatus(response);
       }
@@ -100,8 +100,8 @@ export class ToolchainStateService {
 
   /** Starts or repairs the install; ignored while one is already running. */
   async install(
-    options: ToolchainInstallOptionsV1,
-  ): Promise<ToolchainStatusV1 | null> {
+    options: ToolchainInstallOptions,
+  ): Promise<ToolchainStatus | null> {
     if (this.statusState()?.installing) {
       return this.statusState();
     }
@@ -110,7 +110,7 @@ export class ToolchainStateService {
     this.loadingState.set(true);
 
     try {
-      const response = await this.wails.startToolchainInstallV1(options);
+      const response = await this.wails.startToolchainInstall(options);
       this.applyStatus(response);
       return response;
     } catch {
@@ -121,13 +121,13 @@ export class ToolchainStateService {
   }
 
   /** Requests cancellation of the active install. */
-  async cancel(): Promise<ToolchainStatusV1 | null> {
+  async cancel(): Promise<ToolchainStatus | null> {
     if (!this.statusState()?.installing) {
       return this.statusState();
     }
 
     try {
-      const response = await this.wails.cancelToolchainInstallV1();
+      const response = await this.wails.cancelToolchainInstall();
       this.applyStatus(response);
       return response;
     } catch {
@@ -135,7 +135,7 @@ export class ToolchainStateService {
     }
   }
 
-  private handleEvent(event: ToolchainInstallEventV1): void {
+  private handleEvent(event: ToolchainInstallEvent): void {
     this.eventState.set(event);
 
     if (!event.done) {
@@ -147,7 +147,7 @@ export class ToolchainStateService {
     }
   }
 
-  private updateStatusFromEvent(event: ToolchainInstallEventV1): void {
+  private updateStatusFromEvent(event: ToolchainInstallEvent): void {
     const current = this.statusState();
     if (!current) {
       return;
@@ -164,7 +164,7 @@ export class ToolchainStateService {
     });
   }
 
-  private applyStatus(status: ToolchainStatusV1): void {
+  private applyStatus(status: ToolchainStatus): void {
     this.statusState.set(status);
     this.syncPolling();
   }
@@ -203,7 +203,7 @@ export class ToolchainStateService {
     this.pollInFlight = true;
 
     try {
-      const response = await this.wails.getToolchainInstallStateV1();
+      const response = await this.wails.getToolchainInstallState();
       if (response?.success) {
         this.applyStatus(response);
       }
@@ -215,8 +215,8 @@ export class ToolchainStateService {
   }
 
   private defaultOptions(
-    status: ToolchainStatusV1,
-  ): ToolchainInstallOptionsV1 {
+    status: ToolchainStatus,
+  ): ToolchainInstallOptions {
     return {
       model: status.model || 'medium',
       ocrLanguages:
@@ -238,7 +238,7 @@ export class ToolchainStateService {
 }
 
 /** True when the platform has no verified prebuilt toolchain. */
-export function isUnsupportedStatus(status: ToolchainStatusV1): boolean {
+export function isUnsupportedStatus(status: ToolchainStatus): boolean {
   const message = (status.message ?? '').toLowerCase();
   return message.includes('not available for') || message.includes('not supported');
 }

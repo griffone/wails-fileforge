@@ -9,12 +9,12 @@ import { Subject } from 'rxjs';
 
 import { PdfFromImages } from './pdf-from-images';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -28,12 +28,12 @@ describe('PdfFromImages', () => {
   let fixture: ComponentFixture<PdfFromImages>;
   let component: PdfFromImages;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
   let inspectCalls: string[][];
 
   const outputPath = '/tmp/out/album_images.pdf';
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const slots = Array.isArray(request.options['slots'])
       ? (request.options['slots'] as SlotOption[])
       : [];
@@ -60,7 +60,7 @@ describe('PdfFromImages', () => {
     };
   }
 
-  function fileInfo(path: string, sizeBytes = 2048): FileInfoV1 {
+  function fileInfo(path: string, sizeBytes = 2048): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -74,8 +74,8 @@ describe('PdfFromImages', () => {
     };
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
   function lastPlanSlots(): SlotOption[] {
@@ -88,8 +88,8 @@ describe('PdfFromImages', () => {
     flushMicrotasks();
   }
 
-  function runningStatus(jobId: string): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  function runningStatus(jobId: string): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: false,
       message: 'running',
@@ -107,8 +107,8 @@ describe('PdfFromImages', () => {
     return { success: true, message: 'running', found: true, result };
   }
 
-  function terminalStatus(jobId: string): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  function terminalStatus(jobId: string): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: true,
       message: 'done',
@@ -141,29 +141,29 @@ describe('PdfFromImages', () => {
     inspectCalls = [];
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'inspectFiles',
       'getThumbnail',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'listToolsV1',
-      'validateJobV1',
+      'listTools',
+      'validateJob',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) => {
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) => {
       inspectCalls.push([...paths]);
       return Promise.resolve({
         success: true,
@@ -172,16 +172,16 @@ describe('PdfFromImages', () => {
       });
     });
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-default',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(runningStatus(jobId)),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -194,12 +194,12 @@ describe('PdfFromImages', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
     });
-    wailsSpy.validateJobV1.and.resolveTo({
+    wailsSpy.validateJob.and.resolveTo({
       success: true,
       message: 'ok',
       valid: true,
@@ -383,14 +383,14 @@ describe('PdfFromImages', () => {
   }));
 
   it('runs one PDF job and renders the terminal output', fakeAsync(() => {
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-7',
       status: 'queued',
     });
     let pollCount = 0;
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) => {
+    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
       pollCount += 1;
       return Promise.resolve(
         pollCount === 1 ? runningStatus(jobId) : terminalStatus(jobId),
@@ -402,14 +402,14 @@ describe('PdfFromImages', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.toolId).toBe('tool.pdf.images');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/a.png', '/tmp/b.png']);
     expect(request.options['columns']).toBe(2);
     expect((request.options['slots'] as SlotOption[]).length).toBe(2);
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.validateJob).not.toHaveBeenCalled();
     expect(component.isPolling()).toBeTrue();
     expect(component.activeJobId()).toBe('job-7');
 

@@ -6,8 +6,8 @@ import {
   TriangleAlert,
 } from 'lucide-angular';
 import {
-  PlannedOutputV1,
-  PlanJobResponseV1,
+  PlannedOutput,
+  PlanJobResponse,
 } from '../../services/wails';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { fileDir, fileName, formatCount } from '../../utils/format';
@@ -22,7 +22,7 @@ const VISIBLE_OUTPUT_LIMIT = 4;
   styleUrl: './output-plan-card.css',
 })
 export class OutputPlanCard {
-  @Input() plan: PlanJobResponseV1 | null = null;
+  @Input() plan: PlanJobResponse | null = null;
   @Input() loading = false;
   @Input() destinationLabel = 'Next to the original';
   @Input() isDefaultDestination = true;
@@ -35,7 +35,7 @@ export class OutputPlanCard {
   readonly outputFolderIcon = Folder;
   readonly alertIcon = TriangleAlert;
 
-  visibleOutputs(): PlannedOutputV1[] {
+  visibleOutputs(): PlannedOutput[] {
     return (this.plan?.outputs ?? []).slice(0, this.visibleLimit);
   }
 
@@ -64,20 +64,20 @@ export class OutputPlanCard {
     return this.plan?.error ? describeToolError(this.plan.error) : null;
   }
 
-  isDirectory(output: PlannedOutputV1): boolean {
+  isDirectory(output: PlannedOutput): boolean {
     return output.outputKind === 'directory';
   }
 
-  outputName(output: PlannedOutputV1): string {
+  outputName(output: PlannedOutput): string {
     return fileName(output.outputPath);
   }
 
-  outputDirectory(output: PlannedOutputV1): string {
+  outputDirectory(output: PlannedOutput): string {
     return fileDir(output.outputPath);
   }
 
   /** `N files` when the plan knows how many files the folder will contain. */
-  outputCountLabel(output: PlannedOutputV1): string {
+  outputCountLabel(output: PlannedOutput): string {
     const count = output.outputCount ?? 0;
     return count > 0 ? formatCount(count, 'file') : '';
   }
@@ -86,14 +86,14 @@ export class OutputPlanCard {
    * A single planned folder is the whole story, so it gets the primary line
    * instead of a one-item list that repeats the destination.
    */
-  primaryDirectory(): PlannedOutputV1 | null {
+  primaryDirectory(): PlannedOutput | null {
     const outputs = this.plan?.outputs ?? [];
     return outputs.length === 1 && this.isDirectory(outputs[0])
       ? outputs[0]
       : null;
   }
 
-  listedOutputs(): PlannedOutputV1[] {
+  listedOutputs(): PlannedOutput[] {
     return this.primaryDirectory() ? [] : this.visibleOutputs();
   }
 }

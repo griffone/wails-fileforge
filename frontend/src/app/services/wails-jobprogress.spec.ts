@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { Wails, JobProgressEventV1 } from './wails';
+import { Wails, JobProgressEvent } from './wails';
 import { Events } from '@wailsio/runtime';
 
 describe('Wails jobProgress$', () => {
@@ -11,7 +11,7 @@ describe('Wails jobProgress$', () => {
   });
 
   it('jobProgress$ emits when native Events.On handler receives an event', (done) => {
-    const payload: JobProgressEventV1 = {
+    const payload: JobProgressEvent = {
       jobId: 'job-1',
       toolId: 'tool.pdf.merge',
       status: 'running',

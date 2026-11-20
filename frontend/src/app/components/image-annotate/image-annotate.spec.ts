@@ -9,13 +9,13 @@ import { Subject } from 'rxjs';
 
 import { ImageAnnotate } from './image-annotate';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultItemV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResultItem,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -23,7 +23,7 @@ describe('ImageAnnotate', () => {
   let fixture: ComponentFixture<ImageAnnotate>;
   let component: ImageAnnotate;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
   function firstDir(path: string): string {
     const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
@@ -39,7 +39,7 @@ describe('ImageAnnotate', () => {
     return fileName(path).replace(/\.[^./\\]+$/, '');
   }
 
-  function outputExtension(inputPath: string, request: JobRequestV1): string {
+  function outputExtension(inputPath: string, request: JobRequest): string {
     const requested = String(request.options['format'] ?? '').toLowerCase();
     if (requested) {
       return requested === 'jpg' ? 'jpeg' : requested;
@@ -48,7 +48,7 @@ describe('ImageAnnotate', () => {
     return extension === 'jpg' ? 'jpeg' : extension;
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const outputs = request.inputPaths.map((inputPath) => {
       const directory = request.outputDir || firstDir(inputPath);
       const name = `${fileStem(inputPath)}_annotated.${outputExtension(
@@ -74,7 +74,7 @@ describe('ImageAnnotate', () => {
     };
   }
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     const name = fileName(path);
     return {
       path,
@@ -91,9 +91,9 @@ describe('ImageAnnotate', () => {
 
   function status(
     jobId: string,
-    jobStatus: JobResultV1['status'],
-    items: JobResultItemV1[],
-  ): JobStatusResponseV1 {
+    jobStatus: JobResult['status'],
+    items: JobResultItem[],
+  ): JobStatusResponse {
     return {
       success: true,
       message: jobStatus,
@@ -136,8 +136,8 @@ describe('ImageAnnotate', () => {
     return event;
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
   function primaryButton(): HTMLButtonElement {
@@ -153,31 +153,31 @@ describe('ImageAnnotate', () => {
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'inspectFiles',
       'getThumbnail',
-      'getImagePreviewSourceV1',
-      'getImageAnnotatePreviewV1',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'getImagePreviewSource',
+      'getImageAnnotatePreview',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'listToolsV1',
-      'validateJobV1',
+      'listTools',
+      'validateJob',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -185,7 +185,7 @@ describe('ImageAnnotate', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.getImagePreviewSourceV1.and.resolveTo({
+    wailsSpy.getImagePreviewSource.and.resolveTo({
       success: true,
       message: 'ok',
       dataBase64: 'AA==',
@@ -193,7 +193,7 @@ describe('ImageAnnotate', () => {
       width: 100,
       height: 80,
     });
-    wailsSpy.getImageAnnotatePreviewV1.and.resolveTo({
+    wailsSpy.getImageAnnotatePreview.and.resolveTo({
       success: true,
       message: 'ok',
       dataBase64: 'AA==',
@@ -201,16 +201,16 @@ describe('ImageAnnotate', () => {
       width: 100,
       height: 80,
     });
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'annot-job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(status(jobId, 'running', [])),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'annot-job-1',
@@ -223,12 +223,12 @@ describe('ImageAnnotate', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
     });
-    wailsSpy.validateJobV1.and.resolveTo({
+    wailsSpy.validateJob.and.resolveTo({
       success: true,
       message: 'ok',
       valid: true,
@@ -253,7 +253,7 @@ describe('ImageAnnotate', () => {
     component.onPathsSelected(['/tmp/photo.png']);
     flushMicrotasks();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
     const request = lastPlanRequest();
     expect(request.toolId).toBe('tool.image.annotate');
     expect(request.mode).toBe('single');
@@ -299,15 +299,15 @@ describe('ImageAnnotate', () => {
   it('refreshes the plan payload when an operation is added or changed', fakeAsync(() => {
     component.onPathsSelected(['/tmp/photo.png']);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     addDefaultOperation();
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     tick(250);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
     const added = lastPlanRequest().options['operations'] as Array<
       Record<string, unknown>
     >;
@@ -318,11 +318,11 @@ describe('ImageAnnotate', () => {
     component.onOperationField('width', inputEvent('55'));
     component.applyOperationEdit();
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
 
     tick(250);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(2);
     const changed = lastPlanRequest().options['operations'] as Array<
       Record<string, unknown>
     >;
@@ -337,7 +337,7 @@ describe('ImageAnnotate', () => {
     expect(component.hasOperations()).toBeFalse();
     expect(component.canRun()).toBeFalse();
     expect(component.actionHelper()).toContain('annotation');
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     fixture.detectChanges();
     expect(primaryButton().disabled).toBeTrue();
@@ -348,7 +348,7 @@ describe('ImageAnnotate', () => {
     component.onPathsSelected(['/tmp/photo.png']);
     flushMicrotasks();
 
-    wailsSpy.planJobV1.and.resolveTo({
+    wailsSpy.planJob.and.resolveTo({
       success: false,
       message: 'The folder is not available.',
       outputs: [],
@@ -377,17 +377,17 @@ describe('ImageAnnotate', () => {
     addDefaultOperation();
     component.onPathsSelected(['/tmp/a.png', '/tmp/b.jpg']);
     flushMicrotasks();
-    const planCalls = wailsSpy.planJobV1.calls.count();
+    const planCalls = wailsSpy.planJob.calls.count();
 
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls + 1);
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls + 1);
+    expect(wailsSpy.validateJob).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
 
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.image.annotate');
     expect(request.mode).toBe('batch');
     expect(request.inputPaths).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
@@ -405,13 +405,13 @@ describe('ImageAnnotate', () => {
     const inputPath = '/tmp/in/photo.png';
     const outputPath = '/tmp/in/photo_annotated.png';
 
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'annot-job-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       status('annot-job-2', 'success', [
         {
           inputPath,
@@ -440,7 +440,7 @@ describe('ImageAnnotate', () => {
       '1 image annotated',
     );
 
-    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+    const inspectedPaths = wailsSpy.inspectFiles.calls
       .allArgs()
       .map((args) => args[0] as string[]);
     expect(
@@ -463,7 +463,7 @@ describe('ImageAnnotate', () => {
     expect(component.selectedPaths()).toEqual([]);
     expect(component.notice()?.text).toContain('notes.txt');
     expect(component.notice()?.text).toContain("isn't an image");
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     component.onPathsSelected(['/tmp/a.png', '/tmp/a.png']);
     flushMicrotasks();
@@ -481,7 +481,7 @@ describe('ImageAnnotate', () => {
     addDefaultOperation();
     component.onPathsSelected(['/tmp/photo.png']);
     flushMicrotasks();
-    const planCalls = wailsSpy.planJobV1.calls.count();
+    const planCalls = wailsSpy.planJob.calls.count();
 
     void component.chooseOutputFolder();
     flushMicrotasks();
@@ -489,7 +489,7 @@ describe('ImageAnnotate', () => {
     expect(component.outputDir()).toBe('/tmp/out');
     expect(component.destinationLabel()).toBe('/tmp/out');
     expect(component.isDefaultDestination()).toBeFalse();
-    expect(wailsSpy.planJobV1.calls.count()).toBe(planCalls + 1);
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls + 1);
     expect(lastPlanRequest().outputDir).toBe('/tmp/out');
     expect(component.plan()?.outputs[0].outputPath).toBe(
       '/tmp/out/photo_annotated.png',
@@ -762,17 +762,17 @@ describe('ImageAnnotate', () => {
     addDefaultOperation();
     tick(250);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
 
     addDefaultOperation();
     tick(250);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(2);
 
     component.undo();
     tick(250);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(3);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(3);
     expect(
       (lastPlanRequest().options['operations'] as unknown[]).length,
     ).toBe(1);
@@ -780,7 +780,7 @@ describe('ImageAnnotate', () => {
     component.redo();
     tick(250);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(4);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(4);
     expect(
       (lastPlanRequest().options['operations'] as unknown[]).length,
     ).toBe(2);
@@ -790,13 +790,13 @@ describe('ImageAnnotate', () => {
   }));
 
   it('retries only failed inputs with the same annotations and folder', fakeAsync(() => {
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'annot-retry-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       status('annot-retry-1', 'partial_success', [
         {
           inputPath: '/tmp/a.png',
@@ -833,13 +833,13 @@ describe('ImageAnnotate', () => {
 
     expect(component.jobResult()?.status).toBe('partial_success');
 
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'annot-retry-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       status('annot-retry-2', 'running', []),
     );
 
@@ -848,8 +848,8 @@ describe('ImageAnnotate', () => {
 
     expect(component.selectedPaths()).toEqual(['/tmp/b.jpg']);
 
-    const runCalls = wailsSpy.runJobV1.calls.allArgs();
-    const retryRequest = runCalls[runCalls.length - 1][0] as JobRequestV1;
+    const runCalls = wailsSpy.runJob.calls.allArgs();
+    const retryRequest = runCalls[runCalls.length - 1][0] as JobRequest;
     expect(retryRequest.mode).toBe('single');
     expect(retryRequest.inputPaths).toEqual(['/tmp/b.jpg']);
     expect(retryRequest.outputDir).toBe('/tmp/out');

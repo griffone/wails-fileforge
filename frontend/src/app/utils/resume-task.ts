@@ -2,9 +2,9 @@ import { WritableSignal } from '@angular/core';
 
 import { ActivityService } from '../services/activity.service';
 import {
-  JobErrorV1,
-  JobExecutionStatusV1,
-  JobResultV1,
+  JobError,
+  JobExecutionStatus,
+  JobResult,
 } from '../services/wails';
 
 /**
@@ -20,8 +20,8 @@ export interface ResumeToolJobOptions {
   activity: ActivityService;
   toolId: string;
   activeJobId: WritableSignal<string>;
-  jobResult: WritableSignal<JobResultV1 | null>;
-  jobError: WritableSignal<JobErrorV1 | null>;
+  jobResult: WritableSignal<JobResult | null>;
+  jobError: WritableSignal<JobError | null>;
   startPolling: () => void;
 }
 
@@ -42,7 +42,7 @@ export function resumeToolJob(options: ResumeToolJobOptions): boolean {
     success: false,
     message: task.message,
     toolId: options.toolId,
-    status: task.status as JobExecutionStatusV1,
+    status: task.status as JobExecutionStatus,
     progress: {
       current: task.current,
       total: task.total,

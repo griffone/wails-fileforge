@@ -10,13 +10,13 @@ import { EMPTY, Subject } from 'rxjs';
 
 import { RecipeRun } from './recipe-run';
 import {
-  FileInfoV1,
-  RecipePlanResponseV1,
-  RecipeProgressEventV1,
-  RecipeRequestV1,
-  RecipeResultV1,
-  RecipeStatusResponseV1,
-  RecipeV1,
+  FileInfo,
+  RecipePlanResponse,
+  RecipeProgressEvent,
+  RecipeRequest,
+  RecipeResult,
+  RecipeStatusResponse,
+  Recipe,
   Wails,
 } from '../../services/wails';
 
@@ -26,7 +26,7 @@ const SOCIAL_RECIPE_ID = 'recipe.social_clip';
 const CLEAN_SCAN_RECIPE_ID = 'recipe.clean_scan';
 const TARGET_BYTES = 10 * 1024 * 1024;
 
-const emailPdfRecipe: RecipeV1 = {
+const emailPdfRecipe: Recipe = {
   id: EMAIL_RECIPE_ID,
   name: 'Email PDF',
   description:
@@ -53,7 +53,7 @@ const emailPdfRecipe: RecipeV1 = {
   defaultTargetSizeBytes: TARGET_BYTES,
 };
 
-const webImageSetRecipe: RecipeV1 = {
+const webImageSetRecipe: Recipe = {
   id: WEB_RECIPE_ID,
   name: 'Web image set',
   description:
@@ -95,7 +95,7 @@ const WEB_OUTPUTS = [
   '/tmp/out/hero-srcset.html',
 ];
 
-const socialClipRecipe: RecipeV1 = {
+const socialClipRecipe: Recipe = {
   id: SOCIAL_RECIPE_ID,
   name: 'Social clip',
   description:
@@ -134,7 +134,7 @@ const SOCIAL_OUTPUTS = [
   '/tmp/in/clip-poster.jpg',
 ];
 
-const cleanScanRecipe: RecipeV1 = {
+const cleanScanRecipe: Recipe = {
   id: CLEAN_SCAN_RECIPE_ID,
   name: 'Clean scan',
   description:
@@ -166,7 +166,7 @@ const CLEAN_SCAN_OUTPUTS = [
   '/tmp/in/report_clean.txt',
 ];
 
-function statusResponse(result: RecipeResultV1): RecipeStatusResponseV1 {
+function statusResponse(result: RecipeResult): RecipeStatusResponse {
   return { success: true, found: true, message: result.status, result };
 }
 
@@ -176,12 +176,12 @@ function inputEvent(value: string): Event {
 
 function createWailsSpy(): jasmine.SpyObj<Wails> {
   const spy = jasmine.createSpyObj<Wails>('Wails', [
-    'listRecipesV1',
-    'planRecipeV1',
-    'inspectFilesV1',
-    'runRecipeV1',
-    'getRecipeStatusV1',
-    'cancelRecipeV1',
+    'listRecipes',
+    'planRecipe',
+    'inspectFiles',
+    'runRecipe',
+    'getRecipeStatus',
+    'cancelRecipe',
     'openFileDialog',
     'openMultipleFilesDialog',
     'openDirectoryDialog',
@@ -206,7 +206,7 @@ describe('RecipeRun (Email PDF)', () => {
     return fixture.nativeElement.querySelector(selector) as T | null;
   }
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -220,7 +220,7 @@ describe('RecipeRun (Email PDF)', () => {
     };
   }
 
-  function planResponse(request: RecipeRequestV1): RecipePlanResponseV1 {
+  function planResponse(request: RecipeRequest): RecipePlanResponse {
     return {
       success: true,
       message: 'Ready to email 1 PDF.',
@@ -244,8 +244,8 @@ describe('RecipeRun (Email PDF)', () => {
   }
 
   function recipeResult(
-    overrides: Partial<RecipeResultV1> = {},
-  ): RecipeResultV1 {
+    overrides: Partial<RecipeResult> = {},
+  ): RecipeResult {
     return {
       jobId: 'recipe-job-1',
       recipeId: EMAIL_RECIPE_ID,
@@ -299,7 +299,7 @@ describe('RecipeRun (Email PDF)', () => {
     };
   }
 
-  function runningRecipeResult(): RecipeResultV1 {
+  function runningRecipeResult(): RecipeResult {
     return recipeResult({
       status: 'running',
       message: 'Optimizing to 10.0 MB.',
@@ -325,7 +325,7 @@ describe('RecipeRun (Email PDF)', () => {
     });
   }
 
-  function cancelledRecipeResult(): RecipeResultV1 {
+  function cancelledRecipeResult(): RecipeResult {
     return recipeResult({
       status: 'cancelled',
       message: 'Recipe cancelled.',
@@ -353,31 +353,31 @@ describe('RecipeRun (Email PDF)', () => {
   beforeEach(async () => {
     wailsSpy = createWailsSpy();
 
-    wailsSpy.listRecipesV1.and.resolveTo({
+    wailsSpy.listRecipes.and.resolveTo({
       success: true,
       message: 'ok',
       recipes: [emailPdfRecipe, webImageSetRecipe],
     });
-    wailsSpy.planRecipeV1.and.callFake((request: RecipeRequestV1) =>
+    wailsSpy.planRecipe.and.callFake((request: RecipeRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
         files: paths.map(fileInfo),
       }),
     );
-    wailsSpy.runRecipeV1.and.resolveTo({
+    wailsSpy.runRecipe.and.resolveTo({
       success: true,
       message: 'recipe submitted',
       jobId: 'recipe-job-1',
       status: 'queued',
     });
-    wailsSpy.getRecipeStatusV1.and.resolveTo(
+    wailsSpy.getRecipeStatus.and.resolveTo(
       statusResponse(runningRecipeResult()),
     );
-    wailsSpy.cancelRecipeV1.and.resolveTo({
+    wailsSpy.cancelRecipe.and.resolveTo({
       success: true,
       found: true,
       message: 'cancel requested',
@@ -421,7 +421,7 @@ describe('RecipeRun (Email PDF)', () => {
   });
 
   it('keeps the local fallback when the recipe catalog is unavailable', async () => {
-    wailsSpy.listRecipesV1.and.resolveTo({
+    wailsSpy.listRecipes.and.resolveTo({
       success: false,
       message: 'ipc error',
       recipes: [],
@@ -468,9 +468,9 @@ describe('RecipeRun (Email PDF)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planRecipeV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.planRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(request.recipeId).toBe(EMAIL_RECIPE_ID);
     expect(request.inputPaths).toEqual(['/tmp/a.pdf']);
     expect(request.outputDir).toBe('');
@@ -480,7 +480,7 @@ describe('RecipeRun (Email PDF)', () => {
   }));
 
   it('runs, polls to terminal and shows the verified result', fakeAsync(() => {
-    wailsSpy.getRecipeStatusV1.and.resolveTo(statusResponse(recipeResult()));
+    wailsSpy.getRecipeStatus.and.resolveTo(statusResponse(recipeResult()));
 
     component.onPathsSelected(['/tmp/a.pdf']);
     tick(250);
@@ -491,12 +491,12 @@ describe('RecipeRun (Email PDF)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runRecipeV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.runRecipe).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(request.recipeId).toBe(EMAIL_RECIPE_ID);
     expect(request.options).toEqual({ targetSizeBytes: TARGET_BYTES });
-    expect(wailsSpy.getRecipeStatusV1).toHaveBeenCalledWith('recipe-job-1');
+    expect(wailsSpy.getRecipeStatus).toHaveBeenCalledWith('recipe-job-1');
     expect(component.terminalResult()?.status).toBe('success');
     expect(component.resultJob()?.toolId).toBe(EMAIL_RECIPE_ID);
     expect(component.resultJob()?.items.length).toBe(1);
@@ -510,7 +510,7 @@ describe('RecipeRun (Email PDF)', () => {
   }));
 
   it('shows the partial result message instead of the retry copy', fakeAsync(() => {
-    wailsSpy.getRecipeStatusV1.and.resolveTo(
+    wailsSpy.getRecipeStatus.and.resolveTo(
       statusResponse(
         recipeResult({
           status: 'partial_success',
@@ -545,7 +545,7 @@ describe('RecipeRun (Email PDF)', () => {
 
   it('cancels a running recipe and keeps polling to terminal', fakeAsync(() => {
     let pollCount = 0;
-    wailsSpy.getRecipeStatusV1.and.callFake(() => {
+    wailsSpy.getRecipeStatus.and.callFake(() => {
       pollCount += 1;
       return Promise.resolve(
         statusResponse(
@@ -572,7 +572,7 @@ describe('RecipeRun (Email PDF)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.cancelRecipeV1).toHaveBeenCalledWith('recipe-job-1');
+    expect(wailsSpy.cancelRecipe).toHaveBeenCalledWith('recipe-job-1');
     expect(component.cancelRequested()).toBeTrue();
     expect(
       query<HTMLButtonElement>('.action-row .btn-ghost')?.textContent,
@@ -612,7 +612,7 @@ describe('RecipeRun (Email PDF)', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runRecipeV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runRecipe).not.toHaveBeenCalled();
   }));
 });
 
@@ -620,13 +620,13 @@ describe('RecipeRun (Web image set)', () => {
   let fixture: ComponentFixture<RecipeRun>;
   let component: RecipeRun;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let recipeProgressSubject: Subject<RecipeProgressEventV1>;
+  let recipeProgressSubject: Subject<RecipeProgressEvent>;
 
   function query<T extends Element>(selector: string): T | null {
     return fixture.nativeElement.querySelector(selector) as T | null;
   }
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -641,7 +641,7 @@ describe('RecipeRun (Web image set)', () => {
     };
   }
 
-  function planResponse(request: RecipeRequestV1): RecipePlanResponseV1 {
+  function planResponse(request: RecipeRequest): RecipePlanResponse {
     return {
       success: true,
       message: 'Ready to build 6 files.',
@@ -659,7 +659,7 @@ describe('RecipeRun (Web image set)', () => {
     };
   }
 
-  function webRecipeResult(): RecipeResultV1 {
+  function webRecipeResult(): RecipeResult {
     return {
       jobId: 'web-job-1',
       recipeId: WEB_RECIPE_ID,
@@ -713,7 +713,7 @@ describe('RecipeRun (Web image set)', () => {
     };
   }
 
-  function runningWebRecipeResult(): RecipeResultV1 {
+  function runningWebRecipeResult(): RecipeResult {
     return {
       jobId: 'web-job-1',
       recipeId: WEB_RECIPE_ID,
@@ -749,35 +749,35 @@ describe('RecipeRun (Web image set)', () => {
   beforeEach(async () => {
     wailsSpy = createWailsSpy();
 
-    wailsSpy.listRecipesV1.and.resolveTo({
+    wailsSpy.listRecipes.and.resolveTo({
       success: true,
       message: 'ok',
       recipes: [emailPdfRecipe, webImageSetRecipe],
     });
-    wailsSpy.planRecipeV1.and.callFake((request: RecipeRequestV1) =>
+    wailsSpy.planRecipe.and.callFake((request: RecipeRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
         files: paths.map(fileInfo),
       }),
     );
-    recipeProgressSubject = new Subject<RecipeProgressEventV1>();
+    recipeProgressSubject = new Subject<RecipeProgressEvent>();
     (wailsSpy as unknown as { recipeProgress$: unknown }).recipeProgress$ =
       recipeProgressSubject.asObservable();
 
-    wailsSpy.runRecipeV1.and.resolveTo({
+    wailsSpy.runRecipe.and.resolveTo({
       success: true,
       message: 'recipe submitted',
       jobId: 'web-job-1',
       status: 'queued',
     });
-    wailsSpy.getRecipeStatusV1.and.resolveTo(
+    wailsSpy.getRecipeStatus.and.resolveTo(
       statusResponse(webRecipeResult()),
     );
-    wailsSpy.cancelRecipeV1.and.resolveTo({
+    wailsSpy.cancelRecipe.and.resolveTo({
       success: true,
       found: true,
       message: 'cancel requested',
@@ -852,9 +852,9 @@ describe('RecipeRun (Web image set)', () => {
     expect(component.notice()).toContain('Only the first image is used.');
     expect(component.fileItems()[0]?.meta).toContain('720 × 480 px');
 
-    expect(wailsSpy.planRecipeV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.planRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(request.recipeId).toBe(WEB_RECIPE_ID);
     expect(request.inputPaths).toEqual(['/tmp/in/hero.png']);
   }));
@@ -865,15 +865,15 @@ describe('RecipeRun (Web image set)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    const request = wailsSpy.planRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    const request = wailsSpy.planRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(request.options).toEqual({});
     expect('targetSizeBytes' in request.options).toBeFalse();
     expect(component.targetBytes()).toBe(0);
   }));
 
   it('shows live recipe progress from recipes/progress while running', fakeAsync(() => {
-    wailsSpy.getRecipeStatusV1.and.resolveTo(
+    wailsSpy.getRecipeStatus.and.resolveTo(
       statusResponse(runningWebRecipeResult()),
     );
 
@@ -945,9 +945,9 @@ describe('RecipeRun (Web image set)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runRecipeV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.runRecipe).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(request.recipeId).toBe(WEB_RECIPE_ID);
     expect(request.options).toEqual({});
     expect(component.terminalResult()?.status).toBe('success');
@@ -973,7 +973,7 @@ describe('RecipeRun (Social clip)', () => {
     return fixture.nativeElement.querySelector(selector) as T | null;
   }
 
-  function videoFileInfo(path: string): FileInfoV1 {
+  function videoFileInfo(path: string): FileInfo {
     return {
       path,
       name: path.split(/[\\/]/).pop() ?? path,
@@ -990,7 +990,7 @@ describe('RecipeRun (Social clip)', () => {
     };
   }
 
-  function planResponse(request: RecipeRequestV1): RecipePlanResponseV1 {
+  function planResponse(request: RecipeRequest): RecipePlanResponse {
     return {
       success: true,
       message: 'Ready to publish 3 files.',
@@ -1008,7 +1008,7 @@ describe('RecipeRun (Social clip)', () => {
     };
   }
 
-  function socialRecipeResult(): RecipeResultV1 {
+  function socialRecipeResult(): RecipeResult {
     return {
       jobId: 'social-job-1',
       recipeId: SOCIAL_RECIPE_ID,
@@ -1067,31 +1067,31 @@ describe('RecipeRun (Social clip)', () => {
   beforeEach(async () => {
     wailsSpy = createWailsSpy();
 
-    wailsSpy.listRecipesV1.and.resolveTo({
+    wailsSpy.listRecipes.and.resolveTo({
       success: true,
       message: 'ok',
       recipes: [emailPdfRecipe, webImageSetRecipe, socialClipRecipe],
     });
-    wailsSpy.planRecipeV1.and.callFake((request: RecipeRequestV1) =>
+    wailsSpy.planRecipe.and.callFake((request: RecipeRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
         files: paths.map(videoFileInfo),
       }),
     );
-    wailsSpy.runRecipeV1.and.resolveTo({
+    wailsSpy.runRecipe.and.resolveTo({
       success: true,
       message: 'recipe submitted',
       jobId: 'social-job-1',
       status: 'queued',
     });
-    wailsSpy.getRecipeStatusV1.and.resolveTo(
+    wailsSpy.getRecipeStatus.and.resolveTo(
       statusResponse(socialRecipeResult()),
     );
-    wailsSpy.cancelRecipeV1.and.resolveTo({
+    wailsSpy.cancelRecipe.and.resolveTo({
       success: true,
       found: true,
       message: 'cancel requested',
@@ -1170,9 +1170,9 @@ describe('RecipeRun (Social clip)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planRecipeV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.planRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(request.recipeId).toBe(SOCIAL_RECIPE_ID);
     expect(request.inputPaths).toEqual(['/tmp/in/clip.mp4']);
     expect(request.options).toEqual({});
@@ -1189,9 +1189,9 @@ describe('RecipeRun (Social clip)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runRecipeV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.runRecipe).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(request.recipeId).toBe(SOCIAL_RECIPE_ID);
     expect(request.options).toEqual({});
     expect(component.terminalResult()?.status).toBe('success');
@@ -1217,7 +1217,7 @@ describe('RecipeRun (Clean scan)', () => {
     return fixture.nativeElement.querySelector(selector) as T | null;
   }
 
-  function cleanScanFileInfo(path: string): FileInfoV1 {
+  function cleanScanFileInfo(path: string): FileInfo {
     return {
       path,
       name: path.split(/[\\/]/).pop() ?? path,
@@ -1230,7 +1230,7 @@ describe('RecipeRun (Clean scan)', () => {
     };
   }
 
-  function planResponse(request: RecipeRequestV1): RecipePlanResponseV1 {
+  function planResponse(request: RecipeRequest): RecipePlanResponse {
     return {
       success: true,
       message: 'Ready to make 1 PDF searchable.',
@@ -1249,7 +1249,7 @@ describe('RecipeRun (Clean scan)', () => {
     };
   }
 
-  function cleanScanResult(): RecipeResultV1 {
+  function cleanScanResult(): RecipeResult {
     return {
       jobId: 'clean-job-1',
       recipeId: CLEAN_SCAN_RECIPE_ID,
@@ -1302,7 +1302,7 @@ describe('RecipeRun (Clean scan)', () => {
   beforeEach(async () => {
     wailsSpy = createWailsSpy();
 
-    wailsSpy.listRecipesV1.and.resolveTo({
+    wailsSpy.listRecipes.and.resolveTo({
       success: true,
       message: 'ok',
       recipes: [
@@ -1312,26 +1312,26 @@ describe('RecipeRun (Clean scan)', () => {
         cleanScanRecipe,
       ],
     });
-    wailsSpy.planRecipeV1.and.callFake((request: RecipeRequestV1) =>
+    wailsSpy.planRecipe.and.callFake((request: RecipeRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
         files: paths.map(cleanScanFileInfo),
       }),
     );
-    wailsSpy.runRecipeV1.and.resolveTo({
+    wailsSpy.runRecipe.and.resolveTo({
       success: true,
       message: 'recipe submitted',
       jobId: 'clean-job-1',
       status: 'queued',
     });
-    wailsSpy.getRecipeStatusV1.and.resolveTo(
+    wailsSpy.getRecipeStatus.and.resolveTo(
       statusResponse(cleanScanResult()),
     );
-    wailsSpy.cancelRecipeV1.and.resolveTo({
+    wailsSpy.cancelRecipe.and.resolveTo({
       success: true,
       found: true,
       message: 'cancel requested',
@@ -1387,9 +1387,9 @@ describe('RecipeRun (Clean scan)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planRecipeV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.planRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(request.recipeId).toBe(CLEAN_SCAN_RECIPE_ID);
     expect(request.inputPaths).toEqual(['/tmp/in/report.pdf']);
     expect(request.outputDir).toBe('');
@@ -1410,9 +1410,9 @@ describe('RecipeRun (Clean scan)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runRecipeV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.runRecipe).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(request.recipeId).toBe(CLEAN_SCAN_RECIPE_ID);
     expect(request.options).toEqual({});
     expect(component.terminalResult()?.status).toBe('success');
@@ -1441,7 +1441,7 @@ describe('RecipeRun (Burned-in subtitles)', () => {
     return fixture.nativeElement.querySelector(selector) as T | null;
   }
 
-  function videoFileInfo(path: string): FileInfoV1 {
+  function videoFileInfo(path: string): FileInfo {
     return {
       path,
       name: path.split(/[\\/]/).pop() ?? path,
@@ -1458,7 +1458,7 @@ describe('RecipeRun (Burned-in subtitles)', () => {
     };
   }
 
-  function planResponse(request: RecipeRequestV1): RecipePlanResponseV1 {
+  function planResponse(request: RecipeRequest): RecipePlanResponse {
     return {
       success: true,
       message: 'Ready to burn 2 files.',
@@ -1476,7 +1476,7 @@ describe('RecipeRun (Burned-in subtitles)', () => {
     };
   }
 
-  function burnedResult(): RecipeResultV1 {
+  function burnedResult(): RecipeResult {
     return {
       jobId: 'burned-job-1',
       recipeId: BURNED_RECIPE_ID,
@@ -1537,7 +1537,7 @@ describe('RecipeRun (Burned-in subtitles)', () => {
     wailsSpy = createWailsSpy();
 
     // The catalog predates the new recipe: the local fallback must cover it.
-    wailsSpy.listRecipesV1.and.resolveTo({
+    wailsSpy.listRecipes.and.resolveTo({
       success: true,
       message: 'ok',
       recipes: [
@@ -1547,24 +1547,24 @@ describe('RecipeRun (Burned-in subtitles)', () => {
         cleanScanRecipe,
       ],
     });
-    wailsSpy.planRecipeV1.and.callFake((request: RecipeRequestV1) =>
+    wailsSpy.planRecipe.and.callFake((request: RecipeRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
         files: paths.map(videoFileInfo),
       }),
     );
-    wailsSpy.runRecipeV1.and.resolveTo({
+    wailsSpy.runRecipe.and.resolveTo({
       success: true,
       message: 'recipe submitted',
       jobId: 'burned-job-1',
       status: 'queued',
     });
-    wailsSpy.getRecipeStatusV1.and.resolveTo(statusResponse(burnedResult()));
-    wailsSpy.cancelRecipeV1.and.resolveTo({
+    wailsSpy.getRecipeStatus.and.resolveTo(statusResponse(burnedResult()));
+    wailsSpy.cancelRecipe.and.resolveTo({
       success: true,
       found: true,
       message: 'cancel requested',
@@ -1632,9 +1632,9 @@ describe('RecipeRun (Burned-in subtitles)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planRecipeV1).toHaveBeenCalledTimes(1);
-    const planRequest = wailsSpy.planRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(1);
+    const planRequest = wailsSpy.planRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(planRequest.recipeId).toBe(BURNED_RECIPE_ID);
     expect(planRequest.inputPaths).toEqual(['/tmp/in/lecture.mp4']);
     expect(planRequest.options).toEqual({});
@@ -1644,9 +1644,9 @@ describe('RecipeRun (Burned-in subtitles)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runRecipeV1).toHaveBeenCalledTimes(1);
-    const runRequest = wailsSpy.runRecipeV1.calls.mostRecent()
-      .args[0] as RecipeRequestV1;
+    expect(wailsSpy.runRecipe).toHaveBeenCalledTimes(1);
+    const runRequest = wailsSpy.runRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
     expect(runRequest.recipeId).toBe(BURNED_RECIPE_ID);
     expect(runRequest.options).toEqual({});
 

@@ -11,13 +11,13 @@ import { EMPTY } from 'rxjs';
 import { ImageBackground } from './image-background';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import {
-  FileInfoV1,
-  JobRequestV1,
-  JobResultItemV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
-  ToolchainStatusV1,
+  FileInfo,
+  JobRequest,
+  JobResultItem,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
+  ToolchainStatus,
   Wails,
 } from '../../services/wails';
 
@@ -31,8 +31,8 @@ describe('ImageBackground', () => {
   }
 
   function readyToolchain(
-    overrides: Partial<ToolchainStatusV1> = {},
-  ): ToolchainStatusV1 {
+    overrides: Partial<ToolchainStatus> = {},
+  ): ToolchainStatus {
     return {
       success: true,
       message: 'ok',
@@ -63,8 +63,8 @@ describe('ImageBackground', () => {
   }
 
   function missingToolchain(
-    overrides: Partial<ToolchainStatusV1> = {},
-  ): ToolchainStatusV1 {
+    overrides: Partial<ToolchainStatus> = {},
+  ): ToolchainStatus {
     return readyToolchain({
       ready: false,
       components: [
@@ -87,7 +87,7 @@ describe('ImageBackground', () => {
     });
   }
 
-  function fileInfo(path: string, sizeBytes = 2048): FileInfoV1 {
+  function fileInfo(path: string, sizeBytes = 2048): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -106,11 +106,11 @@ describe('ImageBackground', () => {
     return { target: { value } } as unknown as Event;
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     return {
       success: true,
       message: 'Ready to remove the background from 1 image.',
@@ -129,9 +129,9 @@ describe('ImageBackground', () => {
 
   function status(
     jobId: string,
-    jobStatus: JobResultV1['status'],
-    items: JobResultItemV1[],
-  ): JobStatusResponseV1 {
+    jobStatus: JobResult['status'],
+    items: JobResultItem[],
+  ): JobStatusResponse {
     return {
       success: true,
       message: jobStatus,
@@ -156,8 +156,8 @@ describe('ImageBackground', () => {
   }
 
   /** Creates the page with the given toolchain and renders the first frame. */
-  function create(statusV1: ToolchainStatusV1 = readyToolchain()): void {
-    wailsSpy.getToolchainStatusV1.and.resolveTo(statusV1);
+  function create(status: ToolchainStatus = readyToolchain()): void {
+    wailsSpy.getToolchainStatus.and.resolveTo(status);
     fixture = TestBed.createComponent(ImageBackground);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -167,23 +167,23 @@ describe('ImageBackground', () => {
     localStorage.removeItem('ff-preferences');
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'getToolchainStatusV1',
-      'inspectFilesV1',
+      'getToolchainStatus',
+      'inspectFiles',
       'getThumbnail',
-      'planJobV1',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'planJob',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openDirectoryDialog',
       'openMultipleFilesDialog',
       'openPath',
       'revealInFolder',
-      'verifyJobV1',
+      'verifyJob',
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
 
-    wailsSpy.getToolchainStatusV1.and.resolveTo(readyToolchain());
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.getToolchainStatus.and.resolveTo(readyToolchain());
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -191,19 +191,19 @@ describe('ImageBackground', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'background-job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(status(jobId, 'running', [])),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancel requested',
       jobId: 'background-job-1',
@@ -212,7 +212,7 @@ describe('ImageBackground', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
     wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
-    wailsSpy.verifyJobV1.and.resolveTo({
+    wailsSpy.verifyJob.and.resolveTo({
       success: false,
       message: 'unavailable',
       outputs: [],
@@ -234,7 +234,7 @@ describe('ImageBackground', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.getToolchainStatusV1).toHaveBeenCalled();
+    expect(wailsSpy.getToolchainStatus).toHaveBeenCalled();
     expect(component.packReady()).toBeTrue();
     expect(component.packBanner()).toBeNull();
     expect(component.packBadge()).toBe('Pack ready');
@@ -287,7 +287,7 @@ describe('ImageBackground', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
     expect(component.canRun()).toBeFalse();
     expect(component.actionHelper()).toBe(
       'The background removal pack is not ready. Install it in Settings first.',
@@ -296,7 +296,7 @@ describe('ImageBackground', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('asks for repair when only one pack component is ready', fakeAsync(() => {
@@ -385,19 +385,19 @@ describe('ImageBackground', () => {
     component.onPathsSelected(['/tmp/in/photo.png']);
     tick(250);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
-    wailsSpy.getToolchainStatusV1.and.resolveTo(readyToolchain());
+    wailsSpy.getToolchainStatus.and.resolveTo(readyToolchain());
     (query<HTMLButtonElement>('.pack-actions button') as HTMLButtonElement).click();
     flushMicrotasks();
     tick(250);
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.getToolchainStatusV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.getToolchainStatus).toHaveBeenCalledTimes(2);
     expect(component.packReady()).toBeTrue();
     expect(component.packBanner()).toBeNull();
-    expect(wailsSpy.planJobV1).toHaveBeenCalled();
+    expect(wailsSpy.planJob).toHaveBeenCalled();
     expect(component.canRun()).toBeTrue();
   }));
 
@@ -410,8 +410,8 @@ describe('ImageBackground', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatusV1.calls.all().length;
+    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
+      const calls = wailsSpy.getJobStatus.calls.all().length;
       if (calls <= 1) {
         return Promise.resolve(status(jobId, 'running', []));
       }
@@ -434,8 +434,8 @@ describe('ImageBackground', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.toolId).toBe('tool.image.background');
     expect(request.options).toEqual({});
 
@@ -491,6 +491,6 @@ describe('ImageBackground', () => {
       '/tmp/queued-one.png',
       '/tmp/queued-two.jpg',
     ]);
-    expect(wailsSpy.planJobV1).toHaveBeenCalled();
+    expect(wailsSpy.planJob).toHaveBeenCalled();
   }));
 });

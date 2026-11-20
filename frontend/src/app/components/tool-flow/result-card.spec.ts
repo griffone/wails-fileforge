@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import {
-  JobResultV1,
-  VerificationReportV1,
+  JobResult,
+  VerificationReport,
   Wails,
 } from '../../services/wails';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
@@ -19,30 +19,30 @@ describe('ResultCard', () => {
       ['record'],
     );
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'verifyJobV1',
-      'listJobHistoryV1',
-      'undoJobV1',
-      'restoreJobV1',
-      'emptyTrashV1',
-      'listRecipesV1',
-      'planRecipeV1',
-      'runRecipeV1',
-      'getRecipeStatusV1',
-      'cancelRecipeV1',
+      'verifyJob',
+      'listJobHistory',
+      'undoJob',
+      'restoreJob',
+      'emptyTrash',
+      'listRecipes',
+      'planRecipe',
+      'runRecipe',
+      'getRecipeStatus',
+      'cancelRecipe',
     ]);
 
-    wailsSpy.verifyJobV1.and.resolveTo({
+    wailsSpy.verifyJob.and.resolveTo({
       success: false,
       message: 'no outputs to verify',
       outputs: [],
     });
-    wailsSpy.undoJobV1.and.resolveTo({
+    wailsSpy.undoJob.and.resolveTo({
       success: true,
       message: 'Moved 1 file to the app trash',
       moved: ['/tmp/a.webp'],
       skipped: [],
     });
-    wailsSpy.restoreJobV1.and.resolveTo({
+    wailsSpy.restoreJob.and.resolveTo({
       success: true,
       message: 'Restored 1 file',
       moved: ['/tmp/a.webp'],
@@ -60,7 +60,7 @@ describe('ResultCard', () => {
     component = fixture.componentInstance;
   });
 
-  function job(overrides: Partial<JobResultV1>): JobResultV1 {
+  function job(overrides: Partial<JobResult>): JobResult {
     return {
       jobId: 'job-1',
       success: false,
@@ -75,7 +75,7 @@ describe('ResultCard', () => {
     };
   }
 
-  function pdfJob(overrides: Partial<JobResultV1> = {}): JobResultV1 {
+  function pdfJob(overrides: Partial<JobResult> = {}): JobResult {
     return job({
       toolId: 'tool.pdf.optimize',
       items: [
@@ -91,8 +91,8 @@ describe('ResultCard', () => {
   }
 
   function verificationReport(
-    overrides: Partial<VerificationReportV1> = {},
-  ): VerificationReportV1 {
+    overrides: Partial<VerificationReport> = {},
+  ): VerificationReport {
     return {
       success: true,
       message: 'verified 1 output',
@@ -423,7 +423,7 @@ describe('ResultCard', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(wailsSpy.verifyJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.verifyJob).not.toHaveBeenCalled();
 
     const block = fixture.nativeElement.querySelector(
       '.verify-block',
@@ -439,11 +439,11 @@ describe('ResultCard', () => {
   });
 
   it('fetches verification for a normal terminal job and renders the checks', async () => {
-    wailsSpy.verifyJobV1.and.resolveTo(verificationReport());
+    wailsSpy.verifyJob.and.resolveTo(verificationReport());
     component.job = pdfJob({ jobId: 'job-fetch' });
     fixture.detectChanges();
 
-    expect(wailsSpy.verifyJobV1).toHaveBeenCalledOnceWith('job-fetch');
+    expect(wailsSpy.verifyJob).toHaveBeenCalledOnceWith('job-fetch');
 
     await fixture.whenStable();
     fixture.detectChanges();
@@ -456,7 +456,7 @@ describe('ResultCard', () => {
   });
 
   it('does not fabricate a pass when verification is unavailable', async () => {
-    wailsSpy.verifyJobV1.and.resolveTo({
+    wailsSpy.verifyJob.and.resolveTo({
       success: false,
       message: 'verification service unavailable',
       outputs: [],
@@ -485,7 +485,7 @@ describe('ResultCard', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(wailsSpy.verifyJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.verifyJob).not.toHaveBeenCalled();
     expect(fixture.nativeElement.querySelector('.verify-block')).toBeNull();
   });
 
@@ -512,7 +512,7 @@ describe('ResultCard', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(wailsSpy.undoJobV1).toHaveBeenCalledOnceWith('job-undo');
+    expect(wailsSpy.undoJob).toHaveBeenCalledOnceWith('job-undo');
     button = fixture.nativeElement.querySelector(
       '.result-undo',
     ) as HTMLButtonElement;
@@ -525,7 +525,7 @@ describe('ResultCard', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(wailsSpy.restoreJobV1).toHaveBeenCalledOnceWith('job-undo');
+    expect(wailsSpy.restoreJob).toHaveBeenCalledOnceWith('job-undo');
     button = fixture.nativeElement.querySelector(
       '.result-undo',
     ) as HTMLButtonElement;
@@ -534,7 +534,7 @@ describe('ResultCard', () => {
   });
 
   it('keeps the Undo action and reports skipped files when undo fails', async () => {
-    wailsSpy.undoJobV1.and.resolveTo({
+    wailsSpy.undoJob.and.resolveTo({
       success: false,
       message: 'Could not undo the job.',
       moved: [],

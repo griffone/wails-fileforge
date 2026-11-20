@@ -11,14 +11,14 @@ import { EMPTY } from 'rxjs';
 import { VideoTranscribe } from './video-transcribe';
 import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import {
-  FileInfoV1,
-  JobProgressV1,
-  JobRequestV1,
-  JobResultItemV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
-  TranscriptionCapabilitiesResponseV1,
+  FileInfo,
+  JobProgress,
+  JobRequest,
+  JobResultItem,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
+  TranscriptionCapabilitiesResponse,
   Wails,
 } from '../../services/wails';
 
@@ -32,8 +32,8 @@ describe('VideoTranscribe', () => {
   }
 
   function capabilities(
-    overrides: Partial<TranscriptionCapabilitiesResponseV1> = {},
-  ): TranscriptionCapabilitiesResponseV1 {
+    overrides: Partial<TranscriptionCapabilitiesResponse> = {},
+  ): TranscriptionCapabilitiesResponse {
     return {
       success: true,
       message: 'Local transcription is available.',
@@ -50,7 +50,7 @@ describe('VideoTranscribe', () => {
     };
   }
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     return {
       path,
       name: path.split(/[\\/]/).pop() ?? path,
@@ -73,7 +73,7 @@ describe('VideoTranscribe', () => {
     return name.replace(/\.[^.]+$/, '');
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const formats = Array.isArray(request.options['formats'])
       ? (request.options['formats'] as string[])
       : [];
@@ -101,10 +101,10 @@ describe('VideoTranscribe', () => {
 
   function status(
     jobId: string,
-    jobStatus: JobResultV1['status'],
-    items: JobResultItemV1[],
-    progress: Partial<JobProgressV1> = {},
-  ): JobStatusResponseV1 {
+    jobStatus: JobResult['status'],
+    items: JobResultItem[],
+    progress: Partial<JobProgress> = {},
+  ): JobStatusResponse {
     return {
       success: true,
       message: jobStatus,
@@ -131,9 +131,9 @@ describe('VideoTranscribe', () => {
 
   /** Creates the page with the given capabilities and renders the first frame. */
   function create(
-    caps: TranscriptionCapabilitiesResponseV1 = capabilities(),
+    caps: TranscriptionCapabilitiesResponse = capabilities(),
   ): void {
-    wailsSpy.getTranscriptionCapabilitiesV1.and.resolveTo(caps);
+    wailsSpy.getTranscriptionCapabilities.and.resolveTo(caps);
     fixture = TestBed.createComponent(VideoTranscribe);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -143,12 +143,12 @@ describe('VideoTranscribe', () => {
     localStorage.removeItem(PREFERENCES_STORAGE_KEY);
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'getTranscriptionCapabilitiesV1',
-      'inspectFilesV1',
-      'planJobV1',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'getTranscriptionCapabilities',
+      'inspectFiles',
+      'planJob',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openDirectoryDialog',
       'openMultipleFilesDialog',
       'openPath',
@@ -156,27 +156,27 @@ describe('VideoTranscribe', () => {
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
 
-    wailsSpy.getTranscriptionCapabilitiesV1.and.resolveTo(capabilities());
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.getTranscriptionCapabilities.and.resolveTo(capabilities());
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
         files: paths.map(fileInfo),
       }),
     );
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'transcribe-job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(status(jobId, 'running', [])),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancel requested',
       jobId: 'transcribe-job-1',
@@ -202,7 +202,7 @@ describe('VideoTranscribe', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledWith('', '');
+    expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith('', '');
     expect(component.transcribeAvailable()).toBeTrue();
     expect(component.transcriptionBlocked()).toBeFalse();
     expect(component.language()).toBe('en');
@@ -287,11 +287,11 @@ describe('VideoTranscribe', () => {
       'Local transcription is unavailable on this machine.',
     );
     expect(query<HTMLButtonElement>('.action-primary')?.disabled).toBeTrue();
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('plans with the chosen language, formats and saved whisper paths', fakeAsync(() => {
@@ -312,7 +312,7 @@ describe('VideoTranscribe', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.toolId).toBe('tool.video.transcribe');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/in/talk.mp4']);
@@ -338,7 +338,7 @@ describe('VideoTranscribe', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.options).toEqual({
       language: 'es',
       formats: ['srt', 'vtt'],
@@ -364,7 +364,7 @@ describe('VideoTranscribe', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.mode).toBe('batch');
     expect(request.inputPaths).toEqual(['/tmp/in/a.mp4', '/tmp/in/b.mp3']);
     expect(component.notice()?.text).toContain(
@@ -401,15 +401,15 @@ describe('VideoTranscribe', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('runs, polls to terminal and shows the transcript summary and result', fakeAsync(() => {
     create();
     flushMicrotasks();
 
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatusV1.calls.all().length;
+    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
+      const calls = wailsSpy.getJobStatus.calls.all().length;
       if (calls <= 1) {
         return Promise.resolve(
           status(jobId, 'running', [], {
@@ -447,7 +447,7 @@ describe('VideoTranscribe', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
     expect(component.activeJobId()).toBe('transcribe-job-1');
     expect(component.isPolling()).toBeTrue();
     expect(component.primaryLabel()).toBe('Transcribing…');
@@ -473,7 +473,7 @@ describe('VideoTranscribe', () => {
     expect(text).toContain('talk.vtt');
     expect(text).toContain('talk.txt');
 
-    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+    const inspectedPaths = wailsSpy.inspectFiles.calls
       .allArgs()
       .map((args) => args[0] as string[]);
     expect(
@@ -493,7 +493,7 @@ describe('VideoTranscribe', () => {
     create();
     flushMicrotasks();
 
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       status('transcribe-job-1', 'success', [
         {
           inputPath: '/tmp/in/silent.mp4',
@@ -538,7 +538,7 @@ describe('VideoTranscribe', () => {
     void component.cancel();
     flushMicrotasks();
 
-    expect(wailsSpy.cancelJobV1).toHaveBeenCalledWith('transcribe-job-1');
+    expect(wailsSpy.cancelJob).toHaveBeenCalledWith('transcribe-job-1');
 
     component.reset();
     flushMicrotasks();
@@ -563,7 +563,7 @@ describe('VideoTranscribe', () => {
     expect(component.outputDir()).toBe('/tmp/out');
     expect(component.destinationLabel()).toBe('/tmp/out');
     expect(component.isDefaultDestination()).toBeFalse();
-    expect(wailsSpy.planJobV1.calls.mostRecent().args[0].outputDir).toBe(
+    expect(wailsSpy.planJob.calls.mostRecent().args[0].outputDir).toBe(
       '/tmp/out',
     );
     expect(component.plan()?.outputs[0].outputPath).toBe('/tmp/out/talk.srt');
@@ -573,7 +573,7 @@ describe('VideoTranscribe', () => {
     flushMicrotasks();
 
     expect(component.outputDir()).toBe('');
-    expect(wailsSpy.planJobV1.calls.mostRecent().args[0].outputDir).toBe('');
+    expect(wailsSpy.planJob.calls.mostRecent().args[0].outputDir).toBe('');
   }));
 
   it('seeds the destination from the saved preferences', fakeAsync(() => {

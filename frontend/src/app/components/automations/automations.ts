@@ -20,13 +20,13 @@ import {
 import { Subject, takeUntil } from 'rxjs';
 
 import {
-  AutomationRuleV1,
-  AutomationRunEventV1,
-  AutomationRunRecordV1,
-  AutomationStatusResponseV1,
-  ListAutomationRunsResponseV1,
-  ListAutomationRulesResponseV1,
-  RecipeV1,
+  AutomationRule,
+  AutomationRunEvent,
+  AutomationRunRecord,
+  AutomationStatusResponse,
+  ListAutomationRunsResponse,
+  ListAutomationRulesResponse,
+  Recipe,
   Wails,
 } from '../../services/wails';
 import { fileName } from '../../utils/format';
@@ -75,10 +75,10 @@ export class Automations implements OnInit, OnDestroy {
   readonly alertIcon = TriangleAlert;
   readonly workflowIcon = Workflow;
 
-  readonly rules = signal<AutomationRuleV1[]>([]);
-  readonly recipes = signal<RecipeV1[]>([]);
-  readonly status = signal<AutomationStatusResponseV1 | null>(null);
-  readonly runs = signal<AutomationRunRecordV1[]>([]);
+  readonly rules = signal<AutomationRule[]>([]);
+  readonly recipes = signal<Recipe[]>([]);
+  readonly status = signal<AutomationStatusResponse | null>(null);
+  readonly runs = signal<AutomationRunRecord[]>([]);
 
   readonly loading = signal(true);
   readonly saving = signal(false);
@@ -89,7 +89,7 @@ export class Automations implements OnInit, OnDestroy {
   readonly confirmClearRuns = signal(false);
 
   readonly formOpen = signal(false);
-  readonly editingRule = signal<AutomationRuleV1 | null>(null);
+  readonly editingRule = signal<AutomationRule | null>(null);
   readonly editingId = computed(() => this.editingRule()?.id ?? '');
 
   readonly formName = signal('');
@@ -183,27 +183,27 @@ export class Automations implements OnInit, OnDestroy {
     try {
       const [recipesResponse, rulesResponse, statusResponse, runsResponse] =
         await Promise.all([
-          this.wailsService.listRecipesV1().catch(() => ({
+          this.wailsService.listRecipes().catch(() => ({
             success: false,
             message: 'The recipe catalog could not be read.',
-            recipes: [] as RecipeV1[],
+            recipes: [] as Recipe[],
           })),
-          this.wailsService.listAutomationRulesV1().catch(() => ({
+          this.wailsService.listAutomationRules().catch(() => ({
             success: false,
             message: 'The automation rules could not be loaded.',
-            rules: [] as AutomationRuleV1[],
+            rules: [] as AutomationRule[],
           })),
-          this.wailsService.getAutomationStatusV1().catch(() => ({
+          this.wailsService.getAutomationStatus().catch(() => ({
             success: false,
             message: 'The automation status could not be read.',
             totalRules: 0,
             activeRules: 0,
           })),
-          this.wailsService.listAutomationRunsV1(RUN_HISTORY_LIMIT).catch(
+          this.wailsService.listAutomationRuns(RUN_HISTORY_LIMIT).catch(
             () => ({
               success: false,
               message: 'The automation run history could not be loaded.',
-              runs: [] as AutomationRunRecordV1[],
+              runs: [] as AutomationRunRecord[],
             }),
           ),
         ]);
@@ -229,25 +229,25 @@ export class Automations implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
-  recipeName(rule: AutomationRuleV1): string {
+  recipeName(rule: AutomationRule): string {
     return (
       this.recipes().find((recipe) => recipe.id === rule.recipeId)?.name ??
       rule.recipeId
     );
   }
 
-  extensionsLabel(rule: AutomationRuleV1): string {
+  extensionsLabel(rule: AutomationRule): string {
     const extensions = rule.extensions ?? [];
     return extensions.length > 0
       ? extensions.map((extension) => extension.toUpperCase()).join(' · ')
       : 'Recipe defaults';
   }
 
-  outputFolderLabel(rule: AutomationRuleV1): string {
+  outputFolderLabel(rule: AutomationRule): string {
     return rule.outputDir?.trim() || 'Next to the source';
   }
 
-  runtimeLabel(rule: AutomationRuleV1): string {
+  runtimeLabel(rule: AutomationRule): string {
     switch (rule.runtimeStatus) {
       case 'watching':
         return 'Watching';
@@ -258,7 +258,7 @@ export class Automations implements OnInit, OnDestroy {
     }
   }
 
-  runtimeBadgeClass(rule: AutomationRuleV1): string {
+  runtimeBadgeClass(rule: AutomationRule): string {
     switch (rule.runtimeStatus) {
       case 'watching':
         return 'badge badge-success';
@@ -269,7 +269,7 @@ export class Automations implements OnInit, OnDestroy {
     }
   }
 
-  runtimeDotState(rule: AutomationRuleV1): string {
+  runtimeDotState(rule: AutomationRule): string {
     switch (rule.runtimeStatus) {
       case 'watching':
         return 'success';
@@ -318,13 +318,13 @@ export class Automations implements OnInit, OnDestroy {
     }
   }
 
-  outputNames(rule: AutomationRuleV1): string[] {
+  outputNames(rule: AutomationRule): string[] {
     return (rule.lastOutputs ?? [])
       .slice(0, OUTPUT_PREVIEW_LIMIT)
       .map((path) => fileName(path));
   }
 
-  runOutputsLabel(run: AutomationRunRecordV1): string {
+  runOutputsLabel(run: AutomationRunRecord): string {
     const count = run.outputs?.length ?? 0;
     if (count === 0) {
       return 'No outputs';
@@ -332,7 +332,7 @@ export class Automations implements OnInit, OnDestroy {
     return count === 1 ? '1 file' : `${count} files`;
   }
 
-  runFileName(run: AutomationRunRecordV1): string {
+  runFileName(run: AutomationRunRecord): string {
     return fileName(run.filePath) || 'Unknown file';
   }
 
@@ -383,7 +383,7 @@ export class Automations implements OnInit, OnDestroy {
     this.formOpen.set(true);
   }
 
-  openEditForm(rule: AutomationRuleV1): void {
+  openEditForm(rule: AutomationRule): void {
     this.editingRule.set(rule);
     this.formName.set(rule.name);
     this.formWatchDir.set(rule.watchDir);
@@ -476,7 +476,7 @@ export class Automations implements OnInit, OnDestroy {
     }
 
     this.saving.set(true);
-    const response = await this.wailsService.saveAutomationRuleV1(
+    const response = await this.wailsService.saveAutomationRule(
       this.buildPayload(),
     );
     this.saving.set(false);
@@ -493,13 +493,13 @@ export class Automations implements OnInit, OnDestroy {
     this.setAction('success', response.message || 'Automation rule saved.');
   }
 
-  async toggleRule(rule: AutomationRuleV1): Promise<void> {
+  async toggleRule(rule: AutomationRule): Promise<void> {
     if (this.saving()) {
       return;
     }
 
     this.saving.set(true);
-    const response = await this.wailsService.setAutomationRuleEnabledV1(
+    const response = await this.wailsService.setAutomationRuleEnabled(
       rule.id,
       !rule.enabled,
     );
@@ -526,7 +526,7 @@ export class Automations implements OnInit, OnDestroy {
     );
   }
 
-  requestDelete(rule: AutomationRuleV1): void {
+  requestDelete(rule: AutomationRule): void {
     this.confirmDeleteId.set(rule.id);
   }
 
@@ -551,7 +551,7 @@ export class Automations implements OnInit, OnDestroy {
     }
 
     this.runsLoading.set(true);
-    const response = await this.wailsService.clearAutomationRunsV1();
+    const response = await this.wailsService.clearAutomationRuns();
     this.runsLoading.set(false);
     this.confirmClearRuns.set(false);
 
@@ -573,13 +573,13 @@ export class Automations implements OnInit, OnDestroy {
     );
   }
 
-  async deleteRule(rule: AutomationRuleV1): Promise<void> {
+  async deleteRule(rule: AutomationRule): Promise<void> {
     if (this.saving()) {
       return;
     }
 
     this.saving.set(true);
-    const response = await this.wailsService.deleteAutomationRuleV1(rule.id);
+    const response = await this.wailsService.deleteAutomationRule(rule.id);
     this.saving.set(false);
     this.confirmDeleteId.set('');
 
@@ -601,7 +601,7 @@ export class Automations implements OnInit, OnDestroy {
     );
   }
 
-  private buildPayload(): AutomationRuleV1 {
+  private buildPayload(): AutomationRule {
     const base = this.editingRule();
 
     return {
@@ -634,8 +634,8 @@ export class Automations implements OnInit, OnDestroy {
 
   private async refreshRules(): Promise<void> {
     const [rulesResponse, statusResponse] = await Promise.all([
-      this.wailsService.listAutomationRulesV1(),
-      this.wailsService.getAutomationStatusV1(),
+      this.wailsService.listAutomationRules(),
+      this.wailsService.getAutomationStatus(),
     ]);
 
     if (rulesResponse.success) {
@@ -648,7 +648,7 @@ export class Automations implements OnInit, OnDestroy {
     this.applyStatusResponse(statusResponse);
   }
 
-  private applyRulesResponse(response: ListAutomationRulesResponseV1): void {
+  private applyRulesResponse(response: ListAutomationRulesResponse): void {
     if (response.success) {
       this.rules.set(response.rules ?? []);
       return;
@@ -656,13 +656,13 @@ export class Automations implements OnInit, OnDestroy {
     this.setError(response.message);
   }
 
-  private applyStatusResponse(response: AutomationStatusResponseV1): void {
+  private applyStatusResponse(response: AutomationStatusResponse): void {
     if (response.success) {
       this.status.set(response);
     }
   }
 
-  private applyRunsResponse(response: ListAutomationRunsResponseV1): void {
+  private applyRunsResponse(response: ListAutomationRunsResponse): void {
     if (response.success) {
       this.runs.set(response.runs ?? []);
       return;
@@ -706,7 +706,7 @@ export class Automations implements OnInit, OnDestroy {
    * Live events can be replayed for a rule this page no longer lists, so unknown
    * ids are ignored instead of creating phantom last-run state.
    */
-  private applyRunEvent(event: AutomationRunEventV1): void {
+  private applyRunEvent(event: AutomationRunEvent): void {
     if (!event || typeof event.ruleId !== 'string' || event.ruleId.length === 0) {
       return;
     }
@@ -746,7 +746,7 @@ export class Automations implements OnInit, OnDestroy {
       }
 
       const rules = this.rules();
-      const base: AutomationStatusResponseV1 = current ?? {
+      const base: AutomationStatusResponse = current ?? {
         success: true,
         message: '',
         totalRules: rules.length,
@@ -770,7 +770,7 @@ export class Automations implements OnInit, OnDestroy {
       return;
     }
 
-    const record: AutomationRunRecordV1 = {
+    const record: AutomationRunRecord = {
       id: `live-${at}-${event.ruleId}`,
       ruleId: event.ruleId,
       ruleName: event.ruleName || target.name,

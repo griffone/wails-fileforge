@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 
 import { ActivityService, ActivityTask } from '../services/activity.service';
-import { JobErrorV1, JobResultV1 } from '../services/wails';
+import { JobError, JobResult } from '../services/wails';
 import { resumeRecipeRun, resumeToolJob } from './resume-task';
 
 function task(overrides: Partial<ActivityTask> = {}): ActivityTask {
@@ -41,8 +41,8 @@ function activityStub(job: ActivityTask | null, recipe: ActivityTask | null) {
 describe('resumeToolJob', () => {
   it('seeds the page snapshot and starts polling for the active job', () => {
     const activeJobId = signal('');
-    const jobResult = signal<JobResultV1 | null>(null);
-    const jobError = signal<JobErrorV1 | null>({
+    const jobResult = signal<JobResult | null>(null);
+    const jobError = signal<JobError | null>({
       code: 'EXEC_IO_TRANSIENT',
       message: 'stale',
     });
@@ -73,8 +73,8 @@ describe('resumeToolJob', () => {
       activity: activityStub(task(), null),
       toolId: 'tool.image.compress',
       activeJobId: signal('job-existing'),
-      jobResult: signal<JobResultV1 | null>(null),
-      jobError: signal<JobErrorV1 | null>(null),
+      jobResult: signal<JobResult | null>(null),
+      jobError: signal<JobError | null>(null),
       startPolling,
     });
 
@@ -88,8 +88,8 @@ describe('resumeToolJob', () => {
       activity: activityStub(null, null),
       toolId: 'tool.image.compress',
       activeJobId: signal(''),
-      jobResult: signal<JobResultV1 | null>(null),
-      jobError: signal<JobErrorV1 | null>(null),
+      jobResult: signal<JobResult | null>(null),
+      jobError: signal<JobError | null>(null),
       startPolling,
     });
 

@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 
 import { ToolDefinition } from '../config/tools';
-import { JobResultV1 } from './wails';
+import { JobResult } from './wails';
 import { ToolRegistryService } from './tool-registry.service';
 
 const STORAGE_KEY = 'ff-recent-conversions';
@@ -65,7 +65,7 @@ export class RecentConversionsService {
   }
 
   /** Records a terminal job; non-terminal or unknown-tool jobs are ignored. */
-  record(job: JobResultV1): void {
+  record(job: JobResult): void {
     if (!job || !isTerminalJobStatus(job.status) || !job.jobId) {
       return;
     }
@@ -104,7 +104,7 @@ export class RecentConversionsService {
     this.persist([]);
   }
 
-  private collectOutputs(job: JobResultV1): string[] {
+  private collectOutputs(job: JobResult): string[] {
     const collected: string[] = [];
 
     for (const item of job.items ?? []) {

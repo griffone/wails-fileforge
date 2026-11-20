@@ -3,7 +3,7 @@ import { Router } from '@angular/router';
 import { LucideAngularModule, TriangleAlert, Wrench } from 'lucide-angular';
 
 import { ToolchainStateService } from '../../services/toolchain-state.service';
-import { ToolchainInstallOptionsV1 } from '../../services/wails';
+import { ToolchainInstallOptions } from '../../services/wails';
 
 const FALLBACK_OCR_LANGUAGES = ['eng', 'spa'];
 
@@ -187,7 +187,7 @@ export class ToolchainSetup implements OnInit {
     void this.router.navigateByUrl('/settings');
   }
 
-  private defaultOptions(): ToolchainInstallOptionsV1 {
+  private defaultOptions(): ToolchainInstallOptions {
     const status = this.status();
     return {
       model: status?.model || 'medium',

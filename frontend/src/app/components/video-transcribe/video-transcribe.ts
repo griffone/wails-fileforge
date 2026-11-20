@@ -28,16 +28,16 @@ import { DropIntakeService } from '../../services/drop-intake.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
-  FileInfoV1,
-  InspectFilesResponseV1,
-  JobErrorV1,
-  JobExecutionStatusV1,
-  JobRequestV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
-  RunJobResponseV1,
-  TranscriptionCapabilitiesResponseV1,
+  FileInfo,
+  InspectFilesResponse,
+  JobError,
+  JobExecutionStatus,
+  JobRequest,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
+  RunJobResponse,
+  TranscriptionCapabilitiesResponse,
   Wails,
 } from '../../services/wails';
 import {
@@ -158,15 +158,15 @@ export class VideoTranscribe implements OnDestroy, OnInit {
   readonly formats = signal<string[]>([...DEFAULT_FORMATS]);
 
   readonly capabilities =
-    signal<TranscriptionCapabilitiesResponseV1 | null>(null);
+    signal<TranscriptionCapabilitiesResponse | null>(null);
   readonly capabilitiesStatus = signal<CapabilityStatus>('loading');
 
-  readonly plan = signal<PlanJobResponseV1 | null>(null);
+  readonly plan = signal<PlanJobResponse | null>(null);
   readonly planLoading = signal(false);
 
-  readonly jobResult = signal<JobResultV1 | null>(null);
-  readonly jobError = signal<JobErrorV1 | null>(null);
-  readonly outputInfos = signal<Record<string, FileInfoV1>>({});
+  readonly jobResult = signal<JobResult | null>(null);
+  readonly jobError = signal<JobError | null>(null);
+  readonly outputInfos = signal<Record<string, FileInfo>>({});
 
   readonly isSubmitting = signal(false);
   readonly isPolling = signal(false);
@@ -287,7 +287,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     return '';
   });
 
-  readonly terminalJob = computed<JobResultV1 | null>(() => {
+  readonly terminalJob = computed<JobResult | null>(() => {
     const job = this.jobResult();
     return job && this.isTerminalStatus(job.status) ? job : null;
   });
@@ -354,7 +354,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
           // can arrive before the job store has the complete result.
           status: this.isTerminalStatus(event.status)
             ? current.status
-            : (event.status as JobExecutionStatusV1),
+            : (event.status as JobExecutionStatus),
         });
 
         if (this.isTerminalStatus(event.status)) {
@@ -520,8 +520,8 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     this.outputInfos.set({});
     this.isSubmitting.set(true);
 
-    const response: RunJobResponseV1 = await this.wailsService
-      .runJobV1(this.buildRequest())
+    const response: RunJobResponse = await this.wailsService
+      .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
         message: 'The transcription job could not start.',
@@ -572,7 +572,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     if (!jobId) {
       return;
     }
-    const response = await this.wailsService.cancelJobV1(jobId);
+    const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
         response.message || 'The job could not be cancelled.',
@@ -619,7 +619,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     this.capabilitiesStatus.set('loading');
 
     try {
-      const response = await this.wailsService.getTranscriptionCapabilitiesV1(
+      const response = await this.wailsService.getTranscriptionCapabilities(
         this.preferences.whisperPath(),
         this.preferences.whisperModelPath(),
       );
@@ -639,7 +639,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     }
   }
 
-  private buildRequest(): JobRequestV1 {
+  private buildRequest(): JobRequest {
     const paths = this.selectedPaths();
     return {
       toolId: TRANSCRIBE_TOOL_ID,
@@ -673,8 +673,8 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     this.planLoading.set(true);
     this.plan.set(null);
 
-    const response: PlanJobResponseV1 = await this.wailsService
-      .planJobV1(this.buildRequest())
+    const response: PlanJobResponse = await this.wailsService
+      .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
         message: 'The output could not be planned.',
@@ -696,7 +696,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       return true;
     }
 
-    const error: JobErrorV1 = response.error ?? {
+    const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
       message: response.message || 'The output could not be planned.',
@@ -758,8 +758,8 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       return;
     }
 
-    const response: JobStatusResponseV1 = await this.wailsService
-      .getJobStatusV1(jobId)
+    const response: JobStatusResponse = await this.wailsService
+      .getJobStatus(jobId)
       .catch(() => ({
         success: false,
         message: 'The job status could not be read.',
@@ -802,8 +802,8 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       return;
     }
 
-    const response: InspectFilesResponseV1 = await this.wailsService
-      .inspectFilesV1(paths)
+    const response: InspectFilesResponse = await this.wailsService
+      .inspectFiles(paths)
       .catch(() => ({
         success: false,
         message: 'File sizes could not be read.',
@@ -814,7 +814,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       return;
     }
 
-    const infos: Record<string, FileInfoV1> = {};
+    const infos: Record<string, FileInfo> = {};
     for (const info of response.files) {
       if (info.path) {
         infos[info.path] = info;
@@ -865,12 +865,12 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     generation: number,
   ): Promise<void> {
     try {
-      const response = await this.wailsService.inspectFilesV1(paths);
+      const response = await this.wailsService.inspectFiles(paths);
       if (generation !== this.fileItemsGeneration || !response.success) {
         return;
       }
 
-      const infos = new Map<string, FileInfoV1>();
+      const infos = new Map<string, FileInfo>();
       for (const info of response.files) {
         infos.set(info.path, info);
       }
@@ -887,7 +887,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     }
   }
 
-  private describeFileInfo(info: FileInfoV1): string {
+  private describeFileInfo(info: FileInfo): string {
     const parts: string[] = [];
     if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
       parts.push(formatBytes(info.sizeBytes));

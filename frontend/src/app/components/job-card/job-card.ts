@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, Input } from '@angular/core';
-import { JobResultV1 } from '../../services/wails';
+import { JobResult } from '../../services/wails';
 
 @Component({
   selector: 'app-job-card',
@@ -10,7 +10,7 @@ import { JobResultV1 } from '../../services/wails';
   styleUrl: './job-card.css',
 })
 export class JobCard {
-  @Input() job: JobResultV1 | null = null;
+  @Input() job: JobResult | null = null;
 
   currentStage(): string {
     return this.job?.progress?.stage ?? (this.job ? this.job.status : 'queued');

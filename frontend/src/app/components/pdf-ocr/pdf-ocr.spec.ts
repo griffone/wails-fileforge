@@ -9,14 +9,14 @@ import { EMPTY } from 'rxjs';
 
 import { PdfOcr } from './pdf-ocr';
 import {
-  FileInfoV1,
-  JobProgressV1,
-  JobRequestV1,
-  JobResultItemV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  OCRCapabilitiesResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgress,
+  JobRequest,
+  JobResultItem,
+  JobResult,
+  JobStatusResponse,
+  OCRCapabilitiesResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -30,8 +30,8 @@ describe('PdfOcr', () => {
   }
 
   function capabilities(
-    overrides: Partial<OCRCapabilitiesResponseV1> = {},
-  ): OCRCapabilitiesResponseV1 {
+    overrides: Partial<OCRCapabilitiesResponse> = {},
+  ): OCRCapabilitiesResponse {
     return {
       success: true,
       message: 'Local OCR is available with 2 installed languages.',
@@ -45,7 +45,7 @@ describe('PdfOcr', () => {
     };
   }
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     return {
       path,
       name: path.split(/[\\/]/).pop() ?? path,
@@ -68,7 +68,7 @@ describe('PdfOcr', () => {
     return name.replace(/\.pdf$/i, '');
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const sidecar = request.options['textSidecar'] !== false;
     const outputs = request.inputPaths.flatMap((inputPath) => {
       const dir = request.outputDir || firstDir(inputPath);
@@ -108,10 +108,10 @@ describe('PdfOcr', () => {
 
   function status(
     jobId: string,
-    jobStatus: JobResultV1['status'],
-    items: JobResultItemV1[],
-    progress: Partial<JobProgressV1> = {},
-  ): JobStatusResponseV1 {
+    jobStatus: JobResult['status'],
+    items: JobResultItem[],
+    progress: Partial<JobProgress> = {},
+  ): JobStatusResponse {
     return {
       success: true,
       message: jobStatus,
@@ -137,8 +137,8 @@ describe('PdfOcr', () => {
   }
 
   /** Creates the page with the given capabilities and renders the first frame. */
-  function create(caps: OCRCapabilitiesResponseV1 = capabilities()): void {
-    wailsSpy.getOCRCapabilitiesV1.and.resolveTo(caps);
+  function create(caps: OCRCapabilitiesResponse = capabilities()): void {
+    wailsSpy.getOCRCapabilities.and.resolveTo(caps);
     fixture = TestBed.createComponent(PdfOcr);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -148,12 +148,12 @@ describe('PdfOcr', () => {
     localStorage.removeItem('ff-preferences');
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'getOCRCapabilitiesV1',
-      'inspectFilesV1',
-      'planJobV1',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'getOCRCapabilities',
+      'inspectFiles',
+      'planJob',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openDirectoryDialog',
       'openMultipleFilesDialog',
       'openPath',
@@ -161,27 +161,27 @@ describe('PdfOcr', () => {
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
 
-    wailsSpy.getOCRCapabilitiesV1.and.resolveTo(capabilities());
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.getOCRCapabilities.and.resolveTo(capabilities());
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
         files: paths.map(fileInfo),
       }),
     );
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'ocr-job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(status(jobId, 'running', [])),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancel requested',
       jobId: 'ocr-job-1',
@@ -207,7 +207,7 @@ describe('PdfOcr', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.getOCRCapabilitiesV1).toHaveBeenCalled();
+    expect(wailsSpy.getOCRCapabilities).toHaveBeenCalled();
     expect(component.capabilities()?.available).toBeTrue();
     expect(component.ocrAvailable()).toBeTrue();
     expect(component.ocrBlocked()).toBeFalse();
@@ -287,11 +287,11 @@ describe('PdfOcr', () => {
       'Local OCR is unavailable on this machine.',
     );
     expect(query<HTMLButtonElement>('.action-primary')?.disabled).toBeTrue();
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('plans with the chosen language and sidecar, and follows both changes', fakeAsync(() => {
@@ -303,7 +303,7 @@ describe('PdfOcr', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.toolId).toBe('tool.pdf.ocr');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/in/scan.pdf']);
@@ -319,7 +319,7 @@ describe('PdfOcr', () => {
     tick(250);
     flushMicrotasks();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.options).toEqual({ language: 'spa', textSidecar: true });
 
     component.onSidecarToggle({ target: { checked: false } } as unknown as Event);
@@ -327,7 +327,7 @@ describe('PdfOcr', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.options).toEqual({ language: 'spa', textSidecar: false });
     expect(component.plan()?.outputs.map((output) => output.outputPath)).toEqual([
       '/tmp/in/scan_ocr.pdf',
@@ -348,7 +348,7 @@ describe('PdfOcr', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.mode).toBe('batch');
     expect(request.inputPaths).toEqual(['/tmp/in/a.pdf', '/tmp/in/b.pdf']);
     expect(component.notice()?.text).toContain("isn't a PDF");
@@ -360,8 +360,8 @@ describe('PdfOcr', () => {
     create();
     flushMicrotasks();
 
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatusV1.calls.all().length;
+    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
+      const calls = wailsSpy.getJobStatus.calls.all().length;
       if (calls <= 1) {
         return Promise.resolve(
           status(jobId, 'running', [], {
@@ -395,7 +395,7 @@ describe('PdfOcr', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
     expect(component.activeJobId()).toBe('ocr-job-1');
     expect(component.pageProgressLabel()).toBe('OCR page 3 of 5');
     expect(fixture.nativeElement.textContent).toContain('OCR page 3 of 5');
@@ -415,7 +415,7 @@ describe('PdfOcr', () => {
     expect(query('app-result-card')).not.toBeNull();
     expect(text).toContain('scan_ocr.pdf');
 
-    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+    const inspectedPaths = wailsSpy.inspectFiles.calls
       .allArgs()
       .map((args) => args[0] as string[]);
     expect(
@@ -434,7 +434,7 @@ describe('PdfOcr', () => {
     create();
     flushMicrotasks();
 
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       status('ocr-job-1', 'partial_success', [
         {
           inputPath: '/tmp/in/scan.pdf',
@@ -479,7 +479,7 @@ describe('PdfOcr', () => {
     void component.cancel();
     flushMicrotasks();
 
-    expect(wailsSpy.cancelJobV1).toHaveBeenCalledWith('ocr-job-1');
+    expect(wailsSpy.cancelJob).toHaveBeenCalledWith('ocr-job-1');
 
     component.reset();
     flushMicrotasks();
@@ -504,7 +504,7 @@ describe('PdfOcr', () => {
     expect(component.outputDir()).toBe('/tmp/out');
     expect(component.destinationLabel()).toBe('/tmp/out');
     expect(component.isDefaultDestination()).toBeFalse();
-    expect(wailsSpy.planJobV1.calls.mostRecent().args[0].outputDir).toBe(
+    expect(wailsSpy.planJob.calls.mostRecent().args[0].outputDir).toBe(
       '/tmp/out',
     );
     expect(component.plan()?.outputs[0].outputPath).toBe('/tmp/out/scan_ocr.pdf');
@@ -514,7 +514,7 @@ describe('PdfOcr', () => {
     flushMicrotasks();
 
     expect(component.outputDir()).toBe('');
-    expect(wailsSpy.planJobV1.calls.mostRecent().args[0].outputDir).toBe('');
+    expect(wailsSpy.planJob.calls.mostRecent().args[0].outputDir).toBe('');
   }));
 
   it('seeds the destination from the saved preferences', fakeAsync(() => {

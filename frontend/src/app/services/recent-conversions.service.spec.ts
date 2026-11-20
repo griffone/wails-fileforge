@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 
 import { RecentConversionsService } from './recent-conversions.service';
-import { JobResultV1 } from './wails';
+import { JobResult } from './wails';
 
 describe('RecentConversionsService', () => {
   const storageKey = 'ff-recent-conversions';
@@ -11,7 +11,7 @@ describe('RecentConversionsService', () => {
     return TestBed.inject(RecentConversionsService);
   }
 
-  function job(overrides: Partial<JobResultV1> = {}): JobResultV1 {
+  function job(overrides: Partial<JobResult> = {}): JobResult {
     return {
       jobId: 'job-1',
       success: true,

@@ -5,14 +5,14 @@ import { ActivityService, ActivityTask } from './activity.service';
 import { ToastService } from './toast.service';
 import { ToolRegistryService } from './tool-registry.service';
 import {
-  JobProgressEventV1,
-  JobResultV1,
-  RecipeProgressEventV1,
-  RecipeResultV1,
+  JobProgressEvent,
+  JobResult,
+  RecipeProgressEvent,
+  RecipeResult,
   Wails,
 } from './wails';
 
-function jobSnapshot(overrides: Partial<JobResultV1> = {}): JobResultV1 {
+function jobSnapshot(overrides: Partial<JobResult> = {}): JobResult {
   return {
     jobId: 'job-1',
     success: false,
@@ -27,8 +27,8 @@ function jobSnapshot(overrides: Partial<JobResultV1> = {}): JobResultV1 {
 }
 
 function recipeSnapshot(
-  overrides: Partial<RecipeResultV1> = {},
-): RecipeResultV1 {
+  overrides: Partial<RecipeResult> = {},
+): RecipeResult {
   return {
     jobId: 'recipe-job-1',
     recipeId: 'recipe.email_pdf',
@@ -73,47 +73,47 @@ describe('ActivityService', () => {
   let toastSpy: jasmine.SpyObj<ToastService>;
   let hasFocus: jasmine.Spy;
 
-  let jobState$: Subject<JobResultV1>;
-  let recipeState$: Subject<RecipeResultV1>;
-  let jobProgress$: Subject<JobProgressEventV1>;
-  let recipeProgress$: Subject<RecipeProgressEventV1>;
+  let jobState$: Subject<JobResult>;
+  let recipeState$: Subject<RecipeResult>;
+  let jobProgress$: Subject<JobProgressEvent>;
+  let recipeProgress$: Subject<RecipeProgressEvent>;
 
   beforeEach(() => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'listJobsV1',
-      'listRecipeRunsV1',
-      'cancelJobV1',
-      'cancelRecipeV1',
-      'notifyV1',
+      'listJobs',
+      'listRecipeRuns',
+      'cancelJob',
+      'cancelRecipe',
+      'notify',
     ]);
-    wailsSpy.listJobsV1.and.resolveTo({
+    wailsSpy.listJobs.and.resolveTo({
       success: true,
       message: 'ok',
       jobs: [],
     });
-    wailsSpy.listRecipeRunsV1.and.resolveTo([]);
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.listRecipeRuns.and.resolveTo([]);
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancel requested',
       jobId: 'job-1',
     });
-    wailsSpy.cancelRecipeV1.and.resolveTo({
+    wailsSpy.cancelRecipe.and.resolveTo({
       success: true,
       found: true,
       message: 'cancel requested',
     });
-    wailsSpy.notifyV1.and.resolveTo({ success: true, message: 'sent' });
+    wailsSpy.notify.and.resolveTo({ success: true, message: 'sent' });
 
-    jobState$ = new Subject<JobResultV1>();
-    recipeState$ = new Subject<RecipeResultV1>();
-    jobProgress$ = new Subject<JobProgressEventV1>();
-    recipeProgress$ = new Subject<RecipeProgressEventV1>();
+    jobState$ = new Subject<JobResult>();
+    recipeState$ = new Subject<RecipeResult>();
+    jobProgress$ = new Subject<JobProgressEvent>();
+    recipeProgress$ = new Subject<RecipeProgressEvent>();
 
     const streams = wailsSpy as unknown as {
-      jobState$: Subject<JobResultV1>;
-      recipeState$: Subject<RecipeResultV1>;
-      jobProgress$: Subject<JobProgressEventV1>;
-      recipeProgress$: Subject<RecipeProgressEventV1>;
+      jobState$: Subject<JobResult>;
+      recipeState$: Subject<RecipeResult>;
+      jobProgress$: Subject<JobProgressEvent>;
+      recipeProgress$: Subject<RecipeProgressEvent>;
     };
     streams.jobState$ = jobState$;
     streams.recipeState$ = recipeState$;
@@ -203,14 +203,14 @@ describe('ActivityService', () => {
     expect(toast.title).toBe('Merge finished');
     expect(toast.body).toBe('Merged 2 files');
     expect(toast.actionLabel).toBe('View activity');
-    expect(wailsSpy.notifyV1).toHaveBeenCalledOnceWith(
+    expect(wailsSpy.notify).toHaveBeenCalledOnceWith(
       'Merge finished',
       'Merged 2 files',
     );
 
     jobState$.next(finished);
     expect(toastSpy.push).toHaveBeenCalledTimes(1);
-    expect(wailsSpy.notifyV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.notify).toHaveBeenCalledTimes(1);
 
     hasFocus.and.returnValue(true);
     const failed = jobSnapshot({
@@ -229,7 +229,7 @@ describe('ActivityService', () => {
     expect(failureToast.tone).toBe('danger');
     expect(failureToast.title).toBe('Merge failed');
     expect(failureToast.body).toBe('disk full');
-    expect(wailsSpy.notifyV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.notify).toHaveBeenCalledTimes(1);
   });
 
   it('merges progress events into the existing task without duplicating it', () => {
@@ -317,31 +317,31 @@ describe('ActivityService', () => {
       progress: { current: 1, total: 1, stage: 'done', message: 'Done' },
       endedAt: 2000,
     });
-    wailsSpy.listJobsV1.and.resolveTo({
+    wailsSpy.listJobs.and.resolveTo({
       success: true,
       message: 'ok',
       jobs: [finished],
     });
-    wailsSpy.listRecipeRunsV1.and.resolveTo([]);
+    wailsSpy.listRecipeRuns.and.resolveTo([]);
 
     await service.refresh();
 
-    expect(wailsSpy.listJobsV1).toHaveBeenCalledWith(50);
-    expect(wailsSpy.listRecipeRunsV1).toHaveBeenCalledWith(50);
+    expect(wailsSpy.listJobs).toHaveBeenCalledWith(50);
+    expect(wailsSpy.listRecipeRuns).toHaveBeenCalledWith(50);
     expect(service.tasks().length).toBe(1);
     expect(toastSpy.push).not.toHaveBeenCalled();
-    expect(wailsSpy.notifyV1).not.toHaveBeenCalled();
+    expect(wailsSpy.notify).not.toHaveBeenCalled();
 
     jobState$.next(finished);
 
     expect(toastSpy.push).not.toHaveBeenCalled();
-    expect(wailsSpy.notifyV1).not.toHaveBeenCalled();
+    expect(wailsSpy.notify).not.toHaveBeenCalled();
   });
 });
 
 describe('ActivityService with a partial Wails double', () => {
   it('constructs and stays idle without the new streams or methods', async () => {
-    const partial = jasmine.createSpyObj<Wails>('Wails', ['listToolsV1']);
+    const partial = jasmine.createSpyObj<Wails>('Wails', ['listTools']);
 
     TestBed.configureTestingModule({
       providers: [{ provide: Wails, useValue: partial }],

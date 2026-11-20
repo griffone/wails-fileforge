@@ -11,12 +11,12 @@ import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
 import { ToolchainStateService } from '../../services/toolchain-state.service';
 import {
-  JobResultV1,
-  LocalCapabilitiesResponseV1,
-  ToolchainComponentV1,
-  ToolchainInstallEventV1,
-  ToolchainStatusV1,
-  TranscriptionCapabilitiesResponseV1,
+  JobResult,
+  LocalCapabilitiesResponse,
+  ToolchainComponent,
+  ToolchainInstallEvent,
+  ToolchainStatus,
+  TranscriptionCapabilitiesResponse,
   Wails,
 } from '../../services/wails';
 
@@ -24,8 +24,8 @@ const ONBOARDING_KEY = 'ff-onboarding-dismissed';
 const TOOLCHAIN_STORAGE = '/home/user/.local/share/fileforge/toolchain';
 
 class ToolchainStateStub {
-  readonly status = signal<ToolchainStatusV1 | null>(null);
-  readonly event = signal<ToolchainInstallEventV1 | null>(null);
+  readonly status = signal<ToolchainStatus | null>(null);
+  readonly event = signal<ToolchainInstallEvent | null>(null);
   readonly loading = signal(false);
   readonly isBusy = computed(() => this.status()?.installing === true);
 
@@ -35,7 +35,7 @@ class ToolchainStateStub {
   cancel = jasmine.createSpy('cancel').and.resolveTo(null);
 }
 
-const TOOLCHAIN_COMPONENTS: ToolchainComponentV1[] = [
+const TOOLCHAIN_COMPONENTS: ToolchainComponent[] = [
   {
     id: 'micromamba',
     label: 'micromamba',
@@ -123,8 +123,8 @@ const TOOLCHAIN_COMPONENTS: ToolchainComponentV1[] = [
 ];
 
 function toolchainStatus(
-  overrides: Partial<ToolchainStatusV1> = {},
-): ToolchainStatusV1 {
+  overrides: Partial<ToolchainStatus> = {},
+): ToolchainStatus {
   return {
     success: true,
     message: 'Local tools are not installed.',
@@ -140,7 +140,7 @@ function toolchainStatus(
   };
 }
 
-function readyToolchain(): ToolchainStatusV1 {
+function readyToolchain(): ToolchainStatus {
   return toolchainStatus({
     ready: true,
     percent: 100,
@@ -150,7 +150,7 @@ function readyToolchain(): ToolchainStatusV1 {
   });
 }
 
-const CAPABILITIES: LocalCapabilitiesResponseV1 = {
+const CAPABILITIES: LocalCapabilitiesResponse = {
   success: true,
   message: 'Local capabilities checked.',
   checks: [
@@ -188,7 +188,7 @@ const CAPABILITIES: LocalCapabilitiesResponseV1 = {
   recommendedOcrLanguage: 'afr',
 };
 
-const TRANSCRIPTION: TranscriptionCapabilitiesResponseV1 = {
+const TRANSCRIPTION: TranscriptionCapabilitiesResponse = {
   success: true,
   message: 'Local transcription is available.',
   available: true,
@@ -224,7 +224,7 @@ describe('Settings', () => {
     return JSON.parse(localStorage.getItem(PREFERENCES_STORAGE_KEY) ?? '{}');
   }
 
-  function sampleJob(): JobResultV1 {
+  function sampleJob(): JobResult {
     return {
       jobId: 'job-settings-1',
       success: true,
@@ -270,14 +270,14 @@ describe('Settings', () => {
       'openDirectoryDialog',
       'openFileDialog',
       'openPath',
-      'getLocalCapabilitiesV1',
-      'getTranscriptionCapabilitiesV1',
+      'getLocalCapabilities',
+      'getTranscriptionCapabilities',
     ]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.openFileDialog.and.resolveTo('');
     wailsSpy.openPath.and.resolveTo({ success: true, message: 'opened' });
-    wailsSpy.getLocalCapabilitiesV1.and.resolveTo(CAPABILITIES);
-    wailsSpy.getTranscriptionCapabilitiesV1.and.resolveTo(TRANSCRIPTION);
+    wailsSpy.getLocalCapabilities.and.resolveTo(CAPABILITIES);
+    wailsSpy.getTranscriptionCapabilities.and.resolveTo(TRANSCRIPTION);
 
     toolchain = new ToolchainStateStub();
 
@@ -435,7 +435,7 @@ describe('Settings', () => {
   }));
 
   it('marks a missing required tool as missing and dangerous', fakeAsync(() => {
-    wailsSpy.getLocalCapabilitiesV1.and.resolveTo({
+    wailsSpy.getLocalCapabilities.and.resolveTo({
       ...CAPABILITIES,
       checks: [
         {
@@ -466,20 +466,20 @@ describe('Settings', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.getLocalCapabilities).toHaveBeenCalledTimes(1);
 
     button('.settings-refresh-capabilities').click();
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.getLocalCapabilities).toHaveBeenCalledTimes(2);
   }));
 
   it('shows a friendly IPC error and recovers with Retry', fakeAsync(() => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    wailsSpy.getLocalCapabilitiesV1.and.resolveTo({
+    wailsSpy.getLocalCapabilities.and.resolveTo({
       success: false,
       message: '<!DOCTYPE html><html><body>Cannot POST /api</body></html>',
       checks: [],
@@ -495,13 +495,13 @@ describe('Settings', () => {
     expect(errorText).not.toContain('DOCTYPE');
     expect(errorText).not.toContain('Cannot POST');
 
-    wailsSpy.getLocalCapabilitiesV1.and.resolveTo(CAPABILITIES);
+    wailsSpy.getLocalCapabilities.and.resolveTo(CAPABILITIES);
 
     button('.settings-retry-capabilities').click();
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(3);
+    expect(wailsSpy.getLocalCapabilities).toHaveBeenCalledTimes(3);
     expect(element().textContent).toContain('OCR page rasterizer');
   }));
 
@@ -510,7 +510,7 @@ describe('Settings', () => {
     fixture.detectChanges();
 
     const text = element().textContent ?? '';
-    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledWith('', '');
+    expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith('', '');
     expect(text).toContain('Transcription');
     expect(text).toContain('Whisper');
     expect(text).toContain('Ready');
@@ -544,7 +544,7 @@ describe('Settings', () => {
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '',
     });
-    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledWith(
+    expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith(
       '/opt/whisper-cli',
       '',
     );
@@ -559,7 +559,7 @@ describe('Settings', () => {
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '/models/ggml-medium.bin',
     });
-    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledWith(
+    expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith(
       '/opt/whisper-cli',
       '/models/ggml-medium.bin',
     );
@@ -576,7 +576,7 @@ describe('Settings', () => {
 
     expect(component.whisperPath()).toBe('');
     expect(localStorage.getItem(PREFERENCES_STORAGE_KEY)).toBeNull();
-    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledTimes(1);
   }));
 
   it('clears whisper overrides back to the detected paths', fakeAsync(() => {
@@ -590,7 +590,7 @@ describe('Settings', () => {
 
     expect(button('.settings-use-detected-whisper').disabled).toBeFalse();
 
-    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledWith(
+    expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith(
       '/opt/whisper-cli',
       '',
     );
@@ -605,13 +605,13 @@ describe('Settings', () => {
       whisperModelPath: '',
     });
     expect(
-      wailsSpy.getTranscriptionCapabilitiesV1.calls.mostRecent().args,
+      wailsSpy.getTranscriptionCapabilities.calls.mostRecent().args,
     ).toEqual(['', '']);
     expect(button('.settings-use-detected-whisper').disabled).toBeTrue();
   }));
 
   it('shows setup guidance when the Whisper model is missing', fakeAsync(() => {
-    wailsSpy.getTranscriptionCapabilitiesV1.and.resolveTo({
+    wailsSpy.getTranscriptionCapabilities.and.resolveTo({
       ...TRANSCRIPTION,
       message: 'Local transcription is unavailable: install a ggml model.',
       available: false,
@@ -804,15 +804,15 @@ describe('Settings', () => {
   it('reloads dependent panels once the toolchain becomes ready', fakeAsync(() => {
     flushMicrotasks();
     fixture.detectChanges();
-    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(1);
-    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.getLocalCapabilities).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledTimes(1);
 
     toolchain.status.set(readyToolchain());
     fixture.detectChanges();
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.getLocalCapabilitiesV1).toHaveBeenCalledTimes(2);
-    expect(wailsSpy.getTranscriptionCapabilitiesV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.getLocalCapabilities).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledTimes(2);
   }));
 });

@@ -10,13 +10,13 @@ import { Subject } from 'rxjs';
 import { ImageWatermark } from './image-watermark';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import {
-  FileInfoV1,
-  ImagePreviewSourceResponseV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  ImagePreviewSourceResponse,
+  JobProgressEvent,
+  JobRequest,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -27,9 +27,9 @@ describe('ImageWatermark', () => {
   let fixture: ComponentFixture<ImageWatermark>;
   let component: ImageWatermark;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     return {
       success: true,
       message: 'ok',
@@ -45,7 +45,7 @@ describe('ImageWatermark', () => {
     };
   }
 
-  function fileInfo(path: string, sizeBytes = 2048): FileInfoV1 {
+  function fileInfo(path: string, sizeBytes = 2048): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -60,7 +60,7 @@ describe('ImageWatermark', () => {
     };
   }
 
-  function previewResponse(): ImagePreviewSourceResponseV1 {
+  function previewResponse(): ImagePreviewSourceResponse {
     return {
       success: true,
       message: 'ok',
@@ -79,16 +79,16 @@ describe('ImageWatermark', () => {
     return { target: { checked } } as unknown as Event;
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
   function terminalStatus(
     jobId: string,
     inputPath: string,
     outputPath: string,
-  ): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  ): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: true,
       message: 'done',
@@ -118,29 +118,29 @@ describe('ImageWatermark', () => {
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'inspectFiles',
       'getThumbnail',
-      'getImagePreviewSourceV1',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'getImagePreviewSource',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openFileDialog',
       'openDirectoryDialog',
-      'verifyJobV1',
+      'verifyJob',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -148,7 +148,7 @@ describe('ImageWatermark', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(`data:image/png;base64,${PIXEL_PNG}`);
-    wailsSpy.getImagePreviewSourceV1.and.callFake((path: string) =>
+    wailsSpy.getImagePreviewSource.and.callFake((path: string) =>
       Promise.resolve(
         path === '/tmp/logo-small.png'
           ? {
@@ -162,13 +162,13 @@ describe('ImageWatermark', () => {
           : previewResponse(),
       ),
     );
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-default',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo({
+    wailsSpy.getJobStatus.and.resolveTo({
       success: true,
       message: 'running',
       found: true,
@@ -188,7 +188,7 @@ describe('ImageWatermark', () => {
         startedAt: 1,
       },
     });
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -201,7 +201,7 @@ describe('ImageWatermark', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openFileDialog.and.resolveTo('');
     wailsSpy.openDirectoryDialog.and.resolveTo('');
-    wailsSpy.verifyJobV1.and.resolveTo({
+    wailsSpy.verifyJob.and.resolveTo({
       success: false,
       message: 'unavailable',
       outputs: [],
@@ -245,13 +245,13 @@ describe('ImageWatermark', () => {
     flushMicrotasks();
 
     // Empty text is invalid, so no plan request is sent yet.
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     component.onTextInput(inputEvent('Confidential'));
     tick(200);
     flushMicrotasks();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
     const request = lastPlanRequest();
     expect(request.toolId).toBe('tool.image.watermark');
     expect(request.mode).toBe('single');
@@ -371,7 +371,7 @@ describe('ImageWatermark', () => {
     tick(150);
     flushMicrotasks();
 
-    expect(wailsSpy.getImagePreviewSourceV1).toHaveBeenCalledOnceWith(
+    expect(wailsSpy.getImagePreviewSource).toHaveBeenCalledOnceWith(
       '/tmp/first.png',
     );
     expect(component.previewUrl()).toContain('data:image/png;base64,');
@@ -382,7 +382,7 @@ describe('ImageWatermark', () => {
     flushMicrotasks();
 
     expect(wailsSpy.getThumbnail).toHaveBeenCalledWith('/tmp/logo.png', 256);
-    expect(wailsSpy.getImagePreviewSourceV1).toHaveBeenCalledWith(
+    expect(wailsSpy.getImagePreviewSource).toHaveBeenCalledWith(
       '/tmp/logo.png',
     );
     expect(component.logoThumbnailUrl()).toContain('data:image/png;base64,');
@@ -458,11 +458,11 @@ describe('ImageWatermark', () => {
 
     expect(component.canRun()).toBeFalse();
     expect(component.actionHelper()).toBe('Enter the watermark text.');
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
 
     component.onTextInput(inputEvent('x'.repeat(201)));
     tick(200);
@@ -472,7 +472,7 @@ describe('ImageWatermark', () => {
     expect(component.actionHelper()).toBe(
       'Text must be at most 200 characters.',
     );
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 
   it('blocks the run without a valid logo', fakeAsync(() => {
@@ -491,15 +491,15 @@ describe('ImageWatermark', () => {
     expect(component.logoPath()).toBe('');
     expect(component.logoError()).toBe('Use a PNG, JPEG or WebP logo.');
     expect(component.canRun()).toBeFalse();
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('blocks the run when the backend rejects the plan', fakeAsync(() => {
-    wailsSpy.planJobV1.and.resolveTo({
+    wailsSpy.planJob.and.resolveTo({
       success: false,
       message: 'The watermark text contains an unsupported character.',
       outputs: [],
@@ -525,20 +525,20 @@ describe('ImageWatermark', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('runs, polls and reports the watermarked result', fakeAsync(() => {
     const inputPath = '/tmp/in/photo.png';
     const outputPath = '/tmp/in/photo_watermarked.png';
 
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-3',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       terminalStatus('job-3', inputPath, outputPath),
     );
 
@@ -552,9 +552,9 @@ describe('ImageWatermark', () => {
     tick(1000);
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['text']).toBe('Draft');
     expect(request.options['kind']).toBe('text');
 
@@ -622,7 +622,7 @@ describe('ImageWatermark', () => {
     expect(component.notice()?.text).toBe(
       "one.heic wasn't added because it isn't an image.",
     );
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 
   it('consumes queued drop intake paths on init', fakeAsync(() => {
@@ -642,7 +642,7 @@ describe('ImageWatermark', () => {
       '/tmp/queued-one.png',
       '/tmp/queued-two.jpg',
     ]);
-    expect(wailsSpy.getImagePreviewSourceV1).toHaveBeenCalledWith(
+    expect(wailsSpy.getImagePreviewSource).toHaveBeenCalledWith(
       '/tmp/queued-one.png',
     );
 

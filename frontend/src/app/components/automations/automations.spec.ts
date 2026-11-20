@@ -8,18 +8,18 @@ import { Subject } from 'rxjs';
 
 import { Automations } from './automations';
 import {
-  AutomationRuleV1,
-  AutomationRunEventV1,
-  AutomationRunRecordV1,
-  AutomationStatusResponseV1,
-  RecipeV1,
+  AutomationRule,
+  AutomationRunEvent,
+  AutomationRunRecord,
+  AutomationStatusResponse,
+  Recipe,
   Wails,
 } from '../../services/wails';
 
 const LAST_RUN_AT = Date.now() - 2 * 60_000;
 const HISTORY_RUN_AT = Date.now() - 5 * 60_000;
 
-const EMAIL_RECIPE: RecipeV1 = {
+const EMAIL_RECIPE: Recipe = {
   id: 'recipe.email_pdf',
   name: 'Email PDF',
   description: 'Merge and compress PDFs for email.',
@@ -32,8 +32,8 @@ const EMAIL_RECIPE: RecipeV1 = {
 };
 
 function sampleRule(
-  overrides: Partial<AutomationRuleV1> = {},
-): AutomationRuleV1 {
+  overrides: Partial<AutomationRule> = {},
+): AutomationRule {
   return {
     id: 'rule_1',
     name: 'Inbox PDFs',
@@ -55,8 +55,8 @@ function sampleRule(
 }
 
 function sampleStatus(
-  overrides: Partial<AutomationStatusResponseV1> = {},
-): AutomationStatusResponseV1 {
+  overrides: Partial<AutomationStatusResponse> = {},
+): AutomationStatusResponse {
   return {
     success: true,
     message: 'ok',
@@ -71,8 +71,8 @@ function sampleStatus(
 }
 
 function sampleRun(
-  overrides: Partial<AutomationRunRecordV1> = {},
-): AutomationRunRecordV1 {
+  overrides: Partial<AutomationRunRecord> = {},
+): AutomationRunRecord {
   return {
     id: 'run_1',
     ruleId: 'rule_1',
@@ -90,7 +90,7 @@ describe('Automations', () => {
   let fixture: ComponentFixture<Automations>;
   let component: Automations;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let automationRunSubject: Subject<AutomationRunEventV1>;
+  let automationRunSubject: Subject<AutomationRunEvent>;
 
   function query<T extends Element>(selector: string): T | null {
     return fixture.nativeElement.querySelector(selector) as T | null;
@@ -116,54 +116,54 @@ describe('Automations', () => {
 
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'listAutomationRulesV1',
-      'listRecipesV1',
-      'getAutomationStatusV1',
-      'listAutomationRunsV1',
-      'clearAutomationRunsV1',
-      'saveAutomationRuleV1',
-      'deleteAutomationRuleV1',
-      'setAutomationRuleEnabledV1',
+      'listAutomationRules',
+      'listRecipes',
+      'getAutomationStatus',
+      'listAutomationRuns',
+      'clearAutomationRuns',
+      'saveAutomationRule',
+      'deleteAutomationRule',
+      'setAutomationRuleEnabled',
       'openDirectoryDialog',
     ]);
 
-    wailsSpy.listRecipesV1.and.resolveTo({
+    wailsSpy.listRecipes.and.resolveTo({
       success: true,
       message: 'ok',
       recipes: [EMAIL_RECIPE],
     });
-    wailsSpy.listAutomationRulesV1.and.resolveTo({
+    wailsSpy.listAutomationRules.and.resolveTo({
       success: true,
       message: 'ok',
       rules: [sampleRule()],
     });
-    wailsSpy.getAutomationStatusV1.and.resolveTo(sampleStatus());
-    wailsSpy.listAutomationRunsV1.and.resolveTo({
+    wailsSpy.getAutomationStatus.and.resolveTo(sampleStatus());
+    wailsSpy.listAutomationRuns.and.resolveTo({
       success: true,
       message: 'ok',
       runs: [sampleRun()],
     });
-    wailsSpy.clearAutomationRunsV1.and.resolveTo({
+    wailsSpy.clearAutomationRuns.and.resolveTo({
       success: true,
       message: 'Automation run history cleared.',
     });
-    wailsSpy.saveAutomationRuleV1.and.resolveTo({
+    wailsSpy.saveAutomationRule.and.resolveTo({
       success: true,
       message: 'Automation rule saved.',
       rule: sampleRule(),
     });
-    wailsSpy.deleteAutomationRuleV1.and.resolveTo({
+    wailsSpy.deleteAutomationRule.and.resolveTo({
       success: true,
       message: 'Automation rule deleted.',
     });
-    wailsSpy.setAutomationRuleEnabledV1.and.resolveTo({
+    wailsSpy.setAutomationRuleEnabled.and.resolveTo({
       success: true,
       message: 'Automation rule disabled.',
       rule: sampleRule({ enabled: false, runtimeStatus: 'stopped' }),
     });
     wailsSpy.openDirectoryDialog.and.resolveTo('');
 
-    automationRunSubject = new Subject<AutomationRunEventV1>();
+    automationRunSubject = new Subject<AutomationRunEvent>();
     (
       wailsSpy as unknown as { automationRun$: unknown }
     ).automationRun$ = automationRunSubject.asObservable();
@@ -202,12 +202,12 @@ describe('Automations', () => {
   });
 
   it('shows the empty state and opens the create form', async () => {
-    wailsSpy.listAutomationRulesV1.and.resolveTo({
+    wailsSpy.listAutomationRules.and.resolveTo({
       success: true,
       message: 'No automation rules yet.',
       rules: [],
     });
-    wailsSpy.getAutomationStatusV1.and.resolveTo(
+    wailsSpy.getAutomationStatus.and.resolveTo(
       sampleStatus({ totalRules: 0, activeRules: 0, lastRunAt: undefined }),
     );
 
@@ -244,7 +244,7 @@ describe('Automations', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.saveAutomationRuleV1).not.toHaveBeenCalled();
+    expect(wailsSpy.saveAutomationRule).not.toHaveBeenCalled();
     expect(query('.automation-form-error')?.textContent).toContain('name');
 
     setInput('#automation-name', 'Inbox PDFs');
@@ -252,7 +252,7 @@ describe('Automations', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.saveAutomationRuleV1).not.toHaveBeenCalled();
+    expect(wailsSpy.saveAutomationRule).not.toHaveBeenCalled();
     expect(query('.automation-form-error')?.textContent).toContain(
       'folder to watch',
     );
@@ -263,7 +263,7 @@ describe('Automations', () => {
       Promise.resolve(' /tmp/watch '),
       Promise.resolve('/tmp/out'),
     );
-    wailsSpy.saveAutomationRuleV1.and.resolveTo({
+    wailsSpy.saveAutomationRule.and.resolveTo({
       success: true,
       message: 'Automation rule saved.',
       rule: sampleRule({
@@ -272,7 +272,7 @@ describe('Automations', () => {
         watchDir: '/tmp/watch',
       }),
     });
-    wailsSpy.listAutomationRulesV1.and.resolveTo({
+    wailsSpy.listAutomationRules.and.resolveTo({
       success: true,
       message: 'ok',
       rules: [sampleRule({ id: 'rule_2', name: 'Inbox PDFs' })],
@@ -301,9 +301,9 @@ describe('Automations', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.saveAutomationRuleV1).toHaveBeenCalledTimes(1);
-    const payload = wailsSpy.saveAutomationRuleV1.calls.mostRecent()
-      .args[0] as AutomationRuleV1;
+    expect(wailsSpy.saveAutomationRule).toHaveBeenCalledTimes(1);
+    const payload = wailsSpy.saveAutomationRule.calls.mostRecent()
+      .args[0] as AutomationRule;
     expect(payload.name).toBe('Inbox PDFs');
     expect(payload.watchDir).toBe('/tmp/watch');
     expect(payload.recipeId).toBe(EMAIL_RECIPE.id);
@@ -312,7 +312,7 @@ describe('Automations', () => {
     expect(payload.deleteSource).toBeTrue();
     expect(payload.enabled).toBeTrue();
 
-    expect(wailsSpy.listAutomationRulesV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.listAutomationRules).toHaveBeenCalledTimes(2);
     expect(query('.automation-form')).toBeNull();
     expect(fixture.nativeElement.textContent).toContain(
       'Automation rule saved.',
@@ -328,9 +328,9 @@ describe('Automations', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.saveAutomationRuleV1).toHaveBeenCalledTimes(1);
-    const payload = wailsSpy.saveAutomationRuleV1.calls.mostRecent()
-      .args[0] as AutomationRuleV1;
+    expect(wailsSpy.saveAutomationRule).toHaveBeenCalledTimes(1);
+    const payload = wailsSpy.saveAutomationRule.calls.mostRecent()
+      .args[0] as AutomationRule;
     expect(payload.id).toBe('rule_1');
     expect(payload.createdAt).toBe(1);
     expect(payload.options).toEqual({ targetSizeBytes: 10_000_000 });
@@ -345,7 +345,7 @@ describe('Automations', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.setAutomationRuleEnabledV1).toHaveBeenCalledWith(
+    expect(wailsSpy.setAutomationRuleEnabled).toHaveBeenCalledWith(
       'rule_1',
       false,
     );
@@ -356,14 +356,14 @@ describe('Automations', () => {
     click('.automation-delete');
     fixture.detectChanges();
 
-    expect(wailsSpy.deleteAutomationRuleV1).not.toHaveBeenCalled();
+    expect(wailsSpy.deleteAutomationRule).not.toHaveBeenCalled();
     expect(query('.automation-confirm')).not.toBeNull();
 
     click('.automation-confirm-cancel');
     fixture.detectChanges();
 
     expect(query('.automation-confirm')).toBeNull();
-    expect(wailsSpy.deleteAutomationRuleV1).not.toHaveBeenCalled();
+    expect(wailsSpy.deleteAutomationRule).not.toHaveBeenCalled();
 
     click('.automation-delete');
     fixture.detectChanges();
@@ -371,7 +371,7 @@ describe('Automations', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.deleteAutomationRuleV1).toHaveBeenCalledWith('rule_1');
+    expect(wailsSpy.deleteAutomationRule).toHaveBeenCalledWith('rule_1');
     expect(fixture.nativeElement.textContent).toContain(
       'Automation rule deleted.',
     );
@@ -433,7 +433,7 @@ describe('Automations', () => {
     expect(text).toContain('Compressed for email.');
     expect(text).toContain('5 min ago');
     expect(text).toContain('1 file');
-    expect(wailsSpy.listAutomationRunsV1).toHaveBeenCalledWith(20);
+    expect(wailsSpy.listAutomationRuns).toHaveBeenCalledWith(20);
   });
 
   it('prepends terminal live runs and ignores running events', fakeAsync(() => {
@@ -474,14 +474,14 @@ describe('Automations', () => {
     click('.automation-clear-runs');
     fixture.detectChanges();
 
-    expect(wailsSpy.clearAutomationRunsV1).not.toHaveBeenCalled();
+    expect(wailsSpy.clearAutomationRuns).not.toHaveBeenCalled();
     expect(query('.automation-confirm-clear-runs')).not.toBeNull();
 
     click('.automation-cancel-clear-runs');
     fixture.detectChanges();
 
     expect(query('.automation-confirm-clear-runs')).toBeNull();
-    expect(wailsSpy.clearAutomationRunsV1).not.toHaveBeenCalled();
+    expect(wailsSpy.clearAutomationRuns).not.toHaveBeenCalled();
 
     click('.automation-clear-runs');
     fixture.detectChanges();
@@ -489,7 +489,7 @@ describe('Automations', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.clearAutomationRunsV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.clearAutomationRuns).toHaveBeenCalledTimes(1);
     expect(component.runs().length).toBe(0);
     expect(fixture.nativeElement.textContent).toContain(
       'No automation runs yet.',

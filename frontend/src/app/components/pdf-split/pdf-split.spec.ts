@@ -11,13 +11,13 @@ import { Subject } from 'rxjs';
 import { PdfSplit } from './pdf-split';
 import { PdfSplitPreview } from './pdf-split-preview';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultItemV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResultItem,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -25,9 +25,9 @@ describe('PdfSplit', () => {
   let fixture: ComponentFixture<PdfSplit>;
   let component: PdfSplit;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -51,7 +51,7 @@ describe('PdfSplit', () => {
     return name.replace(/\.pdf$/i, '');
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const outputs = request.inputPaths.map((inputPath) => {
       const dir = request.outputDir || firstDir(inputPath);
       const name = `${fileStem(inputPath)}_pages`;
@@ -76,9 +76,9 @@ describe('PdfSplit', () => {
 
   function status(
     jobId: string,
-    jobStatus: JobResultV1['status'],
-    items: JobResultItemV1[],
-  ): JobStatusResponseV1 {
+    jobStatus: JobResult['status'],
+    items: JobResultItem[],
+  ): JobStatusResponse {
     return {
       success: true,
       message: jobStatus,
@@ -105,29 +105,29 @@ describe('PdfSplit', () => {
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'inspectFiles',
       'getThumbnail',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'listToolsV1',
+      'listTools',
       'getPdfPreviewSource',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -135,16 +135,16 @@ describe('PdfSplit', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(status(jobId, 'running', [])),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -157,7 +157,7 @@ describe('PdfSplit', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
@@ -186,9 +186,9 @@ describe('PdfSplit', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
-    let request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
+    let request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.pdf.split');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/a.pdf']);
@@ -213,7 +213,7 @@ describe('PdfSplit', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.mode).toBe('batch');
     expect(request.inputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
     expect(component.plan()?.outputs.length).toBe(2);
@@ -282,8 +282,8 @@ describe('PdfSplit', () => {
     tick(250);
     flushMicrotasks();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.mode).toBe('batch');
     expect(request.options).toEqual(
       jasmine.objectContaining({ strategy: 'ranges', ranges: '1-3,5' }),
@@ -292,7 +292,7 @@ describe('PdfSplit', () => {
     component.selectStrategy('every_page');
     flushMicrotasks();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.options['strategy']).toBe('every_page');
     expect(request.options['ranges']).toBeUndefined();
   }));
@@ -369,8 +369,8 @@ describe('PdfSplit', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['strategy']).toBe('pages_per_file');
     expect(request.options['pagesPerFile']).toBe(5);
     expect(request.options['ranges']).toBeUndefined();
@@ -389,7 +389,7 @@ describe('PdfSplit', () => {
     tick(250);
     flushMicrotasks();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.options['pagesPerFile']).toBe(12);
   }));
 
@@ -429,7 +429,7 @@ describe('PdfSplit', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('plans bookmarks without extra split options', fakeAsync(() => {
@@ -440,8 +440,8 @@ describe('PdfSplit', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.mode).toBe('batch');
     expect(request.options['strategy']).toBe('bookmarks');
     expect(request.options['pagesPerFile']).toBeUndefined();
@@ -459,7 +459,7 @@ describe('PdfSplit', () => {
   }));
 
   it('blocks the split when the PDF has no bookmarks', fakeAsync(() => {
-    wailsSpy.planJobV1.and.resolveTo({
+    wailsSpy.planJob.and.resolveTo({
       success: false,
       message: 'PDF has no bookmarks to split by',
       outputs: [],
@@ -488,7 +488,7 @@ describe('PdfSplit', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('groups consecutive picked pages into backend ranges', () => {
@@ -508,8 +508,8 @@ describe('PdfSplit', () => {
     tick(250);
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options).toEqual(
       jasmine.objectContaining({ strategy: 'ranges', ranges: '1-2,4' }),
     );
@@ -571,16 +571,16 @@ describe('PdfSplit', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options).toEqual(
       jasmine.objectContaining({ strategy: 'ranges', ranges: '1-2,4' }),
     );
   }));
 
   it('keeps the plan as the source of truth when ranges are rejected', fakeAsync(() => {
-    wailsSpy.planJobV1.and.resolveTo({
+    wailsSpy.planJob.and.resolveTo({
       success: false,
       message: 'range out of bounds',
       outputs: [],
@@ -611,7 +611,7 @@ describe('PdfSplit', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('plans and runs without a validation step, then polls', fakeAsync(() => {
@@ -621,17 +621,17 @@ describe('PdfSplit', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.pdf.split');
     expect(request.mode).toBe('batch');
     expect(request.inputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(2);
     expect(
-      (wailsSpy as unknown as { validateJobV1?: unknown }).validateJobV1,
+      (wailsSpy as unknown as { validateJob?: unknown }).validateJob,
     ).toBeUndefined();
-    expect(wailsSpy.getJobStatusV1).toHaveBeenCalled();
+    expect(wailsSpy.getJobStatus).toHaveBeenCalled();
     expect(component.isPolling()).toBeTrue();
     expect(component.activeJobId()).toBe('job-1');
   }));
@@ -652,13 +652,13 @@ describe('PdfSplit', () => {
       },
     ]);
 
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(completed);
+    wailsSpy.getJobStatus.and.resolveTo(completed);
 
     component.onPathsSelected(['/tmp/a.pdf']);
     flushMicrotasks();
@@ -674,7 +674,7 @@ describe('PdfSplit', () => {
     expect(text).not.toContain('page_1.pdf');
     expect(fixture.nativeElement.querySelectorAll('.result-row').length).toBe(1);
 
-    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+    const inspectedPaths = wailsSpy.inspectFiles.calls
       .allArgs()
       .map((args) => args[0] as string[]);
     expect(
@@ -704,8 +704,8 @@ describe('PdfSplit', () => {
     expect(component.destinationLabel()).toBe('/tmp/out');
     expect(component.isDefaultDestination()).toBeFalse();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.outputDir).toBe('/tmp/out');
     expect(component.plan()?.outputs.map((output) => output.outputPath)).toEqual([
       '/tmp/out/a_pages',
@@ -717,13 +717,13 @@ describe('PdfSplit', () => {
 
     expect(component.outputDir()).toBe('');
     expect(component.destinationLabel()).toBe('Next to each PDF');
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.outputDir).toBe('');
   }));
 
   it('retries only failed inputs with the same strategy, ranges and folder', fakeAsync(() => {
     wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/out');
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-3',
@@ -750,7 +750,7 @@ describe('PdfSplit', () => {
         },
       },
     ]);
-    wailsSpy.getJobStatusV1.and.resolveTo(partial);
+    wailsSpy.getJobStatus.and.resolveTo(partial);
 
     component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
     flushMicrotasks();
@@ -773,9 +773,9 @@ describe('PdfSplit', () => {
     void component.retryFailed();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(2);
-    const retryRequest = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(2);
+    const retryRequest = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(retryRequest.inputPaths).toEqual(['/tmp/b.pdf']);
     expect(retryRequest.mode).toBe('single');
     expect(retryRequest.options).toEqual(

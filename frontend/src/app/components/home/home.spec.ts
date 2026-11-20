@@ -4,7 +4,7 @@ import { Router, provideRouter } from '@angular/router';
 import { Home } from './home';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
 import { RecentToolsService } from '../../services/recent-tools.service';
-import { JobResultV1, Wails } from '../../services/wails';
+import { JobResult, Wails } from '../../services/wails';
 
 describe('Home', () => {
   let component: Home;
@@ -17,19 +17,19 @@ describe('Home', () => {
     localStorage.removeItem('ff-onboarding-dismissed');
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'listToolsV1',
+      'listTools',
       'isRuntimeAvailable',
       'openPath',
       'revealInFolder',
-      'getAutomationStatusV1',
+      'getAutomationStatus',
     ]);
-    wailsSpy.listToolsV1.and.returnValue(
+    wailsSpy.listTools.and.returnValue(
       Promise.resolve({ success: true, message: 'ok', tools: [] }),
     );
     wailsSpy.isRuntimeAvailable.and.returnValue(false);
     wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
     wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
-    wailsSpy.getAutomationStatusV1.and.resolveTo({
+    wailsSpy.getAutomationStatus.and.resolveTo({
       success: true,
       message: 'ok',
       totalRules: 0,
@@ -59,7 +59,7 @@ describe('Home', () => {
     return fixture.nativeElement.querySelector(selector) as T | null;
   }
 
-  function conversionJob(overrides: Partial<JobResultV1> = {}): JobResultV1 {
+  function conversionJob(overrides: Partial<JobResult> = {}): JobResult {
     return {
       jobId: 'job-1',
       success: true,
@@ -81,7 +81,7 @@ describe('Home', () => {
     };
   }
 
-  function recordConversion(job: JobResultV1 = conversionJob()): void {
+  function recordConversion(job: JobResult = conversionJob()): void {
     TestBed.inject(RecentConversionsService).record(job);
   }
 
@@ -112,8 +112,8 @@ describe('Home', () => {
     return Array.from(titles).map((title) => title.textContent?.trim() ?? '');
   }
 
-  it('loads catalog count from ListToolsV1 on init', async () => {
-    wailsSpy.listToolsV1.and.returnValue(
+  it('loads catalog count from ListTools on init', async () => {
+    wailsSpy.listTools.and.returnValue(
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -231,8 +231,8 @@ describe('Home', () => {
     expect(component.catalogTools.length).toBe(6);
   });
 
-  it('falls back to empty catalog when ListToolsV1 fails', async () => {
-    wailsSpy.listToolsV1.and.returnValue(
+  it('falls back to empty catalog when ListTools fails', async () => {
+    wailsSpy.listTools.and.returnValue(
       Promise.resolve({
         success: false,
         message: 'ipc error',
@@ -415,7 +415,7 @@ describe('Home', () => {
   });
 
   it('shows folder rules with active count, last run and the manage link', async () => {
-    wailsSpy.getAutomationStatusV1.and.resolveTo({
+    wailsSpy.getAutomationStatus.and.resolveTo({
       success: true,
       message: 'ok',
       totalRules: 2,

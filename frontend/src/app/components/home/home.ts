@@ -31,7 +31,7 @@ import {
 } from '../../services/recent-conversions.service';
 import { RecentToolsService } from '../../services/recent-tools.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
-import { ToolCatalogEntryV1, PathActionResponseV1, AutomationStatusResponseV1, Wails } from '../../services/wails';
+import { ToolCatalogEntry, PathActionResponse, AutomationStatusResponse, Wails } from '../../services/wails';
 import { fileDir, fileExtension, fileName } from '../../utils/format';
 
 type CategoryFilter = 'all' | ToolCategory;
@@ -71,7 +71,7 @@ export class Home implements OnInit {
   readonly query = signal('');
   readonly activeCategory = signal<CategoryFilter>('all');
   readonly actionMessage = signal('');
-  readonly automationStatus = signal<AutomationStatusResponseV1 | null>(null);
+  readonly automationStatus = signal<AutomationStatusResponse | null>(null);
 
   readonly showAutomationStatus = computed(() => {
     const status = this.automationStatus();
@@ -157,7 +157,7 @@ export class Home implements OnInit {
   readonly shortcutLabel = this.resolveShortcutLabel();
 
   /** Kept for callers and specs; the runtime catalog is not the tool source. */
-  catalogTools: ToolCatalogEntryV1[] = [];
+  catalogTools: ToolCatalogEntry[] = [];
   catalogToolsCount = 0;
   /** True once the backend catalog responds; false when only the static registry is available. */
   runtimeReachable = true;
@@ -345,7 +345,7 @@ export class Home implements OnInit {
   }
 
   private actionFailureMessage(
-    response: PathActionResponseV1,
+    response: PathActionResponse,
     fallback: string,
   ): string {
     if (response.success) {
@@ -375,7 +375,7 @@ export class Home implements OnInit {
    */
   private async loadAutomationStatus(): Promise<void> {
     try {
-      const response = await this.wailsService.getAutomationStatusV1();
+      const response = await this.wailsService.getAutomationStatus();
       if (response.success && response.totalRules > 0) {
         this.automationStatus.set(response);
         return;
@@ -388,7 +388,7 @@ export class Home implements OnInit {
 
   private async loadData(): Promise<void> {
     try {
-      const catalogResponse = await this.wailsService.listToolsV1();
+      const catalogResponse = await this.wailsService.listTools();
       if (!catalogResponse.success) {
         this.catalogTools = [];
         this.catalogToolsCount = 0;

@@ -12,12 +12,12 @@ import { IMAGE_PRESETS } from '../../config/image-presets';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { PreferencesService } from '../../services/preferences.service';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -25,9 +25,9 @@ describe('ImageConverter', () => {
   let fixture: ComponentFixture<ImageConverter>;
   let component: ImageConverter;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const format = String(request.options['format'] ?? 'webp');
     return {
       success: true,
@@ -51,7 +51,7 @@ describe('ImageConverter', () => {
     };
   }
 
-  function fileInfo(path: string, sizeBytes = 2048): FileInfoV1 {
+  function fileInfo(path: string, sizeBytes = 2048): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -74,12 +74,12 @@ describe('ImageConverter', () => {
     return { target: { checked } } as unknown as Event;
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
-  function runningStatus(jobId: string): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  function runningStatus(jobId: string): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: false,
       message: 'running',
@@ -101,8 +101,8 @@ describe('ImageConverter', () => {
     jobId: string,
     inputPath: string,
     outputPath: string,
-  ): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  ): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: true,
       message: 'done',
@@ -132,29 +132,29 @@ describe('ImageConverter', () => {
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'inspectFiles',
       'getThumbnail',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'listToolsV1',
-      'validateJobV1',
+      'listTools',
+      'validateJob',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -162,16 +162,16 @@ describe('ImageConverter', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-default',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(runningStatus(jobId)),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -184,12 +184,12 @@ describe('ImageConverter', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
     });
-    wailsSpy.validateJobV1.and.resolveTo({
+    wailsSpy.validateJob.and.resolveTo({
       success: true,
       message: 'ok',
       valid: true,
@@ -214,9 +214,9 @@ describe('ImageConverter', () => {
     component.onPathsSelected(['/tmp/photo.jpg']);
     flushMicrotasks();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.image.convert');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/photo.jpg']);
@@ -237,8 +237,8 @@ describe('ImageConverter', () => {
     component.onPathsSelected(['/tmp/a.png', '/tmp/b.jpg']);
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.mode).toBe('batch');
     expect(request.inputPaths).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
     expect(component.plan()?.outputs.length).toBe(2);
@@ -252,15 +252,15 @@ describe('ImageConverter', () => {
     component.selectPreset('jpeg');
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['format']).toBe('jpeg');
     expect(request.options['quality']).toBe(85);
     expect(component.primaryLabel()).toBe('Convert 1 image');
   }));
 
   it('runs directly from the plan without a validate step', fakeAsync(() => {
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-1',
@@ -273,12 +273,12 @@ describe('ImageConverter', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.image.convert');
     expect(request.options['format']).toBe('webp');
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.validateJob).not.toHaveBeenCalled();
     expect(component.isPolling()).toBeTrue();
     expect(component.activeJobId()).toBe('job-1');
     fixture.destroy();
@@ -288,13 +288,13 @@ describe('ImageConverter', () => {
     const inputPath = '/tmp/in/photo.png';
     const outputPath = '/tmp/in/photo.webp';
 
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       terminalStatus('job-2', inputPath, outputPath),
     );
 
@@ -311,7 +311,7 @@ describe('ImageConverter', () => {
     expect(component.isPolling()).toBeFalse();
     expect(component.activeJobId()).toBe('');
 
-    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+    const inspectedPaths = wailsSpy.inspectFiles.calls
       .allArgs()
       .map((args) => args[0] as string[]);
     expect(
@@ -334,7 +334,7 @@ describe('ImageConverter', () => {
     expect(component.notice()?.text).toBe(
       "2 files weren't added. HEIC isn't supported.",
     );
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 
   it('uses the chosen output folder in the plan request', fakeAsync(() => {
@@ -342,7 +342,7 @@ describe('ImageConverter', () => {
 
     component.onPathsSelected(['/tmp/a.png']);
     flushMicrotasks();
-    const callsBefore = wailsSpy.planJobV1.calls.count();
+    const callsBefore = wailsSpy.planJob.calls.count();
 
     void component.chooseOutputFolder();
     flushMicrotasks();
@@ -351,10 +351,10 @@ describe('ImageConverter', () => {
     expect(component.isDefaultDestination()).toBeFalse();
     expect(component.destinationLabel()).toBe('/tmp/out');
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.outputDir).toBe('/tmp/out');
-    expect(wailsSpy.planJobV1.calls.count()).toBe(callsBefore + 1);
+    expect(wailsSpy.planJob.calls.count()).toBe(callsBefore + 1);
   }));
 
   it('seeds a new session with the saved default output folder', fakeAsync(() => {
@@ -383,8 +383,8 @@ describe('ImageConverter', () => {
     component.selectPreset('original');
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['format']).toBe('auto');
     expect(request.options['quality']).toBe(85);
     expect(component.format()).toBe('auto');
@@ -489,7 +489,7 @@ describe('ImageConverter', () => {
     const outputPath = '/tmp/in/photo.webp';
     const inputBytes = 200 * 1024;
     const outputBytes = 136 * 1024;
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -498,7 +498,7 @@ describe('ImageConverter', () => {
         ),
       }),
     );
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       terminalStatus('job-savings', inputPath, outputPath),
     );
 
@@ -525,7 +525,7 @@ describe('ImageConverter', () => {
     const outputPath = '/tmp/in/photo.webp';
     const inputBytes = 200 * 1024;
     const outputBytes = 240 * 1024;
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -534,7 +534,7 @@ describe('ImageConverter', () => {
         ),
       }),
     );
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       terminalStatus('job-growth', inputPath, outputPath),
     );
 
@@ -563,7 +563,7 @@ describe('ImageConverter', () => {
       '/tmp/queued-one.png',
       '/tmp/queued-two.jpg',
     ]);
-    expect(wailsSpy.planJobV1).toHaveBeenCalled();
+    expect(wailsSpy.planJob).toHaveBeenCalled();
 
     queuedFixture.destroy();
   }));

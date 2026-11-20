@@ -25,19 +25,19 @@ import { findRecipeFallback } from '../../config/recipes';
 import { ActivityService } from '../../services/activity.service';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
-  FileInfoV1,
-  JobErrorV1,
-  JobExecutionStatusV1,
-  JobResultItemV1,
-  JobResultV1,
-  RecipePlanResponseV1,
-  RecipeProgressEventV1,
-  RecipeRequestV1,
-  RecipeResultV1,
-  RecipeStatusResponseV1,
-  RecipeV1,
-  RunRecipeResponseV1,
-  VerificationReportV1,
+  FileInfo,
+  JobError,
+  JobExecutionStatus,
+  JobResultItem,
+  JobResult,
+  RecipePlanResponse,
+  RecipeProgressEvent,
+  RecipeRequest,
+  RecipeResult,
+  RecipeStatusResponse,
+  Recipe,
+  RunRecipeResponse,
+  VerificationReport,
   Wails,
 } from '../../services/wails';
 import {
@@ -95,7 +95,7 @@ function lowerFirst(value: string): string {
   return value ? value.charAt(0).toLowerCase() + value.slice(1) : value;
 }
 
-function defaultTargetMb(recipe: RecipeV1 | null): number {
+function defaultTargetMb(recipe: Recipe | null): number {
   const bytes = recipe?.defaultTargetSizeBytes ?? 0;
   return bytes > 0 ? bytes / BYTES_PER_MB : 0;
 }
@@ -149,19 +149,19 @@ export class RecipeRun implements OnDestroy, OnInit {
   readonly targetText = signal(
     targetInputText(defaultTargetMb(this.resolveFallback())),
   );
-  readonly recipe = signal<RecipeV1 | null>(this.resolveFallback());
+  readonly recipe = signal<Recipe | null>(this.resolveFallback());
 
-  readonly plan = signal<RecipePlanResponseV1 | null>(null);
+  readonly plan = signal<RecipePlanResponse | null>(null);
   readonly planLoading = signal(false);
 
-  readonly result = signal<RecipeResultV1 | null>(null);
+  readonly result = signal<RecipeResult | null>(null);
   readonly runJobId = signal('');
   /** Last live event from `recipes/progress` for the current job. */
-  readonly liveProgress = signal<RecipeProgressEventV1 | null>(null);
+  readonly liveProgress = signal<RecipeProgressEvent | null>(null);
   readonly isSubmitting = signal(false);
   readonly isRunning = signal(false);
   readonly cancelRequested = signal(false);
-  readonly actionError = signal<JobErrorV1 | null>(null);
+  readonly actionError = signal<JobError | null>(null);
   readonly notice = signal('');
 
   readonly fileName = fileName;
@@ -315,7 +315,7 @@ export class RecipeRun implements OnDestroy, OnInit {
     }
   });
 
-  readonly terminalResult = computed<RecipeResultV1 | null>(() => {
+  readonly terminalResult = computed<RecipeResult | null>(() => {
     const result = this.result();
     return result && this.isTerminalStatus(result.status) ? result : null;
   });
@@ -335,15 +335,15 @@ export class RecipeRun implements OnDestroy, OnInit {
    * output is its own row, so a six-file web set lists six files while Email
    * PDF still lists the one file it produced.
    */
-  readonly resultJob = computed<JobResultV1 | null>(() => {
+  readonly resultJob = computed<JobResult | null>(() => {
     const result = this.terminalResult();
     if (!result) {
       return null;
     }
 
-    const status = result.status as JobExecutionStatusV1;
+    const status = result.status as JobExecutionStatus;
     const outputs = result.outputs ?? [];
-    const items: JobResultItemV1[] = outputs.map((path) => ({
+    const items: JobResultItem[] = outputs.map((path) => ({
       inputPath: this.selectedPaths()[0] ?? '',
       outputPath: path,
       outputs: [path],
@@ -372,7 +372,7 @@ export class RecipeRun implements OnDestroy, OnInit {
     };
   });
 
-  readonly verification = computed<VerificationReportV1 | null>(
+  readonly verification = computed<VerificationReport | null>(
     () => this.result()?.verification ?? null,
   );
 
@@ -380,7 +380,7 @@ export class RecipeRun implements OnDestroy, OnInit {
    * The live event for the job currently on screen, or null. Using it only
    * while running keeps stale events from other runs out of the page.
    */
-  private readonly activeLiveProgress = computed<RecipeProgressEventV1 | null>(
+  private readonly activeLiveProgress = computed<RecipeProgressEvent | null>(
     () => {
       if (!this.isRunning()) {
         return null;
@@ -518,10 +518,10 @@ export class RecipeRun implements OnDestroy, OnInit {
     this.recipe.set(fallback);
     this.applyDefaultTarget(fallback);
 
-    const response = await this.wailsService.listRecipesV1().catch(() => ({
+    const response = await this.wailsService.listRecipes().catch(() => ({
       success: false,
       message: 'The recipe catalog could not be read.',
-      recipes: [] as RecipeV1[],
+      recipes: [] as Recipe[],
     }));
     if (!response.success) {
       return;
@@ -772,8 +772,8 @@ export class RecipeRun implements OnDestroy, OnInit {
     }
 
     this.isSubmitting.set(true);
-    const response: RunRecipeResponseV1 = await this.wailsService
-      .runRecipeV1(this.buildRequest())
+    const response: RunRecipeResponse = await this.wailsService
+      .runRecipe(this.buildRequest())
       .catch(() => ({
         success: false,
         message: 'The recipe could not start.',
@@ -809,8 +809,8 @@ export class RecipeRun implements OnDestroy, OnInit {
     }
 
     this.cancelRequested.set(true);
-    const response: RecipeStatusResponseV1 = await this.wailsService
-      .cancelRecipeV1(jobId)
+    const response: RecipeStatusResponse = await this.wailsService
+      .cancelRecipe(jobId)
       .catch(() => ({
         success: false,
         found: false,
@@ -894,13 +894,13 @@ export class RecipeRun implements OnDestroy, OnInit {
     return candidate || DEFAULT_RECIPE_ID;
   }
 
-  private resolveFallback(): RecipeV1 | null {
+  private resolveFallback(): Recipe | null {
     return (
       findRecipeFallback(this.recipeId) ?? findRecipeFallback(DEFAULT_RECIPE_ID)
     );
   }
 
-  private buildRequest(): RecipeRequestV1 {
+  private buildRequest(): RecipeRequest {
     const options: Record<string, unknown> = {};
     if (this.showTargetSize()) {
       options['targetSizeBytes'] = this.targetBytes();
@@ -914,7 +914,7 @@ export class RecipeRun implements OnDestroy, OnInit {
     };
   }
 
-  private applyDefaultTarget(recipe: RecipeV1 | null): void {
+  private applyDefaultTarget(recipe: Recipe | null): void {
     if (this.targetTouched) {
       return;
     }
@@ -939,8 +939,8 @@ export class RecipeRun implements OnDestroy, OnInit {
     this.planLoading.set(true);
     this.plan.set(null);
 
-    const response: RecipePlanResponseV1 = await this.wailsService
-      .planRecipeV1(this.buildRequest())
+    const response: RecipePlanResponse = await this.wailsService
+      .planRecipe(this.buildRequest())
       .catch(() => ({
         success: false,
         message: 'The output could not be planned.',
@@ -1019,8 +1019,8 @@ export class RecipeRun implements OnDestroy, OnInit {
 
     this.pollInFlight = true;
     try {
-      const response: RecipeStatusResponseV1 = await this.wailsService
-        .getRecipeStatusV1(jobId)
+      const response: RecipeStatusResponse = await this.wailsService
+        .getRecipeStatus(jobId)
         .catch(() => ({
           success: false,
           found: false,
@@ -1090,12 +1090,12 @@ export class RecipeRun implements OnDestroy, OnInit {
     generation: number,
   ): Promise<void> {
     try {
-      const response = await this.wailsService.inspectFilesV1(paths);
+      const response = await this.wailsService.inspectFiles(paths);
       if (generation !== this.fileItemsGeneration || !response.success) {
         return;
       }
 
-      const infos = new Map<string, FileInfoV1>();
+      const infos = new Map<string, FileInfo>();
       for (const info of response.files) {
         infos.set(info.path, info);
       }
@@ -1112,7 +1112,7 @@ export class RecipeRun implements OnDestroy, OnInit {
     }
   }
 
-  private describeFileInfo(info: FileInfoV1): string {
+  private describeFileInfo(info: FileInfo): string {
     const parts: string[] = [];
     if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
       parts.push(formatBytes(info.sizeBytes));

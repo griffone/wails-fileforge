@@ -9,13 +9,13 @@ import { Subject } from 'rxjs';
 
 import { PdfCrop } from './pdf-crop';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultItemV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResultItem,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -23,11 +23,11 @@ describe('PdfCrop', () => {
   let fixture: ComponentFixture<PdfCrop>;
   let component: PdfCrop;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
-  function fileInfo(path: string, pageSize?: { width: number; height: number }): FileInfoV1 {
+  function fileInfo(path: string, pageSize?: { width: number; height: number }): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
-    const info: FileInfoV1 = {
+    const info: FileInfo = {
       path,
       name,
       directory: '/tmp',
@@ -54,7 +54,7 @@ describe('PdfCrop', () => {
     return name.replace(/\.pdf$/i, '');
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const outputs = request.inputPaths.map((inputPath) => {
       const dir = request.outputDir || firstDir(inputPath);
       const name = `${fileStem(inputPath)}_cropped.pdf`;
@@ -79,9 +79,9 @@ describe('PdfCrop', () => {
 
   function status(
     jobId: string,
-    jobStatus: JobResultV1['status'],
-    items: JobResultItemV1[],
-  ): JobStatusResponseV1 {
+    jobStatus: JobResult['status'],
+    items: JobResultItem[],
+  ): JobStatusResponse {
     return {
       success: true,
       message: jobStatus,
@@ -109,8 +109,8 @@ describe('PdfCrop', () => {
     return { target: { value } } as unknown as Event;
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
   function primaryButton(): HTMLButtonElement {
@@ -122,28 +122,28 @@ describe('PdfCrop', () => {
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
+      'planJob',
+      'inspectFiles',
       'getThumbnail',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'listToolsV1',
+      'listTools',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -151,16 +151,16 @@ describe('PdfCrop', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(status(jobId, 'running', [])),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -173,7 +173,7 @@ describe('PdfCrop', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
@@ -198,7 +198,7 @@ describe('PdfCrop', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
     const request = lastPlanRequest();
     expect(request.toolId).toBe('tool.pdf.crop');
     expect(request.mode).toBe('single');
@@ -240,11 +240,11 @@ describe('PdfCrop', () => {
   it('refreshes the plan when the preset changes', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.pdf']);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
 
     component.selectPreset('medium');
     flushMicrotasks();
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(2);
     expect(lastPlanRequest().options['cropPreset']).toBe('medium');
 
     component.selectPreset('none');
@@ -325,18 +325,18 @@ describe('PdfCrop', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(2);
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.pdf.crop');
     expect(request.mode).toBe('batch');
     expect(request.inputPaths).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
     expect(request.options['cropPreset']).toBe('small');
     expect(
-      (wailsSpy as unknown as { validateJobV1?: unknown }).validateJobV1,
+      (wailsSpy as unknown as { validateJob?: unknown }).validateJob,
     ).toBeUndefined();
-    expect(wailsSpy.getJobStatusV1).toHaveBeenCalled();
+    expect(wailsSpy.getJobStatus).toHaveBeenCalled();
     expect(component.isPolling()).toBeTrue();
     expect(component.activeJobId()).toBe('job-1');
   }));
@@ -353,13 +353,13 @@ describe('PdfCrop', () => {
       },
     ]);
 
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(completed);
+    wailsSpy.getJobStatus.and.resolveTo(completed);
 
     component.onPathsSelected(['/tmp/a.pdf']);
     flushMicrotasks();
@@ -371,7 +371,7 @@ describe('PdfCrop', () => {
     expect(component.terminalJob()?.status).toBe('success');
     expect(fixture.nativeElement.textContent).toContain('1 PDF cropped');
 
-    const inspectedPaths = wailsSpy.inspectFilesV1.calls
+    const inspectedPaths = wailsSpy.inspectFiles.calls
       .allArgs()
       .map((args) => args[0] as string[]);
     expect(
@@ -448,7 +448,7 @@ describe('PdfCrop', () => {
   }));
 
   it('shows a crop overlay with preset margins scaled to the page size', fakeAsync(() => {
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',

@@ -1,4 +1,4 @@
-import { JobErrorV1 } from './wails';
+import { JobError } from './wails';
 
 export type ToolErrorAction =
   | 'retry'
@@ -198,7 +198,7 @@ export function looksTechnicalMessage(message: string): boolean {
  * Resolution order: detail_code, canonical code, then message patterns.
  */
 export function describeToolError(
-  error?: JobErrorV1 | null,
+  error?: JobError | null,
   fallback?: string,
 ): ToolErrorCopy {
   const message =

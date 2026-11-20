@@ -9,12 +9,12 @@ import { Subject } from 'rxjs';
 
 import { VideoConvert } from './video-convert';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -22,9 +22,9 @@ describe('VideoConvert', () => {
   let fixture: ComponentFixture<VideoConvert>;
   let component: VideoConvert;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const format = String(request.options['targetFormat'] ?? 'mp4');
     return {
       success: true,
@@ -41,7 +41,7 @@ describe('VideoConvert', () => {
     };
   }
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -55,8 +55,8 @@ describe('VideoConvert', () => {
     };
   }
 
-  function runningStatus(jobId: string): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  function runningStatus(jobId: string): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: false,
       message: 'running',
@@ -78,8 +78,8 @@ describe('VideoConvert', () => {
     jobId: string,
     inputPath: string,
     outputPath: string,
-  ): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  ): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: true,
       message: 'done',
@@ -117,45 +117,45 @@ describe('VideoConvert', () => {
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'planJob',
+      'inspectFiles',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'listToolsV1',
-      'validateJobV1',
+      'listTools',
+      'validateJob',
       'getThumbnail',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
         files: paths.map(fileInfo),
       }),
     );
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-default',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(runningStatus(jobId)),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -169,12 +169,12 @@ describe('VideoConvert', () => {
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.getThumbnail.and.resolveTo(null);
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
     });
-    wailsSpy.validateJobV1.and.resolveTo({
+    wailsSpy.validateJob.and.resolveTo({
       success: true,
       message: 'ok',
       valid: true,
@@ -198,9 +198,9 @@ describe('VideoConvert', () => {
     component.onPathsSelected(['/tmp/clip.mov']);
     flushMicrotasks();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.video.convert');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/clip.mov']);
@@ -221,8 +221,8 @@ describe('VideoConvert', () => {
     component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mkv']);
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.mode).toBe('batch');
     expect(request.inputPaths).toEqual(['/tmp/a.mp4', '/tmp/b.mkv']);
     expect(component.plan()?.outputs.length).toBe(2);
@@ -237,8 +237,8 @@ describe('VideoConvert', () => {
     component.selectPreset('webm-balanced');
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['targetFormat']).toBe('webm');
     expect(request.options['qualityPreset']).toBe('medium');
     expect(component.selectedPresetId()).toBe('webm-balanced');
@@ -254,8 +254,8 @@ describe('VideoConvert', () => {
     tick(200);
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['targetFormat']).toBe('webm');
     expect(request.options['qualityPreset']).toBe('high');
     expect(component.hasAdvancedOverrides()).toBeTrue();
@@ -263,8 +263,8 @@ describe('VideoConvert', () => {
     component.selectPreset('mp4-small');
     flushMicrotasks();
 
-    const presetRequest = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const presetRequest = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(presetRequest.options['targetFormat']).toBe('mp4');
     expect(presetRequest.options['qualityPreset']).toBe('low');
     expect(component.hasAdvancedOverrides()).toBeFalse();
@@ -280,8 +280,8 @@ describe('VideoConvert', () => {
     tick(200);
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['resolution']).toBe('720p');
     expect(request.options['bitrateKbps']).toBe(5000);
     expect(request.options['removeAudio']).toBeTrue();
@@ -292,8 +292,8 @@ describe('VideoConvert', () => {
     component.onPathsSelected(['/tmp/clip.mov']);
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['resolution']).toBe('original');
     expect('bitrateKbps' in request.options).toBeFalse();
     expect('removeAudio' in request.options).toBeFalse();
@@ -318,8 +318,8 @@ describe('VideoConvert', () => {
     expect(component.removeAudio()).toBeFalse();
     expect(component.hasAdvancedOverrides()).toBeFalse();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['targetFormat']).toBe('mp4');
     expect(request.options['qualityPreset']).toBe('medium');
     expect(request.options['resolution']).toBe('original');
@@ -346,7 +346,7 @@ describe('VideoConvert', () => {
   }));
 
   it('runs directly from the plan without a validate step', fakeAsync(() => {
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-1',
@@ -359,12 +359,12 @@ describe('VideoConvert', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.video.convert');
     expect(request.options['targetFormat']).toBe('mp4');
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.validateJob).not.toHaveBeenCalled();
     expect(component.isPolling()).toBeTrue();
     expect(component.activeJobId()).toBe('job-1');
     fixture.destroy();
@@ -374,13 +374,13 @@ describe('VideoConvert', () => {
     const inputPath = '/tmp/in/clip.mov';
     const outputPath = '/tmp/in/clip_converted.mp4';
 
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       terminalStatus('job-2', inputPath, outputPath),
     );
 
@@ -421,8 +421,8 @@ describe('VideoConvert', () => {
     expect(component.isDefaultDestination()).toBeFalse();
     expect(component.destinationLabel()).toBe('/tmp/out');
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.outputDir).toBe('/tmp/out');
 
     component.useOriginalFolders();
@@ -440,6 +440,6 @@ describe('VideoConvert', () => {
     expect(component.notice()?.text).toBe(
       "2 files weren't added. TXT and PNG aren't supported.",
     );
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 });

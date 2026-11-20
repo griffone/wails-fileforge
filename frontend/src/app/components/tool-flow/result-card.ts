@@ -20,13 +20,13 @@ import {
   X,
 } from 'lucide-angular';
 import {
-  FileInfoV1,
-  JobErrorV1,
-  JobResultV1,
-  UndoResultV1,
-  UndoSkippedV1,
-  VerificationCheckV1,
-  VerificationReportV1,
+  FileInfo,
+  JobError,
+  JobResult,
+  UndoResult,
+  UndoSkipped,
+  VerificationCheck,
+  VerificationReport,
   Wails,
 } from '../../services/wails';
 import { describeToolError } from '../../services/tool-error';
@@ -78,7 +78,7 @@ type UndoMode = 'undo' | 'restore';
   styleUrl: './result-card.css',
 })
 export class ResultCard implements DoCheck {
-  private jobValue: JobResultV1 | null = null;
+  private jobValue: JobResult | null = null;
   private pendingRecord = false;
   private pendingVerify = false;
   private recordRecentValue = true;
@@ -86,18 +86,18 @@ export class ResultCard implements DoCheck {
   private verificationGeneration = 0;
   private readonly verificationRequestedJobIds = new Set<string>();
 
-  verifyReport: VerificationReportV1 | null = null;
+  verifyReport: VerificationReport | null = null;
   verifyLoading = false;
   verifyUnavailable = false;
 
   undoBusy = false;
   undoMessage = '';
   undoTone: 'success' | 'warning' = 'success';
-  undoSkipped: UndoSkippedV1[] = [];
+  undoSkipped: UndoSkipped[] = [];
   undoMode: UndoMode = 'undo';
 
   @Input()
-  set job(value: JobResultV1 | null) {
+  set job(value: JobResult | null) {
     const previousJobId = this.jobValue?.jobId ?? '';
     this.jobValue = value;
 
@@ -114,12 +114,12 @@ export class ResultCard implements DoCheck {
     }
   }
 
-  get job(): JobResultV1 | null {
+  get job(): JobResult | null {
     return this.jobValue;
   }
 
   @Input()
-  set verification(value: VerificationReportV1 | null) {
+  set verification(value: VerificationReport | null) {
     this.verificationInputProvided = true;
     this.verifyReport = value;
     this.pendingVerify = false;
@@ -127,7 +127,7 @@ export class ResultCard implements DoCheck {
     this.verifyUnavailable = false;
   }
 
-  get verification(): VerificationReportV1 | null {
+  get verification(): VerificationReport | null {
     return this.verifyReport;
   }
 
@@ -141,7 +141,7 @@ export class ResultCard implements DoCheck {
   }
 
   @Input() undoEnabled = true;
-  @Input() fileInfos: Record<string, FileInfoV1> = {};
+  @Input() fileInfos: Record<string, FileInfo> = {};
   @Input() toolLabel = 'file';
   /** Past-tense verb for the success summary, e.g. `converted`, `split`. */
   @Input() verbPast = 'converted';
@@ -183,7 +183,7 @@ export class ResultCard implements DoCheck {
     }
   }
 
-  private recordTerminalJob(job: JobResultV1 | null): void {
+  private recordTerminalJob(job: JobResult | null): void {
     if (
       !this.recordRecentValue ||
       !job ||
@@ -233,9 +233,9 @@ export class ResultCard implements DoCheck {
     this.verifyUnavailable = false;
     this.verifyLoading = true;
 
-    let report: VerificationReportV1 | null = null;
+    let report: VerificationReport | null = null;
     try {
-      report = await this.wailsService.verifyJobV1(job.jobId);
+      report = await this.wailsService.verifyJob(job.jobId);
     } catch {
       report = null;
     }
@@ -327,12 +327,12 @@ export class ResultCard implements DoCheck {
     });
   }
 
-  verifyChecks(): VerificationCheckV1[] {
+  verifyChecks(): VerificationCheck[] {
     const outputs = this.verifyReport?.outputs ?? [];
     return outputs.length > 0 ? (outputs[0].checks ?? []).slice(0, 4) : [];
   }
 
-  verifyCheckText(check: VerificationCheckV1): string {
+  verifyCheckText(check: VerificationCheck): string {
     return check.value ? `${check.label} · ${check.value}` : check.label;
   }
 
@@ -340,7 +340,7 @@ export class ResultCard implements DoCheck {
     return (this.verifyReport?.warnings ?? []).slice(0, 3);
   }
 
-  private verificationTotals(report: VerificationReportV1): {
+  private verificationTotals(report: VerificationReport): {
     passed: number;
     total: number;
   } {
@@ -398,8 +398,8 @@ export class ResultCard implements DoCheck {
     try {
       const result =
         action === 'undo'
-          ? await this.wailsService.undoJobV1(job.jobId)
-          : await this.wailsService.restoreJobV1(job.jobId);
+          ? await this.wailsService.undoJob(job.jobId)
+          : await this.wailsService.restoreJob(job.jobId);
       this.applyUndoResult(result, action);
     } catch {
       this.undoMessage =
@@ -412,7 +412,7 @@ export class ResultCard implements DoCheck {
   }
 
   private applyUndoResult(
-    result: UndoResultV1 | null | undefined,
+    result: UndoResult | null | undefined,
     action: UndoMode,
   ): void {
     const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
@@ -434,7 +434,7 @@ export class ResultCard implements DoCheck {
     this.undoTone = 'success';
   }
 
-  summaryTitle(job: JobResultV1 | null): string {
+  summaryTitle(job: JobResult | null): string {
     if (!job) {
       return '';
     }
@@ -455,7 +455,7 @@ export class ResultCard implements DoCheck {
     }
   }
 
-  summaryDetail(job: JobResultV1 | null): string {
+  summaryDetail(job: JobResult | null): string {
     if (!job) {
       return '';
     }
@@ -477,7 +477,7 @@ export class ResultCard implements DoCheck {
     }
   }
 
-  summaryTone(job: JobResultV1 | null): SummaryTone {
+  summaryTone(job: JobResult | null): SummaryTone {
     switch (job?.status) {
       case 'success':
         return 'success';
@@ -491,7 +491,7 @@ export class ResultCard implements DoCheck {
     }
   }
 
-  summaryIcon(job: JobResultV1 | null) {
+  summaryIcon(job: JobResult | null) {
     switch (job?.status) {
       case 'success':
         return this.checkIcon;
@@ -594,7 +594,7 @@ export class ResultCard implements DoCheck {
     const lines: string[] = [];
     const seen = new Set<string>();
 
-    const addError = (error?: JobErrorV1): void => {
+    const addError = (error?: JobError): void => {
       if (!error) {
         return;
       }

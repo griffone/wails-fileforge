@@ -4,9 +4,9 @@ import { EMPTY } from 'rxjs';
 
 import { App } from './app';
 import { GlobalDropService } from './services/global-drop.service';
-import { ToolchainStatusV1, Wails } from './services/wails';
+import { ToolchainStatus, Wails } from './services/wails';
 
-const TOOLCHAIN_FALLBACK: ToolchainStatusV1 = {
+const TOOLCHAIN_FALLBACK: ToolchainStatus = {
   success: false,
   message: 'Toolchain IPC unavailable in the test shell.',
   ready: false,
@@ -21,16 +21,16 @@ const TOOLCHAIN_FALLBACK: ToolchainStatusV1 = {
 function createWailsStub(): jasmine.SpyObj<Wails> {
   const stub = jasmine.createSpyObj<Wails>('Wails', [
     'isRuntimeAvailable',
-    'getToolchainStatusV1',
-    'getToolchainInstallStateV1',
-    'startToolchainInstallV1',
-    'cancelToolchainInstallV1',
+    'getToolchainStatus',
+    'getToolchainInstallState',
+    'startToolchainInstall',
+    'cancelToolchainInstall',
   ]);
   stub.isRuntimeAvailable.and.returnValue(false);
-  stub.getToolchainStatusV1.and.resolveTo(TOOLCHAIN_FALLBACK);
-  stub.getToolchainInstallStateV1.and.resolveTo(TOOLCHAIN_FALLBACK);
-  stub.startToolchainInstallV1.and.resolveTo(TOOLCHAIN_FALLBACK);
-  stub.cancelToolchainInstallV1.and.resolveTo(TOOLCHAIN_FALLBACK);
+  stub.getToolchainStatus.and.resolveTo(TOOLCHAIN_FALLBACK);
+  stub.getToolchainInstallState.and.resolveTo(TOOLCHAIN_FALLBACK);
+  stub.startToolchainInstall.and.resolveTo(TOOLCHAIN_FALLBACK);
+  stub.cancelToolchainInstall.and.resolveTo(TOOLCHAIN_FALLBACK);
   (stub as unknown as { toolchainInstall$: unknown }).toolchainInstall$ = EMPTY;
   return stub;
 }

@@ -9,12 +9,12 @@ import { Subject } from 'rxjs';
 
 import { VideoMerge } from './video-merge';
 import {
-  FileInfoV1,
-  JobProgressEventV1,
-  JobRequestV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobProgressEvent,
+  JobRequest,
+  JobResult,
+  JobStatusResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -22,9 +22,9 @@ describe('VideoMerge', () => {
   let fixture: ComponentFixture<VideoMerge>;
   let component: VideoMerge;
   let wailsSpy: jasmine.SpyObj<Wails>;
-  let jobProgressSubject: Subject<JobProgressEventV1>;
+  let jobProgressSubject: Subject<JobProgressEvent>;
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const format = String(request.options['targetFormat'] ?? 'mp4');
     const first = request.inputPaths[0] ?? '/tmp/video';
     const stem = (first.split(/[\\/]/).pop() ?? 'video').replace(
@@ -49,7 +49,7 @@ describe('VideoMerge', () => {
     };
   }
 
-  function fileInfo(path: string): FileInfoV1 {
+  function fileInfo(path: string): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     return {
       path,
@@ -63,8 +63,8 @@ describe('VideoMerge', () => {
     };
   }
 
-  function runningStatus(jobId: string): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  function runningStatus(jobId: string): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: false,
       message: 'running',
@@ -86,8 +86,8 @@ describe('VideoMerge', () => {
     jobId: string,
     inputPath: string,
     outputPath: string,
-  ): JobStatusResponseV1 {
-    const result: JobResultV1 = {
+  ): JobStatusResponse {
+    const result: JobResult = {
       jobId,
       success: true,
       message: 'done',
@@ -125,45 +125,45 @@ describe('VideoMerge', () => {
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'planJobV1',
-      'inspectFilesV1',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'planJob',
+      'inspectFiles',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openPath',
       'revealInFolder',
       'openMultipleFilesDialog',
       'openDirectoryDialog',
       'isRuntimeAvailable',
-      'listToolsV1',
-      'validateJobV1',
+      'listTools',
+      'validateJob',
       'getThumbnail',
     ]);
 
-    jobProgressSubject = new Subject<JobProgressEventV1>();
+    jobProgressSubject = new Subject<JobProgressEvent>();
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ =
       jobProgressSubject.asObservable();
 
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
         files: paths.map(fileInfo),
       }),
     );
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-default',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(runningStatus(jobId)),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancelled',
       jobId: 'job-1',
@@ -177,12 +177,12 @@ describe('VideoMerge', () => {
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.getThumbnail.and.resolveTo(null);
     wailsSpy.isRuntimeAvailable.and.returnValue(true);
-    wailsSpy.listToolsV1.and.resolveTo({
+    wailsSpy.listTools.and.resolveTo({
       success: true,
       message: 'ok',
       tools: [],
     });
-    wailsSpy.validateJobV1.and.resolveTo({
+    wailsSpy.validateJob.and.resolveTo({
       success: true,
       message: 'ok',
       valid: true,
@@ -210,16 +210,16 @@ describe('VideoMerge', () => {
     expect(component.canRun()).toBeFalse();
     expect(component.primaryLabel()).toBe('Merge videos');
     expect(component.actionHelper()).toBe('Add one more video to merge.');
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 
   it('plans a merge with the default preset', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
     flushMicrotasks();
 
-    expect(wailsSpy.planJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.video.merge');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/a.mp4', '/tmp/b.mov']);
@@ -244,8 +244,8 @@ describe('VideoMerge', () => {
       '/tmp/c.mkv',
     ]);
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.inputPaths).toEqual([
       '/tmp/b.mov',
       '/tmp/a.mp4',
@@ -263,8 +263,8 @@ describe('VideoMerge', () => {
     component.selectPreset('webm-balanced');
     flushMicrotasks();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['targetFormat']).toBe('webm');
     expect(request.options['qualityPreset']).toBe('medium');
 
@@ -273,7 +273,7 @@ describe('VideoMerge', () => {
 
     expect(component.outputDir()).toBe('/tmp/out');
     expect(component.destinationLabel()).toBe('/tmp/out');
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.outputDir).toBe('/tmp/out');
     expect(component.plan()?.outputs[0].outputPath).toBe(
       '/tmp/out/a_merged.webm',
@@ -289,28 +289,28 @@ describe('VideoMerge', () => {
     component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
     flushMicrotasks();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect('removeAudio' in request.options).toBeFalse();
 
     component.onRemoveAudioToggle(checkedEvent(true));
     flushMicrotasks();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.options['removeAudio']).toBeTrue();
     expect(component.removeAudio()).toBeTrue();
 
     void component.run();
     flushMicrotasks();
 
-    const runRequest = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const runRequest = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(runRequest.options['removeAudio']).toBeTrue();
 
     component.onRemoveAudioToggle(checkedEvent(false));
     flushMicrotasks();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect('removeAudio' in request.options).toBeFalse();
   }));
 
@@ -318,8 +318,8 @@ describe('VideoMerge', () => {
     component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
     flushMicrotasks();
 
-    const request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect('transition' in request.options).toBeFalse();
     expect('transitionDuration' in request.options).toBeFalse();
 
@@ -337,8 +337,8 @@ describe('VideoMerge', () => {
     component.onTransitionChange(valueEvent('crossfade'));
     flushMicrotasks();
 
-    let request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['transition']).toBe('crossfade');
     expect(request.options['transitionDuration']).toBe(0.5);
 
@@ -346,14 +346,14 @@ describe('VideoMerge', () => {
     tick(200);
     flushMicrotasks();
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.options['transitionDuration']).toBe(1.5);
 
     void component.run();
     flushMicrotasks();
 
-    const runRequest = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const runRequest = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(runRequest.options['transition']).toBe('crossfade');
     expect(runRequest.options['transitionDuration']).toBe(1.5);
   }));
@@ -386,36 +386,36 @@ describe('VideoMerge', () => {
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('refreshes the plan when the transition changes', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
     flushMicrotasks();
-    const plannedOnce = wailsSpy.planJobV1.calls.count();
+    const plannedOnce = wailsSpy.planJob.calls.count();
 
     component.onTransitionChange(valueEvent('crossfade'));
     flushMicrotasks();
-    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 1);
+    expect(wailsSpy.planJob.calls.count()).toBe(plannedOnce + 1);
 
     component.onTransitionDurationInput(valueEvent('1.2'));
     tick(199);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 1);
+    expect(wailsSpy.planJob.calls.count()).toBe(plannedOnce + 1);
 
     tick(1);
     flushMicrotasks();
-    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 2);
+    expect(wailsSpy.planJob.calls.count()).toBe(plannedOnce + 2);
 
-    let request = wailsSpy.planJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    let request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['transitionDuration']).toBe(1.2);
 
     component.onTransitionChange(valueEvent('none'));
     flushMicrotasks();
-    expect(wailsSpy.planJobV1.calls.count()).toBe(plannedOnce + 3);
+    expect(wailsSpy.planJob.calls.count()).toBe(plannedOnce + 3);
 
-    request = wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    request = wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
     expect('transition' in request.options).toBeFalse();
     expect('transitionDuration' in request.options).toBeFalse();
   }));
@@ -432,8 +432,8 @@ describe('VideoMerge', () => {
     void component.run();
     flushMicrotasks();
 
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.options['transition']).toBe('crossfade');
     expect(request.options['transitionDuration']).toBe(0.5);
     expect(request.options['removeAudio']).toBeTrue();
@@ -460,13 +460,13 @@ describe('VideoMerge', () => {
   it('runs without a validate step and shows the terminal result', fakeAsync(() => {
     const outputPath = '/tmp/a_merged.mp4';
 
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'job-2',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       terminalStatus('job-2', '/tmp/a.mp4', outputPath),
     );
 
@@ -476,13 +476,13 @@ describe('VideoMerge', () => {
     void component.run();
     flushMicrotasks();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent()
-      .args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.video.merge');
     expect(request.mode).toBe('single');
     expect(request.inputPaths).toEqual(['/tmp/a.mp4', '/tmp/b.mov']);
-    expect(wailsSpy.validateJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.validateJob).not.toHaveBeenCalled();
     expect(component.isPolling()).toBeFalse();
     expect(component.terminalJob()?.status).toBe('success');
     expect(component.outputInfos()[outputPath].sizeBytes).toBe(2048);
@@ -503,6 +503,6 @@ describe('VideoMerge', () => {
     expect(component.notice()?.text).toBe(
       "notes.txt, photo.png weren't added because they aren't videos.",
     );
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 });

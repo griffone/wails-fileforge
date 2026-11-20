@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { PdfSplitPreview } from './pdf-split-preview';
 import { PdfRendererService } from '../../services/pdf-renderer.service';
-import { PDFPreviewSourceResponseV1, Wails } from '../../services/wails';
+import { PDFPreviewSourceResponse, Wails } from '../../services/wails';
 
 type PreviewStrategy =
   | 'every_page'
@@ -27,7 +27,7 @@ describe('PdfSplitPreview', () => {
     };
   }
 
-  function previewSource(): PDFPreviewSourceResponseV1 {
+  function previewSource(): PDFPreviewSourceResponse {
     return {
       success: true,
       message: 'ok',

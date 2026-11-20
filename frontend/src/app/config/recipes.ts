@@ -7,7 +7,7 @@ import {
   type LucideIconData,
 } from 'lucide-angular';
 
-import { RecipeV1 } from '../services/wails';
+import { Recipe } from '../services/wails';
 
 /**
  * A curated outcome that chains several tools behind one action.
@@ -26,7 +26,7 @@ export interface RecipeDefinition {
   formats: string[];
   icon: LucideIconData;
   /** Full recipe definition used in preview mode before (or without) IPC. */
-  fallback: RecipeV1;
+  fallback: Recipe;
 }
 
 const MEGABYTE = 1024 * 1024;
@@ -218,7 +218,7 @@ export const RECIPES: readonly RecipeDefinition[] = [
 ];
 
 /** Static definition for a recipe, used before the catalog answers or offline. */
-export function findRecipeFallback(recipeId: string): RecipeV1 | null {
+export function findRecipeFallback(recipeId: string): Recipe | null {
   const found = RECIPES.find((recipe) => recipe.id === recipeId);
   return found ? found.fallback : null;
 }

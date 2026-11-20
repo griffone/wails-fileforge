@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { JobCard } from './job-card';
-import { JobResultV1 } from '../../services/wails';
+import { JobResult } from '../../services/wails';
 
 describe('JobCard', () => {
   let fixture: ComponentFixture<JobCard>;
@@ -13,7 +13,7 @@ describe('JobCard', () => {
   });
 
   it('maps uploading payload to uploading stage with bytes info', () => {
-    const job: JobResultV1 = {
+    const job: JobResult = {
       jobId: 'j1',
       success: false,
       message: 'uploading',
@@ -35,7 +35,7 @@ describe('JobCard', () => {
   });
 
   it('maps processing payload to processing stage with item counts', () => {
-    const job: JobResultV1 = {
+    const job: JobResult = {
       jobId: 'j2',
       success: false,
       message: 'processing',

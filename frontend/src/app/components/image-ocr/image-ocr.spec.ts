@@ -10,13 +10,13 @@ import { EMPTY } from 'rxjs';
 import { ImageOcr } from './image-ocr';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import {
-  FileInfoV1,
-  JobRequestV1,
-  JobResultItemV1,
-  JobResultV1,
-  JobStatusResponseV1,
-  OCRCapabilitiesResponseV1,
-  PlanJobResponseV1,
+  FileInfo,
+  JobRequest,
+  JobResultItem,
+  JobResult,
+  JobStatusResponse,
+  OCRCapabilitiesResponse,
+  PlanJobResponse,
   Wails,
 } from '../../services/wails';
 
@@ -30,8 +30,8 @@ describe('ImageOcr', () => {
   }
 
   function capabilities(
-    overrides: Partial<OCRCapabilitiesResponseV1> = {},
-  ): OCRCapabilitiesResponseV1 {
+    overrides: Partial<OCRCapabilitiesResponse> = {},
+  ): OCRCapabilitiesResponse {
     return {
       success: true,
       message: 'Local OCR is available with 2 installed languages.',
@@ -45,7 +45,7 @@ describe('ImageOcr', () => {
     };
   }
 
-  function fileInfo(path: string, sizeBytes = 2048): FileInfoV1 {
+  function fileInfo(path: string, sizeBytes = 2048): FileInfo {
     const name = path.split(/[\\/]/).pop() ?? path;
     const extension = name.split('.').pop() ?? '';
     return {
@@ -69,11 +69,11 @@ describe('ImageOcr', () => {
     return { target: { checked } } as unknown as Event;
   }
 
-  function lastPlanRequest(): JobRequestV1 {
-    return wailsSpy.planJobV1.calls.mostRecent().args[0] as JobRequestV1;
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
-  function planResponse(request: JobRequestV1): PlanJobResponseV1 {
+  function planResponse(request: JobRequest): PlanJobResponse {
     const writePdf = request.options['writePdf'] === true;
     const outputs = request.inputPaths.flatMap((inputPath) => {
       const stem = inputPath.replace(/\.[^./\\]+$/, '');
@@ -112,9 +112,9 @@ describe('ImageOcr', () => {
 
   function status(
     jobId: string,
-    jobStatus: JobResultV1['status'],
-    items: JobResultItemV1[],
-  ): JobStatusResponseV1 {
+    jobStatus: JobResult['status'],
+    items: JobResultItem[],
+  ): JobStatusResponse {
     return {
       success: true,
       message: jobStatus,
@@ -139,8 +139,8 @@ describe('ImageOcr', () => {
   }
 
   /** Creates the page with the given capabilities and renders the first frame. */
-  function create(caps: OCRCapabilitiesResponseV1 = capabilities()): void {
-    wailsSpy.getOCRCapabilitiesV1.and.resolveTo(caps);
+  function create(caps: OCRCapabilitiesResponse = capabilities()): void {
+    wailsSpy.getOCRCapabilities.and.resolveTo(caps);
     fixture = TestBed.createComponent(ImageOcr);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -150,23 +150,23 @@ describe('ImageOcr', () => {
     localStorage.removeItem('ff-preferences');
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
-      'getOCRCapabilitiesV1',
-      'inspectFilesV1',
+      'getOCRCapabilities',
+      'inspectFiles',
       'getThumbnail',
-      'planJobV1',
-      'runJobV1',
-      'getJobStatusV1',
-      'cancelJobV1',
+      'planJob',
+      'runJob',
+      'getJobStatus',
+      'cancelJob',
       'openDirectoryDialog',
       'openMultipleFilesDialog',
       'openPath',
       'revealInFolder',
-      'verifyJobV1',
+      'verifyJob',
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
 
-    wailsSpy.getOCRCapabilitiesV1.and.resolveTo(capabilities());
-    wailsSpy.inspectFilesV1.and.callFake((paths: string[]) =>
+    wailsSpy.getOCRCapabilities.and.resolveTo(capabilities());
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
         message: 'ok',
@@ -174,19 +174,19 @@ describe('ImageOcr', () => {
       }),
     );
     wailsSpy.getThumbnail.and.resolveTo(null);
-    wailsSpy.planJobV1.and.callFake((request: JobRequestV1) =>
+    wailsSpy.planJob.and.callFake((request: JobRequest) =>
       Promise.resolve(planResponse(request)),
     );
-    wailsSpy.runJobV1.and.resolveTo({
+    wailsSpy.runJob.and.resolveTo({
       success: true,
       message: 'queued',
       jobId: 'image-ocr-job-1',
       status: 'queued',
     });
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) =>
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
       Promise.resolve(status(jobId, 'running', [])),
     );
-    wailsSpy.cancelJobV1.and.resolveTo({
+    wailsSpy.cancelJob.and.resolveTo({
       success: true,
       message: 'cancel requested',
       jobId: 'image-ocr-job-1',
@@ -195,7 +195,7 @@ describe('ImageOcr', () => {
     wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
     wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
     wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
-    wailsSpy.verifyJobV1.and.resolveTo({
+    wailsSpy.verifyJob.and.resolveTo({
       success: false,
       message: 'unavailable',
       outputs: [],
@@ -225,7 +225,7 @@ describe('ImageOcr', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.getOCRCapabilitiesV1).toHaveBeenCalled();
+    expect(wailsSpy.getOCRCapabilities).toHaveBeenCalled();
     expect(component.ocrAvailable()).toBeTrue();
     expect(component.ocrBlocked()).toBeFalse();
     expect(component.capabilityBanner()).toBeNull();
@@ -291,11 +291,11 @@ describe('ImageOcr', () => {
       'Local image OCR is unavailable on this machine.',
     );
     expect(query<HTMLButtonElement>('.action-primary')?.disabled).toBeTrue();
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
 
     void component.run();
     flushMicrotasks();
-    expect(wailsSpy.runJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
   }));
 
   it('blocks the plan and run when no language data is installed', fakeAsync(() => {
@@ -323,7 +323,7 @@ describe('ImageOcr', () => {
     tick(250);
     flushMicrotasks();
 
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
     expect(component.canRun()).toBeFalse();
   }));
 
@@ -413,8 +413,8 @@ describe('ImageOcr', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    wailsSpy.getJobStatusV1.and.callFake((jobId: string) => {
-      const calls = wailsSpy.getJobStatusV1.calls.all().length;
+    wailsSpy.getJobStatus.and.callFake((jobId: string) => {
+      const calls = wailsSpy.getJobStatus.calls.all().length;
       if (calls <= 1) {
         return Promise.resolve(status(jobId, 'running', []));
       }
@@ -440,8 +440,8 @@ describe('ImageOcr', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(wailsSpy.runJobV1).toHaveBeenCalledTimes(1);
-    const request = wailsSpy.runJobV1.calls.mostRecent().args[0] as JobRequestV1;
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent().args[0] as JobRequest;
     expect(request.toolId).toBe('tool.image.ocr');
     expect(request.options).toEqual({
       language: 'eng',
@@ -473,7 +473,7 @@ describe('ImageOcr', () => {
     tick(250);
     flushMicrotasks();
 
-    wailsSpy.getJobStatusV1.and.resolveTo(
+    wailsSpy.getJobStatus.and.resolveTo(
       status('image-ocr-job-1', 'success', [
         {
           inputPath: '/tmp/in/blank.png',
@@ -512,7 +512,7 @@ describe('ImageOcr', () => {
     expect(component.notice()?.text).toBe(
       "1 file wasn't added. HEIC isn't supported.",
     );
-    expect(wailsSpy.planJobV1).not.toHaveBeenCalled();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 
   it('uses batch mode for several images', fakeAsync(() => {
@@ -550,6 +550,6 @@ describe('ImageOcr', () => {
       '/tmp/queued-one.png',
       '/tmp/queued-two.jpg',
     ]);
-    expect(wailsSpy.planJobV1).toHaveBeenCalled();
+    expect(wailsSpy.planJob).toHaveBeenCalled();
   }));
 });

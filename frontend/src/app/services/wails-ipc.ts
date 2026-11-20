@@ -22,163 +22,163 @@ import type * as PreviewModels from '../../../bindings/fileforge-desktop/interna
 @Injectable({ providedIn: 'root' })
 export class WailsIpc {
   // Tools and jobs.
-  listToolsV1(): Promise<Models.ListToolsResponse> {
+  listTools(): Promise<Models.ListToolsResponse> {
     return ToolService.ListTools();
   }
 
-  validateJobV1(
+  validateJob(
     request: Models.JobRequest,
   ): Promise<Models.ValidateJobResponse> {
     return ToolService.ValidateJob(request);
   }
 
-  planJobV1(request: Models.JobRequest): Promise<Models.PlanJobResponse> {
+  planJob(request: Models.JobRequest): Promise<Models.PlanJobResponse> {
     return ToolService.PlanJob(request);
   }
 
-  runJobV1(request: Models.JobRequest): Promise<Models.RunJobResponse> {
+  runJob(request: Models.JobRequest): Promise<Models.RunJobResponse> {
     return ToolService.RunJob(request);
   }
 
-  cancelJobV1(jobId: string): Promise<Models.CancelJobResponse> {
+  cancelJob(jobId: string): Promise<Models.CancelJobResponse> {
     return ToolService.CancelJob(jobId);
   }
 
-  getJobStatusV1(jobId: string): Promise<Models.JobStatusResponse> {
+  getJobStatus(jobId: string): Promise<Models.JobStatusResponse> {
     return ToolService.GetJobStatus(jobId);
   }
 
-  listJobsV1(limit: number): Promise<Models.JobListResponse> {
+  listJobs(limit: number): Promise<Models.JobListResponse> {
     return ToolService.ListJobs(limit);
   }
 
-  verifyJobV1(jobId: string): Promise<Models.VerificationReport> {
+  verifyJob(jobId: string): Promise<Models.VerificationReport> {
     return ToolService.VerifyJob(jobId);
   }
 
-  async listJobHistoryV1(): Promise<Models.JobHistoryEntry[]> {
+  async listJobHistory(): Promise<Models.JobHistoryEntry[]> {
     return (await ToolService.ListJobHistory()) ?? [];
   }
 
-  undoJobV1(jobId: string): Promise<Models.UndoResult> {
+  undoJob(jobId: string): Promise<Models.UndoResult> {
     return ToolService.UndoJob(jobId);
   }
 
-  restoreJobV1(jobId: string): Promise<Models.UndoResult> {
+  restoreJob(jobId: string): Promise<Models.UndoResult> {
     return ToolService.RestoreJob(jobId);
   }
 
-  emptyTrashV1(): Promise<Models.PathActionResponse> {
+  emptyTrash(): Promise<Models.PathActionResponse> {
     return ToolService.EmptyTrash();
   }
 
   // Recipes.
-  listRecipesV1(): Promise<Models.ListRecipesResponse> {
+  listRecipes(): Promise<Models.ListRecipesResponse> {
     return RecipeService.ListRecipes();
   }
 
-  planRecipeV1(
+  planRecipe(
     request: Models.RecipeRequest,
   ): Promise<Models.RecipePlanResponse> {
     return RecipeService.PlanRecipe(request);
   }
 
-  runRecipeV1(
+  runRecipe(
     request: Models.RecipeRequest,
   ): Promise<Models.RunRecipeResponse> {
     return RecipeService.RunRecipe(request);
   }
 
-  getRecipeStatusV1(jobId: string): Promise<Models.RecipeStatusResponse> {
+  getRecipeStatus(jobId: string): Promise<Models.RecipeStatusResponse> {
     return RecipeService.GetRecipeStatus(jobId);
   }
 
-  async listRecipeRunsV1(limit: number): Promise<Models.RecipeResult[]> {
+  async listRecipeRuns(limit: number): Promise<Models.RecipeResult[]> {
     return (await RecipeService.ListRecipeRuns(limit)) ?? [];
   }
 
-  cancelRecipeV1(jobId: string): Promise<Models.RecipeStatusResponse> {
+  cancelRecipe(jobId: string): Promise<Models.RecipeStatusResponse> {
     return RecipeService.CancelRecipe(jobId);
   }
 
   // Automation.
-  listAutomationRulesV1(): Promise<Models.ListAutomationRulesResponse> {
+  listAutomationRules(): Promise<Models.ListAutomationRulesResponse> {
     return AutomationService.ListAutomationRules();
   }
 
-  saveAutomationRuleV1(
+  saveAutomationRule(
     rule: Models.AutomationRule,
   ): Promise<Models.AutomationRuleActionResponse> {
     return AutomationService.SaveAutomationRule(rule);
   }
 
-  deleteAutomationRuleV1(
+  deleteAutomationRule(
     id: string,
   ): Promise<Models.AutomationRuleActionResponse> {
     return AutomationService.DeleteAutomationRule(id);
   }
 
-  setAutomationRuleEnabledV1(
+  setAutomationRuleEnabled(
     id: string,
     enabled: boolean,
   ): Promise<Models.AutomationRuleActionResponse> {
     return AutomationService.SetAutomationRuleEnabled(id, enabled);
   }
 
-  getAutomationStatusV1(): Promise<Models.AutomationStatusResponse> {
+  getAutomationStatus(): Promise<Models.AutomationStatusResponse> {
     return AutomationService.GetAutomationStatus();
   }
 
-  listAutomationRunsV1(
+  listAutomationRuns(
     limit: number,
   ): Promise<Models.ListAutomationRunsResponse> {
     return AutomationService.ListAutomationRuns(limit);
   }
 
-  clearAutomationRunsV1(): Promise<Models.AutomationRunsActionResponse> {
+  clearAutomationRuns(): Promise<Models.AutomationRunsActionResponse> {
     return AutomationService.ClearAutomationRuns();
   }
 
   // Capabilities and toolchain.
-  getOcrCapabilitiesV1(): Promise<Models.OCRCapabilitiesResponse> {
+  getOcrCapabilities(): Promise<Models.OCRCapabilitiesResponse> {
     return SystemService.GetOCRCapabilities();
   }
 
-  getTranscriptionCapabilitiesV1(
+  getTranscriptionCapabilities(
     whisperPath: string,
     modelPath: string,
   ): Promise<Models.TranscriptionCapabilitiesResponse> {
     return SystemService.GetTranscriptionCapabilities(whisperPath, modelPath);
   }
 
-  getLocalCapabilitiesV1(): Promise<Models.LocalCapabilitiesResponse> {
+  getLocalCapabilities(): Promise<Models.LocalCapabilitiesResponse> {
     return SystemService.GetLocalCapabilities();
   }
 
-  getToolchainStatusV1(): Promise<Models.ToolchainStatus> {
+  getToolchainStatus(): Promise<Models.ToolchainStatus> {
     return ToolchainService.GetToolchainStatus();
   }
 
-  getToolchainInstallStateV1(): Promise<Models.ToolchainStatus> {
+  getToolchainInstallState(): Promise<Models.ToolchainStatus> {
     return ToolchainService.GetToolchainInstallState();
   }
 
-  startToolchainInstallV1(
+  startToolchainInstall(
     options: Models.ToolchainInstallOptions,
   ): Promise<Models.ToolchainStatus> {
     return ToolchainService.StartToolchainInstall(options);
   }
 
-  cancelToolchainInstallV1(): Promise<Models.ToolchainStatus> {
+  cancelToolchainInstall(): Promise<Models.ToolchainStatus> {
     return ToolchainService.CancelToolchainInstall();
   }
 
   // Inspection, dialogs, and system actions.
-  inspectFilesV1(paths: string[]): Promise<Models.InspectFilesResponse> {
+  inspectFiles(paths: string[]): Promise<Models.InspectFilesResponse> {
     return SystemService.InspectFiles(paths);
   }
 
-  notifyV1(title: string, body: string): Promise<Models.PathActionResponse> {
+  notify(title: string, body: string): Promise<Models.PathActionResponse> {
     return SystemService.Notify(title, body);
   }
 

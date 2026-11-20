@@ -4,9 +4,9 @@ import { Subject, Subscription, ReplaySubject, Observable } from 'rxjs';
 
 import { WailsIpc } from './wails-ipc';
 
-export type ToolRuntimeStatusV1 = 'enabled' | 'disabled' | 'degraded';
-export type JobModeV1 = 'single' | 'batch';
-export type JobExecutionStatusV1 =
+export type ToolRuntimeStatus = 'enabled' | 'disabled' | 'degraded';
+export type JobMode = 'single' | 'batch';
+export type JobExecutionStatus =
   | 'queued'
   | 'running'
   | 'success'
@@ -15,7 +15,7 @@ export type JobExecutionStatusV1 =
   | 'cancelled'
   | 'interrupted';
 
-export type CanonicalErrorCodeV1 =
+export type CanonicalErrorCode =
   | 'VALIDATION_INVALID_INPUT'
   | 'RUNTIME_DEP_MISSING'
   | 'EXEC_IO_TRANSIENT'
@@ -23,7 +23,7 @@ export type CanonicalErrorCodeV1 =
   | 'UNSUPPORTED_FORMAT'
   | 'CANCELLED_BY_USER';
 
-export interface ToolManifestV1 {
+export interface ToolManifest {
   toolId: string;
   name: string;
   description: string;
@@ -38,40 +38,40 @@ export interface ToolManifestV1 {
   tags: string[];
 }
 
-export interface ToolRuntimeStateV1 {
-  status: ToolRuntimeStatusV1;
+export interface ToolRuntimeState {
+  status: ToolRuntimeStatus;
   reason?: string;
   healthy: boolean;
 }
 
-export interface ToolCatalogEntryV1 {
-  manifest: ToolManifestV1;
-  state: ToolRuntimeStateV1;
+export interface ToolCatalogEntry {
+  manifest: ToolManifest;
+  state: ToolRuntimeState;
 }
 
-export interface ListToolsResponseV1 {
+export interface ListToolsResponse {
   success: boolean;
   message: string;
-  tools: ToolCatalogEntryV1[];
+  tools: ToolCatalogEntry[];
 }
 
-export interface JobErrorV1 {
-  code: CanonicalErrorCodeV1 | string;
+export interface JobError {
+  code: CanonicalErrorCode | string;
   detail_code?: string;
   message: string;
   details?: Record<string, unknown>;
 }
 
-export interface JobRequestV1 {
+export interface JobRequest {
   toolId: string;
-  mode: JobModeV1;
+  mode: JobMode;
   inputPaths: string[];
   outputDir: string;
   options: Record<string, unknown>;
   workers?: number;
 }
 
-export interface PlannedOutputV1 {
+export interface PlannedOutput {
   inputPath: string;
   outputPath: string;
   outputKind: string;
@@ -82,16 +82,16 @@ export interface PlannedOutputV1 {
   warnings?: string[];
 }
 
-export interface PlanJobResponseV1 {
+export interface PlanJobResponse {
   success: boolean;
   message: string;
-  outputs: PlannedOutputV1[];
+  outputs: PlannedOutput[];
   effectiveOptions?: Record<string, unknown>;
   warnings?: string[];
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface FileInfoV1 {
+export interface FileInfo {
   path: string;
   name: string;
   directory: string;
@@ -112,25 +112,25 @@ export interface FileInfoV1 {
   error?: string;
 }
 
-export interface InspectFilesResponseV1 {
+export interface InspectFilesResponse {
   success: boolean;
   message: string;
-  files: FileInfoV1[];
+  files: FileInfo[];
 }
 
-export interface PathActionResponseV1 {
+export interface PathActionResponse {
   success: boolean;
   message: string;
 }
 
-export interface MediaSourceResponseV1 {
+export interface MediaSourceResponse {
   success: boolean;
   url: string;
   fallbackUrl?: string;
   message: string;
 }
 
-export interface JobProgressV1 {
+export interface JobProgress {
   current: number;
   total: number;
   stage: string;
@@ -138,14 +138,14 @@ export interface JobProgressV1 {
   etaSeconds?: number;
 }
 
-export interface JobProgressEventV1 {
+export interface JobProgressEvent {
   jobId: string;
   toolId: string;
-  status: JobExecutionStatusV1 | string;
-  progress: JobProgressV1;
+  status: JobExecutionStatus | string;
+  progress: JobProgress;
 }
 
-export interface JobResultItemV1 {
+export interface JobResultItem {
   inputPath: string;
   outputPath: string;
   outputs?: string[];
@@ -154,77 +154,77 @@ export interface JobResultItemV1 {
   retryCount?: number;
   success: boolean;
   message: string;
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface JobResultV1 {
+export interface JobResult {
   jobId: string;
   success: boolean;
   message: string;
   toolId: string;
-  status: JobExecutionStatusV1;
-  progress: JobProgressV1;
-  items: JobResultItemV1[];
-  error?: JobErrorV1;
+  status: JobExecutionStatus;
+  progress: JobProgress;
+  items: JobResultItem[];
+  error?: JobError;
   startedAt: number;
   endedAt?: number;
 }
 
-export interface ValidateJobResponseV1 {
+export interface ValidateJobResponse {
   success: boolean;
   message: string;
   valid: boolean;
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface RunJobResponseV1 {
+export interface RunJobResponse {
   success: boolean;
   message: string;
   jobId: string;
-  status: JobExecutionStatusV1;
-  error?: JobErrorV1;
+  status: JobExecutionStatus;
+  error?: JobError;
 }
 
-export interface CancelJobResponseV1 {
+export interface CancelJobResponse {
   success: boolean;
   message: string;
   jobId: string;
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface JobStatusResponseV1 {
+export interface JobStatusResponse {
   success: boolean;
   message: string;
   found: boolean;
-  result?: JobResultV1;
-  error?: JobErrorV1;
+  result?: JobResult;
+  error?: JobError;
 }
 
-export interface JobListResponseV1 {
+export interface JobListResponse {
   success: boolean;
   message: string;
-  jobs: JobResultV1[];
+  jobs: JobResult[];
 }
 
-export interface PDFPreviewSourceResponseV1 {
+export interface PDFPreviewSourceResponse {
   success: boolean;
   message: string;
   dataBase64?: string;
   mimeType?: string;
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface ImagePreviewSourceResponseV1 {
+export interface ImagePreviewSourceResponse {
   success: boolean;
   message: string;
   dataBase64?: string;
   mimeType?: string;
   width?: number;
   height?: number;
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface ImageCropPreviewRequestV1 {
+export interface ImageCropPreviewRequest {
   inputPath: string;
   x: number;
   y: number;
@@ -234,25 +234,25 @@ export interface ImageCropPreviewRequestV1 {
   format?: string;
 }
 
-export interface ImageCropPreviewResponseV1 {
+export interface ImageCropPreviewResponse {
   success: boolean;
   message: string;
   dataBase64?: string;
   mimeType?: string;
   width?: number;
   height?: number;
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export type ImageAnnotateOperationTypeV1 =
+export type ImageAnnotateOperationType =
   | 'text'
   | 'arrow'
   | 'rect'
   | 'blur'
   | 'redact';
 
-export interface ImageAnnotateOperationV1 {
-  type: ImageAnnotateOperationTypeV1;
+export interface ImageAnnotateOperation {
+  type: ImageAnnotateOperationType;
   x?: number;
   y?: number;
   width?: number;
@@ -267,23 +267,23 @@ export interface ImageAnnotateOperationV1 {
   blurIntensity?: number;
 }
 
-export interface ImageAnnotatePreviewRequestV1 {
+export interface ImageAnnotatePreviewRequest {
   inputPath: string;
-  operations: ImageAnnotateOperationV1[];
+  operations: ImageAnnotateOperation[];
   format?: string;
 }
 
-export interface ImageAnnotatePreviewResponseV1 {
+export interface ImageAnnotatePreviewResponse {
   success: boolean;
   message: string;
   dataBase64?: string;
   mimeType?: string;
   width?: number;
   height?: number;
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface HeaderFooterConfigV1 {
+export interface HeaderFooterConfig {
   enabled: boolean;
   text: string;
   align: 'left' | 'center' | 'right';
@@ -293,13 +293,13 @@ export interface HeaderFooterConfigV1 {
   color: string;
 }
 
-export interface MarkdownToPdfOptionsV1 {
+export interface MarkdownToPdfOptions {
   outputPath?: string;
-  header: HeaderFooterConfigV1;
-  footer: HeaderFooterConfigV1;
+  header: HeaderFooterConfig;
+  footer: HeaderFooterConfig;
 }
 
-export interface VerificationCheckV1 {
+export interface VerificationCheck {
   key: string;
   label: string;
   passed: boolean;
@@ -307,23 +307,23 @@ export interface VerificationCheckV1 {
   detail?: string;
 }
 
-export interface VerifiedOutputV1 {
+export interface VerifiedOutput {
   path: string;
   exists: boolean;
   sizeBytes: number;
   kind?: string;
-  checks: VerificationCheckV1[];
+  checks: VerificationCheck[];
   warnings?: string[];
 }
 
-export interface VerificationReportV1 {
+export interface VerificationReport {
   success: boolean;
   message: string;
-  outputs: VerifiedOutputV1[];
+  outputs: VerifiedOutput[];
   warnings?: string[];
 }
 
-export interface JobOutputRecordV1 {
+export interface JobOutputRecord {
   path: string;
   sizeBytes: number;
   modifiedAt: number;
@@ -331,28 +331,28 @@ export interface JobOutputRecordV1 {
   undone?: boolean;
 }
 
-export interface JobHistoryEntryV1 {
+export interface JobHistoryEntry {
   jobId: string;
   toolId: string;
   createdAt: number;
   undone?: boolean;
   trashEmptied?: boolean;
-  outputs: JobOutputRecordV1[];
+  outputs: JobOutputRecord[];
 }
 
-export interface UndoSkippedV1 {
+export interface UndoSkipped {
   path: string;
   reason: string;
 }
 
-export interface UndoResultV1 {
+export interface UndoResult {
   success: boolean;
   message: string;
   moved: string[];
-  skipped: UndoSkippedV1[];
+  skipped: UndoSkipped[];
 }
 
-export interface RecipeStepV1 {
+export interface RecipeStep {
   id: string;
   name: string;
   toolId: string;
@@ -360,7 +360,7 @@ export interface RecipeStepV1 {
   detail?: string;
 }
 
-export interface RecipeV1 {
+export interface Recipe {
   id: string;
   name: string;
   description: string;
@@ -371,77 +371,77 @@ export interface RecipeV1 {
   maxInputs?: number;
   /** Short capability notes shown as chips on the recipe page. */
   highlights?: string[];
-  steps: RecipeStepV1[];
+  steps: RecipeStep[];
   defaultTargetSizeBytes: number;
 }
 
-export interface RecipeRequestV1 {
+export interface RecipeRequest {
   recipeId: string;
   inputPaths: string[];
   outputDir: string;
   options: Record<string, unknown>;
 }
 
-export interface RecipePlanResponseV1 {
+export interface RecipePlanResponse {
   success: boolean;
   message: string;
-  recipe?: RecipeV1;
+  recipe?: Recipe;
   inputPaths: string[];
   outputDir: string;
-  outputs: PlannedOutputV1[];
+  outputs: PlannedOutput[];
   warnings?: string[];
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface RecipeStepResultV1 {
+export interface RecipeStepResult {
   id: string;
   name: string;
   toolId: string;
   status: string;
   message?: string;
   outputs?: string[];
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface RecipeResultV1 {
+export interface RecipeResult {
   jobId: string;
   recipeId: string;
   status: string;
   message: string;
   currentStep: number;
   totalSteps: number;
-  steps: RecipeStepResultV1[];
+  steps: RecipeStepResult[];
   outputs: string[];
   targetSizeBytes?: number;
-  verification?: VerificationReportV1;
-  error?: JobErrorV1;
+  verification?: VerificationReport;
+  error?: JobError;
   startedAt: number;
   endedAt?: number;
 }
 
-export interface RunRecipeResponseV1 {
+export interface RunRecipeResponse {
   success: boolean;
   message: string;
   jobId: string;
   status: string;
-  error?: JobErrorV1;
+  error?: JobError;
 }
 
-export interface RecipeStatusResponseV1 {
+export interface RecipeStatusResponse {
   success: boolean;
   found: boolean;
   message: string;
-  result?: RecipeResultV1;
-  error?: JobErrorV1;
+  result?: RecipeResult;
+  error?: JobError;
 }
 
-export interface ListRecipesResponseV1 {
+export interface ListRecipesResponse {
   success: boolean;
   message: string;
-  recipes: RecipeV1[];
+  recipes: Recipe[];
 }
 
-export interface RecipeProgressEventV1 {
+export interface RecipeProgressEvent {
   jobId: string;
   recipeId: string;
   status: string;
@@ -457,7 +457,7 @@ export interface RecipeProgressEventV1 {
  * One watch-folder rule. `runtimeStatus`/`runtimeReason` are response-only
  * dynamic state: the backend never persists them.
  */
-export interface AutomationRuleV1 {
+export interface AutomationRule {
   id: string;
   name: string;
   enabled: boolean;
@@ -478,20 +478,20 @@ export interface AutomationRuleV1 {
   runtimeReason?: string;
 }
 
-export interface ListAutomationRulesResponseV1 {
+export interface ListAutomationRulesResponse {
   success: boolean;
   message: string;
-  rules: AutomationRuleV1[];
+  rules: AutomationRule[];
 }
 
-export interface AutomationRuleActionResponseV1 {
+export interface AutomationRuleActionResponse {
   success: boolean;
   message: string;
-  rule?: AutomationRuleV1;
-  error?: JobErrorV1;
+  rule?: AutomationRule;
+  error?: JobError;
 }
 
-export interface AutomationStatusResponseV1 {
+export interface AutomationStatusResponse {
   success: boolean;
   message: string;
   totalRules: number;
@@ -502,7 +502,7 @@ export interface AutomationStatusResponseV1 {
   lastFile?: string;
 }
 
-export interface AutomationRunEventV1 {
+export interface AutomationRunEvent {
   ruleId: string;
   ruleName: string;
   filePath: string;
@@ -517,7 +517,7 @@ export interface AutomationRunEventV1 {
  * tesseract and at least one installed language; `languages` excludes osd.
  * Field names mirror the Go DTO JSON tags.
  */
-export interface OCRCapabilitiesResponseV1 {
+export interface OCRCapabilitiesResponse {
   success: boolean;
   message: string;
   available: boolean;
@@ -534,7 +534,7 @@ export interface OCRCapabilitiesResponseV1 {
  * a user override wins when it exists, otherwise the installed defaults.
  * Field names mirror the Go DTO JSON tags.
  */
-export interface TranscriptionCapabilitiesResponseV1 {
+export interface TranscriptionCapabilitiesResponse {
   success: boolean;
   message: string;
   available: boolean;
@@ -549,7 +549,7 @@ export interface TranscriptionCapabilitiesResponseV1 {
 }
 
 /** One external binary the local tools can rely on. */
-export interface LocalCapabilityV1 {
+export interface LocalCapability {
   id: string;
   label: string;
   available: boolean;
@@ -562,16 +562,16 @@ export interface LocalCapabilityV1 {
  * Snapshot of the local runtime surface. Optional missing tools are guidance,
  * never an app failure. Field names mirror the Go DTO JSON tags.
  */
-export interface LocalCapabilitiesResponseV1 {
+export interface LocalCapabilitiesResponse {
   success: boolean;
   message: string;
-  checks: LocalCapabilityV1[];
+  checks: LocalCapability[];
   ocrLanguages: string[];
   recommendedOcrLanguage?: string;
 }
 
 /** One terminal automation run kept in the local run history. */
-export interface AutomationRunRecordV1 {
+export interface AutomationRunRecord {
   id: string;
   ruleId: string;
   ruleName: string;
@@ -582,13 +582,13 @@ export interface AutomationRunRecordV1 {
   at: number;
 }
 
-export interface ListAutomationRunsResponseV1 {
+export interface ListAutomationRunsResponse {
   success: boolean;
   message: string;
-  runs: AutomationRunRecordV1[];
+  runs: AutomationRunRecord[];
 }
 
-export interface AutomationRunsActionResponseV1 {
+export interface AutomationRunsActionResponse {
   success: boolean;
   message: string;
 }
@@ -598,7 +598,7 @@ export interface AutomationRunsActionResponseV1 {
  * file was verified on disk; required components gate the overall readiness.
  * Field names mirror the Go DTO JSON tags.
  */
-export interface ToolchainComponentV1 {
+export interface ToolchainComponent {
   id: string;
   label: string;
   ready: boolean;
@@ -614,7 +614,7 @@ export interface ToolchainComponentV1 {
  * unsupported platform reports `success: true` with a message and no ready
  * components.
  */
-export interface ToolchainStatusV1 {
+export interface ToolchainStatus {
   success: boolean;
   message: string;
   ready: boolean;
@@ -625,21 +625,21 @@ export interface ToolchainStatusV1 {
   detail?: string;
   error?: string;
   storageDir: string;
-  components: ToolchainComponentV1[];
+  components: ToolchainComponent[];
   model: string;
   modelPath?: string;
   ocrLanguages: string[];
 }
 
 /** Install selection; an empty model means `small`, empty languages mean both. */
-export interface ToolchainInstallOptionsV1 {
+export interface ToolchainInstallOptions {
   model: string;
   ocrLanguages: string[];
   force?: boolean;
 }
 
 /** One installer progress update emitted on `toolchain/install`. */
-export interface ToolchainInstallEventV1 {
+export interface ToolchainInstallEvent {
   phase: string;
   percent: number;
   indeterminate?: boolean;
@@ -666,15 +666,15 @@ export class Wails {
   // Job progress Subject / registration tracking to ensure we only register
   // the Wails Events.On handler once and avoid duplicate listeners.
   // We expose a public Observable that replays the last event for late
-  // subscribers while keeping the existing subscribeJobProgressV1 API.
-  private jobProgressSubject: ReplaySubject<JobProgressEventV1> | null = null;
+  // subscribers while keeping the existing subscribeJobProgress API.
+  private jobProgressSubject: ReplaySubject<JobProgressEvent> | null = null;
   private jobProgressUnsubscribe: (() => void) | null = null;
   private jobProgressRefCount = 0;
 
   // Recipe progress follows the same lazy registration pipeline as job
   // progress but keeps its own subject, refcount and native handler so the two
   // streams never interfere with each other.
-  private recipeProgressSubject: ReplaySubject<RecipeProgressEventV1> | null =
+  private recipeProgressSubject: ReplaySubject<RecipeProgressEvent> | null =
     null;
   private recipeProgressUnsubscribe: (() => void) | null = null;
   private recipeProgressRefCount = 0;
@@ -683,25 +683,25 @@ export class Wails {
   // the progress streams. The backend emits one snapshot on submit and another
   // on every terminal status, so the activity view can rebuild its list without
   // polling each job id.
-  private jobStateSubject: ReplaySubject<JobResultV1> | null = null;
+  private jobStateSubject: ReplaySubject<JobResult> | null = null;
   private jobStateUnsubscribe: (() => void) | null = null;
   private jobStateRefCount = 0;
 
-  private recipeStateSubject: ReplaySubject<RecipeResultV1> | null = null;
+  private recipeStateSubject: ReplaySubject<RecipeResult> | null = null;
   private recipeStateUnsubscribe: (() => void) | null = null;
   private recipeStateRefCount = 0;
 
   // Automation run events follow the same lazy lifecycle as recipe progress.
   // A rule can run more than one file over time, so consumers filter by ruleId
   // and must tolerate a stale replayed event.
-  private automationRunSubject: ReplaySubject<AutomationRunEventV1> | null =
+  private automationRunSubject: ReplaySubject<AutomationRunEvent> | null =
     null;
   private automationRunUnsubscribe: (() => void) | null = null;
   private automationRunRefCount = 0;
 
   // Toolchain installer progress follows the same lazy lifecycle. A late UI
   // gets the last event replayed, then polls the install state for the rest.
-  private toolchainInstallSubject: ReplaySubject<ToolchainInstallEventV1> | null =
+  private toolchainInstallSubject: ReplaySubject<ToolchainInstallEvent> | null =
     null;
   private toolchainInstallUnsubscribe: (() => void) | null = null;
   private toolchainInstallRefCount = 0;
@@ -713,7 +713,7 @@ export class Wails {
   // Public observable that consumers can subscribe to. It will ensure the
   // native Events.On handler is registered while there are active
   // subscribers and will replay the last value for late subscribers.
-  public readonly jobProgress$: Observable<JobProgressEventV1> = new Observable(
+  public readonly jobProgress$: Observable<JobProgressEvent> = new Observable(
     (subscriber) => {
       // Ensure the shared subject and native listener are registered.
       const unregister = this.ensureJobProgressRegistered();
@@ -740,7 +740,7 @@ export class Wails {
   // Same contract as jobProgress$ for the recipes/progress stream: the
   // native handler only lives while at least one consumer is subscribed and
   // the last event is replayed to late subscribers.
-  public readonly recipeProgress$: Observable<RecipeProgressEventV1> =
+  public readonly recipeProgress$: Observable<RecipeProgressEvent> =
     new Observable((subscriber) => {
       const unregister = this.ensureRecipeProgressRegistered();
 
@@ -761,10 +761,10 @@ export class Wails {
     });
 
   // Full snapshot streams. `jobs/state` and `recipes/state` carry a
-  // complete JobResultV1 / RecipeResultV1 on submit and on terminal status.
+  // complete JobResult / RecipeResult on submit and on terminal status.
   // They mirror recipeProgress$: lazy native registration, last snapshot
   // replayed to late subscribers, and refcount-based cleanup.
-  public readonly jobState$: Observable<JobResultV1> = new Observable(
+  public readonly jobState$: Observable<JobResult> = new Observable(
     (subscriber) => {
       const unregister = this.ensureJobStateRegistered();
 
@@ -785,7 +785,7 @@ export class Wails {
     },
   );
 
-  public readonly recipeState$: Observable<RecipeResultV1> = new Observable(
+  public readonly recipeState$: Observable<RecipeResult> = new Observable(
     (subscriber) => {
       const unregister = this.ensureRecipeStateRegistered();
 
@@ -810,7 +810,7 @@ export class Wails {
   // native handler only lives while at least one consumer is subscribed and
   // the last event is replayed to late subscribers. The replayed event may
   // belong to another rule, so consumers filter by ruleId.
-  public readonly automationRun$: Observable<AutomationRunEventV1> =
+  public readonly automationRun$: Observable<AutomationRunEvent> =
     new Observable((subscriber) => {
       const unregister = this.ensureAutomationRunRegistered();
 
@@ -833,7 +833,7 @@ export class Wails {
   // Same contract as recipeProgress$ for the toolchain/install stream. The
   // installer may fire events before the UI loads, so late subscribers get the
   // last event replayed and the status endpoint fills in the rest.
-  public readonly toolchainInstall$: Observable<ToolchainInstallEventV1> =
+  public readonly toolchainInstall$: Observable<ToolchainInstallEvent> =
     new Observable((subscriber) => {
       const unregister = this.ensureToolchainInstallRegistered();
 
@@ -853,10 +853,10 @@ export class Wails {
       };
     });
 
-  async listToolsV1(): Promise<ListToolsResponseV1> {
+  async listTools(): Promise<ListToolsResponse> {
     try {
-      return this.asLegacyDto<ListToolsResponseV1>(
-        await this.ipc.listToolsV1(),
+      return this.asLegacyDto<ListToolsResponse>(
+        await this.ipc.listTools(),
       );
     } catch (error) {
       return {
@@ -867,10 +867,10 @@ export class Wails {
     }
   }
 
-  async validateJobV1(request: JobRequestV1): Promise<ValidateJobResponseV1> {
+  async validateJob(request: JobRequest): Promise<ValidateJobResponse> {
     try {
-      return this.asLegacyDto<ValidateJobResponseV1>(
-        await this.ipc.validateJobV1(request),
+      return this.asLegacyDto<ValidateJobResponse>(
+        await this.ipc.validateJob(request),
       );
     } catch (error) {
       return {
@@ -886,10 +886,10 @@ export class Wails {
     }
   }
 
-  async runJobV1(request: JobRequestV1): Promise<RunJobResponseV1> {
+  async runJob(request: JobRequest): Promise<RunJobResponse> {
     try {
-      return this.asLegacyDto<RunJobResponseV1>(
-        await this.ipc.runJobV1(request),
+      return this.asLegacyDto<RunJobResponse>(
+        await this.ipc.runJob(request),
       );
     } catch (error) {
       return {
@@ -902,10 +902,10 @@ export class Wails {
     }
   }
 
-  async cancelJobV1(jobId: string): Promise<CancelJobResponseV1> {
+  async cancelJob(jobId: string): Promise<CancelJobResponse> {
     try {
-      return this.asLegacyDto<CancelJobResponseV1>(
-        await this.ipc.cancelJobV1(jobId),
+      return this.asLegacyDto<CancelJobResponse>(
+        await this.ipc.cancelJob(jobId),
       );
     } catch (error) {
       return {
@@ -921,10 +921,10 @@ export class Wails {
     }
   }
 
-  async getJobStatusV1(jobId: string): Promise<JobStatusResponseV1> {
+  async getJobStatus(jobId: string): Promise<JobStatusResponse> {
     try {
-      return this.asLegacyDto<JobStatusResponseV1>(
-        await this.ipc.getJobStatusV1(jobId),
+      return this.asLegacyDto<JobStatusResponse>(
+        await this.ipc.getJobStatus(jobId),
       );
     } catch (error) {
       return {
@@ -940,10 +940,10 @@ export class Wails {
     }
   }
 
-  async listJobsV1(limit = 50): Promise<JobListResponseV1> {
+  async listJobs(limit = 50): Promise<JobListResponse> {
     try {
-      return this.asLegacyDto<JobListResponseV1>(
-        await this.ipc.listJobsV1(limit),
+      return this.asLegacyDto<JobListResponse>(
+        await this.ipc.listJobs(limit),
       );
     } catch (error) {
       return {
@@ -954,10 +954,10 @@ export class Wails {
     }
   }
 
-  async verifyJobV1(jobId: string): Promise<VerificationReportV1> {
+  async verifyJob(jobId: string): Promise<VerificationReport> {
     try {
-      return this.asLegacyDto<VerificationReportV1>(
-        await this.ipc.verifyJobV1(jobId),
+      return this.asLegacyDto<VerificationReport>(
+        await this.ipc.verifyJob(jobId),
       );
     } catch (error) {
       return {
@@ -968,20 +968,20 @@ export class Wails {
     }
   }
 
-  async listJobHistoryV1(): Promise<JobHistoryEntryV1[]> {
+  async listJobHistory(): Promise<JobHistoryEntry[]> {
     try {
-      return this.asLegacyDto<JobHistoryEntryV1[]>(
-        await this.ipc.listJobHistoryV1(),
+      return this.asLegacyDto<JobHistoryEntry[]>(
+        await this.ipc.listJobHistory(),
       );
     } catch {
       return [];
     }
   }
 
-  async undoJobV1(jobId: string): Promise<UndoResultV1> {
+  async undoJob(jobId: string): Promise<UndoResult> {
     try {
-      return this.asLegacyDto<UndoResultV1>(
-        await this.ipc.undoJobV1(jobId),
+      return this.asLegacyDto<UndoResult>(
+        await this.ipc.undoJob(jobId),
       );
     } catch (error) {
       return {
@@ -993,10 +993,10 @@ export class Wails {
     }
   }
 
-  async restoreJobV1(jobId: string): Promise<UndoResultV1> {
+  async restoreJob(jobId: string): Promise<UndoResult> {
     try {
-      return this.asLegacyDto<UndoResultV1>(
-        await this.ipc.restoreJobV1(jobId),
+      return this.asLegacyDto<UndoResult>(
+        await this.ipc.restoreJob(jobId),
       );
     } catch (error) {
       return {
@@ -1008,9 +1008,9 @@ export class Wails {
     }
   }
 
-  async emptyTrashV1(): Promise<PathActionResponseV1> {
+  async emptyTrash(): Promise<PathActionResponse> {
     try {
-      return await this.ipc.emptyTrashV1();
+      return await this.ipc.emptyTrash();
     } catch (error) {
       return {
         success: false,
@@ -1021,9 +1021,9 @@ export class Wails {
 
   async getPdfPreviewSource(
     inputPath: string,
-  ): Promise<PDFPreviewSourceResponseV1> {
+  ): Promise<PDFPreviewSourceResponse> {
     try {
-      return this.asLegacyDto<PDFPreviewSourceResponseV1>(
+      return this.asLegacyDto<PDFPreviewSourceResponse>(
         await this.ipc.getPdfPreviewSource(inputPath),
       );
     } catch (error) {
@@ -1039,9 +1039,9 @@ export class Wails {
     }
   }
 
-  async registerMediaPath(path: string): Promise<MediaSourceResponseV1> {
+  async registerMediaPath(path: string): Promise<MediaSourceResponse> {
     try {
-      return this.asLegacyDto<MediaSourceResponseV1>(
+      return this.asLegacyDto<MediaSourceResponse>(
         await this.ipc.registerMediaPath(path),
       );
     } catch (error) {
@@ -1107,11 +1107,11 @@ export class Wails {
     }
   }
 
-  async getImagePreviewSourceV1(
+  async getImagePreviewSource(
     inputPath: string,
-  ): Promise<ImagePreviewSourceResponseV1> {
+  ): Promise<ImagePreviewSourceResponse> {
     try {
-      return this.asLegacyDto<ImagePreviewSourceResponseV1>(
+      return this.asLegacyDto<ImagePreviewSourceResponse>(
         await this.ipc.getImagePreviewSource(inputPath),
       );
     } catch (error) {
@@ -1127,11 +1127,11 @@ export class Wails {
     }
   }
 
-  async getImageCropPreviewV1(
-    request: ImageCropPreviewRequestV1,
-  ): Promise<ImageCropPreviewResponseV1> {
+  async getImageCropPreview(
+    request: ImageCropPreviewRequest,
+  ): Promise<ImageCropPreviewResponse> {
     try {
-      return this.asLegacyDto<ImageCropPreviewResponseV1>(
+      return this.asLegacyDto<ImageCropPreviewResponse>(
         await this.ipc.getImageCropPreview(request),
       );
     } catch (error) {
@@ -1147,11 +1147,11 @@ export class Wails {
     }
   }
 
-  async getImageAnnotatePreviewV1(
-    request: ImageAnnotatePreviewRequestV1,
-  ): Promise<ImageAnnotatePreviewResponseV1> {
+  async getImageAnnotatePreview(
+    request: ImageAnnotatePreviewRequest,
+  ): Promise<ImageAnnotatePreviewResponse> {
     try {
-      return this.asLegacyDto<ImageAnnotatePreviewResponseV1>(
+      return this.asLegacyDto<ImageAnnotatePreviewResponse>(
         await this.ipc.getImageAnnotatePreview(request),
       );
     } catch (error) {
@@ -1167,10 +1167,10 @@ export class Wails {
     }
   }
 
-  async planJobV1(request: JobRequestV1): Promise<PlanJobResponseV1> {
+  async planJob(request: JobRequest): Promise<PlanJobResponse> {
     try {
-      return this.asLegacyDto<PlanJobResponseV1>(
-        await this.ipc.planJobV1(request),
+      return this.asLegacyDto<PlanJobResponse>(
+        await this.ipc.planJob(request),
       );
     } catch (error) {
       return {
@@ -1182,10 +1182,10 @@ export class Wails {
     }
   }
 
-  async inspectFilesV1(paths: string[]): Promise<InspectFilesResponseV1> {
+  async inspectFiles(paths: string[]): Promise<InspectFilesResponse> {
     try {
-      return this.asLegacyDto<InspectFilesResponseV1>(
-        await this.ipc.inspectFilesV1(paths),
+      return this.asLegacyDto<InspectFilesResponse>(
+        await this.ipc.inspectFiles(paths),
       );
     } catch (error) {
       return {
@@ -1196,10 +1196,10 @@ export class Wails {
     }
   }
 
-  async getOCRCapabilitiesV1(): Promise<OCRCapabilitiesResponseV1> {
+  async getOCRCapabilities(): Promise<OCRCapabilitiesResponse> {
     try {
-      return this.asLegacyDto<OCRCapabilitiesResponseV1>(
-        await this.ipc.getOcrCapabilitiesV1(),
+      return this.asLegacyDto<OCRCapabilitiesResponse>(
+        await this.ipc.getOcrCapabilities(),
       );
     } catch (error) {
       return {
@@ -1215,13 +1215,13 @@ export class Wails {
     }
   }
 
-  async getTranscriptionCapabilitiesV1(
+  async getTranscriptionCapabilities(
     whisperPath: string,
     modelPath: string,
-  ): Promise<TranscriptionCapabilitiesResponseV1> {
+  ): Promise<TranscriptionCapabilitiesResponse> {
     try {
-      return this.asLegacyDto<TranscriptionCapabilitiesResponseV1>(
-        await this.ipc.getTranscriptionCapabilitiesV1(whisperPath, modelPath),
+      return this.asLegacyDto<TranscriptionCapabilitiesResponse>(
+        await this.ipc.getTranscriptionCapabilities(whisperPath, modelPath),
       );
     } catch (error) {
       return {
@@ -1240,10 +1240,10 @@ export class Wails {
     }
   }
 
-  async getLocalCapabilitiesV1(): Promise<LocalCapabilitiesResponseV1> {
+  async getLocalCapabilities(): Promise<LocalCapabilitiesResponse> {
     try {
-      return this.asLegacyDto<LocalCapabilitiesResponseV1>(
-        await this.ipc.getLocalCapabilitiesV1(),
+      return this.asLegacyDto<LocalCapabilitiesResponse>(
+        await this.ipc.getLocalCapabilities(),
       );
     } catch (error) {
       return {
@@ -1255,52 +1255,52 @@ export class Wails {
     }
   }
 
-  async getToolchainStatusV1(): Promise<ToolchainStatusV1> {
+  async getToolchainStatus(): Promise<ToolchainStatus> {
     try {
-      return this.asLegacyDto<ToolchainStatusV1>(
-        await this.ipc.getToolchainStatusV1(),
+      return this.asLegacyDto<ToolchainStatus>(
+        await this.ipc.getToolchainStatus(),
       );
     } catch (error) {
       return this.toolchainFallback('Get toolchain status failed', error);
     }
   }
 
-  async getToolchainInstallStateV1(): Promise<ToolchainStatusV1> {
+  async getToolchainInstallState(): Promise<ToolchainStatus> {
     try {
-      return this.asLegacyDto<ToolchainStatusV1>(
-        await this.ipc.getToolchainInstallStateV1(),
+      return this.asLegacyDto<ToolchainStatus>(
+        await this.ipc.getToolchainInstallState(),
       );
     } catch (error) {
       return this.toolchainFallback('Get toolchain install state failed', error);
     }
   }
 
-  async startToolchainInstallV1(
-    options: ToolchainInstallOptionsV1,
-  ): Promise<ToolchainStatusV1> {
+  async startToolchainInstall(
+    options: ToolchainInstallOptions,
+  ): Promise<ToolchainStatus> {
     try {
-      return this.asLegacyDto<ToolchainStatusV1>(
-        await this.ipc.startToolchainInstallV1(options),
+      return this.asLegacyDto<ToolchainStatus>(
+        await this.ipc.startToolchainInstall(options),
       );
     } catch (error) {
       return this.toolchainFallback('Start toolchain install failed', error);
     }
   }
 
-  async cancelToolchainInstallV1(): Promise<ToolchainStatusV1> {
+  async cancelToolchainInstall(): Promise<ToolchainStatus> {
     try {
-      return this.asLegacyDto<ToolchainStatusV1>(
-        await this.ipc.cancelToolchainInstallV1(),
+      return this.asLegacyDto<ToolchainStatus>(
+        await this.ipc.cancelToolchainInstall(),
       );
     } catch (error) {
       return this.toolchainFallback('Cancel toolchain install failed', error);
     }
   }
 
-  async listRecipesV1(): Promise<ListRecipesResponseV1> {
+  async listRecipes(): Promise<ListRecipesResponse> {
     try {
-      return this.asLegacyDto<ListRecipesResponseV1>(
-        await this.ipc.listRecipesV1(),
+      return this.asLegacyDto<ListRecipesResponse>(
+        await this.ipc.listRecipes(),
       );
     } catch (error) {
       return {
@@ -1311,12 +1311,12 @@ export class Wails {
     }
   }
 
-  async planRecipeV1(
-    request: RecipeRequestV1,
-  ): Promise<RecipePlanResponseV1> {
+  async planRecipe(
+    request: RecipeRequest,
+  ): Promise<RecipePlanResponse> {
     try {
-      return this.asLegacyDto<RecipePlanResponseV1>(
-        await this.ipc.planRecipeV1(request),
+      return this.asLegacyDto<RecipePlanResponse>(
+        await this.ipc.planRecipe(request),
       );
     } catch (error) {
       return {
@@ -1334,10 +1334,10 @@ export class Wails {
     }
   }
 
-  async runRecipeV1(request: RecipeRequestV1): Promise<RunRecipeResponseV1> {
+  async runRecipe(request: RecipeRequest): Promise<RunRecipeResponse> {
     try {
-      return this.asLegacyDto<RunRecipeResponseV1>(
-        await this.ipc.runRecipeV1(request),
+      return this.asLegacyDto<RunRecipeResponse>(
+        await this.ipc.runRecipe(request),
       );
     } catch (error) {
       return {
@@ -1354,10 +1354,10 @@ export class Wails {
     }
   }
 
-  async getRecipeStatusV1(jobId: string): Promise<RecipeStatusResponseV1> {
+  async getRecipeStatus(jobId: string): Promise<RecipeStatusResponse> {
     try {
-      return this.asLegacyDto<RecipeStatusResponseV1>(
-        await this.ipc.getRecipeStatusV1(jobId),
+      return this.asLegacyDto<RecipeStatusResponse>(
+        await this.ipc.getRecipeStatus(jobId),
       );
     } catch (error) {
       return {
@@ -1368,20 +1368,20 @@ export class Wails {
     }
   }
 
-  async listRecipeRunsV1(limit = 50): Promise<RecipeResultV1[]> {
+  async listRecipeRuns(limit = 50): Promise<RecipeResult[]> {
     try {
-      return this.asLegacyDto<RecipeResultV1[]>(
-        await this.ipc.listRecipeRunsV1(limit),
+      return this.asLegacyDto<RecipeResult[]>(
+        await this.ipc.listRecipeRuns(limit),
       );
     } catch {
       return [];
     }
   }
 
-  async cancelRecipeV1(jobId: string): Promise<RecipeStatusResponseV1> {
+  async cancelRecipe(jobId: string): Promise<RecipeStatusResponse> {
     try {
-      return this.asLegacyDto<RecipeStatusResponseV1>(
-        await this.ipc.cancelRecipeV1(jobId),
+      return this.asLegacyDto<RecipeStatusResponse>(
+        await this.ipc.cancelRecipe(jobId),
       );
     } catch (error) {
       return {
@@ -1392,10 +1392,10 @@ export class Wails {
     }
   }
 
-  async listAutomationRulesV1(): Promise<ListAutomationRulesResponseV1> {
+  async listAutomationRules(): Promise<ListAutomationRulesResponse> {
     try {
-      return this.asLegacyDto<ListAutomationRulesResponseV1>(
-        await this.ipc.listAutomationRulesV1(),
+      return this.asLegacyDto<ListAutomationRulesResponse>(
+        await this.ipc.listAutomationRules(),
       );
     } catch (error) {
       return {
@@ -1406,12 +1406,12 @@ export class Wails {
     }
   }
 
-  async saveAutomationRuleV1(
-    rule: AutomationRuleV1,
-  ): Promise<AutomationRuleActionResponseV1> {
+  async saveAutomationRule(
+    rule: AutomationRule,
+  ): Promise<AutomationRuleActionResponse> {
     try {
-      return this.asLegacyDto<AutomationRuleActionResponseV1>(
-        await this.ipc.saveAutomationRuleV1(rule),
+      return this.asLegacyDto<AutomationRuleActionResponse>(
+        await this.ipc.saveAutomationRule(rule),
       );
     } catch (error) {
       return {
@@ -1426,12 +1426,12 @@ export class Wails {
     }
   }
 
-  async deleteAutomationRuleV1(
+  async deleteAutomationRule(
     id: string,
-  ): Promise<AutomationRuleActionResponseV1> {
+  ): Promise<AutomationRuleActionResponse> {
     try {
-      return this.asLegacyDto<AutomationRuleActionResponseV1>(
-        await this.ipc.deleteAutomationRuleV1(id),
+      return this.asLegacyDto<AutomationRuleActionResponse>(
+        await this.ipc.deleteAutomationRule(id),
       );
     } catch (error) {
       return {
@@ -1446,13 +1446,13 @@ export class Wails {
     }
   }
 
-  async setAutomationRuleEnabledV1(
+  async setAutomationRuleEnabled(
     id: string,
     enabled: boolean,
-  ): Promise<AutomationRuleActionResponseV1> {
+  ): Promise<AutomationRuleActionResponse> {
     try {
-      return this.asLegacyDto<AutomationRuleActionResponseV1>(
-        await this.ipc.setAutomationRuleEnabledV1(id, enabled),
+      return this.asLegacyDto<AutomationRuleActionResponse>(
+        await this.ipc.setAutomationRuleEnabled(id, enabled),
       );
     } catch (error) {
       return {
@@ -1467,9 +1467,9 @@ export class Wails {
     }
   }
 
-  async getAutomationStatusV1(): Promise<AutomationStatusResponseV1> {
+  async getAutomationStatus(): Promise<AutomationStatusResponse> {
     try {
-      return await this.ipc.getAutomationStatusV1();
+      return await this.ipc.getAutomationStatus();
     } catch (error) {
       return {
         success: false,
@@ -1480,12 +1480,12 @@ export class Wails {
     }
   }
 
-  async listAutomationRunsV1(
+  async listAutomationRuns(
     limit: number,
-  ): Promise<ListAutomationRunsResponseV1> {
+  ): Promise<ListAutomationRunsResponse> {
     try {
-      return this.asLegacyDto<ListAutomationRunsResponseV1>(
-        await this.ipc.listAutomationRunsV1(limit),
+      return this.asLegacyDto<ListAutomationRunsResponse>(
+        await this.ipc.listAutomationRuns(limit),
       );
     } catch (error) {
       return {
@@ -1496,9 +1496,9 @@ export class Wails {
     }
   }
 
-  async clearAutomationRunsV1(): Promise<AutomationRunsActionResponseV1> {
+  async clearAutomationRuns(): Promise<AutomationRunsActionResponse> {
     try {
-      return await this.ipc.clearAutomationRunsV1();
+      return await this.ipc.clearAutomationRuns();
     } catch (error) {
       return {
         success: false,
@@ -1507,7 +1507,7 @@ export class Wails {
     }
   }
 
-  async openPath(path: string): Promise<PathActionResponseV1> {
+  async openPath(path: string): Promise<PathActionResponse> {
     try {
       return await this.ipc.openPath(path);
     } catch (error) {
@@ -1518,7 +1518,7 @@ export class Wails {
     }
   }
 
-  async revealInFolder(path: string): Promise<PathActionResponseV1> {
+  async revealInFolder(path: string): Promise<PathActionResponse> {
     try {
       return await this.ipc.revealInFolder(path);
     } catch (error) {
@@ -1529,9 +1529,9 @@ export class Wails {
     }
   }
 
-  async notifyV1(title: string, body: string): Promise<PathActionResponseV1> {
+  async notify(title: string, body: string): Promise<PathActionResponse> {
     try {
-      return await this.ipc.notifyV1(title, body);
+      return await this.ipc.notify(title, body);
     } catch (error) {
       return {
         success: false,
@@ -1656,11 +1656,11 @@ export class Wails {
     }
   }
 
-  subscribeJobProgressV1(
-    callback: (event: JobProgressEventV1) => void,
+  subscribeJobProgress(
+    callback: (event: JobProgressEvent) => void,
   ): () => void {
     // Use the public observable internally to keep behavior consistent and
-    // backward-compatible. subscribeJobProgressV1 should subscribe to the
+    // backward-compatible. subscribeJobProgress should subscribe to the
     // jobProgress$ Observable and return an unsubscribe function.
     const unregister = this.ensureJobProgressRegistered();
 
@@ -1678,8 +1678,8 @@ export class Wails {
     };
   }
 
-  subscribeRecipeProgressV1(
-    callback: (event: RecipeProgressEventV1) => void,
+  subscribeRecipeProgress(
+    callback: (event: RecipeProgressEvent) => void,
   ): () => void {
     const unregister = this.ensureRecipeProgressRegistered();
 
@@ -1697,8 +1697,8 @@ export class Wails {
     };
   }
 
-  subscribeAutomationRunV1(
-    callback: (event: AutomationRunEventV1) => void,
+  subscribeAutomationRun(
+    callback: (event: AutomationRunEvent) => void,
   ): () => void {
     const unregister = this.ensureAutomationRunRegistered();
 
@@ -1715,8 +1715,8 @@ export class Wails {
     };
   }
 
-  subscribeToolchainInstallV1(
-    callback: (event: ToolchainInstallEventV1) => void,
+  subscribeToolchainInstall(
+    callback: (event: ToolchainInstallEvent) => void,
   ): () => void {
     const unregister = this.ensureToolchainInstallRegistered();
 
@@ -1739,7 +1739,7 @@ export class Wails {
   private ensureJobProgressRegistered(): () => void {
     // Lazy-create subject if necessary
     if (!this.jobProgressSubject) {
-      this.jobProgressSubject = new ReplaySubject<JobProgressEventV1>(1);
+      this.jobProgressSubject = new ReplaySubject<JobProgressEvent>(1);
       // Register the native event listener - store the unsubscribe fn
       this.jobProgressUnsubscribe = Events.On(
         'jobs/progress',
@@ -1749,7 +1749,7 @@ export class Wails {
             return;
           }
 
-          const candidate = payload as Partial<JobProgressEventV1>;
+          const candidate = payload as Partial<JobProgressEvent>;
           if (typeof candidate.jobId !== 'string' || !candidate.progress) {
             return;
           }
@@ -1797,7 +1797,7 @@ export class Wails {
   // share the same lazy lifecycle without sharing state.
   private ensureRecipeProgressRegistered(): () => void {
     if (!this.recipeProgressSubject) {
-      this.recipeProgressSubject = new ReplaySubject<RecipeProgressEventV1>(1);
+      this.recipeProgressSubject = new ReplaySubject<RecipeProgressEvent>(1);
       this.recipeProgressUnsubscribe = Events.On(
         'recipes/progress',
         (ev: { data?: unknown }) => {
@@ -1806,7 +1806,7 @@ export class Wails {
             return;
           }
 
-          const candidate = payload as Partial<RecipeProgressEventV1>;
+          const candidate = payload as Partial<RecipeProgressEvent>;
           // A job id and a usable percent are the minimum needed to drive the
           // stepper; anything else can be defaulted.
           if (
@@ -1866,7 +1866,7 @@ export class Wails {
   // id and a status to be usable, everything else can be defaulted.
   private ensureJobStateRegistered(): () => void {
     if (!this.jobStateSubject) {
-      this.jobStateSubject = new ReplaySubject<JobResultV1>(1);
+      this.jobStateSubject = new ReplaySubject<JobResult>(1);
       this.jobStateUnsubscribe = Events.On(
         'jobs/state',
         (ev: { data?: unknown }) => {
@@ -1875,7 +1875,7 @@ export class Wails {
             return;
           }
 
-          const candidate = payload as Partial<JobResultV1>;
+          const candidate = payload as Partial<JobResult>;
           if (
             typeof candidate.jobId !== 'string' ||
             candidate.jobId.trim().length === 0 ||
@@ -1891,7 +1891,7 @@ export class Wails {
             message:
               typeof candidate.message === 'string' ? candidate.message : '',
             toolId: typeof candidate.toolId === 'string' ? candidate.toolId : '',
-            status: candidate.status as JobExecutionStatusV1,
+            status: candidate.status as JobExecutionStatus,
             progress: candidate.progress ?? {
               current: 0,
               total: 0,
@@ -1937,7 +1937,7 @@ export class Wails {
   // registered. Only the job id and status are required.
   private ensureRecipeStateRegistered(): () => void {
     if (!this.recipeStateSubject) {
-      this.recipeStateSubject = new ReplaySubject<RecipeResultV1>(1);
+      this.recipeStateSubject = new ReplaySubject<RecipeResult>(1);
       this.recipeStateUnsubscribe = Events.On(
         'recipes/state',
         (ev: { data?: unknown }) => {
@@ -1946,7 +1946,7 @@ export class Wails {
             return;
           }
 
-          const candidate = payload as Partial<RecipeResultV1>;
+          const candidate = payload as Partial<RecipeResult>;
           if (
             typeof candidate.jobId !== 'string' ||
             candidate.jobId.trim().length === 0 ||
@@ -2012,7 +2012,7 @@ export class Wails {
 
   // Native events may be delivered outside the Angular zone. Running the
   // emission inside it lets signal consumers schedule change detection.
-  private emitJobState(snapshot: JobResultV1): void {
+  private emitJobState(snapshot: JobResult): void {
     try {
       this.zone.run(() => this.jobStateSubject?.next(snapshot));
     } catch {
@@ -2020,7 +2020,7 @@ export class Wails {
     }
   }
 
-  private emitRecipeState(snapshot: RecipeResultV1): void {
+  private emitRecipeState(snapshot: RecipeResult): void {
     try {
       this.zone.run(() => this.recipeStateSubject?.next(snapshot));
     } catch {
@@ -2033,7 +2033,7 @@ export class Wails {
   // only requires a rule id and a status string to be usable.
   private ensureAutomationRunRegistered(): () => void {
     if (!this.automationRunSubject) {
-      this.automationRunSubject = new ReplaySubject<AutomationRunEventV1>(1);
+      this.automationRunSubject = new ReplaySubject<AutomationRunEvent>(1);
       this.automationRunUnsubscribe = Events.On(
         'automation/run',
         (ev: { data?: unknown }) => {
@@ -2042,7 +2042,7 @@ export class Wails {
             return;
           }
 
-          const candidate = payload as Partial<AutomationRunEventV1>;
+          const candidate = payload as Partial<AutomationRunEvent>;
           if (
             typeof candidate.ruleId !== 'string' ||
             candidate.ruleId.trim().length === 0 ||
@@ -2104,7 +2104,7 @@ export class Wails {
   private ensureToolchainInstallRegistered(): () => void {
     if (!this.toolchainInstallSubject) {
       this.toolchainInstallSubject =
-        new ReplaySubject<ToolchainInstallEventV1>(1);
+        new ReplaySubject<ToolchainInstallEvent>(1);
       this.toolchainInstallUnsubscribe = Events.On(
         'toolchain/install',
         (ev: { data?: unknown }) => {
@@ -2113,7 +2113,7 @@ export class Wails {
             return;
           }
 
-          const candidate = payload as Partial<ToolchainInstallEventV1>;
+          const candidate = payload as Partial<ToolchainInstallEvent>;
           if (
             typeof candidate.phase !== 'string' ||
             typeof candidate.percent !== 'number' ||
@@ -2162,7 +2162,7 @@ export class Wails {
   private toolchainFallback(
     prefix: string,
     error: unknown,
-  ): ToolchainStatusV1 {
+  ): ToolchainStatus {
     return {
       success: false,
       message: this.formatMessage(prefix, error),
@@ -2201,10 +2201,10 @@ export class Wails {
   }
 
   private defaultError(
-    code: CanonicalErrorCodeV1,
+    code: CanonicalErrorCode,
     detailCode: string,
     error: unknown,
-  ): JobErrorV1 {
+  ): JobError {
     return {
       code,
       detail_code: detailCode,

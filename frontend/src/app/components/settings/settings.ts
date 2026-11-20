@@ -25,10 +25,10 @@ import {
   ToolchainStateService,
 } from '../../services/toolchain-state.service';
 import {
-  LocalCapabilityV1,
-  LocalCapabilitiesResponseV1,
-  ToolchainComponentV1,
-  TranscriptionCapabilitiesResponseV1,
+  LocalCapability,
+  LocalCapabilitiesResponse,
+  ToolchainComponent,
+  TranscriptionCapabilitiesResponse,
   Wails,
 } from '../../services/wails';
 import { formatBytes } from '../../utils/format';
@@ -100,12 +100,12 @@ export class Settings implements OnInit {
 
   readonly actionMessage = signal('');
 
-  readonly capabilities = signal<LocalCapabilitiesResponseV1 | null>(null);
+  readonly capabilities = signal<LocalCapabilitiesResponse | null>(null);
   readonly capabilitiesLoading = signal(false);
   readonly capabilitiesError = signal('');
 
   readonly transcriptionCapabilities =
-    signal<TranscriptionCapabilitiesResponseV1 | null>(null);
+    signal<TranscriptionCapabilitiesResponse | null>(null);
   readonly transcriptionLoading = signal(false);
   readonly transcriptionError = signal('');
 
@@ -237,7 +237,7 @@ export class Settings implements OnInit {
     this.capabilitiesError.set('');
 
     try {
-      const response = await this.wails.getLocalCapabilitiesV1();
+      const response = await this.wails.getLocalCapabilities();
       if (!response.success) {
         this.capabilities.set(null);
         this.capabilitiesError.set(
@@ -265,7 +265,7 @@ export class Settings implements OnInit {
     this.transcriptionError.set('');
 
     try {
-      const response = await this.wails.getTranscriptionCapabilitiesV1(
+      const response = await this.wails.getTranscriptionCapabilities(
         this.preferences.whisperPath(),
         this.preferences.whisperModelPath(),
       );
@@ -332,21 +332,21 @@ export class Settings implements OnInit {
     return 'Setup needed';
   }
 
-  toolchainComponentBadgeClass(component: ToolchainComponentV1): string {
+  toolchainComponentBadgeClass(component: ToolchainComponent): string {
     if (component.ready) {
       return 'badge badge-success';
     }
     return component.required ? 'badge badge-danger' : 'badge badge-neutral';
   }
 
-  toolchainComponentStateLabel(component: ToolchainComponentV1): string {
+  toolchainComponentStateLabel(component: ToolchainComponent): string {
     if (component.ready) {
       return 'Ready';
     }
     return component.required ? 'Missing' : 'Optional';
   }
 
-  toolchainComponentDotState(component: ToolchainComponentV1): string {
+  toolchainComponentDotState(component: ToolchainComponent): string {
     if (component.ready) {
       return 'success';
     }
@@ -354,7 +354,7 @@ export class Settings implements OnInit {
   }
 
   /** Version + path when known, otherwise the human detail line. */
-  toolchainComponentMeta(component: ToolchainComponentV1): string {
+  toolchainComponentMeta(component: ToolchainComponent): string {
     const parts: string[] = [];
     if (component.version?.trim()) {
       parts.push(component.version.trim());
@@ -544,21 +544,21 @@ export class Settings implements OnInit {
     return 'Install whisper.cpp and choose a ggml model file. FileForge never downloads models automatically.';
   }
 
-  capabilityBadgeClass(check: LocalCapabilityV1): string {
+  capabilityBadgeClass(check: LocalCapability): string {
     if (check.available) {
       return 'badge badge-success';
     }
     return check.required ? 'badge badge-danger' : 'badge badge-neutral';
   }
 
-  capabilityStateLabel(check: LocalCapabilityV1): string {
+  capabilityStateLabel(check: LocalCapability): string {
     if (check.available) {
       return 'Ready';
     }
     return check.required ? 'Missing' : 'Optional';
   }
 
-  capabilityDotState(check: LocalCapabilityV1): string {
+  capabilityDotState(check: LocalCapability): string {
     if (check.available) {
       return 'success';
     }
