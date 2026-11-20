@@ -479,7 +479,7 @@ func convertWithCapabilities(ctx context.Context, runner CommandRunner, capabili
 	}
 
 	inputPath := strings.TrimSpace(req.InputPath)
-	sourcePages, err := api.PageCountFile(inputPath)
+	sourcePages, err := api.PageCountFile(pdfCPUContext(ctx), inputPath)
 	if err != nil {
 		return OCRResult{}, &OCRError{
 			Code:    ErrorCodeInvalidInputPDF,
@@ -605,7 +605,7 @@ func convertWithCapabilities(ctx context.Context, runner CommandRunner, capabili
 	}
 
 	mergedPath := filepath.Join(tempDir, "merged.pdf")
-	if mergeErr := api.MergeCreateFile(pagePDFs, mergedPath, false, nil); mergeErr != nil {
+	if mergeErr := api.MergeCreateFile(pdfCPUContext(ctx), pagePDFs, mergedPath, false, newPDFCPUConfig()); mergeErr != nil {
 		return OCRResult{}, &OCRError{Code: OCRCodeMergeFailed, Message: "failed to merge the recognized pages", Cause: mergeErr}
 	}
 
@@ -613,7 +613,7 @@ func convertWithCapabilities(ctx context.Context, runner CommandRunner, capabili
 	chosenPath := mergedPath
 	optimized := false
 	optimizedPath := filepath.Join(tempDir, "optimized.pdf")
-	if optimizeErr := api.OptimizeFile(mergedPath, optimizedPath, nil); optimizeErr != nil {
+	if optimizeErr := api.OptimizeFile(pdfCPUContext(ctx), mergedPath, optimizedPath, newPDFCPUConfig(), nil); optimizeErr != nil {
 		warnings = append(warnings, OCRWarningOptimizeFailed)
 	} else {
 		chosenPath = optimizedPath
@@ -649,7 +649,7 @@ func convertWithCapabilities(ctx context.Context, runner CommandRunner, capabili
 		warnings = append(warnings, OCRWarningPDFToTextUnavailable)
 	}
 
-	verifyErr := verifyOCRPageCount(chosenPath, sourcePages)
+	verifyErr := verifyOCRPageCount(ctx, chosenPath, sourcePages)
 	if verifyErr != nil {
 		return OCRResult{}, verifyErr
 	}
@@ -795,8 +795,8 @@ func collectOCRPageImages(dir string) ([]string, error) {
 	return paths, nil
 }
 
-func verifyOCRPageCount(pdfPath string, expectedPages int) *OCRError {
-	pages, err := api.PageCountFile(pdfPath)
+func verifyOCRPageCount(ctx context.Context, pdfPath string, expectedPages int) *OCRError {
+	pages, err := api.PageCountFile(pdfCPUContext(ctx), pdfPath)
 	if err != nil {
 		return &OCRError{Code: OCRCodeVerifyFailed, Message: "failed to verify the searchable PDF page count", Cause: err}
 	}

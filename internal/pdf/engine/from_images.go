@@ -889,7 +889,7 @@ func publishImagesPDF(ctx context.Context, pdf *gofpdf.Fpdf, outputPath string, 
 		return ImagesResult{}, cancelledImagesError("images to PDF canceled", ctxErr)
 	}
 
-	if verifyErr := verifyImagesPDF(tempPath, pageCount, pageWidthMM, pageHeightMM); verifyErr != nil {
+	if verifyErr := verifyImagesPDF(ctx, tempPath, pageCount, pageWidthMM, pageHeightMM); verifyErr != nil {
 		return ImagesResult{}, verifyErr
 	}
 
@@ -933,8 +933,8 @@ func publishImagesPDF(ctx context.Context, pdf *gofpdf.Fpdf, outputPath string, 
 
 // verifyImagesPDF checks the page count and the first page dimensions before
 // the temp file replaces the destination.
-func verifyImagesPDF(pdfPath string, expectedPages int, expectedWidthMM, expectedHeightMM float64) *ImagesError {
-	dimensions, dimsErr := api.PageDimsFile(pdfPath)
+func verifyImagesPDF(ctx context.Context, pdfPath string, expectedPages int, expectedWidthMM, expectedHeightMM float64) *ImagesError {
+	dimensions, dimsErr := api.PageDimsFile(pdfCPUContext(ctx), pdfPath)
 	if dimsErr != nil {
 		return &ImagesError{Code: ImagesErrorVerifyFailed, Message: "failed to read the generated PDF", Cause: dimsErr}
 	}

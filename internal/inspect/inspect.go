@@ -137,9 +137,9 @@ func InspectFile(path string) models.FileInfo {
 	if info.Kind == kindPDF {
 		// One validated read gives both the page count and the dimensions.
 		// PageCountFile plus PageDimsFile parsed the same document twice.
-		if pdfCtx, ctxErr := api.ReadContextFile(info.Path); ctxErr == nil {
+		if pdfCtx, ctxErr := api.ReadContextFile(context.Background(), info.Path); ctxErr == nil {
 			info.PageCount = pdfCtx.PageCount
-			if dims, dimsErr := pdfCtx.PageDims(); dimsErr == nil && len(dims) > 0 {
+			if dims, dimsErr := pdfCtx.PageDims(context.Background()); dimsErr == nil && len(dims) > 0 {
 				info.PageWidthPoints = dims[0].Width
 				info.PageHeightPoints = dims[0].Height
 			}

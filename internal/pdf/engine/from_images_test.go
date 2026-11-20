@@ -247,7 +247,7 @@ func imagesTestCellCenter(layout ImagesLayout, pageWidthMM, pageHeightMM float64
 func assertImagesTestPDFPages(t *testing.T, pdfPath string, expectedPages int, pageWidthMM, pageHeightMM float64) {
 	t.Helper()
 
-	dimensions, dimsErr := api.PageDimsFile(pdfPath)
+	dimensions, dimsErr := api.PageDimsFile(context.Background(), pdfPath)
 	if dimsErr != nil {
 		t.Fatalf("read page dimensions of %s: %v", pdfPath, dimsErr)
 	}

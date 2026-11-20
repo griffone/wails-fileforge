@@ -13,6 +13,7 @@ import (
 	"fileforge-desktop/internal/platform/fsx"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 )
 
 const (
@@ -258,7 +259,7 @@ func OptimizeWithOptions(ctx context.Context, inputPath, outputPath string, opti
 	}
 
 	if options.Compress {
-		if optimizeErr := api.OptimizeFile(inputPath, stagedPath, nil); optimizeErr != nil {
+		if optimizeErr := api.OptimizeFile(pdfCPUContext(ctx), inputPath, stagedPath, newPDFCPUConfig(), nil); optimizeErr != nil {
 			return outcome, &OptimizeError{Code: ErrorCodeOptimizeFailed, Message: "failed to optimize PDF", Cause: optimizeErr}
 		}
 		outcome.Strategy = OptimizeStrategyPDFCPU
@@ -316,7 +317,7 @@ func OptimizeWithOptions(ctx context.Context, inputPath, outputPath string, opti
 			return outcome, &OptimizeError{Code: ErrorCodeOutputDirNotWritable, Message: fmt.Sprintf("output directory is not writable: %s", outputDir), Cause: createErr}
 		}
 
-		if metadataErr := api.AddPropertiesFile(chosenPath, metadataPath, options.Properties, nil); metadataErr != nil {
+		if metadataErr := writeOptimizeMetadata(ctx, chosenPath, metadataPath, options.Properties); metadataErr != nil {
 			return outcome, &OptimizeError{Code: ErrorCodeOptimizeFailed, Message: "failed to update PDF metadata", Cause: metadataErr}
 		}
 		publishPath = metadataPath
@@ -343,6 +344,69 @@ func OptimizeWithOptions(ctx context.Context, inputPath, outputPath string, opti
 	outcome.TargetMet = options.TargetSizeBytes > 0 && finalSize <= options.TargetSizeBytes
 
 	return outcome, nil
+}
+
+// writeOptimizeMetadata writes inputPath to outputPath with the requested info
+// dictionary values applied. pdfcpu v0.16 no longer accepts "Keywords" as a
+// document property, so keyword updates go through the dedicated keyword API;
+// the list is replaced, which is what the optimize tool always did.
+func writeOptimizeMetadata(ctx context.Context, inputPath, outputPath string, properties map[string]string) error {
+	keywords, hasKeywords := properties["Keywords"]
+	rest := make(map[string]string, len(properties))
+	for key, value := range properties {
+		if key == "Keywords" {
+			continue
+		}
+		rest[key] = value
+	}
+
+	source, openErr := os.Open(inputPath)
+	if openErr != nil {
+		return openErr
+	}
+	defer func() {
+		_ = source.Close()
+	}()
+
+	pdfCtx, readErr := api.ReadValidateAndOptimize(pdfCPUContext(ctx), source, newPDFCPUConfig(), nil)
+	if readErr != nil {
+		return readErr
+	}
+
+	if hasKeywords {
+		if _, removeErr := pdfcpu.KeywordsRemove(pdfCPUContext(ctx), pdfCtx, nil); removeErr != nil {
+			return removeErr
+		}
+		if addErr := pdfcpu.KeywordsAdd(pdfCPUContext(ctx), pdfCtx, splitOptimizeKeywords(keywords)); addErr != nil {
+			return addErr
+		}
+	}
+
+	if len(rest) > 0 {
+		if addErr := pdfcpu.PropertiesAdd(pdfCPUContext(ctx), pdfCtx, rest); addErr != nil {
+			return addErr
+		}
+	}
+
+	return api.WriteContextFile(pdfCPUContext(ctx), pdfCtx, outputPath)
+}
+
+// splitOptimizeKeywords splits the tool-facing keyword string the same way
+// pdfcpu parses an info dictionary keyword value.
+func splitOptimizeKeywords(raw string) []string {
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\r'
+	})
+
+	keywords := make([]string, 0, len(fields))
+	for _, field := range fields {
+		trimmed := strings.TrimSpace(field)
+		if trimmed != "" {
+			keywords = append(keywords, trimmed)
+		}
+	}
+
+	return keywords
 }
 
 // optimizeTemps tracks staged files so every path is removed on return, even

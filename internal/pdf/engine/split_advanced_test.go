@@ -22,7 +22,7 @@ func writeMultiPageTestPDF(t *testing.T, path string, pages int) {
 		images = append(images, pngPath)
 	}
 
-	if err := api.ImportImagesFile(images, path, nil, nil); err != nil {
+	if err := api.ImportImagesFile(context.Background(), images, path, nil, nil); err != nil {
 		t.Fatalf("import images into pdf: %v", err)
 	}
 }
@@ -33,7 +33,7 @@ func writeBookmarkedTestPDF(t *testing.T, path string, pages int, bookmarks []pd
 	plain := filepath.Join(t.TempDir(), "plain.pdf")
 	writeMultiPageTestPDF(t, plain, pages)
 
-	if err := api.AddBookmarksFile(plain, path, bookmarks, true, nil); err != nil {
+	if err := api.AddBookmarksFile(context.Background(), plain, path, bookmarks, true, nil); err != nil {
 		t.Fatalf("add bookmarks: %v", err)
 	}
 }
@@ -66,7 +66,7 @@ func TestSplitAdvancedPagesPerFilePlan(t *testing.T) {
 			t.Fatalf("expected output %d %q, got %q", i, want, output)
 		}
 
-		count, countErr := api.PageCountFile(output)
+		count, countErr := api.PageCountFile(context.Background(), output)
 		if countErr != nil {
 			t.Fatalf("page count of %q: %v", output, countErr)
 		}
@@ -197,7 +197,7 @@ func TestSplitAdvancedBookmarksPlanAndExecute(t *testing.T) {
 			t.Fatalf("expected output %d %q, got %q", i, want, output)
 		}
 
-		count, countErr := api.PageCountFile(output)
+		count, countErr := api.PageCountFile(context.Background(), output)
 		if countErr != nil {
 			t.Fatalf("page count of %q: %v", output, countErr)
 		}

@@ -2,6 +2,7 @@ package verify
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -98,7 +99,7 @@ func writeVerifyPDF(t *testing.T, path string, pages int) {
 		writeVerifyPNG(t, pngPath, 24, 24)
 		pngPaths = append(pngPaths, pngPath)
 	}
-	if err := api.ImportImagesFile(pngPaths, path, nil, nil); err != nil {
+	if err := api.ImportImagesFile(context.Background(), pngPaths, path, nil, nil); err != nil {
 		t.Fatalf("import images into pdf: %v", err)
 	}
 }

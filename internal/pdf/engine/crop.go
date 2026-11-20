@@ -139,7 +139,7 @@ func Crop(ctx context.Context, inputPath, outputPath, pageSelection, preset stri
 		return validationErr
 	}
 
-	if err := api.CropFile(inputPath, outputPath, selectedPages, box, nil); err != nil {
+	if err := api.CropFile(pdfCPUContext(ctx), inputPath, outputPath, selectedPages, box, newPDFCPUConfig()); err != nil {
 		return &CropError{Code: ErrorCodeCropFailed, Message: "failed to crop PDF", Cause: err}
 	}
 
@@ -213,7 +213,7 @@ func CropBatch(ctx context.Context, inputPaths []string, outputDir, pageSelectio
 			continue
 		}
 
-		if err := api.CropFile(inputPath, outputPath, selectedPages, box, nil); err != nil {
+		if err := api.CropFile(pdfCPUContext(ctx), inputPath, outputPath, selectedPages, box, newPDFCPUConfig()); err != nil {
 			results = append(results, CropBatchResult{
 				InputPath:  inputPath,
 				OutputPath: outputPath,
@@ -272,11 +272,11 @@ func buildCropPlanWithOptions(inputPath, outputPath, pageSelection, preset strin
 		}
 	}
 
-	if err := api.ValidateFile(inputPath, nil); err != nil {
+	if err := api.ValidateFile(context.Background(), inputPath, newPDFCPUConfig(), nil); err != nil {
 		return nil, nil, &CropError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("invalid PDF input: %s", filepath.Base(inputPath)), Cause: err}
 	}
 
-	pageCount, pageErr := api.PageCountFile(inputPath)
+	pageCount, pageErr := api.PageCountFile(context.Background(), inputPath)
 	if pageErr != nil {
 		return nil, nil, &CropError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("unable to determine page count for: %s", filepath.Base(inputPath)), Cause: pageErr}
 	}

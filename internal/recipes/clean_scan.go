@@ -107,7 +107,7 @@ func (s *Service) resolveCleanScan(recipe *models.Recipe, req models.RecipeReque
 		return nil, languageErr
 	}
 
-	sourcePages, pagesErr := api.PageCountFile(sourcePath)
+	sourcePages, pagesErr := api.PageCountFile(context.Background(), sourcePath)
 	if pagesErr != nil || sourcePages <= 0 {
 		return nil, newRecipeError(
 			"RECIPE_INPUT_UNREADABLE",
@@ -521,7 +521,7 @@ func buildCleanScanReport(ctx context.Context, scan *cleanScanResolution, pdfPat
 	report := verify.VerifyPaths(cleanScanStepOutputs(pdfPath, textPath))
 	failed := false
 
-	finalPages, pageErr := api.PageCountFile(pdfPath)
+	finalPages, pageErr := api.PageCountFile(context.Background(), pdfPath)
 	pagePassed := pageErr == nil && finalPages == scan.SourcePageCount
 	pageDetail := ""
 	if !pagePassed {

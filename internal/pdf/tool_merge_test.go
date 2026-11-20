@@ -201,7 +201,7 @@ func writeMultiPagePDFFixture(t *testing.T, path string, pageCount int) {
 		pngPaths = append(pngPaths, pngPath)
 	}
 
-	if err := api.ImportImagesFile(pngPaths, path, nil, nil); err != nil {
+	if err := api.ImportImagesFile(context.Background(), pngPaths, path, nil, nil); err != nil {
 		t.Fatalf("import images into pdf: %v", err)
 	}
 }
@@ -371,7 +371,7 @@ func TestMergeToolExecutePlanHonorsResolvedPlan(t *testing.T) {
 		t.Fatalf("expected the request-resolved output %q to be unused, got stat error %v", requestOutput, statErr)
 	}
 
-	pageCount, err := api.PageCountFile(plannedOutput)
+	pageCount, err := api.PageCountFile(context.Background(), plannedOutput)
 	if err != nil {
 		t.Fatalf("read merged page count: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestMergeToolExecuteSingleWithPageRanges(t *testing.T) {
 		t.Fatalf("expected successful item, got %q", item.Message)
 	}
 
-	pageCount, err := api.PageCountFile(item.OutputPath)
+	pageCount, err := api.PageCountFile(context.Background(), item.OutputPath)
 	if err != nil {
 		t.Fatalf("read merged page count: %v", err)
 	}

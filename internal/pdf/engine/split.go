@@ -169,7 +169,7 @@ func ValidateSplitDestination(dir string) *SplitError {
 // SplitPageCount returns the number of pages of a PDF, or 0 when the document
 // cannot be read. Planning uses 0 to mean "unknown count".
 func SplitPageCount(inputPath string) int {
-	count, err := api.PageCountFile(strings.TrimSpace(inputPath))
+	count, err := api.PageCountFile(context.Background(), strings.TrimSpace(inputPath))
 	if err != nil {
 		return 0
 	}
@@ -201,7 +201,7 @@ func SplitBookmarkPageRanges(inputPath string) ([]SplitBookmarkRange, *SplitErro
 		return nil, &SplitError{Code: ErrorCodeValidation, Message: fmt.Sprintf("input file must be .pdf: %s", inputPath)}
 	}
 
-	pageCount, pageCountErr := api.PageCountFile(inputPath)
+	pageCount, pageCountErr := api.PageCountFile(context.Background(), inputPath)
 	if pageCountErr != nil {
 		return nil, &SplitError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("unable to determine page count for: %s", filepath.Base(inputPath)), Cause: pageCountErr}
 	}
@@ -212,7 +212,7 @@ func SplitBookmarkPageRanges(inputPath string) ([]SplitBookmarkRange, *SplitErro
 	}
 	defer file.Close()
 
-	bookmarks, bookmarksErr := api.Bookmarks(file, nil)
+	bookmarks, bookmarksErr := api.Bookmarks(context.Background(), file, newPDFCPUConfig())
 	if bookmarksErr != nil {
 		return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to read PDF bookmarks: %s", filepath.Base(inputPath)), Cause: bookmarksErr}
 	}
@@ -384,11 +384,11 @@ func buildSplitPlanWithAdvancedOptions(inputPath, outputDir, strategy, rangesExp
 		return nil, validationErr
 	}
 
-	if err := api.ValidateFile(inputPath, nil); err != nil {
+	if err := api.ValidateFile(context.Background(), inputPath, newPDFCPUConfig(), nil); err != nil {
 		return nil, &SplitError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("invalid PDF input: %s", filepath.Base(inputPath)), Cause: err}
 	}
 
-	pageCount, pageCountErr := api.PageCountFile(inputPath)
+	pageCount, pageCountErr := api.PageCountFile(context.Background(), inputPath)
 	if pageCountErr != nil {
 		return nil, &SplitError{Code: ErrorCodeInvalidInputPDF, Message: fmt.Sprintf("unable to determine page count for: %s", filepath.Base(inputPath)), Cause: pageCountErr}
 	}
@@ -674,9 +674,9 @@ func executeSplitPlan(ctx context.Context, inputPath string, planned []splitPlan
 	}
 	defer source.Close()
 
-	conf := model.NewDefaultConfiguration()
+	conf := newPDFCPUConfig()
 	conf.Cmd = model.TRIM
-	sourceCtx, readErr := api.ReadValidateAndOptimize(source, conf)
+	sourceCtx, readErr := api.ReadValidateAndOptimize(pdfCPUContext(ctx), source, conf, nil)
 	if readErr != nil {
 		return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to read the PDF: %s", filepath.Base(inputPath)), Cause: readErr}
 	}
@@ -701,11 +701,11 @@ func executeSplitPlan(ctx context.Context, inputPath string, planned []splitPlan
 		}
 		sort.Ints(pageNumbers)
 
-		destCtx, extractErr := pdfcpu.ExtractPages(sourceCtx, pageNumbers, false)
+		destCtx, extractErr := pdfcpu.ExtractPages(pdfCPUContext(ctx), sourceCtx, pageNumbers, false)
 		if extractErr != nil {
 			return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to split PDF for selection %s", entry.Selection), Cause: extractErr}
 		}
-		if writeErr := api.WriteContextFile(destCtx, entry.Output); writeErr != nil {
+		if writeErr := api.WriteContextFile(pdfCPUContext(ctx), destCtx, entry.Output); writeErr != nil {
 			return nil, &SplitError{Code: ErrorCodeSplitFailed, Message: fmt.Sprintf("failed to split PDF for selection %s", entry.Selection), Cause: writeErr}
 		}
 

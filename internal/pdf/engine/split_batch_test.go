@@ -41,7 +41,7 @@ func writeTestPDF(t *testing.T, path string) {
 	pngPath := filepath.Join(t.TempDir(), "page.png")
 	writeTestPNG(t, pngPath)
 
-	if err := api.ImportImagesFile([]string{pngPath}, path, nil, nil); err != nil {
+	if err := api.ImportImagesFile(context.Background(), []string{pngPath}, path, nil, nil); err != nil {
 		t.Fatalf("import images into pdf: %v", err)
 	}
 }

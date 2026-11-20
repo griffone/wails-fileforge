@@ -296,7 +296,7 @@ func TestConvertProducesSearchablePDFAndSidecar(t *testing.T) {
 		t.Fatalf("expected no warnings on a clean run, got %v", result.Warnings)
 	}
 
-	pages, pageErr := api.PageCountFile(outputPDF)
+	pages, pageErr := api.PageCountFile(context.Background(), outputPDF)
 	if pageErr != nil {
 		t.Fatalf("read output page count: %v", pageErr)
 	}

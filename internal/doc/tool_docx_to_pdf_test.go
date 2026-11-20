@@ -79,7 +79,7 @@ func writeDOCXPDFFixture(t *testing.T, path string, pages int) {
 func docxPDFPageCount(t *testing.T, path string) int {
 	t.Helper()
 
-	dims, err := api.PageDimsFile(path)
+	dims, err := api.PageDimsFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("read page dimensions from %s: %v", path, err)
 	}

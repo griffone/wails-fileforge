@@ -567,7 +567,7 @@ func TestImagesToolExecuteSingleSuccess(t *testing.T) {
 		t.Fatalf("unexpected success message: %q", item.Message)
 	}
 
-	pageCount, pageErr := api.PageCountFile(outputPath)
+	pageCount, pageErr := api.PageCountFile(context.Background(), outputPath)
 	if pageErr != nil {
 		t.Fatalf("read generated page count: %v", pageErr)
 	}
@@ -731,7 +731,7 @@ func TestImagesToolPlanThenExecuteUsesPlannedPath(t *testing.T) {
 		t.Fatalf("expected the planned path %q, got %+v", plannedPath, item)
 	}
 
-	pageCount, pageErr := api.PageCountFile(plannedPath)
+	pageCount, pageErr := api.PageCountFile(context.Background(), plannedPath)
 	if pageErr != nil || pageCount != 1 {
 		t.Fatalf("expected 1 page, got %d (err=%v)", pageCount, pageErr)
 	}

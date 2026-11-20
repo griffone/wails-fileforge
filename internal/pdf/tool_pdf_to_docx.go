@@ -107,7 +107,7 @@ func (t *PDFToDOCXTool) Plan(_ context.Context, req models.JobRequest) (models.P
 		return planFailure(plan, parseErr)
 	}
 
-	pages, pageErr := api.PageCountFile(parsed.InputPath)
+	pages, pageErr := api.PageCountFile(context.Background(), parsed.InputPath)
 	if pageErr != nil || pages <= 0 {
 		jobErr := models.NewCanonicalJobError(
 			engine.PDFToDOCXErrorInvalidInput,

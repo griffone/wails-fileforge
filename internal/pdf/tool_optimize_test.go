@@ -33,7 +33,7 @@ func readPDFInfo(t *testing.T, path string) *pdfcpu.PDFInfo {
 	}
 	defer file.Close()
 
-	info, err := api.PDFInfo(file, filepath.Base(path), nil, false, nil)
+	info, err := api.PDFInfo(context.Background(), file, filepath.Base(path), nil, false, nil)
 	if err != nil {
 		t.Fatalf("read pdf info: %v", err)
 	}
@@ -251,10 +251,10 @@ func TestOptimizeToolExecuteSingleCompresses(t *testing.T) {
 	if want := filepath.Join(dir, "notes_optimized.pdf"); output != want {
 		t.Fatalf("expected output %q, got %q", want, output)
 	}
-	if err := api.ValidateFile(output, nil); err != nil {
+	if err := api.ValidateFile(context.Background(), output, nil, nil); err != nil {
 		t.Fatalf("expected a valid output PDF: %v", err)
 	}
-	count, countErr := api.PageCountFile(output)
+	count, countErr := api.PageCountFile(context.Background(), output)
 	if countErr != nil || count != 1 {
 		t.Fatalf("expected 1 page, got count=%d err=%v", count, countErr)
 	}
@@ -539,7 +539,7 @@ func TestOptimizeToolExecuteLargeTargetReportsMet(t *testing.T) {
 	if !strings.Contains(item.Message, "target of 100.0 MB met") {
 		t.Fatalf("expected a met-target message, got %q", item.Message)
 	}
-	if err := api.ValidateFile(item.Outputs[0], nil); err != nil {
+	if err := api.ValidateFile(context.Background(), item.Outputs[0], nil, nil); err != nil {
 		t.Fatalf("expected a valid output PDF: %v", err)
 	}
 }
@@ -565,7 +565,7 @@ func TestOptimizeToolExecuteTinyTargetReportsNotMet(t *testing.T) {
 	if !strings.Contains(item.Message, "1 B") {
 		t.Fatalf("expected the target in the message, got %q", item.Message)
 	}
-	if err := api.ValidateFile(item.Outputs[0], nil); err != nil {
+	if err := api.ValidateFile(context.Background(), item.Outputs[0], nil, nil); err != nil {
 		t.Fatalf("expected a valid output PDF: %v", err)
 	}
 }
@@ -605,7 +605,7 @@ func TestOptimizeToolExecuteMissingGhostscriptWarns(t *testing.T) {
 	if !strings.Contains(item.Message, "Ghostscript is not available") {
 		t.Fatalf("expected a clear missing-Ghostscript message, got %q", item.Message)
 	}
-	if err := api.ValidateFile(item.Outputs[0], nil); err != nil {
+	if err := api.ValidateFile(context.Background(), item.Outputs[0], nil, nil); err != nil {
 		t.Fatalf("expected a valid pdfcpu output: %v", err)
 	}
 }

@@ -70,7 +70,7 @@ func readPDFInfoForTest(t *testing.T, path string) *pdfcpu.PDFInfo {
 	}
 	defer file.Close()
 
-	info, err := api.PDFInfo(file, filepath.Base(path), nil, false, nil)
+	info, err := api.PDFInfo(context.Background(), file, filepath.Base(path), nil, false, nil)
 	if err != nil {
 		t.Fatalf("read pdf info: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestOptimizeWithOptionsLargeTargetKeepsPDFCPUOutput(t *testing.T) {
 	if outcome.Strategy != OptimizeStrategyPDFCPU {
 		t.Fatalf("expected pdfcpu strategy, got %q", outcome.Strategy)
 	}
-	if err := api.ValidateFile(output, nil); err != nil {
+	if err := api.ValidateFile(context.Background(), output, nil, nil); err != nil {
 		t.Fatalf("expected a valid output PDF: %v", err)
 	}
 }
@@ -219,7 +219,7 @@ func TestOptimizeWithOptionsMissingGhostscriptKeepsPDFCPUBestEffort(t *testing.T
 	if outcome.TargetMet {
 		t.Fatalf("expected a tiny target to be impossible without gs, got %+v", outcome)
 	}
-	if err := api.ValidateFile(output, nil); err != nil {
+	if err := api.ValidateFile(context.Background(), output, nil, nil); err != nil {
 		t.Fatalf("expected a valid pdfcpu output: %v", err)
 	}
 }
@@ -235,7 +235,7 @@ func TestOptimizeWithOptionsAppliesMetadataAfterGhostscript(t *testing.T) {
 	if err := os.WriteFile(tinyPath, tinyPDF, 0o644); err != nil {
 		t.Fatalf("write tiny pdf: %v", err)
 	}
-	if err := api.ValidateFile(tinyPath, nil); err != nil {
+	if err := api.ValidateFile(context.Background(), tinyPath, nil, nil); err != nil {
 		t.Fatalf("expected the minimal fixture to be valid: %v", err)
 	}
 
@@ -258,6 +258,32 @@ func TestOptimizeWithOptionsAppliesMetadataAfterGhostscript(t *testing.T) {
 	properties := readPDFInfoForTest(t, output)
 	if properties.Title != "Field notes" {
 		t.Fatalf("expected metadata applied after compression, got %q", properties.Title)
+	}
+}
+
+func TestOptimizeWithOptionsReplacesKeywords(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "input.pdf")
+	seeded := filepath.Join(dir, "seeded.pdf")
+	output := filepath.Join(dir, "output.pdf")
+	writeTestPDF(t, input)
+
+	if err := api.AddKeywordsFile(context.Background(), input, seeded, []string{"legacy"}, nil); err != nil {
+		t.Fatalf("seed keywords: %v", err)
+	}
+
+	if _, err := OptimizeWithOptions(context.Background(), seeded, output, OptimizeOptions{
+		Properties: map[string]string{"Keywords": "fresh, new", "Title": "Field notes"},
+	}); err != nil {
+		t.Fatalf("expected optimize to succeed, got %v", err)
+	}
+
+	properties := readPDFInfoForTest(t, output)
+	if properties.Title != "Field notes" {
+		t.Fatalf("expected metadata to be applied, got %q", properties.Title)
+	}
+	if got := strings.Join(properties.Keywords, ","); got != "fresh,new" {
+		t.Fatalf("expected keywords to be replaced, got %q", got)
 	}
 }
 

@@ -282,7 +282,7 @@ func TestRunCleanScanProducesSearchableOutputs(t *testing.T) {
 		t.Fatalf("unexpected outputs: %+v", result.Outputs)
 	}
 
-	pages, pageErr := api.PageCountFile(pdfPath)
+	pages, pageErr := api.PageCountFile(context.Background(), pdfPath)
 	if pageErr != nil || pages != 2 {
 		t.Fatalf("expected 2 pages, got %d (err=%v)", pages, pageErr)
 	}

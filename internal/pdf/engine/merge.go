@@ -72,7 +72,7 @@ func MergeWithPageRanges(ctx context.Context, inputPaths []string, outputPath st
 
 	ranges := normalizeMergePageRanges(pageRanges, len(inputPaths))
 	if !hasMergePageRanges(ranges) {
-		if err := api.MergeCreateFile(inputPaths, outputPath, false, nil); err != nil {
+		if err := api.MergeCreateFile(pdfCPUContext(ctx), inputPaths, outputPath, false, newPDFCPUConfig()); err != nil {
 			return &MergeError{Code: ErrorCodeMergeFailed, Message: "failed to merge PDF files", Cause: err}
 		}
 
@@ -97,7 +97,7 @@ func ValidateMergePageRanges(inputPaths []string, pageRanges []string) *MergeErr
 			continue
 		}
 
-		pageCount, err := api.PageCountFile(inputPath)
+		pageCount, err := api.PageCountFile(context.Background(), inputPath)
 		if err != nil {
 			return &MergeError{
 				Code:    ErrorCodeInvalidInputPDF,
@@ -132,7 +132,7 @@ func validateMergeInputs(ctx context.Context, inputPaths []string) *MergeError {
 			continue
 		}
 
-		if err := api.ValidateFile(inputPath, nil); err != nil {
+		if err := api.ValidateFile(pdfCPUContext(ctx), inputPath, newPDFCPUConfig(), nil); err != nil {
 			code := classifyInputValidationError(err)
 			inputValidationErrors = append(inputValidationErrors, map[string]any{
 				"inputPath": inputPath,
@@ -207,7 +207,7 @@ func mergeSelectedPages(ctx context.Context, inputPaths []string, outputPath str
 		}
 
 		var collected bytes.Buffer
-		collectErr := api.Collect(inputFile, &collected, tokens, nil)
+		collectErr := api.Collect(pdfCPUContext(ctx), inputFile, &collected, tokens, newPDFCPUConfig())
 		_ = inputFile.Close()
 		if collectErr != nil {
 			return &MergeError{
@@ -220,7 +220,7 @@ func mergeSelectedPages(ctx context.Context, inputPaths []string, outputPath str
 		readers = append(readers, bytes.NewReader(collected.Bytes()))
 	}
 
-	if mergeErr := api.MergeRaw(readers, outputFile, false, nil); mergeErr != nil {
+	if mergeErr := api.MergeRaw(pdfCPUContext(ctx), readers, outputFile, false, newPDFCPUConfig()); mergeErr != nil {
 		return &MergeError{Code: ErrorCodeMergeFailed, Message: "failed to merge PDF files", Cause: mergeErr}
 	}
 

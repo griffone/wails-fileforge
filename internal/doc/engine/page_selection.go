@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
 // pageSelectionTokenRegexp mirrors pdfcpu's intended page selection grammar.
@@ -129,7 +131,7 @@ func ApplyPageSelection(inputPath, outputPath, selection string) error {
 	}
 	defer func() { _ = os.Remove(tempPath) }()
 
-	if collectErr := api.CollectFile(outputPath, tempPath, []string{trimmed}, nil); collectErr != nil {
+	if collectErr := api.CollectFile(context.Background(), outputPath, tempPath, []string{trimmed}, model.NewDefaultConfiguration()); collectErr != nil {
 		_ = os.Remove(outputPath)
 		return &PageSelectionError{
 			InputPath:  inputPath,

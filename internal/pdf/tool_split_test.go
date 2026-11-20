@@ -39,7 +39,7 @@ func writePDFFixture(t *testing.T, path string) {
 		t.Fatalf("close png: %v", err)
 	}
 
-	if err := api.ImportImagesFile([]string{pngPath}, path, nil, nil); err != nil {
+	if err := api.ImportImagesFile(context.Background(), []string{pngPath}, path, nil, nil); err != nil {
 		t.Fatalf("import images into pdf: %v", err)
 	}
 }
@@ -50,7 +50,7 @@ func writeBookmarkedPDFFixture(t *testing.T, path string, pages int, bookmarks [
 	plain := filepath.Join(t.TempDir(), "plain.pdf")
 	writeMultiPagePDFFixture(t, plain, pages)
 
-	if err := api.AddBookmarksFile(plain, path, bookmarks, true, nil); err != nil {
+	if err := api.AddBookmarksFile(context.Background(), plain, path, bookmarks, true, nil); err != nil {
 		t.Fatalf("add bookmarks: %v", err)
 	}
 }

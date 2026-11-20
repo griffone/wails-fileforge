@@ -318,7 +318,7 @@ func TestMDExecuteSingleDefaultPageIsA4Portrait(t *testing.T) {
 		t.Fatalf("expected execution to succeed, got %v", itemErr)
 	}
 
-	dims, dimsErr := api.PageDimsFile(item.OutputPath)
+	dims, dimsErr := api.PageDimsFile(context.Background(), item.OutputPath)
 	if dimsErr != nil {
 		t.Fatalf("read rendered page dimensions: %v", dimsErr)
 	}
@@ -354,7 +354,7 @@ func TestMDExecuteSingleLetterLandscapeProducesLandscapePage(t *testing.T) {
 		t.Fatalf("expected execution to succeed, got %v", itemErr)
 	}
 
-	dims, dimsErr := api.PageDimsFile(item.OutputPath)
+	dims, dimsErr := api.PageDimsFile(context.Background(), item.OutputPath)
 	if dimsErr != nil {
 		t.Fatalf("read rendered page dimensions: %v", dimsErr)
 	}
@@ -448,7 +448,7 @@ func TestMDExecuteSingleKeepsHeaderFooterWithCustomPageSetup(t *testing.T) {
 		t.Fatalf("expected execution to succeed, got %v", itemErr)
 	}
 
-	dims, dimsErr := api.PageDimsFile(item.OutputPath)
+	dims, dimsErr := api.PageDimsFile(context.Background(), item.OutputPath)
 	if dimsErr != nil {
 		t.Fatalf("read rendered page dimensions: %v", dimsErr)
 	}

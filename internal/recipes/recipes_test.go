@@ -334,7 +334,7 @@ func TestRunEmailPDFMergesMultipleInputs(t *testing.T) {
 		t.Fatalf("expected output %q, got %+v", wantOutput, result.Outputs)
 	}
 
-	pageCount, err := api.PageCountFile(wantOutput)
+	pageCount, err := api.PageCountFile(context.Background(), wantOutput)
 	if err != nil {
 		t.Fatalf("read merged page count: %v", err)
 	}

@@ -22,7 +22,7 @@ func writeTestMultiPagePDF(t *testing.T, path string, pageCount int) {
 		pngPaths = append(pngPaths, pngPath)
 	}
 
-	if err := api.ImportImagesFile(pngPaths, path, nil, nil); err != nil {
+	if err := api.ImportImagesFile(context.Background(), pngPaths, path, nil, nil); err != nil {
 		t.Fatalf("import images into pdf: %v", err)
 	}
 }
@@ -111,7 +111,7 @@ func TestMergeWithPageRangesSelectsPagesPerInput(t *testing.T) {
 		t.Fatalf("expected merge with ranges to succeed, got %v", err)
 	}
 
-	pageCount, err := api.PageCountFile(outputPath)
+	pageCount, err := api.PageCountFile(context.Background(), outputPath)
 	if err != nil {
 		t.Fatalf("read merged page count: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestMergeWithPageRangesTreatsMissingRangesAsWholeFile(t *testing.T) {
 		t.Fatalf("expected merge with partial ranges to succeed, got %v", err)
 	}
 
-	pageCount, err := api.PageCountFile(outputPath)
+	pageCount, err := api.PageCountFile(context.Background(), outputPath)
 	if err != nil {
 		t.Fatalf("read merged page count: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestMergeWithPageRangesEmptyRangesKeepExistingBehavior(t *testing.T) {
 		t.Fatalf("expected merge with empty ranges to succeed, got %v", err)
 	}
 
-	pageCount, err := api.PageCountFile(outputPath)
+	pageCount, err := api.PageCountFile(context.Background(), outputPath)
 	if err != nil {
 		t.Fatalf("read merged page count: %v", err)
 	}

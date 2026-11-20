@@ -73,7 +73,7 @@ func writeTestPDF(t *testing.T, path string, pageCount int) {
 		pngPaths = append(pngPaths, pngPath)
 	}
 
-	if err := api.ImportImagesFile(pngPaths, path, nil, nil); err != nil {
+	if err := api.ImportImagesFile(context.Background(), pngPaths, path, nil, nil); err != nil {
 		t.Fatalf("import images into pdf: %v", err)
 	}
 }
