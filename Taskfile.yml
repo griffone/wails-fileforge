@@ -24,9 +24,30 @@ tasks:
       - ./scripts/build-windows.sh
 
   package:
-    summary: Packages a production build of the application
+    summary: Build the optimized Windows installer/portable ZIP and Linux AppImage
+    cmds:
+      - task: package-windows
+      - task: package-linux
+
+  package-windows:
+    summary: Build the optimized Windows installer and portable ZIP (cross-build from Linux)
+    cmds:
+      - task: build:windows
+
+  package-linux:
+    summary: Build the optimized Linux AppImage
+    cmds:
+      - task: linux:create:appimage
+
+  package-native:
+    summary: Package the current OS with the native Wails task
     cmds:
       - task: "{{OS}}:package"
+
+  package-linux-full:
+    summary: Build the full Linux package set (AppImage, deb, rpm, aur)
+    cmds:
+      - task: linux:package
 
   run:
     summary: Runs the application
