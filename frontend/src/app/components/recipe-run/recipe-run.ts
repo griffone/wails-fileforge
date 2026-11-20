@@ -156,7 +156,7 @@ export class RecipeRun implements OnDestroy, OnInit {
 
   readonly result = signal<RecipeResultV1 | null>(null);
   readonly runJobId = signal('');
-  /** Last live event from `recipes/progress/v1` for the current job. */
+  /** Last live event from `recipes/progress` for the current job. */
   readonly liveProgress = signal<RecipeProgressEventV1 | null>(null);
   readonly isSubmitting = signal(false);
   readonly isRunning = signal(false);

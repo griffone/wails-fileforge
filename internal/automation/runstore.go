@@ -20,11 +20,12 @@ const (
 	defaultRunListLimit = 20
 	maxRunOutputs       = 10
 
-	runsFileName = "automation_runs_v1.json"
+	runsFileName       = "automation_runs.json"
+	legacyRunsFileName = "automation_runs_v1.json"
 )
 
 // DefaultRunPath returns the persisted run history location:
-// os.UserConfigDir()/fileforge/automation_runs_v1.json, with a repo-local
+// os.UserConfigDir()/fileforge/automation_runs.json, with a repo-local
 // fallback when the platform config directory is unavailable.
 func DefaultRunPath() string {
 	configDir, err := os.UserConfigDir()
@@ -60,6 +61,7 @@ func newRunStore(path string, maxRuns int) *RunStore {
 		path:    strings.TrimSpace(path),
 		maxRuns: maxRuns,
 	}
+	migrateLegacyFile(store.path, runsFileName, legacyRunsFileName)
 	store.load()
 
 	return store

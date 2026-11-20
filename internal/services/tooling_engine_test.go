@@ -33,7 +33,7 @@ func TestRunJobMapsQueueFullToSubmitError(t *testing.T) {
 
 	service := &ToolingService{
 		registry: reg,
-		history:  jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history_v1.json")),
+		history:  jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history.json")),
 	}
 	service.engine = jobs.NewEngine(reg, jobs.Options{
 		Limits:        jobs.Limits{Total: 1, CPU: 1, External: 1, IO: 1},

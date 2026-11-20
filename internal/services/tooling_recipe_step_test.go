@@ -156,7 +156,7 @@ func TestRecipeRunRecordsFinalOutputsOnce(t *testing.T) {
 		t.Fatalf("register optimize tool: %v", err)
 	}
 
-	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history_v1.json"))
+	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history.json"))
 	service := newToolingService(reg, history)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

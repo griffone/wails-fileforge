@@ -37,11 +37,11 @@ const (
 	RecipeIDCleanScan = "recipe.clean_scan"
 
 	// ProgressEventName is the Wails event emitted for every recipe stage.
-	ProgressEventName = "recipes/progress/v1"
+	ProgressEventName = "recipes/progress"
 
 	// StateEventName carries a full RecipeResult snapshot when a run is
 	// registered or reaches a terminal status.
-	StateEventName = "recipes/state/v1"
+	StateEventName = "recipes/state"
 
 	// retainedTerminalRuns is the number of finished recipe runs kept in the
 	// in-memory registry. Active runs are always retained.

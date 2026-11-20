@@ -380,7 +380,7 @@ func newTestService(t *testing.T, runner RecipeRunner, emit func(models.Automati
 	t.Helper()
 
 	root := t.TempDir()
-	store := NewStore(filepath.Join(root, "automation_rules_v1.json"))
+	store := NewStore(filepath.Join(root, "automation_rules.json"))
 	service := NewService(store, runner, emit)
 	service.stabilityDelay = 30 * time.Millisecond
 	service.statusPollInterval = 5 * time.Millisecond

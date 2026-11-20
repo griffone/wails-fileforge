@@ -52,7 +52,7 @@ describe('Wails jobProgress$', () => {
     // if we were able to spy on Events.On. Otherwise, push directly into
     // the internal ReplaySubject that the service exposes internally.
     if (registeredHandler) {
-      registeredHandler({ name: 'jobs/progress/v1', data: payload });
+      registeredHandler({ name: 'jobs/progress', data: payload });
     } else {
       // fallback: access private subject and next the payload
       const subj = (service as any).jobProgressSubject as any | null;

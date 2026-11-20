@@ -105,7 +105,7 @@ type ListRecipesResponse struct {
 	Recipes []Recipe `json:"recipes"`
 }
 
-// RecipeProgressEvent is emitted on recipes/progress/v1 for every stage of a
+// RecipeProgressEvent is emitted on recipes/progress for every stage of a
 // run so the UI can drive a stepper without polling.
 type RecipeProgressEvent struct {
 	JobID       string `json:"jobId"`

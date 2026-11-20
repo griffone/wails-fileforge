@@ -921,7 +921,7 @@ func newTestServiceWith(t *testing.T, setup func(*registry.Registry)) (*Service,
 	reg := registry.NewRegistry()
 	setup(reg)
 
-	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history_v1.json"))
+	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history.json"))
 	recorder := &eventRecorder{}
 	service := NewService(reg, history, recorder.record)
 	service.SetEngine(newRecipeTestEngine(t, reg))

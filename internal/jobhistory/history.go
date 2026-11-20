@@ -28,8 +28,9 @@ const (
 	dirPermissions  = 0o755
 	filePermissions = 0o644
 
-	historyFileName = "job_history_v1.json"
-	trashDirName    = "trash"
+	historyFileName       = "job_history.json"
+	legacyHistoryFileName = "job_history_v1.json"
+	trashDirName          = "trash"
 
 	reasonMissing  = "file is missing"
 	reasonModified = "modified after conversion"
@@ -61,7 +62,7 @@ type Store struct {
 }
 
 // DefaultPath returns the persisted history location:
-// os.UserConfigDir()/fileforge/job_history_v1.json, with a repo-local fallback
+// os.UserConfigDir()/fileforge/job_history.json, with a repo-local fallback
 // when the platform config directory is unavailable.
 func DefaultPath() string {
 	configDir, err := os.UserConfigDir()
@@ -88,12 +89,27 @@ func newStore(path string, maxEntries, maxOutputs int) *Store {
 	}
 	if store.path != "" {
 		store.trashRoot = filepath.Join(filepath.Dir(store.path), trashDirName)
+		store.migrateLegacyFile()
 	}
 	store.load()
 	if err := store.retainTrash(); err != nil {
 		log.Printf("jobhistory.retention.failed err=%v", err)
 	}
 	return store
+}
+
+// migrateLegacyFile copies the versioned history file to the unversioned name
+// when the store uses the current default filename. The legacy file is kept so
+// no user data is lost; a missing legacy file is a no-op.
+func (s *Store) migrateLegacyFile() {
+	if filepath.Base(s.path) != historyFileName {
+		return
+	}
+
+	legacyPath := filepath.Join(filepath.Dir(s.path), legacyHistoryFileName)
+	if err := fsx.MigrateFile(legacyPath, s.path, filePermissions); err != nil {
+		log.Printf("jobhistory.migration.failed path=%s err=%v", s.path, err)
+	}
 }
 
 // SetTrashRetention configures the limits applied to the app trash. A

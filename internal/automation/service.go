@@ -19,7 +19,7 @@ import (
 
 const (
 	// RunEventName is the Wails event emitted for every automation run stage.
-	RunEventName = "automation/run/v1"
+	RunEventName = "automation/run"
 
 	// AutomationRunEventName is kept as an explicit alias for the event name.
 	AutomationRunEventName = RunEventName

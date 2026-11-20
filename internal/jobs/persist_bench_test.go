@@ -15,7 +15,7 @@ import (
 // persistence path with a realistic terminal history.
 func BenchmarkPersistJobsSnapshot(b *testing.B) {
 	persisted := benchmarkPersistedJobs()
-	path := filepath.Join(b.TempDir(), "jobs_state_v1.json")
+	path := filepath.Join(b.TempDir(), "jobs.json")
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -28,7 +28,7 @@ func BenchmarkPersistJobsSnapshot(b *testing.B) {
 
 func TestSaveJobsSnapshotWritesValidJSON(t *testing.T) {
 	persisted := benchmarkPersistedJobs()
-	path := filepath.Join(t.TempDir(), "jobs_state_v1.json")
+	path := filepath.Join(t.TempDir(), "jobs.json")
 
 	if err := saveJobsSnapshot(path, persisted); err != nil {
 		t.Fatalf("save jobs snapshot: %v", err)

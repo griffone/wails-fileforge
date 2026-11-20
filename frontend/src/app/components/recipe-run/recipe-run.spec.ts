@@ -872,7 +872,7 @@ describe('RecipeRun (Web image set)', () => {
     expect(component.targetBytes()).toBe(0);
   }));
 
-  it('shows live recipe progress from recipes/progress/v1 while running', fakeAsync(() => {
+  it('shows live recipe progress from recipes/progress while running', fakeAsync(() => {
     wailsSpy.getRecipeStatusV1.and.resolveTo(
       statusResponse(runningWebRecipeResult()),
     );

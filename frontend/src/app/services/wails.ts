@@ -638,7 +638,7 @@ export interface ToolchainInstallOptionsV1 {
   force?: boolean;
 }
 
-/** One installer progress update emitted on `toolchain/install/v1`. */
+/** One installer progress update emitted on `toolchain/install`. */
 export interface ToolchainInstallEventV1 {
   phase: string;
   percent: number;
@@ -737,7 +737,7 @@ export class Wails {
     },
   );
 
-  // Same contract as jobProgress$ for the recipes/progress/v1 stream: the
+  // Same contract as jobProgress$ for the recipes/progress stream: the
   // native handler only lives while at least one consumer is subscribed and
   // the last event is replayed to late subscribers.
   public readonly recipeProgress$: Observable<RecipeProgressEventV1> =
@@ -760,7 +760,7 @@ export class Wails {
       };
     });
 
-  // Full snapshot streams. `jobs/state/v1` and `recipes/state/v1` carry a
+  // Full snapshot streams. `jobs/state` and `recipes/state` carry a
   // complete JobResultV1 / RecipeResultV1 on submit and on terminal status.
   // They mirror recipeProgress$: lazy native registration, last snapshot
   // replayed to late subscribers, and refcount-based cleanup.
@@ -806,7 +806,7 @@ export class Wails {
     },
   );
 
-  // Same contract as recipeProgress$ for the automation/run/v1 stream: the
+  // Same contract as recipeProgress$ for the automation/run stream: the
   // native handler only lives while at least one consumer is subscribed and
   // the last event is replayed to late subscribers. The replayed event may
   // belong to another rule, so consumers filter by ruleId.
@@ -830,7 +830,7 @@ export class Wails {
       };
     });
 
-  // Same contract as recipeProgress$ for the toolchain/install/v1 stream. The
+  // Same contract as recipeProgress$ for the toolchain/install stream. The
   // installer may fire events before the UI loads, so late subscribers get the
   // last event replayed and the status endpoint fills in the rest.
   public readonly toolchainInstall$: Observable<ToolchainInstallEventV1> =
@@ -1742,7 +1742,7 @@ export class Wails {
       this.jobProgressSubject = new ReplaySubject<JobProgressEventV1>(1);
       // Register the native event listener - store the unsubscribe fn
       this.jobProgressUnsubscribe = Events.On(
-        'jobs/progress/v1',
+        'jobs/progress',
         (ev: { data?: unknown }) => {
           const payload = ev?.data;
           if (!payload || typeof payload !== 'object') {
@@ -1799,7 +1799,7 @@ export class Wails {
     if (!this.recipeProgressSubject) {
       this.recipeProgressSubject = new ReplaySubject<RecipeProgressEventV1>(1);
       this.recipeProgressUnsubscribe = Events.On(
-        'recipes/progress/v1',
+        'recipes/progress',
         (ev: { data?: unknown }) => {
           const payload = ev?.data;
           if (!payload || typeof payload !== 'object') {
@@ -1868,7 +1868,7 @@ export class Wails {
     if (!this.jobStateSubject) {
       this.jobStateSubject = new ReplaySubject<JobResultV1>(1);
       this.jobStateUnsubscribe = Events.On(
-        'jobs/state/v1',
+        'jobs/state',
         (ev: { data?: unknown }) => {
           const payload = ev?.data;
           if (!payload || typeof payload !== 'object') {
@@ -1939,7 +1939,7 @@ export class Wails {
     if (!this.recipeStateSubject) {
       this.recipeStateSubject = new ReplaySubject<RecipeResultV1>(1);
       this.recipeStateUnsubscribe = Events.On(
-        'recipes/state/v1',
+        'recipes/state',
         (ev: { data?: unknown }) => {
           const payload = ev?.data;
           if (!payload || typeof payload !== 'object') {
@@ -2035,7 +2035,7 @@ export class Wails {
     if (!this.automationRunSubject) {
       this.automationRunSubject = new ReplaySubject<AutomationRunEventV1>(1);
       this.automationRunUnsubscribe = Events.On(
-        'automation/run/v1',
+        'automation/run',
         (ev: { data?: unknown }) => {
           const payload = ev?.data;
           if (!payload || typeof payload !== 'object') {
@@ -2106,7 +2106,7 @@ export class Wails {
       this.toolchainInstallSubject =
         new ReplaySubject<ToolchainInstallEventV1>(1);
       this.toolchainInstallUnsubscribe = Events.On(
-        'toolchain/install/v1',
+        'toolchain/install',
         (ev: { data?: unknown }) => {
           const payload = ev?.data;
           if (!payload || typeof payload !== 'object') {

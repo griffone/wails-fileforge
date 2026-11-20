@@ -13,7 +13,7 @@ import (
 )
 
 func TestStoreSavesAndReloadsRules(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
+	path := filepath.Join(t.TempDir(), "automation_rules.json")
 	store := NewStore(path)
 
 	rule := models.AutomationRule{
@@ -63,7 +63,7 @@ func TestStoreSavesAndReloadsRules(t *testing.T) {
 }
 
 func TestStoreDeleteRemovesRule(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
+	path := filepath.Join(t.TempDir(), "automation_rules.json")
 	store := NewStore(path)
 
 	for _, id := range []string{"rule_1", "rule_2"} {
@@ -90,7 +90,7 @@ func TestStoreDeleteRemovesRule(t *testing.T) {
 }
 
 func TestStoreUpdateRunCapsOutputs(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
+	path := filepath.Join(t.TempDir(), "automation_rules.json")
 	store := NewStore(path)
 
 	if _, err := store.Save(models.AutomationRule{ID: "rule_1", Name: "Rule"}); err != nil {
@@ -128,7 +128,7 @@ func TestStoreUpdateRunCapsOutputs(t *testing.T) {
 }
 
 func TestStoreSetEnabled(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
+	path := filepath.Join(t.TempDir(), "automation_rules.json")
 	store := NewStore(path)
 
 	if _, err := store.Save(models.AutomationRule{ID: "rule_1", Name: "Rule", Enabled: false}); err != nil {
@@ -155,7 +155,7 @@ func TestStoreSetEnabled(t *testing.T) {
 }
 
 func TestStoreToleratesMalformedJSON(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
+	path := filepath.Join(t.TempDir(), "automation_rules.json")
 	if err := os.WriteFile(path, []byte("{not valid json"), 0o644); err != nil {
 		t.Fatalf("write malformed file: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestStoreToleratesMalformedJSON(t *testing.T) {
 }
 
 func TestStoreCapsRuleCount(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
+	path := filepath.Join(t.TempDir(), "automation_rules.json")
 	store := newStore(path, 3)
 
 	for index := 0; index < 5; index++ {
@@ -194,7 +194,7 @@ func TestStoreCapsRuleCount(t *testing.T) {
 }
 
 func TestStoreSaveRequiresID(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "automation_rules_v1.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "automation_rules.json"))
 	if _, err := store.Save(models.AutomationRule{Name: "No id"}); err == nil {
 		t.Fatal("expected a missing-id error")
 	}
@@ -204,7 +204,7 @@ func TestStoreSaveRequiresID(t *testing.T) {
 // snapshots: moving fsync outside the state lock must not publish a stale
 // snapshot that drops a concurrently saved rule.
 func TestStoreConcurrentSavesKeepEveryRule(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "automation_rules_v1.json")
+	path := filepath.Join(t.TempDir(), "automation_rules.json")
 	store := NewStore(path)
 
 	const count = 20

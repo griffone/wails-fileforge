@@ -12,7 +12,7 @@ import (
 
 // Registering the emitted events with their payload types lets the binding
 // generator emit typed event names and payload interfaces for the frontend.
-// The names are the current versioned ones; phase 6 renames them.
+// Event names are unversioned and stable for the frontend.
 func init() {
 	application.RegisterEvent[models.JobProgressEvent](services.JobProgressEventName)
 	application.RegisterEvent[models.JobResult](services.JobStateEventName)

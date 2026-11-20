@@ -70,7 +70,7 @@ const NOTIFICATION_BODY_LIMIT = 180;
 /**
  * Background task activity for the whole app.
  *
- * The service merges full snapshots (`jobs/state/v1`, `recipes/state/v1`) with
+ * The service merges full snapshots (`jobs/state`, `recipes/state`) with
  * live progress events, keeps the active/recent ordering, and turns the first
  * non-terminal -> terminal transition of each job into exactly one completion
  * toast. It never throws when a stream or IPC method is missing so preview mode

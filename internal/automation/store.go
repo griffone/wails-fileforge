@@ -20,7 +20,8 @@ const (
 
 	filePermissions = 0o644
 
-	rulesFileName = "automation_rules_v1.json"
+	rulesFileName       = "automation_rules.json"
+	legacyRulesFileName = "automation_rules_v1.json"
 )
 
 // ErrRuleNotFound is returned when a rule id is not in the store.
@@ -41,7 +42,7 @@ type Store struct {
 }
 
 // DefaultPath returns the persisted rules location:
-// os.UserConfigDir()/fileforge/automation_rules_v1.json, with a repo-local
+// os.UserConfigDir()/fileforge/automation_rules.json, with a repo-local
 // fallback when the platform config directory is unavailable.
 func DefaultPath() string {
 	configDir, err := os.UserConfigDir()
@@ -62,6 +63,7 @@ func newStore(path string, maxRules int) *Store {
 		path:     strings.TrimSpace(path),
 		maxRules: maxRules,
 	}
+	migrateLegacyFile(store.path, rulesFileName, legacyRulesFileName)
 	store.load()
 
 	return store

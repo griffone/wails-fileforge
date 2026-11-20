@@ -14,17 +14,24 @@ import (
 	"fileforge-desktop/internal/jobs"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/platform/eventbus"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/platform/logx"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/verify"
 )
 
 const (
-	JobProgressEventName = "jobs/progress/v1"
+	JobProgressEventName = "jobs/progress"
 
 	// JobStateEventName carries a full JobResult snapshot whenever a job is
 	// submitted or reaches a terminal status.
-	JobStateEventName = "jobs/state/v1"
+	JobStateEventName = "jobs/state"
+
+	// jobsFileName is the unversioned job snapshot written by the engine.
+	jobsFileName = "jobs.json"
+	// legacyJobsFileName is the versioned snapshot read once during migration.
+	legacyJobsFileName = "jobs_state_v1.json"
+	jobsFileMode       = 0o644
 )
 
 type ToolingService struct {
@@ -83,6 +90,9 @@ func (s *ToolingService) SetContext(ctx context.Context) {
 	s.engine.SetBaseContext(ctx)
 
 	storePath := defaultJobsPersistencePath()
+	if err := migrateJobsPersistence(storePath); err != nil {
+		log.Printf("tooling.persistence.migration.failed path=%s err=%v", storePath, err)
+	}
 	if err := s.engine.SetPersistencePath(storePath); err != nil {
 		log.Printf("tooling.persistence.failed path=%s err=%v", storePath, err)
 	}
@@ -153,10 +163,22 @@ func (s *ToolingService) emitEvent(name string, payload any) {
 func defaultJobsPersistencePath() string {
 	configDir, err := os.UserConfigDir()
 	if err != nil || configDir == "" {
-		return filepath.Join(".", ".fileforge", "jobs_state_v1.json")
+		return filepath.Join(".", ".fileforge", jobsFileName)
 	}
 
-	return filepath.Join(configDir, "fileforge", "jobs_state_v1.json")
+	return filepath.Join(configDir, "fileforge", jobsFileName)
+}
+
+// migrateJobsPersistence copies the legacy versioned job snapshot to the
+// unversioned filename before the engine loads it. The legacy file is kept so
+// no user data is lost; a missing legacy file is a no-op.
+func migrateJobsPersistence(storePath string) error {
+	if filepath.Base(storePath) != jobsFileName {
+		return nil
+	}
+
+	legacyPath := filepath.Join(filepath.Dir(storePath), legacyJobsFileName)
+	return fsx.MigrateFile(legacyPath, storePath, jobsFileMode)
 }
 
 func (s *ToolingService) contextOrBackground() context.Context {

@@ -18,7 +18,7 @@ func newTestStore(t *testing.T) (*Store, string) {
 	t.Helper()
 
 	dir := t.TempDir()
-	return NewStore(filepath.Join(dir, "fileforge", "job_history_v1.json")), dir
+	return NewStore(filepath.Join(dir, "fileforge", "job_history.json")), dir
 }
 
 func writeTestFile(t *testing.T, path, content string) {
@@ -200,7 +200,7 @@ func TestUndoMovesUntouchedOutputsToTrash(t *testing.T) {
 		t.Fatalf("expected the trashed bytes to be preserved, got %q", got)
 	}
 
-	reloaded := NewStore(filepath.Join(dir, "fileforge", "job_history_v1.json"))
+	reloaded := NewStore(filepath.Join(dir, "fileforge", "job_history.json"))
 	reloadedEntries := reloaded.List()
 	if len(reloadedEntries) != 1 || !reloadedEntries[0].Undone {
 		t.Fatalf("expected the undone state to survive reload, got %+v", reloadedEntries)
@@ -406,7 +406,7 @@ func TestEmptyTrashClearsTrashStateAndKeepsHistory(t *testing.T) {
 
 func TestHistorySurvivesReload(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fileforge", "job_history_v1.json")
+	path := filepath.Join(dir, "fileforge", "job_history.json")
 	output := filepath.Join(dir, "out.pdf")
 	writeTestFile(t, output, "content")
 
@@ -428,7 +428,7 @@ func TestHistorySurvivesReload(t *testing.T) {
 
 func TestRestoreWorksAfterReload(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fileforge", "job_history_v1.json")
+	path := filepath.Join(dir, "fileforge", "job_history.json")
 	output := filepath.Join(dir, "out.pdf")
 	writeTestFile(t, output, "content")
 
@@ -450,7 +450,7 @@ func TestRestoreWorksAfterReload(t *testing.T) {
 
 func TestMalformedHistoryIsTolerated(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fileforge", "job_history_v1.json")
+	path := filepath.Join(dir, "fileforge", "job_history.json")
 	writeTestFile(t, path, "{not valid json")
 
 	store := NewStore(path)
@@ -477,7 +477,7 @@ func TestMalformedHistoryIsTolerated(t *testing.T) {
 
 func TestCapEntriesPrunesOldest(t *testing.T) {
 	dir := t.TempDir()
-	store := newStore(filepath.Join(dir, "fileforge", "job_history_v1.json"), 3, 1000)
+	store := newStore(filepath.Join(dir, "fileforge", "job_history.json"), 3, 1000)
 
 	for index := 1; index <= 5; index++ {
 		output := filepath.Join(dir, fmt.Sprintf("out-%d.pdf", index))
@@ -499,7 +499,7 @@ func TestCapEntriesPrunesOldest(t *testing.T) {
 
 func TestCapOutputFilesPrunesOldestEntries(t *testing.T) {
 	dir := t.TempDir()
-	store := newStore(filepath.Join(dir, "fileforge", "job_history_v1.json"), 50, 3)
+	store := newStore(filepath.Join(dir, "fileforge", "job_history.json"), 50, 3)
 
 	for index := 1; index <= 3; index++ {
 		first := filepath.Join(dir, fmt.Sprintf("a-%d.pdf", index))
@@ -796,7 +796,7 @@ func TestTrashRetentionPrunesExpiredDirectories(t *testing.T) {
 		t.Fatalf("expected the recent trash file to exist: %v", err)
 	}
 
-	reloaded := NewStore(filepath.Join(dir, "fileforge", "job_history_v1.json"))
+	reloaded := NewStore(filepath.Join(dir, "fileforge", "job_history.json"))
 	reloadedOld, found := reloaded.Get("job_old")
 	if !found || !reloadedOld.TrashEmptied || reloadedOld.Outputs[0].TrashedPath != "" {
 		t.Fatalf("expected retention state to persist, got %+v", reloadedOld)
@@ -859,7 +859,7 @@ func TestTrashRetentionPrunesBySize(t *testing.T) {
 
 func TestNewStorePrunesExpiredTrashOnLoad(t *testing.T) {
 	dir := t.TempDir()
-	historyPath := filepath.Join(dir, "fileforge", "job_history_v1.json")
+	historyPath := filepath.Join(dir, "fileforge", "job_history.json")
 	trashFile := filepath.Join(dir, "fileforge", "trash", "job_old", "0-out.pdf")
 	writeTestFile(t, trashFile, "stale")
 

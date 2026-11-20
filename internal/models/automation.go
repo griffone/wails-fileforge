@@ -56,7 +56,7 @@ type AutomationStatusResponse struct {
 	LastFile    string `json:"lastFile,omitempty"`
 }
 
-// AutomationRunEvent is emitted on automation/run/v1 when a rule starts
+// AutomationRunEvent is emitted on automation/run when a rule starts
 // processing a file and when that run reaches a terminal state.
 type AutomationRunEvent struct {
 	RuleID   string   `json:"ruleId"`

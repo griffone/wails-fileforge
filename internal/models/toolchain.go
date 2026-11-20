@@ -42,7 +42,7 @@ type ToolchainInstallOptions struct {
 }
 
 // ToolchainInstallEvent is one installer progress update emitted on
-// toolchain/install/v1. Done marks a terminal event; Error marks a failure.
+// toolchain/install. Done marks a terminal event; Error marks a failure.
 type ToolchainInstallEvent struct {
 	Phase         string `json:"phase"`
 	Percent       int    `json:"percent"`

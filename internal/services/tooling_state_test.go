@@ -9,7 +9,7 @@ import (
 )
 
 func TestListJobsReturnsEmptySliceForNewService(t *testing.T) {
-	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history_v1.json"))
+	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history.json"))
 	service := newToolingService(registry.NewRegistry(), history)
 
 	response := service.ListJobs(0)

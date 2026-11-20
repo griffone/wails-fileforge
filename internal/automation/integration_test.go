@@ -29,7 +29,7 @@ func TestAutomationRunsRealEmailPDFRecipe(t *testing.T) {
 		t.Fatalf("register PDF optimize: %v", err)
 	}
 
-	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history_v1.json"))
+	history := jobhistory.NewStore(filepath.Join(t.TempDir(), "history", "job_history.json"))
 	recipeService := recipes.NewService(reg, history, nil)
 	engine := jobs.NewEngine(reg, jobs.Options{Limits: jobs.DefaultLimits()})
 	t.Cleanup(func() {
@@ -38,7 +38,7 @@ func TestAutomationRunsRealEmailPDFRecipe(t *testing.T) {
 		_ = engine.Shutdown(ctx)
 	})
 	recipeService.SetEngine(engine)
-	store := NewStore(filepath.Join(t.TempDir(), "automation", "automation_rules_v1.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "automation", "automation_rules.json"))
 	service := NewService(store, recipeService, nil)
 	service.stabilityDelay = 50 * time.Millisecond
 	service.statusPollInterval = 20 * time.Millisecond

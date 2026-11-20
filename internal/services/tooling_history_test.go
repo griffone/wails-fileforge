@@ -91,7 +91,7 @@ func newHistoryTestServiceWithBus(t *testing.T, tool *historyFakeTool, bus event
 		t.Fatalf("register tool: %v", err)
 	}
 
-	history := jobhistory.NewStore(filepath.Join(dir, "history", "job_history_v1.json"))
+	history := jobhistory.NewStore(filepath.Join(dir, "history", "job_history.json"))
 	// No SetContext call: the engine keeps an empty persistence path, so the
 	// test never touches the real user config directory.
 	return newToolingServiceWithBus(reg, history, bus), dir

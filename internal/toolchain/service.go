@@ -15,7 +15,7 @@ import (
 )
 
 // InstallEventName is the Wails event emitted while the toolchain installs.
-const InstallEventName = "toolchain/install/v1"
+const InstallEventName = "toolchain/install"
 
 // Install phases reported in status snapshots and progress events.
 const (
