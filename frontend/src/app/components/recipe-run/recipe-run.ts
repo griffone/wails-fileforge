@@ -14,7 +14,7 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-angular';
-import { Subject, takeUntil } from 'rxjs';
+import { Subscription } from 'rxjs';
 
 import { FileDrop } from '../file-drop/file-drop';
 import { FileQueue } from '../tool-flow/file-queue';
@@ -47,10 +47,10 @@ import {
   formatCount,
   formatDuration,
 } from '../../utils/format';
+import { observeRecipe } from '../../utils/job-stream';
 import { resumeRecipeRun } from '../../utils/resume-task';
 
 const DEFAULT_RECIPE_ID = 'recipe.email_pdf';
-const POLLING_INTERVAL_MS = 1000;
 const PLAN_DEBOUNCE_MS = 250;
 const BYTES_PER_MB = 1024 * 1024;
 
@@ -165,23 +165,6 @@ export class RecipeRun implements OnDestroy, OnInit {
   readonly notice = signal('');
 
   readonly fileName = fileName;
-
-  /**
-   * Live progress is advisory: the polled status stays the source of truth for
-   * step results and outputs, but the event stream updates the stepper and the
-   * bar as soon as the backend reaches a stage instead of one poll later.
-   */
-  constructor() {
-    this.wailsService.recipeProgress$
-      .pipe(takeUntil(this.destroy$))
-      .subscribe((event) => {
-        if (!event || event.jobId !== this.runJobId()) {
-          return;
-        }
-
-        this.liveProgress.set(event);
-      });
-  }
 
   /** Recipes with a fixed outcome (no target size) hide the field entirely. */
   readonly showTargetSize = computed(
@@ -398,7 +381,7 @@ export class RecipeRun implements OnDestroy, OnInit {
   /**
    * Recipe steps with the per-step state merged in. Before a run every step is
    * pending; after the run starts the backend step snapshot takes over, and the
-   * live event marks the active step between polls.
+   * live event marks the active step until the next snapshot arrives.
    */
   readonly steps = computed<RecipeStepView[]>(() => {
     const recipeSteps = this.recipe()?.steps ?? [];
@@ -502,12 +485,10 @@ export class RecipeRun implements OnDestroy, OnInit {
     return null;
   });
 
-  private readonly destroy$ = new Subject<void>();
-  private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private runSubscription: Subscription | null = null;
   private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private planToken = 0;
   private planDirty = false;
-  private pollInFlight = false;
   private fileItemsGeneration = 0;
   private targetTouched = false;
 
@@ -539,9 +520,7 @@ export class RecipeRun implements OnDestroy, OnInit {
   }
 
   ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-    this.stopPolling();
+    this.stopObserving();
     this.clearPlanRefreshTimer();
   }
 
@@ -680,7 +659,7 @@ export class RecipeRun implements OnDestroy, OnInit {
   }
 
   clear(): void {
-    this.stopPolling();
+    this.stopObserving();
     this.clearPlanRefreshTimer();
     this.selectedPaths.set([]);
     this.fileItems.set([]);
@@ -762,7 +741,7 @@ export class RecipeRun implements OnDestroy, OnInit {
     this.runJobId.set('');
     this.liveProgress.set(null);
     this.cancelRequested.set(false);
-    this.stopPolling();
+    this.stopObserving();
 
     if (this.planLoading() || this.planDirty || !this.plan()?.success) {
       const planned = await this.refreshPlan();
@@ -799,7 +778,7 @@ export class RecipeRun implements OnDestroy, OnInit {
     }
 
     this.runJobId.set(response.jobId);
-    this.startPolling();
+    this.startObserving();
   }
 
   async cancel(): Promise<void> {
@@ -849,7 +828,7 @@ export class RecipeRun implements OnDestroy, OnInit {
   }
 
   resetRun(): void {
-    this.stopPolling();
+    this.stopObserving();
     this.result.set(null);
     this.runJobId.set('');
     this.liveProgress.set(null);
@@ -985,79 +964,98 @@ export class RecipeRun implements OnDestroy, OnInit {
       activity: this.activity,
       recipeId: this.recipeId,
       runJobId: this.runJobId,
-      startPolling: () => this.startPolling(),
+      startObserving: () => this.startObserving(),
     });
   }
 
-  private startPolling(): void {
-    this.stopPolling();
+  private startObserving(): void {
+    this.stopObserving();
+    const jobId = this.runJobId();
+    if (!jobId) {
+      return;
+    }
+
     this.isRunning.set(true);
-    void this.pollStatus();
-    this.pollingTimer = setInterval(() => {
-      void this.pollStatus();
-    }, POLLING_INTERVAL_MS);
+    this.runSubscription = observeRecipe(this.wailsService, jobId, {
+      onProgress: (event) => this.applyRecipeProgress(event),
+      onState: (result) => this.applyRecipeStatus(result),
+      onMissing: (response) => this.handleMissingRun(response),
+    });
   }
 
-  private stopPolling(): void {
-    if (this.pollingTimer) {
-      clearInterval(this.pollingTimer);
-      this.pollingTimer = null;
+  private stopObserving(): void {
+    if (this.runSubscription) {
+      this.runSubscription.unsubscribe();
+      this.runSubscription = null;
     }
     this.isRunning.set(false);
   }
 
-  private async pollStatus(): Promise<void> {
-    if (this.pollInFlight) {
+  private applyRecipeProgress(event: RecipeProgressEvent): void {
+    if (!event) {
       return;
     }
 
+    this.liveProgress.set(event);
+    if (this.isTerminalStatus(event.status)) {
+      void this.reconcileRecipeStatus();
+    }
+  }
+
+  /**
+   * One-shot recovery when a terminal progress event arrives before its
+   * recipes/state snapshot. This is never a timer.
+   */
+  private async reconcileRecipeStatus(): Promise<void> {
     const jobId = this.runJobId();
     if (!jobId) {
-      this.stopPolling();
       return;
     }
 
-    this.pollInFlight = true;
-    try {
-      const response: RecipeStatusResponse = await this.wailsService
-        .getRecipeStatus(jobId)
-        .catch(() => ({
-          success: false,
-          found: false,
-          message: 'The recipe status could not be read.',
-          error: {
-            code: 'EXEC_IO_TRANSIENT',
-            detail_code: 'RECIPE_STATUS_FAILED',
-            message: 'The recipe status could not be read.',
-          },
-        }));
-      if (this.runJobId() !== jobId) {
-        return;
-      }
-
-      if (!response.found || !response.result) {
-        this.stopPolling();
-        this.actionError.set(
-          response.error ?? {
-            code: 'EXEC_IO_TRANSIENT',
-            detail_code: 'RECIPE_STATUS_MISSING',
-            message: response.message || 'The recipe status could not be read.',
-          },
-        );
-        return;
-      }
-
-      this.result.set(response.result);
-      if (this.isTerminalStatus(response.result.status)) {
-        this.liveProgress.set(null);
-        this.stopPolling();
-        if (response.result.status === 'cancelled') {
-          this.notice.set('Cancelled — no output was written.');
-        }
-      }
-    } finally {
-      this.pollInFlight = false;
+    const response = await this.wailsService
+      .getRecipeStatus(jobId)
+      .catch(() => null);
+    if (!response || this.runJobId() !== jobId) {
+      return;
     }
+
+    if (!response.found || !response.result) {
+      this.handleMissingRun(response);
+      return;
+    }
+
+    this.applyRecipeStatus(response.result);
+  }
+
+  private applyRecipeStatus(result: RecipeResult): void {
+    if (!result) {
+      return;
+    }
+
+    this.result.set(result);
+    if (this.isTerminalStatus(result.status)) {
+      this.liveProgress.set(null);
+      this.stopObserving();
+      if (result.status === 'cancelled') {
+        this.notice.set('Cancelled — no output was written.');
+      }
+    }
+  }
+
+  /** The backend no longer tracks the adopted run (restart or retention). */
+  private handleMissingRun(response: RecipeStatusResponse): void {
+    if (!this.runJobId()) {
+      return;
+    }
+
+    this.stopObserving();
+    this.actionError.set(
+      response.error ?? {
+        code: 'EXEC_IO_TRANSIENT',
+        detail_code: 'RECIPE_STATUS_MISSING',
+        message: response.message || 'The recipe status could not be read.',
+      },
+    );
   }
 
   private swap(leftIndex: number, rightIndex: number): void {

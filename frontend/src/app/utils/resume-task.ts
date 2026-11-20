@@ -59,15 +59,15 @@ export function resumeToolJob(options: ResumeToolJobOptions): boolean {
 }
 
 /**
- * Reattaches the recipe runner to a run that is still in progress. The page
- * polls the full status immediately after adoption, so no partial snapshot is
- * seeded here.
+ * Reattaches the recipe runner to a run that is still in progress. The
+ * observer seeds the full status immediately after adoption, so no partial
+ * snapshot is seeded here.
  */
 export interface ResumeRecipeRunOptions {
   activity: ActivityService;
   recipeId: string;
   runJobId: WritableSignal<string>;
-  startPolling: () => void;
+  startObserving: () => void;
 }
 
 export function resumeRecipeRun(options: ResumeRecipeRunOptions): boolean {
@@ -81,7 +81,7 @@ export function resumeRecipeRun(options: ResumeRecipeRunOptions): boolean {
   }
 
   options.runJobId.set(task.id);
-  options.startPolling();
+  options.startObserving();
 
   return true;
 }

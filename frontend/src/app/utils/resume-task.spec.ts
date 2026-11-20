@@ -99,32 +99,32 @@ describe('resumeToolJob', () => {
 });
 
 describe('resumeRecipeRun', () => {
-  it('adopts the active recipe run and starts polling', () => {
+  it('adopts the active recipe run and starts observing', () => {
     const runJobId = signal('');
-    const startPolling = jasmine.createSpy('startPolling');
+    const startObserving = jasmine.createSpy('startObserving');
 
     const resumed = resumeRecipeRun({
       activity: activityStub(null, task({ id: 'recipe-job-1', kind: 'recipe' })),
       recipeId: 'recipe.email_pdf',
       runJobId,
-      startPolling,
+      startObserving,
     });
 
     expect(resumed).toBeTrue();
     expect(runJobId()).toBe('recipe-job-1');
-    expect(startPolling).toHaveBeenCalled();
+    expect(startObserving).toHaveBeenCalled();
   });
 
   it('does nothing when the page already owns a run', () => {
-    const startPolling = jasmine.createSpy('startPolling');
+    const startObserving = jasmine.createSpy('startObserving');
     const resumed = resumeRecipeRun({
       activity: activityStub(null, task({ id: 'recipe-job-1', kind: 'recipe' })),
       recipeId: 'recipe.email_pdf',
       runJobId: signal('recipe-existing'),
-      startPolling,
+      startObserving,
     });
 
     expect(resumed).toBeFalse();
-    expect(startPolling).not.toHaveBeenCalled();
+    expect(startObserving).not.toHaveBeenCalled();
   });
 });

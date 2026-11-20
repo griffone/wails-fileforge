@@ -201,6 +201,7 @@ describe('RecipeRun (Email PDF)', () => {
   let fixture: ComponentFixture<RecipeRun>;
   let component: RecipeRun;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let recipeStateSubject: Subject<RecipeResult>;
 
   function query<T extends Element>(selector: string): T | null {
     return fixture.nativeElement.querySelector(selector) as T | null;
@@ -388,6 +389,9 @@ describe('RecipeRun (Email PDF)', () => {
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
     wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+    recipeStateSubject = new Subject<RecipeResult>();
+    (wailsSpy as unknown as { recipeState$: unknown }).recipeState$ =
+      recipeStateSubject.asObservable();
 
     await TestBed.configureTestingModule({
       imports: [RecipeRun],
@@ -479,7 +483,7 @@ describe('RecipeRun (Email PDF)', () => {
     expect(component.planBlocked()).toBeFalse();
   }));
 
-  it('runs, polls to terminal and shows the verified result', fakeAsync(() => {
+  it('runs, observes to terminal and shows the verified result', fakeAsync(() => {
     wailsSpy.getRecipeStatus.and.resolveTo(statusResponse(recipeResult()));
 
     component.onPathsSelected(['/tmp/a.pdf']);
@@ -543,16 +547,10 @@ describe('RecipeRun (Email PDF)', () => {
     expect(text).not.toContain('Retry them below');
   }));
 
-  it('cancels a running recipe and keeps polling to terminal', fakeAsync(() => {
-    let pollCount = 0;
-    wailsSpy.getRecipeStatus.and.callFake(() => {
-      pollCount += 1;
-      return Promise.resolve(
-        statusResponse(
-          pollCount === 1 ? runningRecipeResult() : cancelledRecipeResult(),
-        ),
-      );
-    });
+  it('cancels a running recipe and settles on the terminal state event', fakeAsync(() => {
+    wailsSpy.getRecipeStatus.and.resolveTo(
+      statusResponse(runningRecipeResult()),
+    );
 
     component.onPathsSelected(['/tmp/a.pdf']);
     tick(250);
@@ -578,7 +576,7 @@ describe('RecipeRun (Email PDF)', () => {
       query<HTMLButtonElement>('.action-row .btn-ghost')?.textContent,
     ).toContain('Cancelling…');
 
-    tick(1000);
+    recipeStateSubject.next(cancelledRecipeResult());
     flushMicrotasks();
     fixture.detectChanges();
 
@@ -621,6 +619,7 @@ describe('RecipeRun (Web image set)', () => {
   let component: RecipeRun;
   let wailsSpy: jasmine.SpyObj<Wails>;
   let recipeProgressSubject: Subject<RecipeProgressEvent>;
+  let recipeStateSubject: Subject<RecipeResult>;
 
   function query<T extends Element>(selector: string): T | null {
     return fixture.nativeElement.querySelector(selector) as T | null;
@@ -767,6 +766,9 @@ describe('RecipeRun (Web image set)', () => {
     recipeProgressSubject = new Subject<RecipeProgressEvent>();
     (wailsSpy as unknown as { recipeProgress$: unknown }).recipeProgress$ =
       recipeProgressSubject.asObservable();
+    recipeStateSubject = new Subject<RecipeResult>();
+    (wailsSpy as unknown as { recipeState$: unknown }).recipeState$ =
+      recipeStateSubject.asObservable();
 
     wailsSpy.runRecipe.and.resolveTo({
       success: true,
@@ -888,7 +890,7 @@ describe('RecipeRun (Web image set)', () => {
 
     expect(component.isRunning()).toBeTrue();
     expect(component.runJobId()).toBe('web-job-1');
-    // Before the event the polled snapshot marks step 2 as active.
+    // Before the event the seeded snapshot marks step 2 as active.
     expect(component.steps()[1].state).toBe('running');
 
     recipeProgressSubject.next({
@@ -930,12 +932,12 @@ describe('RecipeRun (Web image set)', () => {
     expect(fixture.nativeElement.textContent).toContain('1600 px WebP');
     expect(fixture.nativeElement.textContent).not.toContain('Someone else');
 
-    // Stop the polling interval before fakeAsync verifies pending timers.
+    // Reset the run so the observer is released before fakeAsync exits.
     component.resetRun();
     fixture.detectChanges();
   }));
 
-  it('runs, polls to terminal and lists all six verified outputs', fakeAsync(() => {
+  it('runs, observes to terminal and lists all six verified outputs', fakeAsync(() => {
     component.onPathsSelected(['/tmp/in/hero.png']);
     tick(250);
     flushMicrotasks();
@@ -1179,7 +1181,7 @@ describe('RecipeRun (Social clip)', () => {
     expect(component.targetBytes()).toBe(0);
   }));
 
-  it('runs, polls to terminal and lists the three verified outputs', fakeAsync(() => {
+  it('runs, observes to terminal and lists the three verified outputs', fakeAsync(() => {
     component.onPathsSelected(['/tmp/in/clip.mp4']);
     tick(250);
     flushMicrotasks();
@@ -1400,7 +1402,7 @@ describe('RecipeRun (Clean scan)', () => {
     );
   }));
 
-  it('runs, polls to terminal and lists both verified outputs', fakeAsync(() => {
+  it('runs, observes to terminal and lists both verified outputs', fakeAsync(() => {
     component.onPathsSelected(['/tmp/in/report.pdf']);
     tick(250);
     flushMicrotasks();
