@@ -10,7 +10,7 @@ Everything runs on your machine. There are no uploads, accounts, or cloud calls.
 | --- | --- |
 | Image | Convert (PNG/JPG/WebP/GIF), Crop, Annotate (text, arrow, box, blur, redact), Compress to target size, Watermark (text/logo), OCR, Remove background — single and batch |
 | PDF | Merge (explicit order), Split (pages, ranges, page count or bookmarks), Crop (presets or margins), Optimize (compression + metadata), OCR (searchable PDF + text sidecar), Images → PDF, PDF → DOCX |
-| Documents | Markdown → PDF (optional header/footer; the tool supports single and batch, while the page currently runs one file per job), DOCX → PDF (LibreOffice + Pandoc fallback, single and batch) |
+| Documents | Markdown → PDF (optional header/footer, single and batch), DOCX → PDF (LibreOffice + Pandoc fallback, single and batch) |
 | Video | Convert, Trim, Merge, Transcribe (Whisper) |
 
 Every batch-capable tool plans one output per input and reports partial success per item; Merge, Images → PDF, and PDF → DOCX stay single-job operations.

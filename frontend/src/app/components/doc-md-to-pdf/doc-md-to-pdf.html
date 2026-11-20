@@ -5,7 +5,7 @@
         <p class="eyebrow">DOCUMENTS</p>
         <h1 class="page-title">Markdown → <em>PDF</em></h1>
         <p class="page-sub">
-          Turn one Markdown file into a clean PDF with optional page setup, header and footer bands.
+          Turn one Markdown file or a whole batch into clean PDFs with optional page setup, header and footer bands.
           Everything runs on this machine.
         </p>
       </div>
@@ -23,7 +23,7 @@
         <div class="panel-head">
           <div>
             <h2 class="panel-title">Markdown</h2>
-            <p class="panel-sub">Drop a Markdown file or choose it from your computer.</p>
+            <p class="panel-sub">One file converts alone; drop more to run them as a batch.</p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
@@ -31,10 +31,10 @@
         <div class="panel-body">
           <app-file-drop
             accept=".md,.markdown"
-            title="Drop a Markdown file here"
+            title="Drop Markdown files here"
             hint="MD · MARKDOWN"
-            ariaLabel="Drop or choose a Markdown file to convert"
-            [multiple]="false"
+            ariaLabel="Drop or choose Markdown files to convert"
+            [multiple]="true"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
@@ -43,7 +43,7 @@
           <div class="toolbar" role="group" aria-label="Markdown selection actions">
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose file
+              Choose files
             </button>
             <button
               type="button"
@@ -81,7 +81,7 @@
         <div class="panel-head">
           <div>
             <h2 class="panel-title">Output</h2>
-            <p class="panel-sub">Check the exact file name and where it will be saved.</p>
+            <p class="panel-sub">Check the exact file names and where they will be saved.</p>
           </div>
         </div>
 
@@ -97,7 +97,11 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useMarkdownFolder()">
-                Use the Markdown file's folder
+                @if (selectedPaths().length > 1) {
+                  Use each Markdown file's folder
+                } @else {
+                  Use the Markdown file's folder
+                }
               </button>
             </div>
           }
@@ -407,7 +411,7 @@
           }
 
           @if (selectedPaths().length === 0) {
-            <p class="action-helper">Drop a Markdown file to get started.</p>
+            <p class="action-helper">Drop Markdown files to get started.</p>
           }
 
           <div class="action-row">

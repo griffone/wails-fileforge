@@ -160,7 +160,7 @@ export class DocMdToPdf implements OnDestroy, OnInit {
 
   readonly canRun = computed(
     () =>
-      this.selectedPaths().length === 1 &&
+      this.selectedPaths().length > 0 &&
       !this.isSubmitting() &&
       !this.isPolling(),
   );
@@ -173,7 +173,11 @@ export class DocMdToPdf implements OnDestroy, OnInit {
   );
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to the Markdown file',
+    () =>
+      this.outputDir().trim() ||
+      (this.selectedPaths().length > 1
+        ? 'Next to each Markdown file'
+        : 'Next to the Markdown file'),
   );
 
   readonly isDefaultDestination = computed(
@@ -199,6 +203,7 @@ export class DocMdToPdf implements OnDestroy, OnInit {
 
   private jobSubscription: Subscription | null = null;
   private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private planDirty = false;
   private planToken = 0;
   private fileItemsGeneration = 0;
 
@@ -239,7 +244,11 @@ export class DocMdToPdf implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return this.selectedPaths().length === 1 ? '1 Markdown' : 'No file';
+    const count = this.selectedPaths().length;
+    if (count === 0) {
+      return 'No files';
+    }
+    return count === 1 ? '1 Markdown' : `${count} Markdown`;
   }
 
   onPathsSelected(paths: string[]): void {
@@ -250,33 +259,46 @@ export class DocMdToPdf implements OnDestroy, OnInit {
       return;
     }
 
-    const supported = incoming.filter((path) => this.isMarkdown(path));
-    const rejected = incoming.filter((path) => !this.isMarkdown(path));
-    const chosen = supported[0] ?? '';
-    const previous = this.selectedPaths()[0] ?? '';
-
-    this.notice.set(
-      this.intakeNotice(rejected, chosen, previous, supported.length),
+    const rejected: string[] = [];
+    const duplicates: string[] = [];
+    const added: string[] = [];
+    const known = new Set(
+      this.selectedPaths().map((path) => this.pathKey(path)),
     );
 
-    if (!chosen) {
+    for (const path of incoming) {
+      if (!this.isMarkdown(path)) {
+        rejected.push(path);
+        continue;
+      }
+
+      const key = this.pathKey(path);
+      if (known.has(key)) {
+        duplicates.push(path);
+        continue;
+      }
+
+      known.add(key);
+      added.push(path);
+    }
+
+    this.notice.set(this.intakeNotice(rejected, duplicates));
+
+    if (added.length === 0) {
       return;
     }
 
-    if (chosen === previous) {
-      return;
-    }
-
+    this.clearPlanRefreshTimer();
     this.actionMessage.set('');
-    this.selectedPaths.set([chosen]);
+    this.selectedPaths.set([...this.selectedPaths(), ...added]);
     this.syncFileItems();
     void this.refreshPlan();
   }
 
   async chooseFiles(): Promise<void> {
-    const path = (await this.wailsService.openFileDialog()).trim();
-    if (path) {
-      this.onPathsSelected([path]);
+    const paths = await this.wailsService.openMultipleFilesDialog();
+    if (paths.length > 0) {
+      this.onPathsSelected(paths);
     }
   }
 
@@ -284,6 +306,7 @@ export class DocMdToPdf implements OnDestroy, OnInit {
     if (this.selectedPaths().length === 0) {
       return;
     }
+    this.clearPlanRefreshTimer();
     this.selectedPaths.set([]);
     this.notice.set(null);
     this.actionMessage.set('');
@@ -292,10 +315,14 @@ export class DocMdToPdf implements OnDestroy, OnInit {
   }
 
   removeFile(path: string): void {
-    if (this.selectedPaths()[0] !== path) {
+    const next = this.selectedPaths().filter(
+      (candidate) => candidate !== path,
+    );
+    if (next.length === this.selectedPaths().length) {
       return;
     }
-    this.selectedPaths.set([]);
+    this.clearPlanRefreshTimer();
+    this.selectedPaths.set(next);
     this.syncFileItems();
     void this.refreshPlan();
   }
@@ -323,9 +350,10 @@ export class DocMdToPdf implements OnDestroy, OnInit {
       return;
     }
 
+    this.clearPlanRefreshTimer();
     this.actionMessage.set('');
 
-    if (this.planLoading() || !this.plan()?.success) {
+    if (this.planLoading() || this.planDirty || !this.plan()?.success) {
       const planned = await this.refreshPlan();
       if (!planned) {
         return;
@@ -362,6 +390,7 @@ export class DocMdToPdf implements OnDestroy, OnInit {
       return;
     }
 
+    const total = this.selectedPaths().length || 1;
     this.activeJobId.set(response.jobId);
     this.jobResult.set({
       jobId: response.jobId,
@@ -371,7 +400,7 @@ export class DocMdToPdf implements OnDestroy, OnInit {
       status: 'queued',
       progress: {
         current: 0,
-        total: 1,
+        total,
         stage: 'queued',
         message: 'Waiting to start',
       },
@@ -412,10 +441,23 @@ export class DocMdToPdf implements OnDestroy, OnInit {
     );
   }
 
-  /** A failed conversion has no partial queue to retry: rerun the same file. */
+  /**
+   * Reruns only the inputs that failed, as a fresh job. A single-file failure
+   * keeps the current selection, so the request shape does not change.
+   */
   async retry(): Promise<void> {
     if (!this.canRun()) {
       return;
+    }
+
+    const failed = (this.jobResult()?.items ?? [])
+      .filter((item) => !item.success)
+      .map((item) => item.inputPath)
+      .filter((path) => path.length > 0);
+
+    if (failed.length > 0 && failed.length < this.selectedPaths().length) {
+      this.selectedPaths.set([...new Set(failed)]);
+      this.syncFileItems();
     }
 
     this.jobError.set(null);
@@ -438,6 +480,7 @@ export class DocMdToPdf implements OnDestroy, OnInit {
 
     this.selectedPaths.set([]);
     this.fileItems.set([]);
+    this.planDirty = false;
     this.plan.set(null);
     this.planError.set(null);
     this.planLoading.set(false);
@@ -544,11 +587,12 @@ export class DocMdToPdf implements OnDestroy, OnInit {
     const header = this.bandGroup('header');
     const footer = this.bandGroup('footer');
     const setup = this.pageSetupForm.getRawValue();
+    const paths = this.selectedPaths();
 
     return {
       toolId: MD_TO_PDF_TOOL_ID,
-      mode: 'single',
-      inputPaths: [this.selectedPaths()[0] ?? ''],
+      mode: paths.length > 1 ? 'batch' : 'single',
+      inputPaths: [...paths],
       outputDir: this.outputDir(),
       options: {
         header: {
@@ -584,8 +628,9 @@ export class DocMdToPdf implements OnDestroy, OnInit {
   }
 
   private async refreshPlan(): Promise<boolean> {
-    if (this.selectedPaths().length !== 1) {
+    if (this.selectedPaths().length === 0) {
       this.planToken += 1;
+      this.planDirty = false;
       this.plan.set(null);
       this.planError.set(null);
       this.planLoading.set(false);
@@ -614,6 +659,7 @@ export class DocMdToPdf implements OnDestroy, OnInit {
     }
 
     this.planLoading.set(false);
+    this.planDirty = false;
 
     if (response.success && !response.error) {
       this.plan.set(response);
@@ -633,6 +679,7 @@ export class DocMdToPdf implements OnDestroy, OnInit {
   }
 
   private schedulePlanRefresh(delay = BAND_PLAN_DEBOUNCE_MS): void {
+    this.planDirty = true;
     this.clearPlanRefreshTimer();
     this.planRefreshTimer = setTimeout(() => {
       this.planRefreshTimer = null;
@@ -820,7 +867,14 @@ export class DocMdToPdf implements OnDestroy, OnInit {
   private syncFileItems(): void {
     const paths = this.selectedPaths();
     const generation = (this.fileItemsGeneration += 1);
-    this.fileItems.set(paths.map((path) => ({ path, name: fileName(path) })));
+    const existing = new Map(
+      this.fileItems().map((item) => [item.path, item]),
+    );
+    this.fileItems.set(
+      paths.map(
+        (path) => existing.get(path) ?? { path, name: fileName(path) },
+      ),
+    );
 
     if (paths.length > 0) {
       void this.enrichFileItems(paths, generation);
@@ -860,9 +914,7 @@ export class DocMdToPdf implements OnDestroy, OnInit {
 
   private intakeNotice(
     rejected: string[],
-    chosen: string,
-    previous: string,
-    supportedCount: number,
+    duplicates: string[],
   ): Notice | null {
     const parts: string[] = [];
 
@@ -874,15 +926,26 @@ export class DocMdToPdf implements OnDestroy, OnInit {
       parts.push(`${rejected.length} files weren't added because they aren't Markdown files.`);
     }
 
-    if (supportedCount > 1) {
-      parts.push(`Only one Markdown file is used. Using ${fileName(chosen)}.`);
-    } else if (previous && chosen && previous !== chosen) {
-      parts.push(`Replaced ${fileName(previous)}.`);
+    if (duplicates.length === 1) {
+      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+    } else if (duplicates.length > 1) {
+      parts.push(`${duplicates.length} files are already in the queue.`);
     }
 
     return parts.length > 0
       ? { tone: 'warning', text: parts.join(' ') }
       : null;
+  }
+
+  /**
+   * Windows and UNC paths are case-insensitive, so the same file dropped with
+   * different casing is still a duplicate there.
+   */
+  private pathKey(path: string): string {
+    const normalized = path.trim().replace(/\\/g, '/');
+    return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//')
+      ? normalized.toLowerCase()
+      : normalized;
   }
 
   private isMarkdown(path: string): boolean {

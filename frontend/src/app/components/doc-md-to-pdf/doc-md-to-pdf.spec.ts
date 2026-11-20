@@ -42,10 +42,9 @@ describe('DocMdToPdf', () => {
     return index > 0 ? path.slice(0, index) : '';
   }
 
-  function plannedOutput(request: JobRequest): string {
-    const first = request.inputPaths[0] ?? '';
-    const dir = request.outputDir || firstDir(first);
-    const stem = (first.split(/[\\/]/).pop() ?? 'document').replace(
+  function plannedOutput(inputPath: string, outputDir: string): string {
+    const dir = outputDir || firstDir(inputPath);
+    const stem = (inputPath.split(/[\\/]/).pop() ?? 'document').replace(
       /\.(md|markdown)$/i,
       '',
     );
@@ -54,19 +53,16 @@ describe('DocMdToPdf', () => {
   }
 
   function planResponse(request: JobRequest): PlanJobResponse {
-    const outputPath = plannedOutput(request);
     return {
       success: true,
       message: 'ok',
-      outputs: [
-        {
-          inputPath: request.inputPaths[0],
-          outputPath,
-          outputKind: 'file',
-          exists: false,
-          adjusted: false,
-        },
-      ],
+      outputs: request.inputPaths.map((inputPath) => ({
+        inputPath,
+        outputPath: plannedOutput(inputPath, request.outputDir),
+        outputKind: 'file',
+        exists: false,
+        adjusted: false,
+      })),
       effectiveOptions: request.options,
       warnings: [],
     };
@@ -221,6 +217,86 @@ describe('DocMdToPdf', () => {
     expect(component.destinationLabel()).toBe('Next to the Markdown file');
     expect(component.canRun()).toBeTrue();
     expect(component.primaryLabel()).toBe('Convert to PDF');
+  }));
+
+  it('keeps single mode and the same request shape for one file', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/doc.md']);
+    flushMicrotasks();
+
+    const request = lastPlanRequest();
+    expect(request.mode).toBe('single');
+    expect(request.inputPaths).toEqual(['/tmp/doc.md']);
+    expect(component.plan()?.outputs.length).toBe(1);
+    expect(component.fileCountLabel()).toBe('1 Markdown');
+  }));
+
+  it('plans one output per Markdown file in batch mode', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.md', '/tmp/b.markdown']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const request = lastPlanRequest();
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.md', '/tmp/b.markdown']);
+    expect(component.selectedPaths()).toEqual(['/tmp/a.md', '/tmp/b.markdown']);
+    expect(component.plan()?.outputs.map((output) => output.outputPath)).toEqual(
+      ['/tmp/a_md2pdf.pdf', '/tmp/b_md2pdf.pdf'],
+    );
+    expect(component.fileCountLabel()).toBe('2 Markdown');
+    expect(fixture.nativeElement.textContent).toContain('a_md2pdf.pdf');
+    expect(fixture.nativeElement.textContent).toContain('b_md2pdf.pdf');
+  }));
+
+  it('deduplicates repeated Markdown paths and rejects unsupported files', fakeAsync(() => {
+    component.onPathsSelected([
+      '/tmp/a.md',
+      '/tmp/a.md',
+      '/tmp/photo.png',
+    ]);
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual(['/tmp/a.md']);
+    expect(component.fileItems().map((item) => item.name)).toEqual(['a.md']);
+    expect(component.notice()?.text).toContain('photo.png');
+    expect(component.notice()?.text).toContain("isn't a Markdown file");
+    expect(component.notice()?.text).toContain('a.md is already in the queue.');
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
+  }));
+
+  it('removes the specific file and returns to single mode', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.md', '/tmp/b.md']);
+    flushMicrotasks();
+    expect(lastPlanRequest().mode).toBe('batch');
+
+    component.removeFile('/tmp/a.md');
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual(['/tmp/b.md']);
+    expect(lastPlanRequest().mode).toBe('single');
+    expect(lastPlanRequest().inputPaths).toEqual(['/tmp/b.md']);
+    expect(component.plan()?.outputs.length).toBe(1);
+
+    component.removeFile('/tmp/b.md');
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual([]);
+    expect(component.plan()).toBeNull();
+    expect(component.canRun()).toBeFalse();
+  }));
+
+  it('replans with every selected path when an option changes', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.md', '/tmp/b.md']);
+    flushMicrotasks();
+    const plannedOnce = wailsSpy.planJob.calls.count();
+
+    component.form.controls.header.patchValue({ enabled: true });
+    tick(250);
+    flushMicrotasks();
+
+    expect(wailsSpy.planJob.calls.count()).toBe(plannedOnce + 1);
+    const request = lastPlanRequest();
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.md', '/tmp/b.md']);
   }));
 
   it('rejects non-Markdown files with a notice', fakeAsync(() => {
@@ -450,6 +526,57 @@ describe('DocMdToPdf', () => {
     expect(wailsSpy.getJobStatus).toHaveBeenCalled();
     expect(component.isPolling()).toBeTrue();
     expect(component.activeJobId()).toBe('job-1');
+
+    fixture.destroy();
+  }));
+
+  it('submits one batch run for multiple files and reports every result', fakeAsync(() => {
+    wailsSpy.runJob.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-batch',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatus.and.resolveTo(
+      result('job-batch', 'success', [
+        {
+          inputPath: '/tmp/a.md',
+          outputPath: '/tmp/a_md2pdf.pdf',
+          outputs: ['/tmp/a_md2pdf.pdf'],
+          success: true,
+          message: 'markdown to pdf successful',
+        },
+        {
+          inputPath: '/tmp/b.markdown',
+          outputPath: '/tmp/b_md2pdf.pdf',
+          outputs: ['/tmp/b_md2pdf.pdf'],
+          success: true,
+          message: 'markdown to pdf successful',
+        },
+      ]),
+    );
+
+    component.onPathsSelected(['/tmp/a.md', '/tmp/b.markdown']);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    const request = wailsSpy.runJob.calls.mostRecent()
+      .args[0] as JobRequest;
+    expect(request.toolId).toBe('tool.doc.md_to_pdf');
+    expect(request.mode).toBe('batch');
+    expect(request.inputPaths).toEqual(['/tmp/a.md', '/tmp/b.markdown']);
+
+    expect(component.terminalJob()?.status).toBe('success');
+    expect(component.isPolling()).toBeFalse();
+    expect(component.outputInfos()['/tmp/a_md2pdf.pdf'].sizeBytes).toBe(2048);
+    expect(component.outputInfos()['/tmp/b_md2pdf.pdf'].sizeBytes).toBe(2048);
+    expect(fixture.nativeElement.textContent).toContain('2 documents converted');
+    expect(fixture.nativeElement.textContent).toContain('a_md2pdf.pdf');
+    expect(fixture.nativeElement.textContent).toContain('b_md2pdf.pdf');
 
     fixture.destroy();
   }));
