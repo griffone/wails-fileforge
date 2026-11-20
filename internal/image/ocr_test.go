@@ -179,15 +179,9 @@ func TestImageOCRRecognizePublishesTextAndPDF(t *testing.T) {
 		return nil, imageOCRStubOutputs(args, "Hello, OCR world\n", "%PDF-1.4\nstub searchable pdf\n")
 	}}
 
-	detectionCalls := stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
-
-	result, recognizeErr := RecognizeImage(context.Background(), runner, input, textPath, pdfPath, ImageOCROptions{DPI: 300})
+	result, recognizeErr := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, pdfPath, ImageOCROptions{DPI: 300})
 	if recognizeErr != nil {
 		t.Fatalf("expected recognition to succeed, got %v", recognizeErr)
-	}
-
-	if detectionCalls == nil || *detectionCalls != 1 {
-		t.Fatalf("expected one capability detection, got %v", detectionCalls)
 	}
 	if len(runner.snapshotCalls()) != 1 {
 		t.Fatalf("expected exactly one tesseract process, got %v", runner.snapshotCalls())
@@ -235,13 +229,13 @@ func TestImageOCRRecognizeDefaultsToRecommendedLanguage(t *testing.T) {
 
 		return nil, imageOCRStubOutputs(args, "text\n", "%PDF-1.4\n")
 	}}
-	stubImageOCRCapabilities(t, engine.OCRCapabilities{
+	capabilities := engine.OCRCapabilities{
 		Tesseract:           true,
 		Languages:           []string{"afr"},
 		RecommendedLanguage: "afr",
-	})
+	}
 
-	if _, err := RecognizeImage(context.Background(), runner, input, textPath, "", ImageOCROptions{}); err != nil {
+	if _, err := RecognizeImageWithCapabilities(context.Background(), runner, capabilities, input, textPath, "", ImageOCROptions{}); err != nil {
 		t.Fatalf("expected recognition to succeed, got %v", err)
 	}
 }
@@ -259,9 +253,7 @@ func TestImageOCRRecognizeAcceptsLanguageExpression(t *testing.T) {
 
 		return nil, imageOCRStubOutputs(args, "text\n", "%PDF-1.4\n")
 	}}
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng", "spa"))
-
-	if _, err := RecognizeImage(context.Background(), runner, input, textPath, "", ImageOCROptions{Language: "eng+spa"}); err != nil {
+	if _, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng", "spa"), input, textPath, "", ImageOCROptions{Language: "eng+spa"}); err != nil {
 		t.Fatalf("expected the language expression to be accepted, got %v", err)
 	}
 }
@@ -299,9 +291,8 @@ func TestImageOCRRecognizeRefusesExistingOutputs(t *testing.T) {
 			testCase.prepare(t, textPath, pdfPath)
 
 			runner := &imageOCRStubRunner{}
-			stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-			_, err := RecognizeImage(context.Background(), runner, input, textPath, pdfPath, ImageOCROptions{})
+			_, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, pdfPath, ImageOCROptions{})
 			var ocrErr *ImageOCRError
 			if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeOutputExists {
 				t.Fatalf("expected %s, got %v", ImageOCRCodeOutputExists, err)
@@ -320,9 +311,8 @@ func TestImageOCRRecognizeRejectsMissingLanguage(t *testing.T) {
 	textPath := filepath.Join(dir, "photo.txt")
 
 	runner := &imageOCRStubRunner{}
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-	_, err := RecognizeImage(context.Background(), runner, input, textPath, "", ImageOCROptions{Language: "spa"})
+	_, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, "", ImageOCROptions{Language: "spa"})
 	var ocrErr *ImageOCRError
 	if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeLanguageUnavailable {
 		t.Fatalf("expected %s, got %v", ImageOCRCodeLanguageUnavailable, err)
@@ -338,10 +328,8 @@ func TestImageOCRRecognizeRejectsInvalidDPI(t *testing.T) {
 	writePlanPNG(t, input, 20, 10)
 	textPath := filepath.Join(dir, "photo.txt")
 
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
-
 	for _, dpi := range []int{-1, engine.MinOCRDPI - 1, engine.MaxOCRDPI + 1} {
-		_, err := RecognizeImage(context.Background(), &imageOCRStubRunner{}, input, textPath, "", ImageOCROptions{DPI: dpi})
+		_, err := RecognizeImageWithCapabilities(context.Background(), &imageOCRStubRunner{}, imageOCRTestCapabilities("eng"), input, textPath, "", ImageOCROptions{DPI: dpi})
 		var ocrErr *ImageOCRError
 		if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeDPIInvalid {
 			t.Fatalf("dpi %d: expected %s, got %v", dpi, ImageOCRCodeDPIInvalid, err)
@@ -359,9 +347,8 @@ func TestImageOCRRecognizeCancellation(t *testing.T) {
 		cancel()
 
 		runner := &imageOCRStubRunner{}
-		stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-		_, err := RecognizeImage(ctx, runner, input, filepath.Join(dir, "photo.txt"), "", ImageOCROptions{})
+		_, err := RecognizeImageWithCapabilities(ctx, runner, imageOCRTestCapabilities("eng"), input, filepath.Join(dir, "photo.txt"), "", ImageOCROptions{})
 		var ocrErr *ImageOCRError
 		if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeCancelled {
 			t.Fatalf("expected %s, got %v", ImageOCRCodeCancelled, err)
@@ -385,9 +372,8 @@ func TestImageOCRRecognizeCancellation(t *testing.T) {
 
 			return nil, runCtx.Err()
 		}}
-		stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-		_, err := RecognizeImage(ctx, runner, input, filepath.Join(dir, "photo.txt"), "", ImageOCROptions{})
+		_, err := RecognizeImageWithCapabilities(ctx, runner, imageOCRTestCapabilities("eng"), input, filepath.Join(dir, "photo.txt"), "", ImageOCROptions{})
 		var ocrErr *ImageOCRError
 		if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeCancelled {
 			t.Fatalf("expected %s, got %v", ImageOCRCodeCancelled, err)
@@ -413,9 +399,8 @@ func TestImageOCRRecognizeCancellation(t *testing.T) {
 
 			return nil, outputsErr
 		}}
-		stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-		_, err := RecognizeImage(ctx, runner, input, textPath, pdfPath, ImageOCROptions{})
+		_, err := RecognizeImageWithCapabilities(ctx, runner, imageOCRTestCapabilities("eng"), input, textPath, pdfPath, ImageOCROptions{})
 		var ocrErr *ImageOCRError
 		if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeCancelled {
 			t.Fatalf("expected %s, got %v", ImageOCRCodeCancelled, err)
@@ -464,10 +449,9 @@ func TestImageOCRRecognizeCancellationBetweenPublishes(t *testing.T) {
 	runner := &imageOCRStubRunner{onRun: func(_ context.Context, _ string, args []string) ([]byte, error) {
 		return nil, imageOCRStubOutputs(args, "text\n", "%PDF-1.4\n")
 	}}
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
 	ctx := &imageOCRTextPresenceContext{Context: context.Background(), textPath: textPath}
-	_, err := RecognizeImage(ctx, runner, input, textPath, pdfPath, ImageOCROptions{})
+	_, err := RecognizeImageWithCapabilities(ctx, runner, imageOCRTestCapabilities("eng"), input, textPath, pdfPath, ImageOCROptions{})
 	var ocrErr *ImageOCRError
 	if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeCancelled {
 		t.Fatalf("expected %s, got %v", ImageOCRCodeCancelled, err)
@@ -489,9 +473,8 @@ func TestImageOCRRecognizeNoTextIsAWarning(t *testing.T) {
 	runner := &imageOCRStubRunner{onRun: func(_ context.Context, _ string, args []string) ([]byte, error) {
 		return nil, imageOCRStubOutputs(args, "", "%PDF-1.4\n")
 	}}
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-	result, err := RecognizeImage(context.Background(), runner, input, textPath, pdfPath, ImageOCROptions{})
+	result, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, pdfPath, ImageOCROptions{})
 	if err != nil {
 		t.Fatalf("a no-text result must not fail, got %v", err)
 	}
@@ -535,9 +518,8 @@ func TestImageOCRRecognizeValidatesPDFHeader(t *testing.T) {
 
 				return nil, os.WriteFile(args[1]+".pdf", []byte(testCase.pdf), 0o644)
 			}}
-			stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-			_, err := RecognizeImage(context.Background(), runner, input, textPath, pdfPath, ImageOCROptions{})
+			_, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, pdfPath, ImageOCROptions{})
 			var ocrErr *ImageOCRError
 			if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeVerifyFailed {
 				t.Fatalf("expected %s, got %v", ImageOCRCodeVerifyFailed, err)
@@ -566,9 +548,8 @@ func TestImageOCRRecognizeMissingTextFailsAndCleansWorkspace(t *testing.T) {
 		// Tesseract wrote the PDF but not the TXT.
 		return nil, os.WriteFile(args[1]+".pdf", []byte("%PDF-1.4\n"), 0o644)
 	}}
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-	_, err := RecognizeImage(context.Background(), runner, input, textPath, pdfPath, ImageOCROptions{})
+	_, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, pdfPath, ImageOCROptions{})
 	var ocrErr *ImageOCRError
 	if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeRecognizeFailed {
 		t.Fatalf("expected %s, got %v", ImageOCRCodeRecognizeFailed, err)
@@ -595,9 +576,8 @@ func TestImageOCRRecognizeUndecodableInput(t *testing.T) {
 	}
 
 	runner := &imageOCRStubRunner{}
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-	_, err := RecognizeImage(context.Background(), runner, input, filepath.Join(dir, "broken.txt"), "", ImageOCROptions{})
+	_, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, filepath.Join(dir, "broken.txt"), "", ImageOCROptions{})
 	var ocrErr *ImageOCRError
 	if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodeNormalizeFailed {
 		t.Fatalf("expected %s, got %v", ImageOCRCodeNormalizeFailed, err)
@@ -641,9 +621,8 @@ func TestImageOCRRecognizePublishFailureRollsBackText(t *testing.T) {
 	t.Cleanup(func() {
 		_ = os.Chmod(pdfDir, 0o755)
 	})
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-	_, err := RecognizeImage(context.Background(), runner, input, textPath, pdfPath, ImageOCROptions{})
+	_, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, pdfPath, ImageOCROptions{})
 	var ocrErr *ImageOCRError
 	if !errors.As(err, &ocrErr) || ocrErr.Code != ImageOCRCodePublishFailed {
 		t.Fatalf("expected %s, got %v", ImageOCRCodePublishFailed, err)
@@ -669,9 +648,8 @@ func TestImageOCRRecognizeHandlesPathsWithSpaces(t *testing.T) {
 	runner := &imageOCRStubRunner{onRun: func(_ context.Context, _ string, args []string) ([]byte, error) {
 		return nil, imageOCRStubOutputs(args, "hello\n", "%PDF-1.4\n")
 	}}
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-	result, err := RecognizeImage(context.Background(), runner, input, textPath, pdfPath, ImageOCROptions{})
+	result, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, pdfPath, ImageOCROptions{})
 	if err != nil {
 		t.Fatalf("expected spaced paths to succeed, got %v", err)
 	}
@@ -699,9 +677,8 @@ func TestImageOCRRecognizeDefaultsTo300DPI(t *testing.T) {
 
 		return nil, imageOCRStubOutputs(args, "text\n", "%PDF-1.4\n")
 	}}
-	stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-	if _, err := RecognizeImage(context.Background(), runner, input, textPath, "", ImageOCROptions{}); err != nil {
+	if _, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, "", ImageOCROptions{}); err != nil {
 		t.Fatalf("expected the default DPI to be accepted, got %v", err)
 	}
 }
@@ -804,9 +781,8 @@ func TestImageOCRRecognizeNormalizesEXIFOrientation(t *testing.T) {
 
 				return nil, imageOCRStubOutputs(args, "text\n", "%PDF-1.4\n")
 			}}
-			stubImageOCRCapabilities(t, imageOCRTestCapabilities("eng"))
 
-			result, err := RecognizeImage(context.Background(), runner, input, textPath, "", ImageOCROptions{})
+			result, err := RecognizeImageWithCapabilities(context.Background(), runner, imageOCRTestCapabilities("eng"), input, textPath, "", ImageOCROptions{})
 			if err != nil {
 				t.Fatalf("expected recognition to succeed, got %v", err)
 			}
@@ -901,7 +877,7 @@ func TestImageOCRRecognizeRealTesseract(t *testing.T) {
 	writeImageOCRTextFixture(t, input)
 	textPath := filepath.Join(dir, "ocr-fixture.txt")
 
-	result, err := RecognizeImage(context.Background(), nil, input, textPath, "", ImageOCROptions{
+	result, err := RecognizeImageWithCapabilities(context.Background(), nil, capabilities, input, textPath, "", ImageOCROptions{
 		Language: capabilities.RecommendedLanguage,
 		DPI:      300,
 	})

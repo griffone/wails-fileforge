@@ -76,7 +76,6 @@ type previewJob struct {
 	Ctx      context.Context
 	Cancel   context.CancelFunc
 	Attempts int
-	// TODO: (image-preview) add worker metadata
 }
 
 // Validate performs small sanity checks on the request. It does not check the filesystem.

@@ -208,8 +208,7 @@ func (c *ImageConverter) validateInputFile(inputPath string) error {
 	// Remove the dot from extension
 	ext = ext[1:]
 
-	// Define supported input extensions
-	// TODO: Make this configurable or extendable
+	// Supported input extensions stay aligned with imageInputExtensions.
 	supportedInputExts := map[string]bool{
 		"jpg":  true,
 		"jpeg": true,

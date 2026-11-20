@@ -181,28 +181,9 @@ func ValidateImageOCRDestination(dir string) *ImageOCRError {
 	return validateImageOCROutputDir(filepath.Clean(trimmed))
 }
 
-// RecognizeImage normalizes one image and runs Tesseract. It detects the local
-// runtime through imageOCRDetectCapabilities, which tests may replace.
-func RecognizeImage(ctx context.Context, runner engine.CommandRunner, inputPath, textPath, pdfPath string, opts ImageOCROptions) (ImageOCRResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if checkErr := imageOCRContextError(ctx); checkErr != nil {
-		return ImageOCRResult{}, checkErr
-	}
-
-	runner = resolveImageOCRRunner(runner)
-	capabilities := imageOCRDetectCapabilities(ctx, runner)
-	if checkErr := imageOCRContextError(ctx); checkErr != nil {
-		return ImageOCRResult{}, checkErr
-	}
-
-	return RecognizeImageWithCapabilities(ctx, runner, capabilities, inputPath, textPath, pdfPath, opts)
-}
-
-// RecognizeImageWithCapabilities is the batch-friendly variant: the tool
-// detects capabilities once per job and passes them here, so a long batch never
-// reruns `tesseract --list-langs` for every image.
+// RecognizeImageWithCapabilities normalizes one image and runs Tesseract. The
+// caller detects the runtime once per job and passes it here, so a long batch
+// never reruns `tesseract --list-langs` for every image.
 func RecognizeImageWithCapabilities(ctx context.Context, runner engine.CommandRunner, capabilities engine.OCRCapabilities, inputPath, textPath, pdfPath string, opts ImageOCROptions) (ImageOCRResult, error) {
 	if ctx == nil {
 		ctx = context.Background()

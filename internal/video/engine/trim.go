@@ -161,10 +161,6 @@ func BuildTrimReencodeArgs(req TrimRequest) ([]string, *VideoError) {
 	return args, nil
 }
 
-func BuildTrimArgs(req TrimRequest) ([]string, *VideoError) {
-	return BuildTrimReencodeArgs(req)
-}
-
 func Trim(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req TrimRequest) *VideoError {
 	return TrimWithProgress(ctx, probe, runner, req, nil)
 }
