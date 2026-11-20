@@ -82,7 +82,7 @@ InstallDirRegKey HKLM "${UNINST_KEY}" "InstallDir"
 ## Installer pages
 ####
 !define MUI_WELCOMEPAGE_TITLE "Welcome to the ${INFO_PRODUCTNAME} setup"
-!define MUI_WELCOMEPAGE_TEXT "FileForge Desktop converts images, PDFs, documents and videos on your own PC. No accounts, no uploads, no cloud.\r\n\r\nThis wizard installs the desktop app. The local conversion tools download on first use from Settings > Tools & Models.\r\n\r\nClick Next to continue."
+!define MUI_WELCOMEPAGE_TEXT "FileForge Desktop converts images, PDFs, documents and videos on your own PC. No accounts, no uploads, no cloud.$\r$\n$\r$\nThis wizard installs the desktop app. The local conversion tools download on first use from Settings > Tools & Models.$\r$\n$\r$\nClick Next to continue."
 !insertmacro MUI_PAGE_WELCOME
 
 !insertmacro MUI_PAGE_COMPONENTS
@@ -94,7 +94,7 @@ InstallDirRegKey HKLM "${UNINST_KEY}" "InstallDir"
 !insertmacro MUI_PAGE_INSTFILES
 
 !define MUI_FINISHPAGE_TITLE "${INFO_PRODUCTNAME} is installed"
-!define MUI_FINISHPAGE_TEXT "${INFO_PRODUCTNAME} is ready to use. Your files stay on this PC and nothing is uploaded.\r\n\r\nThe first conversion that needs a local tool downloads it automatically. You can review or reinstall the tools any time in Settings > Tools & Models; the default set needs internet access once and about 3 GB of disk space.\r\n\r\nClick Finish to close this wizard."
+!define MUI_FINISHPAGE_TEXT "${INFO_PRODUCTNAME} is ready to use. Your files stay on this PC and nothing is uploaded.$\r$\n$\r$\nThe first conversion that needs a local tool downloads it automatically. You can review or reinstall the tools any time in Settings > Tools & Models; the default set needs internet access once and about 3 GB of disk space.$\r$\n$\r$\nClick Finish to close this wizard."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}"
 !define MUI_FINISHPAGE_RUN_TEXT "Launch ${INFO_PRODUCTNAME}"
 !define MUI_FINISHPAGE_NOREBOOTSUPPORT
@@ -104,7 +104,7 @@ InstallDirRegKey HKLM "${UNINST_KEY}" "InstallDir"
 ## Uninstaller pages
 ####
 !define MUI_WELCOMEPAGE_TITLE "Remove ${INFO_PRODUCTNAME}"
-!define MUI_WELCOMEPAGE_TEXT "This wizard removes ${INFO_PRODUCTNAME} and the data it created for this Windows user: the downloaded tools and models, settings, job history, the app trash and the WebView2 profile.\r\n\r\nFiles you converted are not deleted.\r\n\r\nClick Next to continue."
+!define MUI_WELCOMEPAGE_TEXT "This wizard removes ${INFO_PRODUCTNAME} and the data it created for this Windows user: the downloaded tools and models, settings, job history, the app trash and the WebView2 profile.$\r$\n$\r$\nFiles you converted are not deleted.$\r$\n$\r$\nClick Next to continue."
 !insertmacro MUI_UNPAGE_WELCOME
 
 !define MUI_UNCONFIRMPAGE_TEXT_TOP "Uninstalling removes the app, local tools (FFmpeg, Tesseract, Poppler, Ghostscript, Python, Whisper, models and the background removal pack), settings, history, trash and WebView2 data for this Windows user. Converted files are not deleted."
@@ -113,7 +113,7 @@ InstallDirRegKey HKLM "${UNINST_KEY}" "InstallDir"
 !insertmacro MUI_UNPAGE_INSTFILES
 
 !define MUI_FINISHPAGE_TITLE "${INFO_PRODUCTNAME} was removed"
-!define MUI_FINISHPAGE_TEXT "${INFO_PRODUCTNAME} and its local tools and app data have been removed.\r\n\r\nYour converted files are still where you saved them. The Microsoft Edge WebView2 runtime is shared with other apps and stays installed.\r\n\r\nClick Finish to close this wizard."
+!define MUI_FINISHPAGE_TEXT "${INFO_PRODUCTNAME} and its local tools and app data have been removed.$\r$\n$\r$\nYour converted files are still where you saved them. The Microsoft Edge WebView2 runtime is shared with other apps and stays installed.$\r$\n$\r$\nClick Finish to close this wizard."
 !insertmacro MUI_UNPAGE_FINISH
 
 !insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
