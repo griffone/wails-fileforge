@@ -1,5 +1,6 @@
 Unicode true
 SetCompressor /SOLID lzma
+SetCompressorDictSize 64
 
 ####
 ## Please note: Template replacements don't work in this file. They are provided with default defines like

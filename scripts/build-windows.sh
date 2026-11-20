@@ -4,10 +4,11 @@
 # bimg links libvips through cgo, so the Windows build needs the libvips
 # Windows development package and a MinGW cross compiler. The script downloads
 # the pinned libvips package, builds the frontend, cross-compiles the exe,
-# bundles the libvips DLLs/modules and produces the NSIS installer.
+# bundles only the libvips DLLs reachable from the exe and produces the NSIS
+# installer.
 #
-# Requirements: go, node, npm, makensis, mingw-w64 (gcc + dlltool), pkg-config,
-# curl, python3, zip and the Wails v3 CLI (wails3).
+# Requirements: go, node, npm, makensis, mingw-w64 (gcc, dlltool and binutils
+# objdump), pkg-config, curl, python3, zip and the Wails v3 CLI (wails3).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -140,8 +141,9 @@ trap 'rm -f "$SYSO"' EXIT
 )
 
 echo "==> Bundling the libvips runtime"
-cp "$VIPS_DIR"/bin/*.dll "$STAGE_DIR"/
-cp -r "$VIPS_DIR"/bin/vips-modules-* "$STAGE_DIR"/
+python3 "$ROOT_DIR/scripts/prune-windows-dlls.py" \
+  --source "$VIPS_DIR/bin" \
+  --dest "$STAGE_DIR"
 
 echo "==> Building the NSIS installer"
 BOOTSTRAPPER="$ROOT_DIR/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe"
@@ -154,7 +156,7 @@ rm -f "$INSTALLER"
   cd "$ROOT_DIR/build/windows/nsis"
   makensis \
     -DARG_WAILS_AMD64_BINARY="$STAGE_DIR/fileforge-desktop.exe" \
-    -DLIBVIPS_DIR="$VIPS_DIR/bin" \
+    -DLIBVIPS_DIR="$STAGE_DIR" \
     project.nsi
 )
 
@@ -162,7 +164,7 @@ echo "==> Creating the portable ZIP"
 rm -f "$PORTABLE"
 (
   cd "$CACHE_DIR/portable"
-  zip -qr "$PORTABLE" "FileForge Desktop"
+  zip -9 -qr "$PORTABLE" "FileForge Desktop"
 )
 
 echo
