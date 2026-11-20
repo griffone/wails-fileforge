@@ -627,3 +627,98 @@ func TestStoreIsSafeForConcurrentUse(t *testing.T) {
 		t.Fatalf("expected %d entries, got %d", jobCount, len(entries))
 	}
 }
+
+// TestListIsNotBlockedBySlowUndo proves the data lock is not held during file
+// moves: List must answer while Undo is stuck renaming an output.
+func TestListIsNotBlockedBySlowUndo(t *testing.T) {
+	store, dir := newTestStore(t)
+	path := filepath.Join(dir, "out.pdf")
+	writeTestFile(t, path, "content")
+	store.RecordJob(terminalJob("job_1", "tool.pdf.merge", models.JobStatusSuccess, path))
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseRename := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseRename)
+
+	store.rename = func(oldPath, newPath string) error {
+		close(started)
+		<-release
+		return os.Rename(oldPath, newPath)
+	}
+
+	undoDone := make(chan models.UndoResultV1, 1)
+	go func() {
+		undoDone <- store.Undo("job_1")
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Undo to start moving the output")
+	}
+
+	listed := make(chan struct{})
+	go func() {
+		if entries := store.List(); len(entries) != 1 {
+			t.Errorf("List returned %d entries during Undo, want 1", len(entries))
+		}
+		close(listed)
+	}()
+
+	select {
+	case <-listed:
+	case <-time.After(time.Second):
+		t.Fatal("List blocked while Undo was moving a file")
+	}
+
+	releaseRename()
+	result := <-undoDone
+	if !result.Success {
+		t.Fatalf("expected undo success, got %+v", result)
+	}
+}
+
+// TestRecordJobAndListAreSafeConcurrently exercises the snapshot writer and the
+// read path under the race detector.
+func TestRecordJobAndListAreSafeConcurrently(t *testing.T) {
+	store, dir := newTestStore(t)
+	const writers = 10
+
+	stop := make(chan struct{})
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				if entries := store.List(); entries == nil {
+					t.Error("List returned nil")
+					return
+				}
+			}
+		}
+	}()
+
+	var wait sync.WaitGroup
+	for index := 0; index < writers; index++ {
+		output := filepath.Join(dir, fmt.Sprintf("out-%d.pdf", index))
+		writeTestFile(t, output, "content")
+
+		wait.Add(1)
+		go func(index int, output string) {
+			defer wait.Done()
+			store.RecordJob(terminalJob(fmt.Sprintf("job_%d", index), "tool.pdf.merge", models.JobStatusSuccess, output))
+		}(index, output)
+	}
+	wait.Wait()
+	close(stop)
+	<-readerDone
+
+	if entries := store.List(); len(entries) != writers {
+		t.Fatalf("expected %d entries, got %d", writers, len(entries))
+	}
+}

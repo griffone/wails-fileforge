@@ -34,7 +34,15 @@ const (
 // fingerprints needed to undo them. Undo moves untouched outputs to an
 // app-managed trash directory; the app never deletes a user file.
 type Store struct {
-	mu         sync.RWMutex
+	// mu guards the in-memory entries. File I/O and JSON writes never run
+	// under this lock, so readers are never blocked by disk work.
+	mu sync.RWMutex
+	// opMu serializes mutable operations (record, undo, restore, empty trash,
+	// retention) so each operation observes and applies one consistent change.
+	opMu sync.Mutex
+	// writeMu serializes JSON writes and preserves snapshot order.
+	writeMu sync.Mutex
+
 	path       string
 	trashRoot  string
 	maxEntries int
@@ -114,10 +122,12 @@ func (s *Store) record(jobID, toolID string, outputs []string, createdAt int64) 
 		createdAt = time.Now().UnixMilli()
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 
+	s.mu.Lock()
 	if s.findIndexLocked(jobID) >= 0 {
+		s.mu.Unlock()
 		return
 	}
 
@@ -129,8 +139,10 @@ func (s *Store) record(jobID, toolID string, outputs []string, createdAt int64) 
 	}
 	s.entries = append([]models.JobHistoryEntryV1{entry}, s.entries...)
 	s.pruneLocked()
+	snapshot := s.snapshotEntriesLocked()
+	s.mu.Unlock()
 
-	if err := s.saveLocked(); err != nil {
+	if err := s.saveSnapshot(snapshot); err != nil {
 		log.Printf("jobhistory.persist.failed path=%s jobId=%s err=%v", s.path, jobID, err)
 	}
 }
@@ -140,27 +152,18 @@ func (s *Store) List() []models.JobHistoryEntryV1 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	entries := make([]models.JobHistoryEntryV1, len(s.entries))
-	for index, entry := range s.entries {
-		copied := entry
-		copied.Outputs = append([]models.JobOutputRecordV1(nil), entry.Outputs...)
-		if copied.Outputs == nil {
-			copied.Outputs = []models.JobOutputRecordV1{}
-		}
-		entries[index] = copied
-	}
-
-	return entries
+	return s.snapshotEntriesLocked()
 }
 
 // Undo moves every untouched output of a recorded job to the app trash.
 // Outputs that are missing, are not regular files, or no longer match their
 // recorded size and modification time are skipped and reported, never moved.
+//
+// File I/O runs outside the data lock: the entry is snapshotted, inspected and
+// moved, then re-found and updated under the lock before the snapshot is
+// persisted. Concurrent readers never wait for a file move or fsync.
 func (s *Store) Undo(jobID string) models.UndoResultV1 {
 	jobID = strings.TrimSpace(jobID)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	result := newUndoResult()
 	if !s.configured() {
@@ -172,13 +175,19 @@ func (s *Store) Undo(jobID string) models.UndoResultV1 {
 		return result
 	}
 
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+
+	s.mu.RLock()
 	index := s.findIndexLocked(jobID)
 	if index < 0 {
+		s.mu.RUnlock()
 		result.Message = fmt.Sprintf("job '%s' is not in history", jobID)
 		return result
 	}
+	entry := cloneEntry(s.entries[index])
+	s.mu.RUnlock()
 
-	entry := &s.entries[index]
 	if len(entry.Outputs) == 0 {
 		result.Message = "job has no recorded outputs"
 		return result
@@ -195,6 +204,12 @@ func (s *Store) Undo(jobID string) models.UndoResultV1 {
 		result.Message = "job is already undone"
 		return result
 	}
+
+	type movedOutput struct {
+		path      string
+		trashPath string
+	}
+	moved := make([]movedOutput, 0, len(entry.Outputs))
 
 	for outputIndex := range entry.Outputs {
 		output := &entry.Outputs[outputIndex]
@@ -236,35 +251,64 @@ func (s *Store) Undo(jobID string) models.UndoResultV1 {
 			continue
 		}
 
-		output.TrashedPath = trashPath
-		output.Undone = true
+		moved = append(moved, movedOutput{path: output.Path, trashPath: trashPath})
 		result.Moved = append(result.Moved, output.Path)
 	}
 
-	entry.Undone = allUndone(entry.Outputs)
-	if len(result.Moved) > 0 {
-		entry.TrashEmptied = false
-		result.Success = true
-		if err := s.saveLocked(); err != nil {
-			result.Success = false
-			result.Message = appendMessage(undoMessage(len(result.Moved), len(entry.Outputs), len(result.Skipped)),
-				fmt.Sprintf("history could not be saved: %v", err))
-			return result
-		}
+	if len(moved) == 0 {
+		result.Message = undoMessage(0, len(entry.Outputs), len(result.Skipped))
+		return result
 	}
 
-	result.Message = undoMessage(len(result.Moved), len(entry.Outputs), len(result.Skipped))
+	s.mu.Lock()
+	liveIndex := s.findIndexLocked(jobID)
+	if liveIndex < 0 {
+		s.mu.Unlock()
+		// The files are already in the trash and are reported as moved, but
+		// there is no entry left to update or persist.
+		result.Message = fmt.Sprintf("job '%s' is not in history", jobID)
+		return result
+	}
+
+	liveEntry := &s.entries[liveIndex]
+	for _, item := range moved {
+		targetIndex := findOutputIndex(liveEntry, item.path)
+		if targetIndex < 0 {
+			continue
+		}
+		target := &liveEntry.Outputs[targetIndex]
+		if target.Undone || target.TrashedPath != "" {
+			continue
+		}
+		target.TrashedPath = item.trashPath
+		target.Undone = true
+	}
+	liveEntry.Undone = allUndone(liveEntry.Outputs)
+	liveEntry.TrashEmptied = false
+	total := len(liveEntry.Outputs)
+	snapshot := s.snapshotEntriesLocked()
+	s.mu.Unlock()
+
+	result.Success = true
+	if err := s.saveSnapshot(snapshot); err != nil {
+		result.Success = false
+		result.Message = appendMessage(undoMessage(len(result.Moved), total, len(result.Skipped)),
+			fmt.Sprintf("history could not be saved: %v", err))
+		return result
+	}
+
+	result.Message = undoMessage(len(result.Moved), total, len(result.Skipped))
 	return result
 }
 
 // Restore moves trashed outputs back to their original paths. A destination
 // that already exists is never overwritten; the trashed copy stays in place
 // and the conflict is reported.
+//
+// Like Undo, file I/O runs outside the data lock and the entry is re-found
+// before its snapshot is persisted.
 func (s *Store) Restore(jobID string) models.UndoResultV1 {
 	jobID = strings.TrimSpace(jobID)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	result := newUndoResult()
 	if !s.configured() {
@@ -276,13 +320,19 @@ func (s *Store) Restore(jobID string) models.UndoResultV1 {
 		return result
 	}
 
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+
+	s.mu.RLock()
 	index := s.findIndexLocked(jobID)
 	if index < 0 {
+		s.mu.RUnlock()
 		result.Message = fmt.Sprintf("job '%s' is not in history", jobID)
 		return result
 	}
+	entry := cloneEntry(s.entries[index])
+	s.mu.RUnlock()
 
-	entry := &s.entries[index]
 	hasTrashed := false
 	for _, output := range entry.Outputs {
 		if strings.TrimSpace(output.TrashedPath) != "" {
@@ -298,6 +348,12 @@ func (s *Store) Restore(jobID string) models.UndoResultV1 {
 		result.Message = "job has nothing to restore"
 		return result
 	}
+
+	type restoredOutput struct {
+		path      string
+		trashPath string
+	}
+	restored := make([]restoredOutput, 0, len(entry.Outputs))
 
 	for outputIndex := range entry.Outputs {
 		output := &entry.Outputs[outputIndex]
@@ -341,21 +397,49 @@ func (s *Store) Restore(jobID string) models.UndoResultV1 {
 			continue
 		}
 
-		output.TrashedPath = ""
-		output.Undone = false
+		restored = append(restored, restoredOutput{path: output.Path, trashPath: trashPath})
 		result.Moved = append(result.Moved, output.Path)
 	}
 
-	entry.Undone = allUndone(entry.Outputs)
-	if len(result.Moved) > 0 {
-		result.Success = true
-		entry.TrashEmptied = false
-		if err := s.saveLocked(); err != nil {
-			result.Success = false
-			result.Message = appendMessage(restoreMessage(len(result.Moved), len(result.Skipped)),
-				fmt.Sprintf("history could not be saved: %v", err))
-			return result
+	if len(restored) == 0 {
+		result.Message = restoreMessage(0, len(result.Skipped))
+		return result
+	}
+
+	s.mu.Lock()
+	liveIndex := s.findIndexLocked(jobID)
+	if liveIndex < 0 {
+		s.mu.Unlock()
+		// The files are already back at their original paths and are reported
+		// as restored, but there is no entry left to update or persist.
+		result.Message = fmt.Sprintf("job '%s' is not in history", jobID)
+		return result
+	}
+
+	liveEntry := &s.entries[liveIndex]
+	for _, item := range restored {
+		targetIndex := findOutputIndex(liveEntry, item.path)
+		if targetIndex < 0 {
+			continue
 		}
+		target := &liveEntry.Outputs[targetIndex]
+		if target.TrashedPath != item.trashPath {
+			continue
+		}
+		target.TrashedPath = ""
+		target.Undone = false
+	}
+	liveEntry.Undone = allUndone(liveEntry.Outputs)
+	liveEntry.TrashEmptied = false
+	snapshot := s.snapshotEntriesLocked()
+	s.mu.Unlock()
+
+	result.Success = true
+	if err := s.saveSnapshot(snapshot); err != nil {
+		result.Success = false
+		result.Message = appendMessage(restoreMessage(len(result.Moved), len(result.Skipped)),
+			fmt.Sprintf("history could not be saved: %v", err))
+		return result
 	}
 
 	result.Message = restoreMessage(len(result.Moved), len(result.Skipped))
@@ -367,17 +451,18 @@ func (s *Store) Restore(jobID string) models.UndoResultV1 {
 // their per-output trash paths are cleared, and the outputs stay marked undone
 // because the files no longer exist.
 func (s *Store) EmptyTrash() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if !s.configured() {
 		return errors.New("jobhistory: history path is not configured")
 	}
+
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 
 	if err := os.RemoveAll(s.trashRoot); err != nil {
 		return fmt.Errorf("jobhistory: empty trash: %w", err)
 	}
 
+	s.mu.Lock()
 	for index := range s.entries {
 		entry := &s.entries[index]
 		touched := false
@@ -395,8 +480,10 @@ func (s *Store) EmptyTrash() error {
 			entry.Undone = allUndone(entry.Outputs)
 		}
 	}
+	snapshot := s.snapshotEntriesLocked()
+	s.mu.Unlock()
 
-	if err := s.saveLocked(); err != nil {
+	if err := s.saveSnapshot(snapshot); err != nil {
 		return fmt.Errorf("jobhistory: persist after empty trash: %w", err)
 	}
 
@@ -475,12 +562,18 @@ func (s *Store) pruneLocked() {
 	}
 }
 
-func (s *Store) saveLocked() error {
+// saveSnapshot marshals and persists one immutable history snapshot. Callers
+// build the snapshot under s.mu and release it before calling, so readers are
+// never blocked by encoding, fsync, or rename.
+func (s *Store) saveSnapshot(entries []models.JobHistoryEntryV1) error {
 	if !s.configured() {
 		return errors.New("jobhistory: history path is not configured")
 	}
 
-	payload, err := json.MarshalIndent(s.entries, "", "  ")
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	payload, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode history: %w", err)
 	}
@@ -491,9 +584,40 @@ func (s *Store) saveLocked() error {
 	return nil
 }
 
+// snapshotEntriesLocked returns a deep copy of the entries. Callers must hold
+// s.mu for reading or writing.
+func (s *Store) snapshotEntriesLocked() []models.JobHistoryEntryV1 {
+	entries := make([]models.JobHistoryEntryV1, len(s.entries))
+	for index, entry := range s.entries {
+		entries[index] = cloneEntry(entry)
+	}
+
+	return entries
+}
+
+func cloneEntry(entry models.JobHistoryEntryV1) models.JobHistoryEntryV1 {
+	copied := entry
+	copied.Outputs = append([]models.JobOutputRecordV1(nil), entry.Outputs...)
+	if copied.Outputs == nil {
+		copied.Outputs = []models.JobOutputRecordV1{}
+	}
+
+	return copied
+}
+
 func (s *Store) findIndexLocked(jobID string) int {
 	for index := range s.entries {
 		if s.entries[index].JobID == jobID {
+			return index
+		}
+	}
+
+	return -1
+}
+
+func findOutputIndex(entry *models.JobHistoryEntryV1, path string) int {
+	for index := range entry.Outputs {
+		if entry.Outputs[index].Path == path {
 			return index
 		}
 	}
