@@ -702,13 +702,15 @@ func (s *Service) installTessdata(ctx context.Context, staging string, languages
 	return s.installTessdataPDFAssets(force)
 }
 
-// installTessdataPDFAssets copies the Tesseract PDF config and font from the
-// conda prefix into the managed tessdata folder. Without them tesseract exits
-// successfully but writes no searchable PDF, and the OCR pipeline later fails
-// while merging the missing page files.
+// installTessdataPDFAssets writes the embedded Tesseract PDF config and font
+// into the managed tessdata folder. Without them tesseract exits successfully
+// but writes no searchable PDF, and the OCR pipeline later fails while merging
+// the missing page files.
+//
+// The assets are embedded because the conda-forge win-64 tesseract package
+// omits pdf.ttf; relying on the conda prefix made Windows installs fail.
 func (s *Service) installTessdataPDFAssets(force bool) error {
 	targetDir := tessdataDir(s.root)
-	sourceDir := tessdataAssetsSourceDir(s.root, s.platform.OS)
 
 	for _, relative := range tessdataPDFAssets {
 		target := filepath.Join(targetDir, relative)
@@ -716,11 +718,12 @@ func (s *Service) installTessdataPDFAssets(force bool) error {
 			continue
 		}
 
-		source := filepath.Join(sourceDir, relative)
-		if !fileWithContent(source) {
-			return fmt.Errorf("the Tesseract package is missing %s; reinstall the toolchain", relative)
+		assetPath := "assets/" + filepath.ToSlash(relative)
+		payload, err := tessdataPDFAssetsFS.ReadFile(assetPath)
+		if err != nil {
+			return fmt.Errorf("read embedded Tesseract PDF asset %s: %w", relative, err)
 		}
-		if err := copyFileContent(source, target); err != nil {
+		if err := fsx.WriteAtomic(target, payload, 0o644); err != nil {
 			return fmt.Errorf("install Tesseract PDF support (%s): %w", relative, err)
 		}
 	}

@@ -227,16 +227,9 @@ func writeFakeCondaEnvironment(prefix string) error {
 		}
 	}
 
-	for _, relative := range []string{"pdf.ttf", filepath.Join("configs", "pdf"), filepath.Join("configs", "txt")} {
-		path := filepath.Join(prefix, "share", "tessdata", relative)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(path, []byte("tesseract pdf asset"), 0o644); err != nil {
-			return err
-		}
-	}
-
+	// The real conda-forge win-64 tesseract package omits pdf.ttf and the PDF
+	// configs; the installer now uses embedded assets, so the fake prefix
+	// intentionally has no PDF support files.
 	return os.MkdirAll(filepath.Join(prefix, "conda-meta"), 0o755)
 }
 
@@ -1022,6 +1015,10 @@ func TestMissingTessdataPDFAssetsIsNotReadyAndRepairs(t *testing.T) {
 	}
 
 	pdfConfig := filepath.Join(dataDir, ToolchainDirName, "tessdata", "configs", "pdf")
+	pdfFont := filepath.Join(dataDir, ToolchainDirName, "tessdata", "pdf.ttf")
+	if _, err := os.Lstat(pdfFont); err != nil {
+		t.Fatalf("expected the embedded PDF font after install: %v", err)
+	}
 	if err := os.Remove(pdfConfig); err != nil {
 		t.Fatalf("remove tessdata pdf config: %v", err)
 	}

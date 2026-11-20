@@ -111,16 +111,6 @@ var tessdataPDFAssets = []string{
 	filepath.Join("configs", "txt"),
 }
 
-// tessdataAssetsSourceDir returns the conda prefix folder that ships the
-// Tesseract PDF assets. Windows environments keep share under Library.
-func tessdataAssetsSourceDir(root, goos string) string {
-	if goos == "windows" {
-		return filepath.Join(envDir(root), "Library", "share", "tessdata")
-	}
-
-	return filepath.Join(envDir(root), "share", "tessdata")
-}
-
 // tessdataPDFAssetsState reports whether every PDF asset is present and gives
 // the user-facing detail shown by the toolchain status.
 func tessdataPDFAssetsState(dir string) (bool, string) {
