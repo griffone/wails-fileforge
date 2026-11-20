@@ -23,14 +23,13 @@ const (
 	CropPresetLarge  = "large"
 	CropPresetCustom = "custom"
 
-	ErrorCodeCropFailed               = "PDF_CROP_FAILED"
-	ErrorCodeCropPresetInvalid        = "PDF_CROP_PRESET_INVALID"
-	ErrorCodeCropMarginsRequired      = "PDF_CROP_MARGINS_REQUIRED"
-	ErrorCodeCropMarginsInvalid       = "PDF_CROP_MARGINS_INVALID"
-	ErrorCodeCropPageSelectionBad     = "PDF_CROP_PAGE_SELECTION_INVALID"
-	ErrorCodeCropPageSelectionBounds  = "PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS"
-	ErrorCodeCropOutputExists         = "PDF_CROP_OUTPUT_ALREADY_EXISTS"
-	ErrorCodeCropBatchOutputCollision = "PDF_CROP_BATCH_OUTPUT_COLLISION"
+	ErrorCodeCropFailed              = "PDF_CROP_FAILED"
+	ErrorCodeCropPresetInvalid       = "PDF_CROP_PRESET_INVALID"
+	ErrorCodeCropMarginsRequired     = "PDF_CROP_MARGINS_REQUIRED"
+	ErrorCodeCropMarginsInvalid      = "PDF_CROP_MARGINS_INVALID"
+	ErrorCodeCropPageSelectionBad    = "PDF_CROP_PAGE_SELECTION_INVALID"
+	ErrorCodeCropPageSelectionBounds = "PDF_CROP_PAGE_SELECTION_OUT_OF_BOUNDS"
+	ErrorCodeCropOutputExists        = "PDF_CROP_OUTPUT_ALREADY_EXISTS"
 )
 
 type CropMargins struct {
@@ -45,13 +44,6 @@ type CropError struct {
 	Message string
 	Details map[string]any
 	Cause   error
-}
-
-type CropBatchResult struct {
-	InputPath  string
-	OutputPath string
-	Success    bool
-	Error      *CropError
 }
 
 func (e *CropError) Error() string {
@@ -146,95 +138,8 @@ func Crop(ctx context.Context, inputPath, outputPath, pageSelection, preset stri
 	return nil
 }
 
-func ValidateCropBatchRequest(inputPaths []string, outputDir, pageSelection, preset string, margins *CropMargins) *CropError {
-	outputDir = strings.TrimSpace(outputDir)
-	if outputDir == "" {
-		return &CropError{Code: ErrorCodeValidation, Message: "outputDir is required"}
-	}
-
-	if len(inputPaths) < 1 {
-		return &CropError{Code: ErrorCodeValidation, Message: "at least 1 input PDF is required"}
-	}
-
-	outputDirProbe := filepath.Join(outputDir, "_crop_probe_.pdf")
-	if validationErr := validateOutputDir(outputDirProbe); validationErr != nil {
-		return &CropError{Code: validationErr.Code, Message: validationErr.Message, Cause: validationErr.Cause}
-	}
-
-	for _, rawInputPath := range inputPaths {
-		inputPath := strings.TrimSpace(rawInputPath)
-		if inputPath == "" {
-			return &CropError{Code: ErrorCodeValidation, Message: "inputPath is required"}
-		}
-		if !isPDFPath(inputPath) {
-			return &CropError{Code: ErrorCodeValidation, Message: fmt.Sprintf("input file must be .pdf: %s", inputPath)}
-		}
-	}
-
-	if _, selectionErr := parseCropPageSelectionSyntax(pageSelection); selectionErr != nil {
-		return selectionErr
-	}
-
-	if _, marginsErr := resolveCropMargins(strings.TrimSpace(preset), margins); marginsErr != nil {
-		return marginsErr
-	}
-
-	return nil
-}
-
-func CropBatch(ctx context.Context, inputPaths []string, outputDir, pageSelection, preset string, margins *CropMargins) ([]CropBatchResult, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, &CropError{Code: "CANCELED", Message: "crop canceled", Cause: err}
-	}
-
-	validationErr := ValidateCropBatchRequest(inputPaths, outputDir, pageSelection, preset, margins)
-	if validationErr != nil {
-		return nil, validationErr
-	}
-
-	results := make([]CropBatchResult, 0, len(inputPaths))
-	reservedOutputs := make(map[string]struct{}, len(inputPaths))
-	for _, rawInputPath := range inputPaths {
-		inputPath := strings.TrimSpace(rawInputPath)
-		outputPath := resolveUniqueBatchCropOutputPath(outputDir, inputPath, reservedOutputs)
-
-		if err := ctx.Err(); err != nil {
-			return results, &CropError{Code: "CANCELED", Message: "crop canceled", Cause: err}
-		}
-
-		selectedPages, box, buildErr := buildCropPlanWithoutOutputExistence(inputPath, outputPath, pageSelection, preset, margins)
-		if buildErr != nil {
-			results = append(results, CropBatchResult{
-				InputPath:  inputPath,
-				OutputPath: outputPath,
-				Success:    false,
-				Error:      buildErr,
-			})
-			continue
-		}
-
-		if err := api.CropFile(pdfCPUContext(ctx), inputPath, outputPath, selectedPages, box, newPDFCPUConfig()); err != nil {
-			results = append(results, CropBatchResult{
-				InputPath:  inputPath,
-				OutputPath: outputPath,
-				Success:    false,
-				Error:      &CropError{Code: ErrorCodeCropFailed, Message: "failed to crop PDF", Cause: err},
-			})
-			continue
-		}
-
-		results = append(results, CropBatchResult{InputPath: inputPath, OutputPath: outputPath, Success: true})
-	}
-
-	return results, nil
-}
-
 func buildCropPlan(inputPath, outputPath, pageSelection, preset string, margins *CropMargins) ([]string, *model.Box, *CropError) {
 	return buildCropPlanWithOptions(inputPath, outputPath, pageSelection, preset, margins, true)
-}
-
-func buildCropPlanWithoutOutputExistence(inputPath, outputPath, pageSelection, preset string, margins *CropMargins) ([]string, *model.Box, *CropError) {
-	return buildCropPlanWithOptions(inputPath, outputPath, pageSelection, preset, margins, false)
 }
 
 func buildCropPlanWithOptions(inputPath, outputPath, pageSelection, preset string, margins *CropMargins, requireOutputNotExists bool) ([]string, *model.Box, *CropError) {
@@ -297,45 +202,6 @@ func buildCropPlanWithOptions(inputPath, outputPath, pageSelection, preset strin
 	}
 
 	return selectedPages, box, nil
-}
-func buildBatchCropOutputName(inputPath string) string {
-	base := strings.TrimSpace(strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath)))
-	if base == "" {
-		base = "input"
-	}
-
-	return fmt.Sprintf("%s_cropped.pdf", base)
-}
-
-func resolveUniqueBatchCropOutputPath(outputDir, inputPath string, reserved map[string]struct{}) string {
-	baseOutputName := buildBatchCropOutputName(inputPath)
-	baseWithoutExt := strings.TrimSuffix(baseOutputName, filepath.Ext(baseOutputName))
-	ext := filepath.Ext(baseOutputName)
-	if ext == "" {
-		ext = ".pdf"
-	}
-
-	for candidateIndex := 1; ; candidateIndex++ {
-		candidateName := baseOutputName
-		if candidateIndex > 1 {
-			candidateName = fmt.Sprintf("%s-%d%s", baseWithoutExt, candidateIndex, ext)
-		}
-
-		candidatePath := filepath.Join(outputDir, candidateName)
-		candidateKey := fsx.NormalizePathKey(candidatePath)
-		if _, exists := reserved[candidateKey]; exists {
-			continue
-		}
-
-		if _, err := os.Stat(candidatePath); err == nil {
-			continue
-		} else if !os.IsNotExist(err) {
-			continue
-		}
-
-		reserved[candidateKey] = struct{}{}
-		return candidatePath
-	}
 }
 
 func parseCropPageSelectionSyntax(pageSelection string) ([]SplitPageRange, *CropError) {

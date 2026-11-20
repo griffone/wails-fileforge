@@ -211,18 +211,6 @@ func ValidateOptimizeRequest(inputPath, outputPath string) *OptimizeError {
 	return nil
 }
 
-// Optimize writes a non-destructive optimized copy of inputPath to outputPath.
-// Properties are applied to the same content; an empty properties map simply
-// publishes the optimized (or copied) file. The output is staged in a unique
-// temporary file inside the output directory and never overwrites a file.
-func Optimize(ctx context.Context, inputPath, outputPath string, compress bool, properties map[string]string) error {
-	_, err := OptimizeWithOptions(ctx, inputPath, outputPath, OptimizeOptions{
-		Compress:   compress,
-		Properties: properties,
-	})
-	return err
-}
-
 // OptimizeWithOptions runs the best-effort compression pipeline. With a
 // target, pdfcpu output is compared against Ghostscript's /ebook and /screen
 // presets and the smallest candidate is published. Metadata is applied after

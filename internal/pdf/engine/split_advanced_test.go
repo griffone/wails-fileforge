@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,62 +85,40 @@ func TestSplitAdvancedPagesPerFilePlan(t *testing.T) {
 func TestSplitAdvancedPagesPerFileValidation(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "manual.pdf")
-	outputDir := filepath.Join(dir, "out")
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		t.Fatalf("create output dir: %v", err)
-	}
 	writeMultiPageTestPDF(t, input, 3)
 
-	for _, pagesPerFile := range []int{-1, 0, 1001} {
-		splitErr := ValidateSplitRequestAdvanced(input, outputDir, SplitStrategyPagesPerFile, "", pagesPerFile)
-		if splitErr == nil {
-			t.Fatalf("expected pagesPerFile=%d to fail", pagesPerFile)
-		}
-		if splitErr.Code != ErrorCodeSplitPagesPerFileInvalid {
-			t.Fatalf("expected %s for pagesPerFile=%d, got %s", ErrorCodeSplitPagesPerFileInvalid, pagesPerFile, splitErr.Code)
-		}
+	cases := []struct {
+		pagesPerFile int
+		wantValid    bool
+	}{
+		{pagesPerFile: -1},
+		{pagesPerFile: 0},
+		{pagesPerFile: 1001},
+		{pagesPerFile: 1, wantValid: true},
+		{pagesPerFile: 1000, wantValid: true},
 	}
+	for _, testCase := range cases {
+		t.Run(fmt.Sprintf("pagesPerFile=%d", testCase.pagesPerFile), func(t *testing.T) {
+			outputDir := filepath.Join(dir, fmt.Sprintf("out-%d", testCase.pagesPerFile))
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				t.Fatalf("create output dir: %v", err)
+			}
 
-	if splitErr := ValidateSplitRequestAdvanced(input, outputDir, SplitStrategyPagesPerFile, "", 1); splitErr != nil {
-		t.Fatalf("expected pagesPerFile=1 to pass validation, got %v", splitErr)
-	}
-	if splitErr := ValidateSplitRequestAdvanced(input, outputDir, SplitStrategyPagesPerFile, "", 1000); splitErr != nil {
-		t.Fatalf("expected pagesPerFile=1000 to pass validation, got %v", splitErr)
-	}
-}
+			_, err := SplitAdvanced(context.Background(), input, outputDir, SplitStrategyPagesPerFile, "", testCase.pagesPerFile)
+			if testCase.wantValid {
+				if err != nil {
+					t.Fatalf("expected pagesPerFile=%d to pass validation, got %v", testCase.pagesPerFile, err)
+				}
+				return
+			}
 
-func TestSplitBatchAdvancedPagesPerFile(t *testing.T) {
-	dir := t.TempDir()
-	outputDir := filepath.Join(dir, "out")
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		t.Fatalf("create output dir: %v", err)
-	}
-
-	first := filepath.Join(dir, "first.pdf")
-	second := filepath.Join(dir, "second.pdf")
-	writeMultiPageTestPDF(t, first, 7)
-	writeMultiPageTestPDF(t, second, 2)
-
-	if validationErr := ValidateSplitBatchRequestAdvanced([]string{first, second}, outputDir, SplitStrategyPagesPerFile, "", 0, false); !IsSplitErrorCode(validationErr, ErrorCodeSplitPagesPerFileInvalid) {
-		t.Fatalf("expected invalid pagesPerFile to fail batch validation, got %v", validationErr)
-	}
-
-	results, err := SplitBatchAdvanced(context.Background(), []string{first, second}, outputDir, SplitStrategyPagesPerFile, "", 5, false)
-	if err != nil {
-		t.Fatalf("SplitBatchAdvanced returned error: %v", err)
-	}
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
-
-	wantCounts := []int{2, 1}
-	for i, result := range results {
-		if result.Error != nil {
-			t.Fatalf("expected result %d to succeed, got %v", i, result.Error)
-		}
-		if len(result.Outputs) != wantCounts[i] {
-			t.Fatalf("expected %d outputs for result %d, got %v", wantCounts[i], i, result.Outputs)
-		}
+			if err == nil {
+				t.Fatalf("expected pagesPerFile=%d to fail", testCase.pagesPerFile)
+			}
+			if !IsSplitErrorCode(err, ErrorCodeSplitPagesPerFileInvalid) {
+				t.Fatalf("expected %s for pagesPerFile=%d, got %v", ErrorCodeSplitPagesPerFileInvalid, testCase.pagesPerFile, err)
+			}
+		})
 	}
 }
 

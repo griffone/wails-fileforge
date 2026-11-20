@@ -50,10 +50,6 @@ func (e *MergeError) Unwrap() error {
 	return e.Cause
 }
 
-func Merge(ctx context.Context, inputPaths []string, outputPath string) error {
-	return MergeWithPageRanges(ctx, inputPaths, outputPath, nil)
-}
-
 // MergeWithPageRanges merges inputPaths into outputPath, optionally keeping a
 // page selection per input. pageRanges is one entry per input; an empty entry
 // keeps the whole file. A nil or short slice treats missing entries as empty.

@@ -26,18 +26,16 @@ const (
 	SplitMinPagesPerFile = 1
 	SplitMaxPagesPerFile = 1000
 
-	ErrorCodeSplitFailed                = "PDF_SPLIT_FAILED"
-	ErrorCodeUnsupportedStrategy        = "PDF_SPLIT_STRATEGY_UNSUPPORTED"
-	ErrorCodeSplitRangesRequired        = "PDF_SPLIT_RANGES_REQUIRED"
-	ErrorCodeSplitRangesInvalid         = "PDF_SPLIT_RANGES_INVALID"
-	ErrorCodeSplitRangeOutBounds        = "PDF_SPLIT_RANGE_OUT_OF_BOUNDS"
-	ErrorCodeSplitOutputCollision       = "PDF_SPLIT_OUTPUT_COLLISION"
-	ErrorCodeSplitOutputExists          = "PDF_SPLIT_OUTPUT_ALREADY_EXISTS"
-	ErrorCodeSplitBatchOutputCollision  = "PDF_SPLIT_BATCH_OUTPUT_COLLISION"
-	ErrorCodeSplitBatchInputDirConflict = "PDF_SPLIT_BATCH_INPUT_DIR_CONFLICT"
-	ErrorCodeSplitPagesPerFileInvalid   = "PDF_SPLIT_PAGES_PER_FILE_INVALID"
-	ErrorCodeSplitNoBookmarks           = "PDF_SPLIT_NO_BOOKMARKS"
-	ErrorCodeSplitBookmarksInvalid      = "PDF_SPLIT_BOOKMARKS_INVALID"
+	ErrorCodeSplitFailed              = "PDF_SPLIT_FAILED"
+	ErrorCodeUnsupportedStrategy      = "PDF_SPLIT_STRATEGY_UNSUPPORTED"
+	ErrorCodeSplitRangesRequired      = "PDF_SPLIT_RANGES_REQUIRED"
+	ErrorCodeSplitRangesInvalid       = "PDF_SPLIT_RANGES_INVALID"
+	ErrorCodeSplitRangeOutBounds      = "PDF_SPLIT_RANGE_OUT_OF_BOUNDS"
+	ErrorCodeSplitOutputCollision     = "PDF_SPLIT_OUTPUT_COLLISION"
+	ErrorCodeSplitOutputExists        = "PDF_SPLIT_OUTPUT_ALREADY_EXISTS"
+	ErrorCodeSplitPagesPerFileInvalid = "PDF_SPLIT_PAGES_PER_FILE_INVALID"
+	ErrorCodeSplitNoBookmarks         = "PDF_SPLIT_NO_BOOKMARKS"
+	ErrorCodeSplitBookmarksInvalid    = "PDF_SPLIT_BOOKMARKS_INVALID"
 )
 
 type SplitPageRange struct {
@@ -64,25 +62,6 @@ type splitPlannedOutput struct {
 	Output    string
 }
 
-type SplitBatchResult struct {
-	InputPath string
-	OutputDir string
-	Outputs   []string
-	Error     *SplitError
-}
-
-type splitBatchItemPlan struct {
-	InputPath string
-	OutputDir string
-	Planned   []splitPlannedOutput
-	Error     *SplitError
-}
-
-type splitBatchInput struct {
-	InputPath string
-	OutputDir string
-}
-
 func (e *SplitError) Error() string {
 	if e.Cause == nil {
 		return e.Message
@@ -95,15 +74,10 @@ func (e *SplitError) Unwrap() error {
 	return e.Cause
 }
 
-// Split validates the request and splits inputPath into outputDir. The output
+// SplitAdvanced splits inputPath into outputDir using strategy. pagesPerFile is
+// only read by the pages_per_file strategy and ignored otherwise. The output
 // directory is created at execution time when its parent is writable, so the
 // planner can show a destination before anything exists.
-func Split(ctx context.Context, inputPath, outputDir, strategy, rangesExpr string) ([]string, error) {
-	return SplitAdvanced(ctx, inputPath, outputDir, strategy, rangesExpr, 0)
-}
-
-// SplitAdvanced is Split with the options needed by the pages_per_file
-// strategy. pagesPerFile is ignored by every other strategy.
 func SplitAdvanced(ctx context.Context, inputPath, outputDir, strategy, rangesExpr string, pagesPerFile int) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: err}
@@ -115,16 +89,6 @@ func SplitAdvanced(ctx context.Context, inputPath, outputDir, strategy, rangesEx
 	}
 
 	return executeSplitPlan(ctx, inputPath, planned)
-}
-
-func ValidateSplitRequest(inputPath, outputDir, strategy, rangesExpr string) *SplitError {
-	return ValidateSplitRequestAdvanced(inputPath, outputDir, strategy, rangesExpr, 0)
-}
-
-// ValidateSplitRequestAdvanced validates a request including pagesPerFile.
-func ValidateSplitRequestAdvanced(inputPath, outputDir, strategy, rangesExpr string, pagesPerFile int) *SplitError {
-	_, err := buildSplitPlanWithAdvancedOptions(inputPath, outputDir, strategy, rangesExpr, pagesPerFile, true)
-	return err
 }
 
 // ValidateSplitInput checks that inputPath is an existing .pdf file without
@@ -278,80 +242,6 @@ func bookmarkRangeEnd(remaining []pdfcpu.Bookmark, start, pageCount int) int {
 	return pageCount
 }
 
-func ValidateSplitBatchRequest(inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) *SplitError {
-	return ValidateSplitBatchRequestAdvanced(inputPaths, outputDir, strategy, rangesExpr, 0, perInputDir)
-}
-
-func ValidateSplitBatchRequestAdvanced(inputPaths []string, outputDir, strategy, rangesExpr string, pagesPerFile int, perInputDir bool) *SplitError {
-	return validateSplitBatchShape(inputPaths, outputDir, strategy, rangesExpr, pagesPerFile, perInputDir)
-}
-
-func SplitBatch(ctx context.Context, inputPaths []string, outputDir, strategy, rangesExpr string, perInputDir bool) ([]SplitBatchResult, error) {
-	return SplitBatchAdvanced(ctx, inputPaths, outputDir, strategy, rangesExpr, 0, perInputDir)
-}
-
-// SplitBatchAdvanced is SplitBatch with the pages_per_file option.
-func SplitBatchAdvanced(ctx context.Context, inputPaths []string, outputDir, strategy, rangesExpr string, pagesPerFile int, perInputDir bool) ([]SplitBatchResult, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: err}
-	}
-
-	plans, validationErr := planSplitBatch(inputPaths, outputDir, strategy, rangesExpr, pagesPerFile, perInputDir)
-	if validationErr != nil {
-		return nil, validationErr
-	}
-
-	results := make([]SplitBatchResult, 0, len(plans))
-	for _, plan := range plans {
-		if err := ctx.Err(); err != nil {
-			return results, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: err}
-		}
-
-		if plan.Error != nil {
-			results = append(results, SplitBatchResult{
-				InputPath: plan.InputPath,
-				OutputDir: plan.OutputDir,
-				Error:     plan.Error,
-			})
-			continue
-		}
-
-		outputs, err := executeSplitPlan(ctx, plan.InputPath, plan.Planned)
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return results, &SplitError{Code: "CANCELED", Message: "split canceled", Cause: ctxErr}
-			}
-
-			var splitErr *SplitError
-			if !errors.As(err, &splitErr) {
-				splitErr = &SplitError{Code: ErrorCodeSplitFailed, Message: "failed to split PDF", Cause: err}
-			}
-			if splitErr.Code == "CANCELED" {
-				return results, splitErr
-			}
-
-			results = append(results, SplitBatchResult{
-				InputPath: plan.InputPath,
-				OutputDir: plan.OutputDir,
-				Error:     splitErr,
-			})
-			continue
-		}
-
-		results = append(results, SplitBatchResult{
-			InputPath: plan.InputPath,
-			OutputDir: plan.OutputDir,
-			Outputs:   append([]string(nil), outputs...),
-		})
-	}
-
-	return results, nil
-}
-
-func buildSplitPlanWithOptions(inputPath, outputDir, strategy, rangesExpr string, allowCreateOutputDir bool) ([]splitPlannedOutput, *SplitError) {
-	return buildSplitPlanWithAdvancedOptions(inputPath, outputDir, strategy, rangesExpr, 0, allowCreateOutputDir)
-}
-
 // buildSplitPlanWithAdvancedOptions resolves every output of a split without
 // writing anything. Bookmark and pages_per_file plans read the PDF because
 // their output names depend on the document structure.
@@ -457,110 +347,6 @@ func resolveRangesExpr(rangesExpr string) ([]SplitPageRange, *SplitError) {
 	}
 
 	return ParseSplitRanges(rangesExpr)
-}
-
-func validateSplitBatchShape(inputPaths []string, outputDir, strategy, rangesExpr string, pagesPerFile int, perInputDir bool) *SplitError {
-	outputDir = strings.TrimSpace(outputDir)
-	if outputDir == "" {
-		return &SplitError{Code: ErrorCodeValidation, Message: "outputDir is required"}
-	}
-
-	if len(inputPaths) < 1 {
-		return &SplitError{Code: ErrorCodeValidation, Message: "at least 1 input PDF is required"}
-	}
-
-	if validationErr := validateOutputDirectory(outputDir, false); validationErr != nil {
-		return validationErr
-	}
-
-	if !isSupportedSplitStrategy(strategy) {
-		return &SplitError{Code: ErrorCodeUnsupportedStrategy, Message: fmt.Sprintf("unsupported split strategy: %s", strategy)}
-	}
-
-	if strategy == SplitStrategyPagesPerFile {
-		if pagesErr := validatePagesPerFile(pagesPerFile); pagesErr != nil {
-			return pagesErr
-		}
-	}
-
-	if strategy == SplitStrategyRanges {
-		if _, rangesErr := resolveRangesExpr(rangesExpr); rangesErr != nil {
-			return rangesErr
-		}
-	}
-
-	_, conflictsErr := resolveSplitBatchInputs(inputPaths, outputDir, perInputDir)
-	return conflictsErr
-}
-
-func resolveSplitBatchInputs(inputPaths []string, outputDir string, perInputDir bool) ([]splitBatchInput, *SplitError) {
-	inputs := make([]splitBatchInput, 0, len(inputPaths))
-	seenInputDirs := make(map[string]string, len(inputPaths))
-
-	for _, rawInputPath := range inputPaths {
-		inputPath := strings.TrimSpace(rawInputPath)
-		if inputPath == "" {
-			return nil, &SplitError{Code: ErrorCodeValidation, Message: "inputPath is required"}
-		}
-
-		effectiveOutputDir := outputDir
-		if perInputDir {
-			effectiveOutputDir = filepath.Join(outputDir, perInputSplitDirName(inputPath))
-
-			dirKey := fsx.NormalizePathKey(effectiveOutputDir)
-			if previous, exists := seenInputDirs[dirKey]; exists {
-				return nil, &SplitError{Code: ErrorCodeSplitBatchInputDirConflict, Message: fmt.Sprintf("batch perInputDir conflict for %s and %s", previous, inputPath)}
-			}
-			seenInputDirs[dirKey] = inputPath
-		}
-
-		inputs = append(inputs, splitBatchInput{InputPath: inputPath, OutputDir: effectiveOutputDir})
-	}
-
-	return inputs, nil
-}
-
-func planSplitBatch(inputPaths []string, outputDir, strategy, rangesExpr string, pagesPerFile int, perInputDir bool) ([]splitBatchItemPlan, *SplitError) {
-	if validationErr := validateSplitBatchShape(inputPaths, outputDir, strategy, rangesExpr, pagesPerFile, perInputDir); validationErr != nil {
-		return nil, validationErr
-	}
-
-	inputs, conflictsErr := resolveSplitBatchInputs(inputPaths, strings.TrimSpace(outputDir), perInputDir)
-	if conflictsErr != nil {
-		return nil, conflictsErr
-	}
-
-	plans := make([]splitBatchItemPlan, 0, len(inputs))
-	seenOutputs := make(map[string]string)
-
-	for _, input := range inputs {
-		allowCreateOutputDir := perInputDir
-		planned, planErr := buildSplitPlanWithAdvancedOptions(input.InputPath, input.OutputDir, strategy, rangesExpr, pagesPerFile, allowCreateOutputDir)
-		if planErr != nil {
-			plans = append(plans, splitBatchItemPlan{
-				InputPath: input.InputPath,
-				OutputDir: input.OutputDir,
-				Error:     planErr,
-			})
-			continue
-		}
-
-		for _, entry := range planned {
-			outputKey := fsx.NormalizePathKey(entry.Output)
-			if previous, exists := seenOutputs[outputKey]; exists {
-				return nil, &SplitError{Code: ErrorCodeSplitBatchOutputCollision, Message: fmt.Sprintf("batch planned outputs collide: %s and %s", previous, entry.Output)}
-			}
-			seenOutputs[outputKey] = entry.Output
-		}
-
-		plans = append(plans, splitBatchItemPlan{
-			InputPath: input.InputPath,
-			OutputDir: input.OutputDir,
-			Planned:   planned,
-		})
-	}
-
-	return plans, nil
 }
 
 func ParseSplitRanges(expr string) ([]SplitPageRange, *SplitError) {
@@ -949,14 +735,4 @@ func validateDirectoryWritable(dir string, pattern string) *SplitError {
 	}
 
 	return nil
-}
-
-func perInputSplitDirName(inputPath string) string {
-	base := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
-	trimmed := strings.TrimSpace(base)
-	if trimmed == "" {
-		return "input"
-	}
-
-	return trimmed
 }

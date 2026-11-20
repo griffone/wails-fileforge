@@ -40,7 +40,7 @@ func TestMergeRefusesToOverwriteExistingOutput(t *testing.T) {
 		t.Fatalf("write pre-existing output: %v", err)
 	}
 
-	err := Merge(context.Background(), []string{first, second}, outputPath)
+	err := MergeWithPageRanges(context.Background(), []string{first, second}, outputPath, nil)
 	if err == nil {
 		t.Fatal("expected merge to refuse an existing output")
 	}
@@ -86,7 +86,7 @@ func TestMergeSucceedsWhenOutputDoesNotExist(t *testing.T) {
 	writeTestPDF(t, second)
 
 	outputPath := filepath.Join(dir, "merged.pdf")
-	if err := Merge(context.Background(), []string{first, second}, outputPath); err != nil {
+	if err := MergeWithPageRanges(context.Background(), []string{first, second}, outputPath, nil); err != nil {
 		t.Fatalf("expected merge to succeed, got %v", err)
 	}
 
