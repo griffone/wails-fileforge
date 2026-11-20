@@ -66,6 +66,14 @@ ManifestDPIAware true
 !define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
+# Default install folder, restored from the previous install when present. The
+# uninstall key is written in the 64-bit registry view by wails.writeUninstaller.
+InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
+InstallDirRegKey HKLM "${UNINST_KEY}" "InstallDir"
+
+!define MUI_DIRECTORYPAGE_TEXT_TOP "Choose the folder where FileForge Desktop will be installed."
+!define MUI_DIRECTORYPAGE_TEXT_DESTINATION "Destination folder"
+
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
@@ -82,7 +90,6 @@ ManifestDPIAware true
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
@@ -110,6 +117,10 @@ Section
     !insertmacro wails.associateFiles
 
     !insertmacro wails.writeUninstaller
+
+    # Remember the destination the user picked. wails.writeUninstaller already
+    # selected the 64-bit registry view, so this lands next to the uninstall data.
+    WriteRegStr HKLM "${UNINST_KEY}" "InstallDir" "$INSTDIR"
 SectionEnd
 
 Section "uninstall" 
