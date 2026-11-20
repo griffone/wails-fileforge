@@ -26,7 +26,7 @@ pipeline:
    reachable DLLs next to it (`scripts/prune-windows-dlls.py`); the
    `vips-modules-*` directories are not bundled.
 6. Generates the WebView2 bootstrapper when missing and builds the NSIS
-   installer.
+   installer with the committed branded bitmaps.
 7. Creates a portable ZIP with the same exe and DLLs (`zip -9`).
 
 Artifacts:
@@ -47,6 +47,11 @@ unnecessary. The version metadata comes from `build/windows/info.json` and the
 cache lives in `~/.cache/fileforge-windows`; override it with
 `FILEFORGE_WINDOWS_CACHE`. The Wails CLI is resolved from `PATH`, then
 `$HOME/go/bin/wails3`; override it with `WAILS3_BIN`.
+
+The installer bitmaps under `build/windows/nsis/assets/` are generated from
+`build/appicon.png` by `./scripts/generate-installer-assets.sh` (ImageMagick).
+They are committed, so the Windows build never needs ImageMagick; rerun the
+script only when the artwork or the installer copy changes.
 
 ### Bundle pruning
 
@@ -112,10 +117,19 @@ The NSIS installer defaults to a per-machine install:
   uninstall.exe
 ```
 
-The NSIS installer shows the standard directory page, with a Browse button, so
-the destination can be changed. The default is the path above. The chosen
-folder is stored in the uninstall registry key (`InstallDir`) and restored on
-the next install or upgrade, so the installer remembers the previous location.
+### Installer experience
+
+The installer is a five-page NSIS wizard: Welcome, Components, Destination
+Folder, Install and Finish. The welcome page states that everything runs
+locally, with no accounts or uploads. The Components page keeps the app section
+required and offers **Desktop shortcut** and **Start Menu shortcut**, both
+selected by default. The destination page includes a Browse button and starts at
+the previous install location, read from the `InstallDir` value stored with the
+uninstall data, so an upgrade reuses the chosen folder (and a first install uses
+the path above). The install page shows one friendly status line per step
+(WebView2 runtime, app files, local image engine and shortcuts) with the log
+hidden. The Finish page offers **Launch FileForge Desktop** and explains that
+the conversion tools download on first use from Settings → Tools & Models.
 
 The installer requests administrator rights. The portable ZIP contains the
 same folder and can be extracted anywhere; keep the exe and DLLs together.
@@ -218,8 +232,9 @@ Notes:
 Legacy `*_v1.json` files from earlier versions are copied to the unversioned
 names on first load and kept on disk as a backup.
 
-WebView2 stores its profile under `%APPDATA%\fileforge-desktop.exe` (the NSIS
-uninstaller removes that folder).
+WebView2 stores its profile under `%APPDATA%\fileforge-desktop.exe`. The
+uninstaller removes that folder together with the matching LocalAppData
+variants; it never removes the shared Microsoft Edge WebView2 runtime.
 
 Job scratch directories are created under `%TEMP%\fileforge-*` and removed when
 the job finishes or is cancelled. Outputs are written where the user chooses;
@@ -244,17 +259,31 @@ that, conversion and transcription run locally.
 
 ## Uninstall and cleanup
 
-The NSIS uninstaller removes the install directory (by default
-`%ProgramFiles%\FileForge\FileForge Desktop`) and the WebView2 profile. It does
-**not** remove the managed toolchain or the history. For a clean removal, delete:
+Uninstall from **Settings → Apps → Installed apps → FileForge Desktop** or run
+`uninstall.exe` from the install folder. The uninstaller is a four-page wizard
+(Welcome, Confirm, Uninstall and Finish). The confirmation page warns that the
+following data for the current Windows user is removed:
 
 ```text
-%LOCALAPPDATA%\FileForge
-%APPDATA%\fileforge
-%APPDATA%\fileforge-desktop.exe
+%ProgramFiles%\FileForge\FileForge Desktop\    app, libvips DLLs, uninstaller
+%LOCALAPPDATA%\FileForge                        managed toolchain and models
+%LOCALAPPDATA%\fileforge                        local cache fallback
+%APPDATA%\fileforge                             settings, job history, automation, trash
+%APPDATA%\fileforge-desktop.exe                 WebView2 profile
+%LOCALAPPDATA%\fileforge-desktop.exe            WebView2 profile variant
+%LOCALAPPDATA%\fileforge-desktop.exe.WebView2   WebView2 profile variant
+%TEMP%\fileforge-previews                       preview cache
 ```
 
-The toolchain is large; deleting it is the way to reclaim the space.
+Shortcuts and the uninstall registry key are removed as well. The managed
+toolchain covers FFmpeg, Tesseract, Poppler, Ghostscript, Python, Whisper, the
+Whisper models and the optional background-removal pack. App data covers the
+settings, job history, automation rules and runs, and the app trash.
+
+Converted files are never touched: they live wherever you saved them. The
+Microsoft Edge WebView2 runtime is shared with other applications and stays
+installed. If the app is running, the installer and the uninstaller ask you to
+close it before continuing.
 
 ## Troubleshooting
 
@@ -280,8 +309,9 @@ The toolchain is large; deleting it is the way to reclaim the space.
   `onnxruntime` DLLs under `rembg-venv\Lib\site-packages\onnxruntime\`.
 - **First-run downloads fail**: check the proxy/firewall. The downloads come
   from GitHub, conda-forge and Hugging Face. Re-run Install / repair.
-- **SmartScreen warns**: the installer is unsigned. For distribution, sign the
-  exe and installer with `signtool` (the NSIS script has commented
-  `!finalize` hooks).
+- **SmartScreen warns**: the installer is unsigned. Code signing is a release
+  follow-up: sign the exe, installer and uninstaller with `signtool` (the NSIS
+  script has commented `!finalize`/`!uninstfinalize` hooks). Unsigned builds are
+  fine for local testing and internal distribution.
 - **Windows ARM64**: not built. The toolchain currently supports
   `windows/amd64`.
