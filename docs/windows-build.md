@@ -182,9 +182,14 @@ Notes:
 ### Configuration and history
 
 ```text
-%APPDATA%\fileforge\job_history_v1.json
-%APPDATA%\fileforge\jobs_state_v1.json
+%APPDATA%\fileforge\job_history.json
+%APPDATA%\fileforge\jobs.json
+%APPDATA%\fileforge\automation_rules.json
+%APPDATA%\fileforge\automation_runs.json
 ```
+
+Legacy `*_v1.json` files from earlier versions are copied to the unversioned
+names on first load and kept on disk as a backup.
 
 WebView2 stores its profile under `%APPDATA%\fileforge-desktop.exe` (the NSIS
 uninstaller removes that folder).

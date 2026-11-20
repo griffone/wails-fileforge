@@ -66,7 +66,7 @@ Every tool follows the same user task, not the backend job contract:
 - Output: `OutputPlanCard` shows the resolved destination and collision-safe name before running. Default is next to the original; never overwrite.
 - Run: one primary action (`Convert 3 images`, `Merge 2 PDFs`). There is no separate Validate button.
 - Result: `ResultCard` with open, show in folder, retry failed and "do another"; technical job ids/codes live in a Details disclosure.
-- Backend: `PlanJobV1` is the source of truth. The same resolver is used by planning and execution; explicit existing outputs are conflicts, auto-derived names get `-2`, `-3`.
+- Backend: `PlanJob` is the source of truth. The same resolver is used by planning and execution; explicit existing outputs are conflicts, auto-derived names get `-2`, `-3`.
 - Native desktop: `EnableFileDrop` + `data-file-drop-target` + `common:WindowFilesDropped`; `OpenPath` / `RevealInFolder` for results.
 
 Shared components:
@@ -140,7 +140,7 @@ Rules:
 
 ### `app-job-card`
 
-- Input: `job: JobResultV1 | null`.
+- Input: `job: JobResult | null`.
 - Single progress bar, stage badge, ETA, spinner while finalizing, live-region announcements.
 - Do not wrap it in another `aria-live` region.
 
@@ -150,15 +150,12 @@ Rules:
 2. Add a `ToolDefinition` in `frontend/src/app/config/tools.ts` (name, `navName`, description, route, category, icon, formats, keywords).
 3. The rail, command palette, Home grid and recents pick it up automatically.
 4. Build the page with the file-first flow: `FileDrop`/`FileQueue` → presets/advanced → `OutputPlanCard` → one action → `ResultCard`. Use `.page`, `.panel`, fields, banners and buttons.
-5. Implement `Plan(ctx, req)` on the Go tool and reuse the same resolver in execution; never overwrite, and return planned outputs/counts/warnings. Expose it through the existing `PlanJobV1` path.
+5. Implement `Plan(ctx, req)` on the Go tool and reuse the same resolver in execution; never overwrite, and return planned outputs/counts/warnings. Expose it through the existing `PlanJob` path.
 6. Add `Local only` once in the header; no back links, no mode selector, no output-path typing, no Validate button.
 7. Add or update both Go and frontend specs, then run:
 
    ```bash
-   cd frontend
-   npm run build:dev
-   CHROME_BIN=/usr/bin/brave npx ng test --watch=false
-   go test ./...
+   task verify:all
    ```
 8. If the tool needs a new backend API, update Go, regenerate bindings, and never edit `frontend/bindings/` by hand.
 
