@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"io"
 	"net/url"
@@ -143,7 +144,7 @@ func (p *HybridRuntimeProbe) lookup() func(string) (string, error) {
 type ExecCommandRunner struct{}
 
 func (r *ExecCommandRunner) Run(ctx context.Context, name string, args ...string) (CommandResult, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := execx.CommandContext(ctx, name, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

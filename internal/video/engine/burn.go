@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"io"
 	"math"
@@ -160,7 +161,7 @@ func (r *ExecBurnCommandRunner) RunBurn(ctx context.Context, dir, name string, a
 		ctx = context.Background()
 	}
 
-	command := exec.CommandContext(ctx, name, args...)
+	command := execx.CommandContext(ctx, name, args...)
 	command.Dir = dir
 
 	stdoutReader, stdoutWriter := io.Pipe()

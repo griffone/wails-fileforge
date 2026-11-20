@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"io"
 	"math"
@@ -132,7 +133,7 @@ type StreamingTranscribeCommandRunner interface {
 type ExecTranscribeCommandRunner struct{}
 
 func (r *ExecTranscribeCommandRunner) Output(ctx context.Context, name string, args []string) ([]byte, error) {
-	command := exec.CommandContext(ctx, name, args...)
+	command := execx.CommandContext(ctx, name, args...)
 
 	output := newBoundedTranscribeOutput(transcribeMaxCapturedOutputBytes)
 	command.Stdout = output
@@ -150,7 +151,7 @@ func (r *ExecTranscribeCommandRunner) Output(ctx context.Context, name string, a
 // buffering until exit would leave the UI stuck at the initial percentage. The
 // captured copy is bounded so a noisy engine cannot exhaust memory.
 func (r *ExecTranscribeCommandRunner) RunStreaming(ctx context.Context, name string, args []string, onLine func(string)) ([]byte, error) {
-	command := exec.CommandContext(ctx, name, args...)
+	command := execx.CommandContext(ctx, name, args...)
 
 	pipeReader, pipeWriter := io.Pipe()
 	command.Stdout = pipeWriter

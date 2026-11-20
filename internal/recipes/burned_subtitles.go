@@ -3,13 +3,13 @@ package recipes
 import (
 	"context"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -992,7 +992,7 @@ func burnedSubtitlesExtractFrame(ctx context.Context, inputPath string, atSecond
 		outputPath,
 	}
 
-	output, err := exec.CommandContext(ctx, "ffmpeg", args...).CombinedOutput()
+	output, err := execx.CommandContext(ctx, "ffmpeg", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ffmpeg frame extraction failed: %w (%s)", err, strings.TrimSpace(string(output)))
 	}

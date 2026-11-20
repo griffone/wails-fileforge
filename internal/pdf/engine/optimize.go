@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"io"
 	"os"
@@ -95,7 +96,7 @@ func runGhostscript(ctx context.Context, inputPath, outputPath, preset string) e
 		return fmt.Errorf("ghostscript binary not found (tried %s)", strings.Join(GhostscriptBinaryNames, ", "))
 	}
 
-	command := exec.CommandContext(
+	command := execx.CommandContext(
 		ctx,
 		binaryPath,
 		"-sDEVICE=pdfwrite",

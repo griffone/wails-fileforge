@@ -2,8 +2,8 @@ package toolchain
 
 import (
 	"context"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -19,7 +19,7 @@ type ExecCommandRunner struct{}
 
 // Run implements CommandRunner.
 func (r *ExecCommandRunner) Run(ctx context.Context, name string, args []string, env []string) ([]byte, error) {
-	command := exec.CommandContext(ctx, name, args...)
+	command := execx.CommandContext(ctx, name, args...)
 	if len(env) > 0 {
 		command.Env = env
 	}

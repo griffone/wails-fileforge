@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"io"
 	"os"
@@ -83,7 +84,7 @@ type CommandRunner interface {
 type ExecCommandRunner struct{}
 
 func (r *ExecCommandRunner) Output(ctx context.Context, name string, args []string) ([]byte, error) {
-	command := exec.CommandContext(ctx, name, args...)
+	command := execx.CommandContext(ctx, name, args...)
 
 	output, err := command.CombinedOutput()
 	if err != nil {

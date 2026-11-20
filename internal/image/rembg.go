@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"image"
 	"image/png"
@@ -192,7 +193,7 @@ func (e *RembgCommandError) Unwrap() error {
 type ExecRembgCommandRunner struct{}
 
 func (r *ExecRembgCommandRunner) RunRembg(ctx context.Context, dir, pythonPath string, args []string, env []string, onLine func(string)) error {
-	command := exec.CommandContext(ctx, pythonPath, args...)
+	command := execx.CommandContext(ctx, pythonPath, args...)
 	command.Dir = dir
 	if len(env) > 0 {
 		command.Env = env

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -11,7 +12,6 @@ import (
 	"math"
 	"mime"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -37,7 +37,7 @@ const (
 // videoDurationCommand runs ffprobe for a single path. It is a package
 // variable so tests can simulate a missing or failing ffprobe.
 var videoDurationCommand = func(ctx context.Context, path string) ([]byte, error) {
-	return exec.CommandContext(
+	return execx.CommandContext(
 		ctx,
 		"ffprobe",
 		"-v", "error",
@@ -50,7 +50,7 @@ var videoDurationCommand = func(ctx context.Context, path string) ([]byte, error
 // videoMetadataCommand reads duration, stream codecs and video dimensions in a
 // single ffprobe JSON call. It is a package variable so tests can mock it.
 var videoMetadataCommand = func(ctx context.Context, path string) ([]byte, error) {
-	return exec.CommandContext(
+	return execx.CommandContext(
 		ctx,
 		"ffprobe",
 		"-v", "error",

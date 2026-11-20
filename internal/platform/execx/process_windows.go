@@ -4,6 +4,9 @@ package execx
 
 import "os/exec"
 
-// configureCommand keeps the os/exec default: cancellation kills the direct
-// process. Windows has no process-group equivalent with the same semantics.
-func configureCommand(*exec.Cmd) {}
+// configureCommand keeps the os/exec default for cancellation (the direct
+// process is killed) and hides the child console window: a GUI app must never
+// flash a console for ffmpeg, tesseract, python or the toolchain installer.
+func configureCommand(cmd *exec.Cmd) {
+	hideConsole(cmd)
+}

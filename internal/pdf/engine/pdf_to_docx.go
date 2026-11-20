@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/xml"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"io"
 	"os"
@@ -132,7 +133,7 @@ type DOCXCommandRunner interface {
 type ExecDOCXCommandRunner struct{}
 
 func (r *ExecDOCXCommandRunner) RunDOCX(ctx context.Context, dir, name string, args []string, onLine func(string)) (string, error) {
-	command := exec.CommandContext(ctx, name, args...)
+	command := execx.CommandContext(ctx, name, args...)
 	command.Dir = dir
 
 	stdoutReader, stdoutWriter := io.Pipe()

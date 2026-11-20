@@ -3,10 +3,10 @@ package recipes
 import (
 	"context"
 	"errors"
+	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -50,7 +50,7 @@ var socialClipPosterCommand = func(ctx context.Context, inputPath, outputPath st
 		outputPath,
 	}
 
-	output, err := exec.CommandContext(ctx, "ffmpeg", args...).CombinedOutput()
+	output, err := execx.CommandContext(ctx, "ffmpeg", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ffmpeg poster extraction failed: %w (%s)", err, strings.TrimSpace(string(output)))
 	}

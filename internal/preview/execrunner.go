@@ -3,7 +3,7 @@ package preview
 import (
 	"bytes"
 	"context"
-	"os/exec"
+	"fileforge-desktop/internal/platform/execx"
 	"sync"
 	"time"
 )
@@ -33,7 +33,7 @@ func (r *LocalExecRunner) Run(ctx context.Context, name string, args []string, s
 		ctx = context.Background()
 	}
 
-	cmd := exec.Command(name, args...)
+	cmd := execx.NewCommand(name, args...)
 	configureProcessGroup(cmd)
 	// Wait must not block forever when a descendant keeps stdout/stderr open.
 	cmd.WaitDelay = 2 * time.Second
