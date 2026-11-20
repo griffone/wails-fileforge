@@ -15,9 +15,8 @@ import type * as PreviewModels from '../../../bindings/fileforge-desktop/interna
  * Typed adapter over the generated Wails bindings.
  *
  * Every RPC exposed by the bound services is routed through this class so the
- * rest of the frontend never depends on numeric method IDs. The legacy `Wails`
- * service keeps its public API and fallbacks; phase 6 removes that hand-written
- * DTO layer and calls these bindings directly.
+ * rest of the frontend never depends on numeric method IDs. The `Wails`
+ * service adds UI-facing fallbacks and normalizes nullable generated fields.
  */
 @Injectable({ providedIn: 'root' })
 export class WailsIpc {

@@ -594,7 +594,7 @@ export class ResultCard implements DoCheck {
     const lines: string[] = [];
     const seen = new Set<string>();
 
-    const addError = (error?: JobError): void => {
+    const addError = (error?: JobError | null): void => {
       if (!error) {
         return;
       }

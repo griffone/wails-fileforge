@@ -109,8 +109,8 @@ export class ToolCatalog implements OnInit {
   }
 
   ioLabel(tool: ToolCatalogEntry): string {
-    const input = tool.manifest.inputExtensions.join(', ') || '—';
-    const output = tool.manifest.outputExtensions.join(', ') || '—';
+    const input = (tool.manifest.inputExtensions ?? []).join(', ') || '—';
+    const output = (tool.manifest.outputExtensions ?? []).join(', ') || '—';
     return `${input} → ${output}`;
   }
 

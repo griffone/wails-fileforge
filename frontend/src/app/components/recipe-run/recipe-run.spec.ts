@@ -499,7 +499,7 @@ describe('RecipeRun (Email PDF)', () => {
     expect(wailsSpy.getRecipeStatus).toHaveBeenCalledWith('recipe-job-1');
     expect(component.terminalResult()?.status).toBe('success');
     expect(component.resultJob()?.toolId).toBe(EMAIL_RECIPE_ID);
-    expect(component.resultJob()?.items.length).toBe(1);
+    expect(component.resultJob()?.items?.length).toBe(1);
     expect(component.verification()?.success).toBeTrue();
 
     const text = fixture.nativeElement.textContent as string;
@@ -530,7 +530,7 @@ describe('RecipeRun (Email PDF)', () => {
     fixture.detectChanges();
 
     expect(component.terminalResult()?.status).toBe('partial_success');
-    expect(component.resultJob()?.items.length).toBe(1);
+    expect(component.resultJob()?.items?.length).toBe(1);
     expect(component.partialDetail()).toBe(
       'Email PDF created, but it is 12.4 MB: above the 10 MB target.',
     );
@@ -951,7 +951,7 @@ describe('RecipeRun (Web image set)', () => {
     expect(request.recipeId).toBe(WEB_RECIPE_ID);
     expect(request.options).toEqual({});
     expect(component.terminalResult()?.status).toBe('success');
-    expect(component.resultJob()?.items.length).toBe(6);
+    expect(component.resultJob()?.items?.length).toBe(6);
     expect(component.resultJob()?.toolId).toBe(WEB_RECIPE_ID);
 
     const text = fixture.nativeElement.textContent as string;
@@ -1195,7 +1195,7 @@ describe('RecipeRun (Social clip)', () => {
     expect(request.recipeId).toBe(SOCIAL_RECIPE_ID);
     expect(request.options).toEqual({});
     expect(component.terminalResult()?.status).toBe('success');
-    expect(component.resultJob()?.items.length).toBe(3);
+    expect(component.resultJob()?.items?.length).toBe(3);
     expect(component.resultJob()?.toolId).toBe(SOCIAL_RECIPE_ID);
 
     const text = fixture.nativeElement.textContent as string;
@@ -1416,7 +1416,7 @@ describe('RecipeRun (Clean scan)', () => {
     expect(request.recipeId).toBe(CLEAN_SCAN_RECIPE_ID);
     expect(request.options).toEqual({});
     expect(component.terminalResult()?.status).toBe('success');
-    expect(component.resultJob()?.items.length).toBe(2);
+    expect(component.resultJob()?.items?.length).toBe(2);
     expect(component.resultJob()?.toolId).toBe(CLEAN_SCAN_RECIPE_ID);
     expect(component.verification()?.success).toBeTrue();
 

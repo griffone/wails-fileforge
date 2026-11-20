@@ -13,6 +13,7 @@ import {
   JobProgressEvent,
   JobRequest,
   JobResult,
+  JobResultItem,
   JobStatusResponse,
   PlanJobResponse,
   Wails,
@@ -71,7 +72,7 @@ describe('DocDocxToPdf', () => {
   function result(
     jobId: string,
     status: JobResult['status'],
-    items: JobResult['items'],
+    items: JobResultItem[],
   ): JobStatusResponse {
     return {
       success: true,

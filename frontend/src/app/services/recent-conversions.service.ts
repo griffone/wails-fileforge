@@ -75,6 +75,7 @@ export class RecentConversionsService {
       return;
     }
 
+    const itemCount = job.items?.length ?? 0;
     const entry: RecentConversion = {
       id: job.jobId,
       toolId: tool.id,
@@ -82,7 +83,7 @@ export class RecentConversionsService {
       route: tool.route,
       status: job.status,
       outputs: this.collectOutputs(job),
-      inputCount: (job.items?.length ?? 0) > 0 ? job.items.length : 1,
+      inputCount: itemCount > 0 ? itemCount : 1,
       timestamp:
         typeof job.endedAt === 'number' && Number.isFinite(job.endedAt) && job.endedAt > 0
           ? job.endedAt
