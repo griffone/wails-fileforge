@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +21,9 @@ import (
 const (
 	defaultMaxEntries = 50
 	defaultMaxOutputs = 500
+
+	defaultTrashMaxBytes int64 = 1 << 30 // 1 GiB
+	defaultTrashMaxAge         = 30 * 24 * time.Hour
 
 	dirPermissions  = 0o755
 	filePermissions = 0o644
@@ -47,8 +52,12 @@ type Store struct {
 	trashRoot  string
 	maxEntries int
 	maxOutputs int
-	entries    []models.JobHistoryEntryV1
-	rename     func(oldPath, newPath string) error
+
+	trashMaxBytes int64
+	trashMaxAge   time.Duration
+
+	entries []models.JobHistoryEntryV1
+	rename  func(oldPath, newPath string) error
 }
 
 // DefaultPath returns the persisted history location:
@@ -70,16 +79,32 @@ func NewStore(path string) *Store {
 
 func newStore(path string, maxEntries, maxOutputs int) *Store {
 	store := &Store{
-		path:       strings.TrimSpace(path),
-		maxEntries: maxEntries,
-		maxOutputs: maxOutputs,
-		rename:     os.Rename,
+		path:          strings.TrimSpace(path),
+		maxEntries:    maxEntries,
+		maxOutputs:    maxOutputs,
+		trashMaxBytes: defaultTrashMaxBytes,
+		trashMaxAge:   defaultTrashMaxAge,
+		rename:        os.Rename,
 	}
 	if store.path != "" {
 		store.trashRoot = filepath.Join(filepath.Dir(store.path), trashDirName)
 	}
 	store.load()
+	if err := store.retainTrash(); err != nil {
+		log.Printf("jobhistory.retention.failed err=%v", err)
+	}
 	return store
+}
+
+// SetTrashRetention configures the limits applied to the app trash. A
+// non-positive maxBytes or maxAge disables that limit. The defaults are 1 GiB
+// and 30 days.
+func (s *Store) SetTrashRetention(maxBytes int64, maxAge time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.trashMaxBytes = maxBytes
+	s.trashMaxAge = maxAge
 }
 
 func (s *Store) configured() bool {
@@ -153,6 +178,25 @@ func (s *Store) List() []models.JobHistoryEntryV1 {
 	defer s.mu.RUnlock()
 
 	return s.snapshotEntriesLocked()
+}
+
+// Get returns a deep copy of one recorded job. It lets callers verify jobs
+// whose engine state has already been evicted from memory.
+func (s *Store) Get(jobID string) (models.JobHistoryEntryV1, bool) {
+	trimmed := strings.TrimSpace(jobID)
+	if trimmed == "" {
+		return models.JobHistoryEntryV1{}, false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	index := s.findIndexLocked(trimmed)
+	if index < 0 {
+		return models.JobHistoryEntryV1{}, false
+	}
+
+	return cloneEntry(s.entries[index]), true
 }
 
 // Undo moves every untouched output of a recorded job to the app trash.
@@ -295,6 +339,9 @@ func (s *Store) Undo(jobID string) models.UndoResultV1 {
 		result.Message = appendMessage(undoMessage(len(result.Moved), total, len(result.Skipped)),
 			fmt.Sprintf("history could not be saved: %v", err))
 		return result
+	}
+	if err := s.retainTrash(); err != nil {
+		log.Printf("jobhistory.retention.failed err=%v", err)
 	}
 
 	result.Message = undoMessage(len(result.Moved), total, len(result.Skipped))
@@ -462,6 +509,13 @@ func (s *Store) EmptyTrash() error {
 		return fmt.Errorf("jobhistory: empty trash: %w", err)
 	}
 
+	// The root is usually gone by now, so retention finds nothing to prune.
+	// It still runs here because another process may have recreated trash
+	// entries for the same history file between the removal and this point.
+	if err := s.retainTrash(); err != nil {
+		log.Printf("jobhistory.retention.failed err=%v", err)
+	}
+
 	s.mu.Lock()
 	for index := range s.entries {
 		entry := &s.entries[index]
@@ -560,6 +614,203 @@ func (s *Store) pruneLocked() {
 		total -= len(oldest.Outputs)
 		s.entries = s.entries[:len(s.entries)-1]
 	}
+}
+
+// trashUnit is one removable entry under the trash root: a job directory or a
+// stray top-level file.
+type trashUnit struct {
+	path    string
+	size    int64
+	modTime time.Time
+}
+
+// retainTrash removes trash units until the configured size and age
+// limits are satisfied, then updates the matching history records. It expects
+// opMu to be held and never holds s.mu during filesystem work.
+func (s *Store) retainTrash() error {
+	if !s.configured() {
+		return nil
+	}
+
+	s.mu.RLock()
+	maxBytes := s.trashMaxBytes
+	maxAge := s.trashMaxAge
+	s.mu.RUnlock()
+
+	if maxBytes <= 0 && maxAge <= 0 {
+		return nil
+	}
+
+	units, err := scanTrashUnits(s.trashRoot)
+	if err != nil {
+		return fmt.Errorf("scan trash: %w", err)
+	}
+	if len(units) == 0 {
+		return nil
+	}
+
+	prune := selectTrashPrunes(units, maxBytes, maxAge, time.Now())
+
+	removed := make(map[string]struct{}, len(prune))
+	prunedUnits := 0
+	prunedBytes := int64(0)
+	for _, unit := range units {
+		if _, ok := prune[unit.path]; !ok {
+			continue
+		}
+		if err := os.RemoveAll(unit.path); err != nil {
+			log.Printf("jobhistory.trash.prune_failed err=%v", err)
+			continue
+		}
+		prunedUnits++
+		prunedBytes += unit.size
+		removed[fsx.HostPathKey(unit.path)] = struct{}{}
+	}
+	if prunedUnits == 0 {
+		return nil
+	}
+	log.Printf("jobhistory.trash.pruned units=%d bytes=%d maxBytes=%d maxAge=%s", prunedUnits, prunedBytes, maxBytes, maxAge)
+
+	s.mu.Lock()
+	changed := false
+	for index := range s.entries {
+		entry := &s.entries[index]
+		touched := false
+		for outputIndex := range entry.Outputs {
+			output := &entry.Outputs[outputIndex]
+			if output.TrashedPath == "" {
+				continue
+			}
+			if _, ok := removed[fsx.HostPathKey(filepath.Dir(output.TrashedPath))]; !ok {
+				continue
+			}
+			output.TrashedPath = ""
+			output.Undone = true
+			touched = true
+		}
+		if !touched {
+			continue
+		}
+		entry.TrashEmptied = true
+		entry.Undone = allUndone(entry.Outputs)
+		changed = true
+	}
+	if !changed {
+		s.mu.Unlock()
+		return nil
+	}
+	snapshot := s.snapshotEntriesLocked()
+	s.mu.Unlock()
+
+	if err := s.saveSnapshot(snapshot); err != nil {
+		return fmt.Errorf("persist history after trash retention: %w", err)
+	}
+
+	return nil
+}
+
+func scanTrashUnits(root string) ([]trashUnit, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	units := make([]trashUnit, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		unitPath := filepath.Join(root, entry.Name())
+		if entry.IsDir() {
+			size, sizeErr := directorySize(unitPath)
+			if sizeErr != nil {
+				if errors.Is(sizeErr, os.ErrNotExist) {
+					continue
+				}
+				return nil, sizeErr
+			}
+			units = append(units, trashUnit{path: unitPath, size: size, modTime: info.ModTime()})
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		units = append(units, trashUnit{path: unitPath, size: info.Size(), modTime: info.ModTime()})
+	}
+
+	return units, nil
+}
+
+func directorySize(root string) (int64, error) {
+	total := int64(0)
+	err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if errors.Is(walkErr, os.ErrNotExist) {
+				return nil
+			}
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			if errors.Is(infoErr, os.ErrNotExist) {
+				return nil
+			}
+			return infoErr
+		}
+		if info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	})
+
+	return total, err
+}
+
+// selectTrashPrunes chooses the units to remove. Expired units are pruned
+// first; if the remaining size still exceeds maxBytes, the oldest units are
+// pruned until the limit holds. Ties are broken by path for determinism.
+func selectTrashPrunes(units []trashUnit, maxBytes int64, maxAge time.Duration, now time.Time) map[string]struct{} {
+	ordered := make([]trashUnit, len(units))
+	copy(ordered, units)
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].modTime.Equal(ordered[j].modTime) {
+			return ordered[i].path < ordered[j].path
+		}
+		return ordered[i].modTime.Before(ordered[j].modTime)
+	})
+
+	prune := make(map[string]struct{}, len(ordered))
+	remainingBytes := int64(0)
+	for _, unit := range ordered {
+		if maxAge > 0 && now.Sub(unit.modTime) > maxAge {
+			prune[unit.path] = struct{}{}
+			continue
+		}
+		remainingBytes += unit.size
+	}
+
+	if maxBytes <= 0 {
+		return prune
+	}
+	for _, unit := range ordered {
+		if remainingBytes <= maxBytes {
+			break
+		}
+		if _, ok := prune[unit.path]; ok {
+			continue
+		}
+		prune[unit.path] = struct{}{}
+		remainingBytes -= unit.size
+	}
+
+	return prune
 }
 
 // saveSnapshot marshals and persists one immutable history snapshot. Callers

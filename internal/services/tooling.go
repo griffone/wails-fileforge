@@ -300,20 +300,31 @@ func (s *ToolingService) GetJobStatusV1(jobID string) models.JobStatusResponseV1
 
 // VerifyJobV1 verifies every output produced by a terminal job. Missing or
 // unreadable outputs are reported per output instead of failing the whole
-// report.
+// report. Jobs that already left the engine are verified from recorded
+// history, so a result stays verifiable after a restart.
 func (s *ToolingService) VerifyJobV1(jobID string) models.VerificationReportV1 {
 	trimmedID := strings.TrimSpace(jobID)
+
 	job, found := s.engine.Get(trimmedID)
-	if !found {
-		log.Printf("tooling.verify.not_found jobId=%s", trimmedID)
-		return models.VerificationReportV1{
-			Success: false,
-			Message: fmt.Sprintf("job '%s' not found", trimmedID),
-			Outputs: []models.VerifiedOutputV1{},
+	if found {
+		return s.verifyJobOutputs(trimmedID, jobOutputPaths(job))
+	}
+
+	if s.history != nil {
+		if entry, historyFound := s.history.Get(trimmedID); historyFound {
+			return s.verifyJobOutputs(trimmedID, historyOutputPaths(entry))
 		}
 	}
 
-	paths := jobOutputPaths(job)
+	log.Printf("tooling.verify.not_found jobId=%s", trimmedID)
+	return models.VerificationReportV1{
+		Success: false,
+		Message: fmt.Sprintf("job '%s' not found", trimmedID),
+		Outputs: []models.VerifiedOutputV1{},
+	}
+}
+
+func (s *ToolingService) verifyJobOutputs(jobID string, paths []string) models.VerificationReportV1 {
 	if len(paths) == 0 {
 		return models.VerificationReportV1{
 			Success: false,
@@ -324,9 +335,31 @@ func (s *ToolingService) VerifyJobV1(jobID string) models.VerificationReportV1 {
 
 	report := verify.VerifyPaths(paths)
 	if !report.Success {
-		log.Printf("tooling.verify.failed jobId=%s outputs=%d message=%s", trimmedID, len(report.Outputs), report.Message)
+		log.Printf("tooling.verify.failed jobId=%s outputs=%d message=%s", jobID, len(report.Outputs), report.Message)
 	}
 	return report
+}
+
+// historyOutputPaths returns the recorded outputs that should still exist at
+// their original path. Outputs moved to trash or pruned from it have no
+// original file left to verify.
+func historyOutputPaths(entry models.JobHistoryEntryV1) []string {
+	paths := make([]string, 0, len(entry.Outputs))
+	seen := make(map[string]struct{}, len(entry.Outputs))
+	for _, output := range entry.Outputs {
+		path := strings.TrimSpace(output.Path)
+		if path == "" || strings.TrimSpace(output.TrashedPath) != "" {
+			continue
+		}
+		key := filepath.Clean(path)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		paths = append(paths, path)
+	}
+
+	return paths
 }
 
 // jobOutputPaths collects declared outputs in order, falling back to the

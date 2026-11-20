@@ -722,3 +722,182 @@ func TestRecordJobAndListAreSafeConcurrently(t *testing.T) {
 		t.Fatalf("expected %d entries, got %d", writers, len(entries))
 	}
 }
+
+func TestGetReturnsDeepCopy(t *testing.T) {
+	store, dir := newTestStore(t)
+	output := filepath.Join(dir, "out.pdf")
+	writeTestFile(t, output, "content")
+	store.RecordOutputs("job_1", "tool.pdf.merge", []string{output})
+
+	entry, found := store.Get(" job_1 ")
+	if !found {
+		t.Fatal("expected the recorded job to be found")
+	}
+	if entry.JobID != "job_1" || len(entry.Outputs) != 1 {
+		t.Fatalf("unexpected entry: %+v", entry)
+	}
+	entry.Outputs[0].Path = "mutated"
+
+	stored, _ := store.Get("job_1")
+	if stored.Outputs[0].Path != output {
+		t.Fatalf("expected Get to return a deep copy, got %q", stored.Outputs[0].Path)
+	}
+	if _, found := store.Get("missing"); found {
+		t.Fatal("expected a missing job to report not found")
+	}
+}
+
+func TestTrashRetentionPrunesExpiredDirectories(t *testing.T) {
+	store, dir := newTestStore(t)
+	oldPath := filepath.Join(dir, "out", "old.pdf")
+	newPath := filepath.Join(dir, "out", "new.pdf")
+	writeTestFile(t, oldPath, "old")
+	writeTestFile(t, newPath, "new")
+
+	store.RecordJob(terminalJob("job_old", "tool.pdf.merge", models.JobStatusSuccess, oldPath))
+	if result := store.Undo("job_old"); !result.Success {
+		t.Fatalf("undo old job: %+v", result)
+	}
+	oldEntry, _ := store.Get("job_old")
+	oldTrashDir := filepath.Dir(oldEntry.Outputs[0].TrashedPath)
+	oldTime := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(oldTrashDir, oldTime, oldTime); err != nil {
+		t.Fatalf("backdate trash directory: %v", err)
+	}
+
+	store.SetTrashRetention(0, 24*time.Hour)
+
+	store.RecordJob(terminalJob("job_new", "tool.pdf.merge", models.JobStatusSuccess, newPath))
+	if result := store.Undo("job_new"); !result.Success {
+		t.Fatalf("undo new job: %+v", result)
+	}
+
+	if _, err := os.Stat(oldTrashDir); !os.IsNotExist(err) {
+		t.Fatalf("expected the expired trash directory to be pruned, got %v", err)
+	}
+
+	pruned, _ := store.Get("job_old")
+	if len(pruned.Outputs) != 1 {
+		t.Fatalf("expected the history entry to survive, got %+v", pruned)
+	}
+	output := pruned.Outputs[0]
+	if output.TrashedPath != "" || !output.Undone {
+		t.Fatalf("expected the pruned output to stay undone without a trash path, got %+v", output)
+	}
+	if !pruned.TrashEmptied || !pruned.Undone {
+		t.Fatalf("expected the entry to be marked trashEmptied and undone, got %+v", pruned)
+	}
+
+	kept, _ := store.Get("job_new")
+	if kept.TrashEmptied || kept.Outputs[0].TrashedPath == "" {
+		t.Fatalf("expected the recent trash directory to be kept, got %+v", kept)
+	}
+	if _, err := os.Stat(kept.Outputs[0].TrashedPath); err != nil {
+		t.Fatalf("expected the recent trash file to exist: %v", err)
+	}
+
+	reloaded := NewStore(filepath.Join(dir, "fileforge", "job_history_v1.json"))
+	reloadedOld, found := reloaded.Get("job_old")
+	if !found || !reloadedOld.TrashEmptied || reloadedOld.Outputs[0].TrashedPath != "" {
+		t.Fatalf("expected retention state to persist, got %+v", reloadedOld)
+	}
+}
+
+func TestTrashRetentionPrunesBySize(t *testing.T) {
+	store, dir := newTestStore(t)
+	oldPath := filepath.Join(dir, "out", "old.pdf")
+	newPath := filepath.Join(dir, "out", "new.pdf")
+	writeTestFile(t, oldPath, "0123456789")
+	writeTestFile(t, newPath, "01234")
+
+	store.RecordJob(terminalJob("job_old", "tool.pdf.merge", models.JobStatusSuccess, oldPath))
+	if result := store.Undo("job_old"); !result.Success {
+		t.Fatalf("undo old job: %+v", result)
+	}
+	store.RecordJob(terminalJob("job_new", "tool.pdf.merge", models.JobStatusSuccess, newPath))
+	if result := store.Undo("job_new"); !result.Success {
+		t.Fatalf("undo new job: %+v", result)
+	}
+
+	oldEntry, _ := store.Get("job_old")
+	newEntry, _ := store.Get("job_new")
+	oldDir := filepath.Dir(oldEntry.Outputs[0].TrashedPath)
+	newDir := filepath.Dir(newEntry.Outputs[0].TrashedPath)
+	base := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(oldDir, base, base); err != nil {
+		t.Fatalf("backdate old trash directory: %v", err)
+	}
+	if err := os.Chtimes(newDir, base.Add(time.Hour), base.Add(time.Hour)); err != nil {
+		t.Fatalf("backdate new trash directory: %v", err)
+	}
+
+	store.SetTrashRetention(5, 0)
+	func() {
+		store.opMu.Lock()
+		defer store.opMu.Unlock()
+		if err := store.retainTrash(); err != nil {
+			t.Fatalf("run retention: %v", err)
+		}
+	}()
+
+	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
+		t.Fatalf("expected the oldest directory to be pruned by size, got %v", err)
+	}
+	if _, err := os.Stat(newDir); err != nil {
+		t.Fatalf("expected the newest directory to stay within the size limit: %v", err)
+	}
+
+	pruned, _ := store.Get("job_old")
+	if pruned.Outputs[0].TrashedPath != "" || !pruned.TrashEmptied {
+		t.Fatalf("expected the pruned entry to be updated, got %+v", pruned)
+	}
+	kept, _ := store.Get("job_new")
+	if kept.Outputs[0].TrashedPath == "" || kept.TrashEmptied {
+		t.Fatalf("expected the kept entry to stay untouched, got %+v", kept)
+	}
+}
+
+func TestNewStorePrunesExpiredTrashOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	historyPath := filepath.Join(dir, "fileforge", "job_history_v1.json")
+	trashFile := filepath.Join(dir, "fileforge", "trash", "job_old", "0-out.pdf")
+	writeTestFile(t, trashFile, "stale")
+
+	entry := models.JobHistoryEntryV1{
+		JobID:  "job_old",
+		ToolID: "tool.pdf.merge",
+		Undone: true,
+		Outputs: []models.JobOutputRecordV1{{
+			Path:        filepath.Join(dir, "out.pdf"),
+			SizeBytes:   int64(len("stale")),
+			ModifiedAt:  1700000000000,
+			TrashedPath: trashFile,
+			Undone:      true,
+		}},
+	}
+	payload, err := json.Marshal([]models.JobHistoryEntryV1{entry})
+	if err != nil {
+		t.Fatalf("encode history: %v", err)
+	}
+	writeTestFile(t, historyPath, string(payload))
+
+	expired := time.Now().Add(-defaultTrashMaxAge - 24*time.Hour)
+	if err := os.Chtimes(trashFile, expired, expired); err != nil {
+		t.Fatalf("backdate trash file: %v", err)
+	}
+	if err := os.Chtimes(filepath.Dir(trashFile), expired, expired); err != nil {
+		t.Fatalf("backdate trash directory: %v", err)
+	}
+
+	store := NewStore(historyPath)
+	if _, err := os.Stat(filepath.Dir(trashFile)); !os.IsNotExist(err) {
+		t.Fatalf("expected NewStore to prune expired trash, got %v", err)
+	}
+	stored, found := store.Get("job_old")
+	if !found {
+		t.Fatal("expected the history entry to survive pruning")
+	}
+	if stored.Outputs[0].TrashedPath != "" || !stored.Outputs[0].Undone || !stored.TrashEmptied {
+		t.Fatalf("expected load-time retention to update history, got %+v", stored)
+	}
+}
