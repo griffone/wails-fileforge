@@ -8,7 +8,7 @@ SetCompressorDictSize 64
 ## If the keyword is not defined, "wails_tools.nsh" will populate them.
 ## If they are defined here, "wails_tools.nsh" will not touch them. This allows you to use this project.nsi manually
 ## from outside of Wails for debugging and development of the installer.
-## 
+##
 ## For development first make a wails nsis build to populate the "wails_tools.nsh":
 ## > wails build --target windows/amd64 --nsis
 ## Then you can call makensis on this file with specifying the path to your binary:
@@ -58,27 +58,47 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 # Enable HiDPI support. https://nsis.sourceforge.io/Reference/ManifestDPIAware
 ManifestDPIAware true
 
-!include "MUI.nsh"
+!include "MUI2.nsh"
 
+####
+## Branding
+####
+!define MUI_WELCOMEFINISHPAGE_BITMAP "assets\welcome.bmp"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_BITMAP "assets\header.bmp"
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
-# !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
-!define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
-!define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
+
+BrandingText "${INFO_PRODUCTNAME} ${INFO_PRODUCTVERSION}"
+!define MUI_ABORTWARNING
 
 # Default install folder, restored from the previous install when present. The
-# uninstall key is written in the 64-bit registry view by wails.writeUninstaller.
+# uninstall key is written in the 64-bit registry view by wails.writeUninstaller;
+# .onInit re-reads it from the same view.
 InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 InstallDirRegKey HKLM "${UNINST_KEY}" "InstallDir"
 
-!define MUI_DIRECTORYPAGE_TEXT_TOP "Choose the folder where FileForge Desktop will be installed."
-!define MUI_DIRECTORYPAGE_TEXT_DESTINATION "Destination folder"
+####
+## Installer pages
+####
+!define MUI_WELCOMEPAGE_TITLE "Welcome to the ${INFO_PRODUCTNAME} setup"
+!define MUI_WELCOMEPAGE_TEXT "FileForge Desktop converts images, PDFs, documents and videos on your own PC. No accounts, no uploads, no cloud.\r\n\r\nThis wizard installs the desktop app. The local conversion tools download on first use from Settings > Tools & Models.\r\n\r\nClick Next to continue."
+!insertmacro MUI_PAGE_WELCOME
 
-!insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
-# !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
-!insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
-!insertmacro MUI_PAGE_INSTFILES # Installing page.
-!insertmacro MUI_PAGE_FINISH # Finished installation page.
+!insertmacro MUI_PAGE_COMPONENTS
+
+!define MUI_DIRECTORYPAGE_TEXT_TOP "Choose the folder where ${INFO_PRODUCTNAME} will be installed. The app and its local image engine need about 60 MB. You can keep the suggested folder or pick another one."
+!define MUI_DIRECTORYPAGE_TEXT_DESTINATION "Destination folder"
+!insertmacro MUI_PAGE_DIRECTORY
+
+!insertmacro MUI_PAGE_INSTFILES
+
+!define MUI_FINISHPAGE_TITLE "${INFO_PRODUCTNAME} is installed"
+!define MUI_FINISHPAGE_TEXT "${INFO_PRODUCTNAME} is ready to use. Your files stay on this PC and nothing is uploaded.\r\n\r\nThe first conversion that needs a local tool downloads it automatically. You can review or reinstall the tools any time in Settings > Tools & Models; the default set needs internet access once and about 3 GB of disk space.\r\n\r\nClick Finish to close this wizard."
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}"
+!define MUI_FINISHPAGE_RUN_TEXT "Launch ${INFO_PRODUCTNAME}"
+!define MUI_FINISHPAGE_NOREBOOTSUPPORT
+!insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_INSTFILES # Uninstalling page
 
@@ -90,32 +110,75 @@ InstallDirRegKey HKLM "${UNINST_KEY}" "InstallDir"
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-ShowInstDetails show # This will always show the installation details.
+ShowInstDetails nevershow
+ShowUninstDetails nevershow
 
-Function .onInit
-   !insertmacro wails.checkArchitecture
+####
+## Functions
+####
+
+# Ask the user to close the running app before files in $INSTDIR are replaced.
+# FindWindow matches the exact window title set by the Wails window options.
+Function CheckAppRunning
+    # Silent installs cannot answer a prompt; let the file copy report errors.
+    ${If} ${Silent}
+        Return
+    ${EndIf}
+
+    appRunningInstallCheck:
+        FindWindow $0 "${INFO_PRODUCTNAME}"
+        ${If} $0 == 0
+            Return
+        ${EndIf}
+        MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION \
+            "${INFO_PRODUCTNAME} is still running. Close it, then choose OK to continue. Choose Cancel to stop the setup." \
+            IDOK appRunningInstallCheck IDCANCEL appRunningInstallAbort
+
+    appRunningInstallAbort:
+        Abort
 FunctionEnd
 
-Section
+Function .onInit
+    !insertmacro wails.checkArchitecture
+
+    # InstallDirRegKey reads the 32-bit registry view at startup, while
+    # wails.writeUninstaller stores InstallDir in the 64-bit view. Read the
+    # remembered destination again here so the directory page starts there.
+    SetRegView 64
+    ReadRegStr $0 HKLM "${UNINST_KEY}" "InstallDir"
+    ${If} $0 != ""
+        StrCpy $INSTDIR $0
+    ${EndIf}
+FunctionEnd
+
+####
+## Installer sections
+####
+Section "FileForge Desktop" SecApp
+    SectionIn RO
+
+    Call CheckAppRunning
+
+    # An admin install uses the all-users context: shortcuts land on the public
+    # desktop and in the common Start Menu.
     !insertmacro wails.setShellContext
 
+    DetailPrint "Checking the Microsoft Edge WebView2 runtime..."
     !insertmacro wails.webview2runtime
 
+    DetailPrint "Copying the FileForge Desktop application files..."
     SetOutPath $INSTDIR
-    
     !insertmacro wails.files
 
     # Bundle the libvips runtime next to the executable. bimg links it at
     # startup, so this cannot be installed later by the in-app toolchain.
     !ifdef LIBVIPS_DIR
+        DetailPrint "Installing the local image engine (libvips)..."
         File /r "${LIBVIPS_DIR}/*.dll"
     !endif
 
-    CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
-    CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
-
+    DetailPrint "Registering file types and the uninstaller..."
     !insertmacro wails.associateFiles
-
     !insertmacro wails.writeUninstaller
 
     # Remember the destination the user picked. wails.writeUninstaller already
@@ -123,12 +186,29 @@ Section
     WriteRegStr HKLM "${UNINST_KEY}" "InstallDir" "$INSTDIR"
 SectionEnd
 
-Section "uninstall" 
+Section "Desktop shortcut" SecDesktopShortcut
     !insertmacro wails.setShellContext
+    DetailPrint "Creating the desktop shortcut..."
+    CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+SectionEnd
 
-    RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
+Section "Start Menu shortcut" SecStartMenuShortcut
+    !insertmacro wails.setShellContext
+    DetailPrint "Creating the Start Menu shortcut..."
+    CreateShortCut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+SectionEnd
 
-    RMDir /r $INSTDIR
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecApp} "The ${INFO_PRODUCTNAME} application, its local image engine and the uninstaller."
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktopShortcut} "Add a ${INFO_PRODUCTNAME} shortcut to the desktop."
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecStartMenuShortcut} "Add ${INFO_PRODUCTNAME} to the Start Menu."
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+####
+## Uninstaller section
+####
+Section "Uninstall"
+    !insertmacro wails.setShellContext
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
@@ -136,4 +216,7 @@ Section "uninstall"
     !insertmacro wails.unassociateFiles
 
     !insertmacro wails.deleteUninstaller
+
+    RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
+    RMDir /r "$INSTDIR"
 SectionEnd
