@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">IMAGE</p>
-        <h1 class="page-title">Image <em>Annotate</em></h1>
+        <p class="eyebrow">{{ i18n.t('imageAnnotate.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('imageAnnotate.page.titleLead') }}
+          <em>{{ i18n.t('imageAnnotate.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Draw text, arrows, rectangles, blur and redaction on an image. Everything runs on this machine.
+          {{ i18n.t('imageAnnotate.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('imageAnnotate.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -22,8 +25,8 @@
         <section class="panel intake-panel" aria-labelledby="annot-input-title">
           <div class="panel-head">
             <div>
-              <h2 id="annot-input-title" class="panel-title">Images</h2>
-              <p class="panel-sub">Drop images or choose them from your computer.</p>
+              <h2 id="annot-input-title" class="panel-title">{{ i18n.t('imageAnnotate.intake.title') }}</h2>
+              <p class="panel-sub">{{ i18n.t('imageAnnotate.intake.sub') }}</p>
             </div>
             <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
           </div>
@@ -31,18 +34,18 @@
           <div class="panel-body">
             <app-file-drop
               accept="image/*"
-              title="Drop images here"
+              [title]="i18n.t('imageAnnotate.intake.dropTitle')"
               hint="PNG · JPG · WebP · GIF · BMP · TIFF"
-              ariaLabel="Drop or choose images to annotate"
+              [ariaLabel]="i18n.t('imageAnnotate.intake.dropAria')"
               [nativePicker]="true"
               (pathsSelected)="onPathsSelected($event)"
               (browseRequested)="chooseFiles()"
             ></app-file-drop>
 
-            <div class="toolbar" role="group" aria-label="Image selection actions">
+            <div class="toolbar" role="group" [attr.aria-label]="i18n.t('imageAnnotate.intake.actionsAria')">
               <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
                 <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Choose files
+                {{ i18n.t('imageAnnotate.intake.choose') }}
               </button>
               <button
                 type="button"
@@ -51,7 +54,7 @@
                 (click)="clear()"
               >
                 <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Clear
+                {{ i18n.t('imageAnnotate.intake.clear') }}
               </button>
             </div>
 
@@ -75,7 +78,7 @@
             }
 
             @if (isBatch()) {
-              <p class="batch-note">The same annotations apply to every image.</p>
+              <p class="batch-note">{{ i18n.t('imageAnnotate.intake.batchNote') }}</p>
             }
           </div>
         </section>
@@ -83,18 +86,18 @@
         <section class="panel editor-panel" aria-labelledby="annot-canvas-title">
           <div class="panel-head">
             <div>
-              <h2 id="annot-canvas-title" class="panel-title">Annotate canvas</h2>
+              <h2 id="annot-canvas-title" class="panel-title">{{ i18n.t('imageAnnotate.canvas.title') }}</h2>
               <p class="panel-sub">
-                Pick a tool, then draw on the image. Click a shape to edit it.
+                {{ i18n.t('imageAnnotate.canvas.sub') }}
               </p>
             </div>
             @if (isAnnotatePreviewLoading()) {
-              <span class="badge badge-info" role="status">Rendering</span>
+              <span class="badge badge-info" role="status">{{ i18n.t('imageAnnotate.canvas.rendering') }}</span>
             }
           </div>
 
           <div class="panel-body">
-            <div class="tool-palette" role="group" aria-label="Annotation tools">
+            <div class="tool-palette" role="group" [attr.aria-label]="i18n.t('imageAnnotate.canvas.toolsAria')">
               @for (tool of toolOptions; track tool.id) {
                 <button
                   type="button"
@@ -103,7 +106,7 @@
                   [attr.aria-pressed]="isActiveTool(tool.id)"
                   (click)="setActiveTool(tool.id)"
                 >
-                  {{ tool.label }}
+                  {{ toolLabel(tool) }}
                 </button>
               }
             </div>
@@ -111,12 +114,12 @@
             @if (previewUrl()) {
               <div class="editor-stack">
                 <figure class="preview-block">
-                  <figcaption class="preview-caption">Source — draw with the selected tool</figcaption>
+                  <figcaption class="preview-caption">{{ i18n.t('imageAnnotate.canvas.sourceCaption') }}</figcaption>
                   <div class="preview-stage" [class.is-drawing]="drawingCursor()">
                     <img
                       #previewImage
                       [src]="previewUrl()"
-                      alt="Source image with the annotation overlay"
+                      [attr.alt]="i18n.t('imageAnnotate.canvas.sourceAlt')"
                       class="preview-image"
                       draggable="false"
                       (load)="onPreviewImageLoaded()"
@@ -125,7 +128,7 @@
                     <svg
                       class="annotate-overlay"
                       [class.is-drawing]="drawingCursor()"
-                      aria-label="Annotation overlay"
+                      [attr.aria-label]="i18n.t('imageAnnotate.canvas.overlayAria')"
                       role="img"
                       (pointerdown)="onOverlayPointerDown($event)"
                       (pointermove)="onOverlayPointerMove($event)"
@@ -180,7 +183,7 @@
                               (pointerdown)="$event.stopPropagation()"
                               (click)="onOperationShapeClick(i, $event)"
                             >
-                              {{ operation.text || 'text' }}
+                              {{ operation.text || i18n.t('imageAnnotate.canvas.textFallback') }}
                             </text>
                           }
                         }
@@ -211,20 +214,20 @@
                 </figure>
 
                 <figure class="preview-block">
-                  <figcaption class="preview-caption">Result preview — pixel-perfect output</figcaption>
+                  <figcaption class="preview-caption">{{ i18n.t('imageAnnotate.canvas.resultCaption') }}</figcaption>
                   <div class="preview-result-shell">
                     @if (annotatePreviewUrl()) {
                       <img
                         [src]="annotatePreviewUrl()"
-                        alt="Annotated result preview"
+                        [attr.alt]="i18n.t('imageAnnotate.canvas.resultAlt')"
                         class="preview-image"
                         draggable="false"
                       />
                     } @else {
                       <p class="preview-placeholder">
                         {{ isAnnotatePreviewLoading()
-                          ? 'Generating preview…'
-                          : 'The annotated result appears here.' }}
+                          ? i18n.t('imageAnnotate.canvas.previewLoading')
+                          : i18n.t('imageAnnotate.canvas.previewEmpty') }}
                       </p>
                     }
                   </div>
@@ -234,12 +237,12 @@
               <div class="empty-state editor-empty">
                 <lucide-icon [img]="penIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
                 <strong>
-                  {{ previewLoading() ? 'Loading preview…' : (hasSelection() ? 'Preview unavailable' : 'No image to annotate yet') }}
+                  {{ previewLoading() ? i18n.t('imageAnnotate.canvas.loadingTitle') : (hasSelection() ? i18n.t('imageAnnotate.canvas.unavailableTitle') : i18n.t('imageAnnotate.canvas.emptyTitle')) }}
                 </strong>
                 <span>
                   {{ previewLoading()
-                    ? 'Reading the first image from disk.'
-                    : (previewError() || 'Add an image above to start drawing annotations.') }}
+                    ? i18n.t('imageAnnotate.canvas.loadingBody')
+                    : (previewError() || i18n.t('imageAnnotate.canvas.emptyBody')) }}
                 </span>
               </div>
             }
@@ -249,15 +252,15 @@
         <section class="panel operations-panel" aria-labelledby="annot-operations-title">
           <div class="panel-head">
             <div>
-              <h2 id="annot-operations-title" class="panel-title">Annotations</h2>
-              <p class="panel-sub">Reorder, remove or fine-tune each shape.</p>
+              <h2 id="annot-operations-title" class="panel-title">{{ i18n.t('imageAnnotate.operations.title') }}</h2>
+              <p class="panel-sub">{{ i18n.t('imageAnnotate.operations.sub') }}</p>
             </div>
             <div class="toolbar">
               <button
                 type="button"
                 class="icon-btn"
-                aria-label="Undo annotation change"
-                title="Undo (Ctrl+Z)"
+                [attr.aria-label]="i18n.t('imageAnnotate.operations.undoAria')"
+                [attr.title]="i18n.t('imageAnnotate.operations.undoTitle')"
                 [disabled]="!canUndo()"
                 (click)="undo()"
               >
@@ -266,8 +269,8 @@
               <button
                 type="button"
                 class="icon-btn"
-                aria-label="Redo annotation change"
-                title="Redo (Ctrl+Shift+Z)"
+                [attr.aria-label]="i18n.t('imageAnnotate.operations.redoAria')"
+                [attr.title]="i18n.t('imageAnnotate.operations.redoTitle')"
                 [disabled]="!canRedo()"
                 (click)="redo()"
               >
@@ -280,16 +283,16 @@
           <div class="panel-body">
             <div class="banner banner-info">
               <div class="banner-copy">
-                <strong>Blur vs redact</strong>
+                <strong>{{ i18n.t('imageAnnotate.operations.noticeTitle') }}</strong>
                 <ul class="banner-list">
-                  <li><strong>Blur</strong> partially hides the area with an adjustable intensity (0–100).</li>
-                  <li><strong>Redact</strong> covers the area with a solid rectangle and is irreversible in the output.</li>
+                  <li><strong>{{ i18n.t('imageAnnotate.operations.blurLead') }}</strong> {{ i18n.t('imageAnnotate.operations.blurBody') }}</li>
+                  <li><strong>{{ i18n.t('imageAnnotate.operations.redactLead') }}</strong> {{ i18n.t('imageAnnotate.operations.redactBody') }}</li>
                 </ul>
               </div>
             </div>
 
             @if (hasOperations()) {
-              <ul class="operation-list" aria-label="Annotations">
+              <ul class="operation-list" [attr.aria-label]="i18n.t('imageAnnotate.operations.listAria')">
                 @for (operation of operations(); track $index; let i = $index) {
                   <li class="operation-row" [class.is-selected]="isOperationSelected(i)">
                     <span class="operation-index mono">{{ i + 1 }}</span>
@@ -308,7 +311,7 @@
                       <button
                         type="button"
                         class="icon-btn operation-action"
-                        [attr.aria-label]="'Move annotation ' + (i + 1) + ' up'"
+                        [attr.aria-label]="i18n.t('imageAnnotate.operations.moveUp', { index: i + 1 })"
                         [disabled]="i === 0"
                         (click)="moveOperationUp(i)"
                       >
@@ -317,7 +320,7 @@
                       <button
                         type="button"
                         class="icon-btn operation-action"
-                        [attr.aria-label]="'Move annotation ' + (i + 1) + ' down'"
+                        [attr.aria-label]="i18n.t('imageAnnotate.operations.moveDown', { index: i + 1 })"
                         [disabled]="i === operations().length - 1"
                         (click)="moveOperationDown(i)"
                       >
@@ -326,7 +329,7 @@
                       <button
                         type="button"
                         class="icon-btn operation-action operation-remove"
-                        [attr.aria-label]="'Remove annotation ' + (i + 1)"
+                        [attr.aria-label]="i18n.t('imageAnnotate.operations.remove', { index: i + 1 })"
                         (click)="removeOperation(i)"
                       >
                         <lucide-icon [img]="trashIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
@@ -338,8 +341,8 @@
             } @else {
               <div class="empty-state operations-empty">
                 <lucide-icon [img]="layersIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
-                <strong>No annotations yet</strong>
-                <span>Pick a tool and draw on the image, or add one with the fields below.</span>
+                <strong>{{ i18n.t('imageAnnotate.operations.emptyTitle') }}</strong>
+                <span>{{ i18n.t('imageAnnotate.operations.emptyBody') }}</span>
               </div>
             }
 
@@ -352,13 +355,13 @@
                   [disabled]="!hasOperations()"
                   (click)="clearOperations()"
                 >
-                  Clear all
+                  {{ i18n.t('imageAnnotate.operations.clearAll') }}
                 </button>
               </div>
 
               <div class="operation-grid">
                 <div class="field">
-                  <label class="label" for="annot-type">Type</label>
+                  <label class="label" for="annot-type">{{ i18n.t('imageAnnotate.field.type') }}</label>
                   <select
                     id="annot-type"
                     class="select"
@@ -366,13 +369,13 @@
                     (change)="onOperationTypeChange($event)"
                   >
                     @for (type of operationTypes; track type) {
-                      <option [value]="type" [selected]="type === operationForm().type">{{ type }}</option>
+                      <option [value]="type" [selected]="type === operationForm().type">{{ operationTypeOptionLabel(type) }}</option>
                     }
                   </select>
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-color">Color</label>
+                  <label class="label" for="annot-color">{{ i18n.t('imageAnnotate.field.color') }}</label>
                   <input
                     id="annot-color"
                     class="input"
@@ -386,7 +389,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-x">X (px)</label>
+                  <label class="label" for="annot-x">{{ i18n.t('imageAnnotate.field.x') }}</label>
                   <input
                     id="annot-x"
                     class="input"
@@ -400,7 +403,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-y">Y (px)</label>
+                  <label class="label" for="annot-y">{{ i18n.t('imageAnnotate.field.y') }}</label>
                   <input
                     id="annot-y"
                     class="input"
@@ -414,7 +417,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-width">Width (px)</label>
+                  <label class="label" for="annot-width">{{ i18n.t('imageAnnotate.field.width') }}</label>
                   <input
                     id="annot-width"
                     class="input"
@@ -429,7 +432,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-height">Height (px)</label>
+                  <label class="label" for="annot-height">{{ i18n.t('imageAnnotate.field.height') }}</label>
                   <input
                     id="annot-height"
                     class="input"
@@ -444,7 +447,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-x2">X2 (px)</label>
+                  <label class="label" for="annot-x2">{{ i18n.t('imageAnnotate.field.x2') }}</label>
                   <input
                     id="annot-x2"
                     class="input"
@@ -458,7 +461,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-y2">Y2 (px)</label>
+                  <label class="label" for="annot-y2">{{ i18n.t('imageAnnotate.field.y2') }}</label>
                   <input
                     id="annot-y2"
                     class="input"
@@ -472,7 +475,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-opacity">Opacity (0–1)</label>
+                  <label class="label" for="annot-opacity">{{ i18n.t('imageAnnotate.field.opacity') }}</label>
                   <input
                     id="annot-opacity"
                     class="input"
@@ -488,7 +491,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-stroke">Stroke width</label>
+                  <label class="label" for="annot-stroke">{{ i18n.t('imageAnnotate.field.strokeWidth') }}</label>
                   <input
                     id="annot-stroke"
                     class="input"
@@ -504,7 +507,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-font">Font size</label>
+                  <label class="label" for="annot-font">{{ i18n.t('imageAnnotate.field.fontSize') }}</label>
                   <input
                     id="annot-font"
                     class="input"
@@ -520,7 +523,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="annot-blur">Blur intensity (0–100)</label>
+                  <label class="label" for="annot-blur">{{ i18n.t('imageAnnotate.field.blurIntensity') }}</label>
                   <input
                     id="annot-blur"
                     class="input"
@@ -536,7 +539,7 @@
                 </div>
 
                 <div class="field field-wide">
-                  <label class="label" for="annot-text">Text</label>
+                  <label class="label" for="annot-text">{{ i18n.t('imageAnnotate.field.text') }}</label>
                   <textarea
                     id="annot-text"
                     class="textarea"
@@ -550,7 +553,7 @@
 
               <div class="operation-form-actions">
                 <button type="button" class="btn btn-primary btn-sm" (click)="addOperation()">
-                  Add operation
+                  {{ i18n.t('imageAnnotate.action.addOperation') }}
                 </button>
                 @if (selectedOperationIndex() >= 0) {
                   <button
@@ -559,20 +562,20 @@
                     [disabled]="!formDirty()"
                     (click)="applyOperationEdit()"
                   >
-                    Apply changes
+                    {{ i18n.t('imageAnnotate.action.applyChanges') }}
                   </button>
                   <button
                     type="button"
                     class="btn btn-ghost btn-sm"
-                    aria-label="Duplicate selected annotation"
-                    title="Duplicate (Ctrl+D)"
+                    [attr.aria-label]="i18n.t('imageAnnotate.action.duplicateAria')"
+                    [attr.title]="i18n.t('imageAnnotate.action.duplicateTitle')"
                     (click)="duplicateOperation()"
                   >
                     <lucide-icon [img]="duplicateIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                    Duplicate
+                    {{ i18n.t('imageAnnotate.action.duplicate') }}
                   </button>
                 }
-                <p class="field-help">Drawing a shape adds it to the list with these values.</p>
+                <p class="field-help">{{ i18n.t('imageAnnotate.action.formHelp') }}</p>
               </div>
             </div>
           </div>
@@ -583,22 +586,22 @@
         <section class="panel outcome-panel" aria-labelledby="annot-output-title">
           <div class="panel-head">
             <div>
-              <h2 id="annot-output-title" class="panel-title">Output</h2>
-              <p class="panel-sub">Check where the annotated images will go.</p>
+              <h2 id="annot-output-title" class="panel-title">{{ i18n.t('imageAnnotate.output.title') }}</h2>
+              <p class="panel-sub">{{ i18n.t('imageAnnotate.output.sub') }}</p>
             </div>
           </div>
 
           <div class="panel-body">
             <details class="advanced" [open]="advancedOpen()" (toggle)="onAdvancedToggle($event)">
               <summary class="advanced-summary">
-                <span class="advanced-title">Advanced</span>
-                <span class="advanced-hint">Output format</span>
+                <span class="advanced-title">{{ i18n.t('imageAnnotate.advanced.title') }}</span>
+                <span class="advanced-hint">{{ i18n.t('imageAnnotate.advanced.hint') }}</span>
               </summary>
 
               <div class="advanced-body">
                 <div class="advanced-grid">
                   <div class="field advanced-format">
-                    <label class="label" for="image-annotate-format">Output format</label>
+                    <label class="label" for="image-annotate-format">{{ i18n.t('imageAnnotate.field.outputFormat') }}</label>
                     <select
                       id="image-annotate-format"
                       class="select"
@@ -606,10 +609,10 @@
                       (change)="onFormatChange($event)"
                     >
                       @for (option of formatOptions; track option.value) {
-                        <option [value]="option.value" [selected]="option.value === outputFormat()">{{ option.label }}</option>
+                        <option [value]="option.value" [selected]="option.value === outputFormat()">{{ formatOptionLabel(option) }}</option>
                       }
                     </select>
-                    <p class="field-help">Preserve original keeps each source format.</p>
+                    <p class="field-help">{{ i18n.t('imageAnnotate.field.preserveHelp') }}</p>
                   </div>
                 </div>
               </div>
@@ -626,7 +629,7 @@
             @if (!isDefaultDestination()) {
               <div class="destination-actions">
                 <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
-                  Use original folders
+                  {{ i18n.t('settings.output.useOriginal') }}
                 </button>
               </div>
             }
@@ -663,7 +666,7 @@
               </button>
 
               @if (isPolling()) {
-                <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+                <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('imageAnnotate.action.cancel') }}</button>
               }
             </div>
           </div>
@@ -672,7 +675,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Annotation progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('imageAnnotate.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

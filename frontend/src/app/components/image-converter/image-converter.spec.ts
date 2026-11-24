@@ -10,6 +10,7 @@ import { Subject } from 'rxjs';
 import { ImageConverter } from './image-converter';
 import { IMAGE_PRESETS } from '../../config/image-presets';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import {
   FileInfo,
@@ -200,6 +201,7 @@ describe('ImageConverter', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(ImageConverter);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -207,6 +209,7 @@ describe('ImageConverter', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
   });
 
@@ -567,4 +570,21 @@ describe('ImageConverter', () => {
 
     queuedFixture.destroy();
   }));
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Convertir');
+    expect(title).toContain('imágenes');
+    expect(
+      element.querySelector('#image-resize-mode option[value="none"]')
+        ?.textContent,
+    ).toContain('Ninguno');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir archivos');
+  });
 });

@@ -5,6 +5,9 @@ import { fileDropEn } from './file-drop';
 import { fileQueueEn } from './file-queue';
 import { globalDropEn } from './global-drop';
 import { homeEn } from './home';
+import { imageAnnotateEn } from './image-annotate';
+import { imageConverterEn } from './image-converter';
+import { imageCropEn } from './image-crop';
 import { outputPlanEn } from './output-plan-card';
 import { paletteEn } from './palette';
 import { recipeRunEn } from './recipe-run';
@@ -25,6 +28,9 @@ export const en = {
   ...toolsEn,
   ...paletteEn,
   ...homeEn,
+  ...imageConverterEn,
+  ...imageCropEn,
+  ...imageAnnotateEn,
   ...recipesEn,
   ...recipeRunEn,
   ...fileDropEn,

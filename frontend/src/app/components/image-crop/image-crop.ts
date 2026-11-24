@@ -26,8 +26,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -181,6 +186,7 @@ export class ImageCrop implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
 
   readonly shieldIcon = ShieldCheck;
@@ -301,19 +307,19 @@ export class ImageCrop implements OnDestroy, OnInit {
 
     const crop = this.crop();
     if (!crop) {
-      return 'Enter whole numbers for X, Y, width and height.';
+      return this.i18n.t('imageCrop.error.invalidNumbers');
     }
     if (crop.width < 1 || crop.height < 1) {
-      return 'Crop width and height must be at least 1 px.';
+      return this.i18n.t('imageCrop.error.minSize');
     }
     if (crop.x < 0 || crop.y < 0) {
-      return 'Crop position must be zero or greater.';
+      return this.i18n.t('imageCrop.error.position');
     }
     if (
       crop.x + crop.width > this.imageWidth() ||
       crop.y + crop.height > this.imageHeight()
     ) {
-      return 'The crop must stay inside the image.';
+      return this.i18n.t('imageCrop.error.outside');
     }
 
     const preset = this.ratioDefinition();
@@ -322,9 +328,11 @@ export class ImageCrop implements OnDestroy, OnInit {
       crop.width * preset.heightStep !== crop.height * preset.widthStep
     ) {
       if (!this.ratioFitsImage()) {
-        return 'This image is too small for the selected ratio.';
+        return this.i18n.t('imageCrop.error.ratioTooSmall');
       }
-      return `A ${this.ratioPreset()} crop needs matching width and height.`;
+      return this.i18n.t('imageCrop.error.ratioMismatch', {
+        ratio: this.ratioPreset(),
+      });
     }
 
     return '';
@@ -345,14 +353,18 @@ export class ImageCrop implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Cropping…';
+      return this.i18n.t('imageCrop.action.cropping');
     }
     const count = this.selectedPaths().length;
-    return count > 1 ? `Crop ${count} images` : 'Crop image';
+    return count > 1
+      ? this.i18n.t('imageCrop.action.cropMany', { count })
+      : this.i18n.t('imageCrop.action.crop');
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each image',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('imageCrop.destination.original'),
   );
 
   readonly isDefaultDestination = computed(
@@ -373,10 +385,12 @@ export class ImageCrop implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (!this.hasSelection()) {
-      return 'Add at least one image to crop.';
+      return this.i18n.t('imageCrop.helper.addImage');
     }
     if (!this.hasPreview()) {
-      return this.previewError() || 'Loading the image preview…';
+      return (
+        this.previewError() || this.i18n.t('imageCrop.helper.loadingPreview')
+      );
     }
     return this.cropError();
   });
@@ -394,7 +408,10 @@ export class ImageCrop implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The crop could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('imageCrop.error.start')),
+        )
       : null;
   });
 
@@ -437,7 +454,25 @@ export class ImageCrop implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'image');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.imageOne'),
+      this.i18n.t('common.imageMany'),
+    );
+  }
+
+  /** Ratio preset copy resolved at render time so locale switches apply. */
+  ratioLabel(preset: RatioPreset): string {
+    return this.i18n.tOr(`imageCrop.ratio.${preset.id}.label`, preset.label);
+  }
+
+  ratioHint(preset: RatioPreset): string {
+    return this.i18n.tOr(`imageCrop.ratio.${preset.id}.hint`, preset.hint);
+  }
+
+  formatOptionLabel(option: FormatOption): string {
+    const key = option.value || 'preserve';
+    return this.i18n.tOr(`imageCrop.format.${key}.label`, option.label);
   }
 
   onPathsSelected(paths: string[]): void {
@@ -768,13 +803,13 @@ export class ImageCrop implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The crop could not start.',
+        message: this.i18n.t('imageCrop.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The crop could not start.',
+          message: this.i18n.t('imageCrop.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -782,7 +817,8 @@ export class ImageCrop implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The crop could not start.',
+          message:
+            response.message || this.i18n.t('imageCrop.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -794,14 +830,14 @@ export class ImageCrop implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('imageCrop.status.waiting'),
       toolId: IMAGE_CROP_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('imageCrop.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -820,7 +856,7 @@ export class ImageCrop implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('imageCrop.error.cancel'),
       );
     }
   }
@@ -828,7 +864,9 @@ export class ImageCrop implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('imageCrop.error.openFile'),
     );
   }
 
@@ -837,7 +875,7 @@ export class ImageCrop implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('imageCrop.error.openFolder'),
     );
   }
 
@@ -963,12 +1001,12 @@ export class ImageCrop implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('imageCrop.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('imageCrop.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -985,7 +1023,7 @@ export class ImageCrop implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('imageCrop.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the destination
     // or format problem next to the destination it belongs to.
@@ -1052,11 +1090,11 @@ export class ImageCrop implements OnDestroy, OnInit {
     const response: ImagePreviewSourceResponse =
       await this.wailsService.getImagePreviewSource(path).catch(() => ({
         success: false,
-        message: 'The image preview could not be loaded.',
+        message: this.i18n.t('imageCrop.error.preview'),
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'IMAGE_PREVIEW_READ_FAILED',
-          message: 'The image preview could not be loaded.',
+          message: this.i18n.t('imageCrop.error.preview'),
         },
       }));
     if (generation !== this.previewGeneration) {
@@ -1071,9 +1109,12 @@ export class ImageCrop implements OnDestroy, OnInit {
       this.imageHeight.set(0);
       this.selectionRectPx.set({ ...EMPTY_RECT });
       this.previewError.set(
-        describeToolError(
-          response.error,
-          'The image preview could not be loaded.',
+        localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            response.error,
+            this.i18n.t('imageCrop.error.preview'),
+          ),
         ).description,
       );
       return;
@@ -1548,7 +1589,8 @@ export class ImageCrop implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message:
+          response.message || this.i18n.t('imageCrop.error.status'),
       },
     );
   }
@@ -1590,7 +1632,7 @@ export class ImageCrop implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('imageCrop.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -1713,18 +1755,30 @@ export class ImageCrop implements OnDestroy, OnInit {
 
     if (rejected.length === 1) {
       parts.push(
-        `${fileName(rejected[0])} wasn't added because it isn't an image.`,
+        this.i18n.t('imageCrop.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
       );
     } else if (rejected.length > 1) {
       parts.push(
-        `${rejected.length} files weren't added because they aren't images.`,
+        this.i18n.t('imageCrop.notice.rejectedMany', {
+          count: rejected.length,
+        }),
       );
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('imageCrop.notice.duplicateOne', {
+          name: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} images are already in the queue.`);
+      parts.push(
+        this.i18n.t('imageCrop.notice.duplicateMany', {
+          count: duplicates.length,
+        }),
+      );
     }
 
     return parts.length > 0

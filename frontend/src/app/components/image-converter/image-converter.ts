@@ -21,8 +21,13 @@ import {
   ImageOutputFormat,
   ImagePreset,
 } from '../../config/image-presets';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -113,6 +118,7 @@ export class ImageConverter implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -176,7 +182,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     const preset = IMAGE_PRESETS.find(
       (candidate) => candidate.format === format,
     );
-    return preset?.label ?? this.formatLabel(format);
+    return preset ? this.presetLabel(preset) : this.formatLabel(format);
   });
 
   readonly inputTotalBytes = computed(() => {
@@ -210,24 +216,33 @@ export class ImageConverter implements OnDestroy, OnInit {
     if (output < input) {
       const saved = input - output;
       const percent = Math.max(1, Math.round((saved / input) * 100));
-      return `Saved ${formatBytes(saved)} (${percent}%)`;
+      return this.i18n.t('imageConverter.savings.saved', {
+        size: formatBytes(saved),
+        percent,
+      });
     }
-    return `Output is ${formatBytes(output - input)} larger`;
+    return this.i18n.t('imageConverter.savings.larger', {
+      size: formatBytes(output - input),
+    });
   });
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Converting…';
+      return this.i18n.t('imageConverter.action.converting');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Convert';
+      return this.i18n.t('imageConverter.action.convert');
     }
-    return count === 1 ? 'Convert 1 image' : `Convert ${count} images`;
+    return count === 1
+      ? this.i18n.t('imageConverter.action.convertOne')
+      : this.i18n.t('imageConverter.action.convertMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each original',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('imageConverter.destination.original'),
   );
   readonly isDefaultDestination = computed(
     () => this.outputDir().trim().length === 0,
@@ -252,7 +267,13 @@ export class ImageConverter implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The conversion could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            error,
+            this.i18n.t('imageConverter.error.start'),
+          ),
+        )
       : null;
   });
 
@@ -277,7 +298,41 @@ export class ImageConverter implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'image');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.imageOne'),
+      this.i18n.t('common.imageMany'),
+    );
+  }
+
+  /** Preset copy resolved at render time so the locale switch applies. */
+  presetLabel(preset: ImagePreset): string {
+    return this.i18n.tOr(
+      `imageConverter.preset.${preset.id}.label`,
+      preset.label,
+    );
+  }
+
+  presetHint(preset: ImagePreset): string {
+    return this.i18n.tOr(
+      `imageConverter.preset.${preset.id}.hint`,
+      preset.hint,
+    );
+  }
+
+  resizeModeLabel(mode: ResizeMode): string {
+    return this.i18n.tOr(
+      `imageConverter.resize.${mode}`,
+      this.resizeModes.find((option) => option.value === mode)?.label ?? mode,
+    );
+  }
+
+  formatOptionLabel(format: ImageOutputFormat): string {
+    return this.i18n.tOr(
+      `imageConverter.format.${format}.label`,
+      this.formatOptions.find((option) => option.value === format)?.label ??
+        format,
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -500,13 +555,13 @@ export class ImageConverter implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The conversion could not start.',
+        message: this.i18n.t('imageConverter.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The conversion could not start.',
+          message: this.i18n.t('imageConverter.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -514,7 +569,8 @@ export class ImageConverter implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The conversion could not start.',
+          message:
+            response.message || this.i18n.t('imageConverter.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -526,14 +582,14 @@ export class ImageConverter implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('imageConverter.status.waiting'),
       toolId: IMAGE_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('imageConverter.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -551,7 +607,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('imageConverter.error.cancel'),
       );
     }
   }
@@ -559,7 +615,9 @@ export class ImageConverter implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('imageConverter.error.openFile'),
     );
   }
 
@@ -568,7 +626,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('imageConverter.error.openFolder'),
     );
   }
 
@@ -673,12 +731,12 @@ export class ImageConverter implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('imageConverter.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('imageConverter.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -695,7 +753,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('imageConverter.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the error in
     // context, next to the destination it belongs to.
@@ -804,7 +862,8 @@ export class ImageConverter implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message:
+          response.message || this.i18n.t('imageConverter.error.status'),
       },
     );
   }
@@ -846,7 +905,7 @@ export class ImageConverter implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('imageConverter.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -974,14 +1033,21 @@ export class ImageConverter implements OnDestroy, OnInit {
 
     const count = rejected.length;
     const filesCopy =
-      count === 1 ? "1 file wasn't added." : `${count} files weren't added.`;
+      count === 1
+        ? this.i18n.t('imageConverter.notice.filesOne')
+        : this.i18n.t('imageConverter.notice.filesMany', { count });
 
     let extensionsCopy: string;
     if (extensions.length === 1) {
-      extensionsCopy = `${extensions[0]} isn't supported.`;
+      extensionsCopy = this.i18n.t('imageConverter.notice.extensionOne', {
+        extension: extensions[0],
+      });
     } else {
       const head = extensions.slice(0, -1).join(', ');
-      extensionsCopy = `${head} and ${extensions[extensions.length - 1]} aren't supported.`;
+      extensionsCopy = this.i18n.t('imageConverter.notice.extensionsMany', {
+        head,
+        tail: extensions[extensions.length - 1],
+      });
     }
 
     return `${filesCopy} ${extensionsCopy}`;
@@ -1010,10 +1076,7 @@ export class ImageConverter implements OnDestroy, OnInit {
   }
 
   private formatLabel(format: ImageOutputFormat): string {
-    return (
-      IMAGE_FORMAT_OPTIONS.find((option) => option.value === format)?.label ??
-      format
-    );
+    return this.formatOptionLabel(format);
   }
 
   private isTerminalStatus(status: string): boolean {

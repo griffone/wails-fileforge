@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { ImageAnnotate } from './image-annotate';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -239,6 +240,7 @@ describe('ImageAnnotate', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(ImageAnnotate);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -246,6 +248,8 @@ describe('ImageAnnotate', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('plans one image as single with a default operation', fakeAsync(() => {
@@ -880,5 +884,22 @@ describe('ImageAnnotate', () => {
     expect(legacy['validate']).toBeUndefined();
     expect(legacy['panelFields']).toBeUndefined();
     expect(legacy['form']).toBeUndefined();
+  });
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Anotar');
+    expect(title).toContain('imágenes');
+    expect(
+      element.querySelector('[data-tool="text"]')?.textContent,
+    ).toContain('Texto');
+    expect(
+      element.querySelector('.operation-form-actions .btn-primary')
+        ?.textContent,
+    ).toContain('Añadir operación');
   });
 });

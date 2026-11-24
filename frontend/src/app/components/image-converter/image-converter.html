@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">IMAGE</p>
-        <h1 class="page-title">Image <em>Convert</em></h1>
+        <p class="eyebrow">{{ i18n.t('imageConverter.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('imageConverter.page.titleLead') }}
+          <em>{{ i18n.t('imageConverter.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Turn images into WebP, JPEG, PNG, GIF, TIFF or AVIF. Original keeps every source format. Everything runs on this machine.
+          {{ i18n.t('imageConverter.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('imageConverter.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -21,8 +24,8 @@
       <section class="panel intake-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Images</h2>
-            <p class="panel-sub">Drop images or choose them from your computer.</p>
+            <h2 class="panel-title">{{ i18n.t('imageConverter.intake.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('imageConverter.intake.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
@@ -30,18 +33,18 @@
         <div class="panel-body">
           <app-file-drop
             accept="image/*"
-            title="Drop images here"
+            [title]="i18n.t('imageConverter.intake.dropTitle')"
             hint="PNG · JPG · WebP · GIF · BMP · TIFF"
-            ariaLabel="Drop or choose images to convert"
+            [ariaLabel]="i18n.t('imageConverter.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
           ></app-file-drop>
 
-          <div class="toolbar" role="group" aria-label="Image selection actions">
+          <div class="toolbar" role="group" [attr.aria-label]="i18n.t('imageConverter.intake.actionsAria')">
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose files
+              {{ i18n.t('imageConverter.intake.choose') }}
             </button>
             <button
               type="button"
@@ -50,7 +53,7 @@
               (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
+              {{ i18n.t('imageConverter.intake.clear') }}
             </button>
           </div>
 
@@ -78,14 +81,14 @@
       <section class="panel outcome-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Output</h2>
-            <p class="panel-sub">Pick a format and check where the files will go.</p>
+            <h2 class="panel-title">{{ i18n.t('imageConverter.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('imageConverter.output.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ outputBadgeLabel() }}</span>
         </div>
 
         <div class="panel-body">
-          <div class="preset-grid" role="group" aria-label="Output format">
+          <div class="preset-grid" role="group" [attr.aria-label]="i18n.t('imageConverter.output.formatAria')">
             @for (preset of presets; track preset.id) {
               <button
                 type="button"
@@ -94,8 +97,8 @@
                 [attr.aria-pressed]="isPresetActive(preset)"
                 (click)="selectPreset(preset.id)"
               >
-                <span class="preset-label">{{ preset.label }}</span>
-                <span class="preset-hint">{{ preset.hint }}</span>
+                <span class="preset-label">{{ presetLabel(preset) }}</span>
+                <span class="preset-hint">{{ presetHint(preset) }}</span>
               </button>
             }
           </div>
@@ -111,21 +114,21 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
-                Use original folders
+                {{ i18n.t('settings.output.useOriginal') }}
               </button>
             </div>
           }
 
           <details class="advanced" (toggle)="onAdvancedToggle($event)">
             <summary class="advanced-summary">
-              <span class="advanced-title">Advanced</span>
-              <span class="advanced-hint">Format, size, metadata and transforms</span>
+              <span class="advanced-title">{{ i18n.t('imageConverter.advanced.title') }}</span>
+              <span class="advanced-hint">{{ i18n.t('imageConverter.advanced.hint') }}</span>
             </summary>
 
             <div class="advanced-body">
               <div class="advanced-grid">
                 <div class="field advanced-format">
-                  <label class="label" for="image-format">Format</label>
+                  <label class="label" for="image-format">{{ i18n.t('imageConverter.field.format') }}</label>
                   <select
                     id="image-format"
                     class="select"
@@ -133,18 +136,18 @@
                     (change)="onFormatChange($event)"
                   >
                     @for (option of formatOptions; track option.value) {
-                      <option [value]="option.value">{{ option.label }}</option>
+                      <option [value]="option.value">{{ formatOptionLabel(option.value) }}</option>
                     }
                   </select>
                   @if (isAutoFormat()) {
-                    <p class="field-help">Keeps each input format and falls back to PNG when a source can't be encoded.</p>
+                    <p class="field-help">{{ i18n.t('imageConverter.field.formatAutoHelp') }}</p>
                   } @else {
-                    <p class="field-help">Overrides the preset above for every image.</p>
+                    <p class="field-help">{{ i18n.t('imageConverter.field.formatOverrideHelp') }}</p>
                   }
                 </div>
 
                 <div class="field">
-                  <label class="label" for="image-quality">Quality</label>
+                  <label class="label" for="image-quality">{{ i18n.t('imageConverter.field.quality') }}</label>
                   <div class="quality-row">
                     <input
                       id="image-quality-range"
@@ -153,7 +156,7 @@
                       min="1"
                       max="100"
                       step="1"
-                      aria-label="Quality"
+                      [attr.aria-label]="i18n.t('imageConverter.field.quality')"
                       [value]="qualityValue()"
                       [disabled]="isPng()"
                       (input)="onQualityInput($event)"
@@ -171,16 +174,16 @@
                     />
                   </div>
                   @if (isPng()) {
-                    <p class="field-help">PNG is lossless, so quality doesn't apply.</p>
+                    <p class="field-help">{{ i18n.t('imageConverter.field.qualityPngHelp') }}</p>
                   } @else if (isAutoFormat()) {
-                    <p class="field-help">Applies to lossy formats; some encoders ignore it.</p>
+                    <p class="field-help">{{ i18n.t('imageConverter.field.qualityAutoHelp') }}</p>
                   } @else {
-                    <p class="field-help">Lower quality makes smaller files.</p>
+                    <p class="field-help">{{ i18n.t('imageConverter.field.qualityHelp') }}</p>
                   }
                 </div>
 
                 <div class="field">
-                  <label class="label" for="image-resize-mode">Resize</label>
+                  <label class="label" for="image-resize-mode">{{ i18n.t('imageConverter.field.resize') }}</label>
                   <select
                     id="image-resize-mode"
                     class="select"
@@ -188,15 +191,15 @@
                     (change)="onResizeModeChange($event)"
                   >
                     @for (mode of resizeModes; track mode.value) {
-                      <option [value]="mode.value">{{ mode.label }}</option>
+                      <option [value]="mode.value">{{ resizeModeLabel(mode.value) }}</option>
                     }
                   </select>
-                  <p class="field-help">Keep the original dimensions unless you pick a size.</p>
+                  <p class="field-help">{{ i18n.t('imageConverter.field.resizeHelp') }}</p>
                 </div>
 
                 @if (resizeMode() === 'longestEdge') {
                   <div class="field">
-                    <label class="label" for="image-longest-edge">Longest edge (px)</label>
+                    <label class="label" for="image-longest-edge">{{ i18n.t('imageConverter.field.longestEdge') }}</label>
                     <input
                       id="image-longest-edge"
                       class="input"
@@ -204,17 +207,17 @@
                       min="1"
                       step="1"
                       inputmode="numeric"
-                      placeholder="Original size"
+                      [attr.placeholder]="i18n.t('imageConverter.field.longestEdgePlaceholder')"
                       [value]="longestEdge() ?? ''"
                       (input)="onLongestEdgeInput($event)"
                     />
-                    <p class="field-help">Scales down so the larger side fits. Never enlarges.</p>
+                    <p class="field-help">{{ i18n.t('imageConverter.field.longestEdgeHelp') }}</p>
                   </div>
                 }
 
                 @if (resizeMode() === 'width') {
                   <div class="field">
-                    <label class="label" for="image-width">Width (px)</label>
+                    <label class="label" for="image-width">{{ i18n.t('imageConverter.field.width') }}</label>
                     <input
                       id="image-width"
                       class="input"
@@ -222,16 +225,16 @@
                       min="1"
                       step="1"
                       inputmode="numeric"
-                      placeholder="Original width"
+                      [attr.placeholder]="i18n.t('imageConverter.field.widthPlaceholder')"
                       [value]="width() ?? ''"
                       (input)="onWidthInput($event)"
                     />
-                    <p class="field-help">Keeps the aspect ratio. Leave empty to keep the original width.</p>
+                    <p class="field-help">{{ i18n.t('imageConverter.field.widthHelp') }}</p>
                   </div>
                 }
 
                 <div class="field">
-                  <label class="label" for="image-rotate">Rotate</label>
+                  <label class="label" for="image-rotate">{{ i18n.t('imageConverter.field.rotate') }}</label>
                   <select
                     id="image-rotate"
                     class="select"
@@ -245,7 +248,7 @@
                 </div>
 
                 <div class="field">
-                  <span class="label">Flip</span>
+                  <span class="label">{{ i18n.t('imageConverter.field.flip') }}</span>
                   <label class="check-row" for="image-flip-h">
                     <input
                       id="image-flip-h"
@@ -253,7 +256,7 @@
                       [checked]="flipH()"
                       (change)="onFlipToggle('h', $event)"
                     />
-                    Horizontal
+                    {{ i18n.t('imageConverter.field.horizontal') }}
                   </label>
                   <label class="check-row" for="image-flip-v">
                     <input
@@ -262,12 +265,12 @@
                       [checked]="flipV()"
                       (change)="onFlipToggle('v', $event)"
                     />
-                    Vertical
+                    {{ i18n.t('imageConverter.field.vertical') }}
                   </label>
                 </div>
 
                 <div class="field">
-                  <span class="label">Metadata</span>
+                  <span class="label">{{ i18n.t('imageConverter.field.metadata') }}</span>
                   <label class="check-row" for="image-strip-metadata">
                     <input
                       id="image-strip-metadata"
@@ -275,15 +278,15 @@
                       [checked]="stripMetadata()"
                       (change)="onStripMetadataToggle($event)"
                     />
-                    Strip metadata
+                    {{ i18n.t('imageConverter.field.stripMetadata') }}
                   </label>
-                  <p class="field-help">Removes EXIF, GPS and color profiles.</p>
+                  <p class="field-help">{{ i18n.t('imageConverter.field.stripMetadataHelp') }}</p>
                 </div>
               </div>
 
               <button type="button" class="btn btn-ghost btn-sm advanced-reset" (click)="resetAdvanced()">
                 <lucide-icon [img]="resetIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Reset to preset defaults
+                {{ i18n.t('imageConverter.advanced.reset') }}
               </button>
             </div>
           </details>
@@ -306,7 +309,7 @@
           }
 
           @if (selectedPaths().length === 0) {
-            <p class="action-helper">Add at least one image to convert.</p>
+            <p class="action-helper">{{ i18n.t('imageConverter.helper.addImage') }}</p>
           }
 
           <div class="action-row">
@@ -320,7 +323,7 @@
             </button>
 
             @if (isPolling()) {
-              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('imageConverter.action.cancel') }}</button>
             }
           </div>
         </div>
@@ -328,7 +331,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Conversion progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('imageConverter.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

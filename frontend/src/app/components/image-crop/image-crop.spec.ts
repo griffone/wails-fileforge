@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { ImageCrop } from './image-crop';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -224,6 +225,7 @@ describe('ImageCrop', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(ImageCrop);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -231,6 +233,8 @@ describe('ImageCrop', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('plans one image as single with the default crop options', fakeAsync(() => {
@@ -709,5 +713,21 @@ describe('ImageCrop', () => {
     const legacy = component as unknown as Record<string, unknown>;
     expect(legacy['validate']).toBeUndefined();
     expect(legacy['panelFields']).toBeUndefined();
+  });
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Recortar');
+    expect(title).toContain('imágenes');
+    expect(
+      element.querySelector('[data-ratio="1:1"] .preset-hint')?.textContent,
+    ).toContain('Cuadrada');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir archivos');
   });
 });

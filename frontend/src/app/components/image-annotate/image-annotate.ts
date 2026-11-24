@@ -32,8 +32,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -207,6 +212,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
 
   readonly shieldIcon = ShieldCheck;
@@ -298,14 +304,18 @@ export class ImageAnnotate implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Annotating…';
+      return this.i18n.t('imageAnnotate.action.annotating');
     }
     const count = this.selectedPaths().length;
-    return count > 1 ? `Annotate ${count} images` : 'Annotate image';
+    return count > 1
+      ? this.i18n.t('imageAnnotate.action.annotateMany', { count })
+      : this.i18n.t('imageAnnotate.action.annotate');
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each image',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('imageAnnotate.destination.original'),
   );
 
   readonly isDefaultDestination = computed(
@@ -326,17 +336,21 @@ export class ImageAnnotate implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (!this.hasSelection()) {
-      return 'Add at least one image to annotate.';
+      return this.i18n.t('imageAnnotate.helper.addImage');
     }
     if (!this.hasOperations()) {
-      return 'Draw on the image or add an annotation to run.';
+      return this.i18n.t('imageAnnotate.helper.addOperation');
     }
     return '';
   });
 
   readonly operationFormTitle = computed(() => {
     const index = this.selectedOperationIndex();
-    return index >= 0 ? `Edit annotation ${index + 1}` : 'New annotation';
+    return index >= 0
+      ? this.i18n.t('imageAnnotate.operations.editTitle', {
+          index: index + 1,
+        })
+      : this.i18n.t('imageAnnotate.operations.newTitle');
   });
 
   readonly terminalJob = computed<JobResult | null>(() => {
@@ -352,7 +366,10 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The annotation could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('imageAnnotate.error.start')),
+        )
       : null;
   });
 
@@ -387,7 +404,26 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'image');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.imageOne'),
+      this.i18n.t('common.imageMany'),
+    );
+  }
+
+  /** Tool palette copy resolved at render time so locale switches apply. */
+  toolLabel(tool: { id: AnnotateTool; label: string }): string {
+    return this.i18n.tOr(`imageAnnotate.tool.${tool.id}`, tool.label);
+  }
+
+  /** Type select keeps the raw id in English; Spanish gets a readable noun. */
+  operationTypeOptionLabel(type: ImageAnnotateOperationType): string {
+    return this.i18n.tOr(`imageAnnotate.type.${type}`, type);
+  }
+
+  formatOptionLabel(option: FormatOption): string {
+    const key = option.value || 'preserve';
+    return this.i18n.tOr(`imageAnnotate.format.${key}.label`, option.label);
   }
 
   onPathsSelected(paths: string[]): void {
@@ -595,7 +631,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   addOperation(): void {
     const operation = this.readOperationFromForm();
     if (operation.type === 'text' && !operation.text?.trim()) {
-      this.actionMessage.set('Enter the text for the text annotation.');
+      this.actionMessage.set(this.i18n.t('imageAnnotate.error.textRequired'));
       return;
     }
 
@@ -897,13 +933,13 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The annotation could not start.',
+        message: this.i18n.t('imageAnnotate.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The annotation could not start.',
+          message: this.i18n.t('imageAnnotate.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -912,7 +948,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
           message:
-            response.message || 'The annotation could not start.',
+            response.message || this.i18n.t('imageAnnotate.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -924,14 +960,14 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('imageAnnotate.status.waiting'),
       toolId: IMAGE_ANNOTATE_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('imageAnnotate.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -950,7 +986,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('imageAnnotate.error.cancel'),
       );
     }
   }
@@ -958,7 +994,9 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('imageAnnotate.error.openFile'),
     );
   }
 
@@ -967,7 +1005,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('imageAnnotate.error.openFolder'),
     );
   }
 
@@ -1037,15 +1075,15 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   operationTypeLabel(operation: ImageAnnotateOperation): string {
     switch (operation.type) {
       case 'text':
-        return 'Text';
+        return this.i18n.t('imageAnnotate.operationType.text');
       case 'arrow':
-        return 'Arrow';
+        return this.i18n.t('imageAnnotate.operationType.arrow');
       case 'rect':
-        return 'Rectangle';
+        return this.i18n.t('imageAnnotate.operationType.rect');
       case 'blur':
-        return 'Blur';
+        return this.i18n.t('imageAnnotate.operationType.blur');
       case 'redact':
-        return 'Redact';
+        return this.i18n.t('imageAnnotate.operationType.redact');
       default:
         return operation.type;
     }
@@ -1056,16 +1094,35 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       case 'text': {
         const text = (operation.text ?? '').split('\n')[0].trim();
         const preview = text.length > 32 ? `${text.slice(0, 32)}…` : text;
-        return `“${preview || 'Text'}” at ${operation.x ?? 0}, ${operation.y ?? 0}`;
+        return this.i18n.t('imageAnnotate.detail.text', {
+          preview:
+            preview || this.i18n.t('imageAnnotate.detail.textFallback'),
+          x: operation.x ?? 0,
+          y: operation.y ?? 0,
+        });
       }
       case 'arrow':
         return `${operation.x ?? 0}, ${operation.y ?? 0} → ${operation.x2 ?? 0}, ${operation.y2 ?? 0}`;
       case 'rect':
-        return `${operation.width ?? 0} × ${operation.height ?? 0} at ${operation.x ?? 0}, ${operation.y ?? 0}`;
+        return this.i18n.t('imageAnnotate.detail.rect', {
+          width: operation.width ?? 0,
+          height: operation.height ?? 0,
+          x: operation.x ?? 0,
+          y: operation.y ?? 0,
+        });
       case 'blur':
-        return `${operation.width ?? 0} × ${operation.height ?? 0} · intensity ${operation.blurIntensity ?? 0}`;
+        return this.i18n.t('imageAnnotate.detail.blur', {
+          width: operation.width ?? 0,
+          height: operation.height ?? 0,
+          intensity: operation.blurIntensity ?? 0,
+        });
       case 'redact':
-        return `${operation.width ?? 0} × ${operation.height ?? 0} at ${operation.x ?? 0}, ${operation.y ?? 0}`;
+        return this.i18n.t('imageAnnotate.detail.rect', {
+          width: operation.width ?? 0,
+          height: operation.height ?? 0,
+          x: operation.x ?? 0,
+          y: operation.y ?? 0,
+        });
       default:
         return '';
     }
@@ -1204,12 +1261,12 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('imageAnnotate.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('imageAnnotate.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -1226,7 +1283,8 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message:
+        response.message || this.i18n.t('imageAnnotate.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the destination
     // or annotation problem next to the destination it belongs to.
@@ -1361,11 +1419,11 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       .getImagePreviewSource(path)
       .catch(() => ({
         success: false,
-        message: 'The image preview could not be loaded.',
+        message: this.i18n.t('imageAnnotate.error.preview'),
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'IMAGE_PREVIEW_READ_FAILED',
-          message: 'The image preview could not be loaded.',
+          message: this.i18n.t('imageAnnotate.error.preview'),
         },
       }));
     if (generation !== this.previewGeneration) {
@@ -1379,9 +1437,12 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       this.imageWidth.set(0);
       this.imageHeight.set(0);
       this.previewError.set(
-        describeToolError(
-          response.error,
-          'The image preview could not be loaded.',
+        localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            response.error,
+            this.i18n.t('imageAnnotate.error.preview'),
+          ),
         ).description,
       );
       return;
@@ -1438,11 +1499,11 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     const response: ImageAnnotatePreviewResponse =
       await this.wailsService.getImageAnnotatePreview(request).catch(() => ({
         success: false,
-        message: 'The annotated preview could not be generated.',
+        message: this.i18n.t('imageAnnotate.error.annotatePreview'),
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'IMAGE_ANNOTATE_PREVIEW_FAILED',
-          message: 'The annotated preview could not be generated.',
+          message: this.i18n.t('imageAnnotate.error.annotatePreview'),
         },
       }));
     if (token !== this.annotatePreviewToken) {
@@ -1568,7 +1629,10 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     let text = form.text.trim();
 
     if (!text && typeof window !== 'undefined') {
-      text = window.prompt('Enter annotation text', '')?.trim() ?? '';
+      text =
+        window
+          .prompt(this.i18n.t('imageAnnotate.error.promptText'), '')
+          ?.trim() ?? '';
     }
 
     if (!text) {
@@ -1744,7 +1808,8 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message:
+          response.message || this.i18n.t('imageAnnotate.error.status'),
       },
     );
   }
@@ -1786,7 +1851,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('imageAnnotate.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -1909,18 +1974,30 @@ export class ImageAnnotate implements OnDestroy, OnInit {
 
     if (rejected.length === 1) {
       parts.push(
-        `${fileName(rejected[0])} wasn't added because it isn't an image.`,
+        this.i18n.t('imageAnnotate.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
       );
     } else if (rejected.length > 1) {
       parts.push(
-        `${rejected.length} files weren't added because they aren't images.`,
+        this.i18n.t('imageAnnotate.notice.rejectedMany', {
+          count: rejected.length,
+        }),
       );
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('imageAnnotate.notice.duplicateOne', {
+          name: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} images are already in the queue.`);
+      parts.push(
+        this.i18n.t('imageAnnotate.notice.duplicateMany', {
+          count: duplicates.length,
+        }),
+      );
     }
 
     return parts.length > 0

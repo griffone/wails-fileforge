@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">IMAGE</p>
-        <h1 class="page-title">Image <em>Crop</em></h1>
+        <p class="eyebrow">{{ i18n.t('imageCrop.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('imageCrop.page.titleLead') }}
+          <em>{{ i18n.t('imageCrop.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Crop to a ratio or an exact region with a live preview. Everything runs on this machine.
+          {{ i18n.t('imageCrop.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('imageCrop.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -22,8 +25,8 @@
         <section class="panel intake-panel">
           <div class="panel-head">
             <div>
-              <h2 class="panel-title">Images</h2>
-              <p class="panel-sub">Drop images or choose them from your computer.</p>
+              <h2 class="panel-title">{{ i18n.t('imageCrop.intake.title') }}</h2>
+              <p class="panel-sub">{{ i18n.t('imageCrop.intake.sub') }}</p>
             </div>
             <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
           </div>
@@ -31,18 +34,18 @@
           <div class="panel-body">
             <app-file-drop
               accept="image/*"
-              title="Drop images here"
+              [title]="i18n.t('imageCrop.intake.dropTitle')"
               hint="PNG · JPG · WebP · GIF · BMP · TIFF"
-              ariaLabel="Drop or choose images to crop"
+              [ariaLabel]="i18n.t('imageCrop.intake.dropAria')"
               [nativePicker]="true"
               (pathsSelected)="onPathsSelected($event)"
               (browseRequested)="chooseFiles()"
             ></app-file-drop>
 
-            <div class="toolbar" role="group" aria-label="Image selection actions">
+            <div class="toolbar" role="group" [attr.aria-label]="i18n.t('imageCrop.intake.actionsAria')">
               <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
                 <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Choose files
+                {{ i18n.t('imageCrop.intake.choose') }}
               </button>
               <button
                 type="button"
@@ -51,7 +54,7 @@
                 (click)="clear()"
               >
                 <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Clear
+                {{ i18n.t('imageCrop.intake.clear') }}
               </button>
             </div>
 
@@ -75,7 +78,7 @@
             }
 
             @if (isBatch()) {
-              <p class="batch-note">The same crop applies to every image.</p>
+              <p class="batch-note">{{ i18n.t('imageCrop.intake.batchNote') }}</p>
             }
           </div>
         </section>
@@ -83,8 +86,8 @@
         <section class="panel editor-panel" aria-labelledby="crop-editor-title">
           <div class="panel-head">
             <div>
-              <h2 id="crop-editor-title" class="panel-title">Crop area</h2>
-              <p class="panel-sub">Drag on the image to draw a crop, then pull a corner to fine-tune it.</p>
+              <h2 id="crop-editor-title" class="panel-title">{{ i18n.t('imageCrop.editor.title') }}</h2>
+              <p class="panel-sub">{{ i18n.t('imageCrop.editor.sub') }}</p>
             </div>
             @if (hasPreview()) {
               <span class="badge badge-neutral">{{ cropSizeLabel() }}</span>
@@ -95,7 +98,7 @@
             @if (previewUrl()) {
               <div class="editor-grid">
                 <figure class="preview-block">
-                  <figcaption class="preview-caption">Source — drag to draw, pull a corner to resize</figcaption>
+                  <figcaption class="preview-caption">{{ i18n.t('imageCrop.editor.sourceCaption') }}</figcaption>
                   <div
                     class="preview-stage"
                     (pointermove)="onPreviewPointerMove($event)"
@@ -106,7 +109,7 @@
                       <img
                         #previewImage
                         [src]="previewUrl()"
-                        alt="Source image with the crop selection overlay"
+                        [attr.alt]="i18n.t('imageCrop.editor.sourceAlt')"
                         class="preview-image"
                         draggable="false"
                         (load)="onPreviewImageLoaded()"
@@ -133,18 +136,18 @@
                 </figure>
 
                 <figure class="preview-block">
-                  <figcaption class="preview-caption">Cropped preview</figcaption>
+                  <figcaption class="preview-caption">{{ i18n.t('imageCrop.editor.resultCaption') }}</figcaption>
                   <div class="preview-result-shell">
                     @if (cropPreviewUrl()) {
                       <img
                         [src]="cropPreviewUrl()"
-                        alt="Cropped result preview"
+                        [attr.alt]="i18n.t('imageCrop.editor.resultAlt')"
                         class="preview-image"
                         draggable="false"
                       />
                     } @else {
                       <p class="preview-placeholder">
-                        {{ isCropPreviewLoading() ? 'Rendering preview…' : 'The crop preview appears here.' }}
+                        {{ isCropPreviewLoading() ? i18n.t('imageCrop.editor.previewLoading') : i18n.t('imageCrop.editor.previewEmpty') }}
                       </p>
                     }
                   </div>
@@ -154,12 +157,12 @@
               <div class="empty-state editor-empty">
                 <lucide-icon [img]="cropIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
                 <strong>
-                  {{ previewLoading() ? 'Loading preview…' : (hasSelection() ? 'Preview unavailable' : 'No image to crop yet') }}
+                  {{ previewLoading() ? i18n.t('imageCrop.editor.loadingTitle') : (hasSelection() ? i18n.t('imageCrop.editor.unavailableTitle') : i18n.t('imageCrop.editor.emptyTitle')) }}
                 </strong>
                 <span>
                   {{ previewLoading()
-                    ? 'Reading the first image from disk.'
-                    : (previewError() || 'Add an image above to see the crop selection.') }}
+                    ? i18n.t('imageCrop.editor.loadingBody')
+                    : (previewError() || i18n.t('imageCrop.editor.emptyBody')) }}
                 </span>
               </div>
             }
@@ -170,13 +173,13 @@
       <section class="panel outcome-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Crop</h2>
-            <p class="panel-sub">Pick a ratio, then check where the files will go.</p>
+            <h2 class="panel-title">{{ i18n.t('imageCrop.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('imageCrop.output.sub') }}</p>
           </div>
         </div>
 
         <div class="panel-body">
-          <div class="preset-grid" role="group" aria-label="Crop ratio">
+          <div class="preset-grid" role="group" [attr.aria-label]="i18n.t('imageCrop.output.ratioAria')">
             @for (preset of ratioPresets; track preset.id) {
               <button
                 type="button"
@@ -186,30 +189,30 @@
                 [attr.data-ratio]="preset.id"
                 (click)="selectRatio(preset.id)"
               >
-                <span class="preset-label">{{ preset.label }}</span>
-                <span class="preset-hint">{{ preset.hint }}</span>
+                <span class="preset-label">{{ ratioLabel(preset) }}</span>
+                <span class="preset-hint">{{ ratioHint(preset) }}</span>
               </button>
             }
           </div>
 
           @if (hasPreview()) {
             <p class="crop-readout mono">
-              <span>Crop {{ cropSizeLabel() }}</span>
+              <span>{{ i18n.t('imageCrop.readout.crop', { size: cropSizeLabel() }) }}</span>
               <span class="crop-readout-sep" aria-hidden="true">·</span>
-              <span>Image {{ imageSizeLabel() }}</span>
+              <span>{{ i18n.t('imageCrop.readout.image', { size: imageSizeLabel() }) }}</span>
             </p>
           }
 
           <details class="advanced" [open]="advancedOpen()" (toggle)="onAdvancedToggle($event)">
             <summary class="advanced-summary">
-              <span class="advanced-title">Advanced</span>
-              <span class="advanced-hint">Crop area, output size, transforms and format</span>
+              <span class="advanced-title">{{ i18n.t('imageCrop.advanced.title') }}</span>
+              <span class="advanced-hint">{{ i18n.t('imageCrop.advanced.hint') }}</span>
             </summary>
 
             <div class="advanced-body">
               <div class="advanced-grid">
                 <div class="field">
-                  <label class="label" for="image-crop-x">X (px)</label>
+                  <label class="label" for="image-crop-x">{{ i18n.t('imageCrop.field.x') }}</label>
                   <input
                     id="image-crop-x"
                     class="input"
@@ -223,7 +226,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="image-crop-y">Y (px)</label>
+                  <label class="label" for="image-crop-y">{{ i18n.t('imageCrop.field.y') }}</label>
                   <input
                     id="image-crop-y"
                     class="input"
@@ -237,7 +240,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="image-crop-width">Width (px)</label>
+                  <label class="label" for="image-crop-width">{{ i18n.t('imageCrop.field.width') }}</label>
                   <input
                     id="image-crop-width"
                     class="input"
@@ -251,7 +254,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="image-crop-height">Height (px)</label>
+                  <label class="label" for="image-crop-height">{{ i18n.t('imageCrop.field.height') }}</label>
                   <input
                     id="image-crop-height"
                     class="input"
@@ -265,7 +268,7 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="image-crop-output-width">Output width (px)</label>
+                  <label class="label" for="image-crop-output-width">{{ i18n.t('imageCrop.field.outputWidth') }}</label>
                   <input
                     id="image-crop-output-width"
                     class="input"
@@ -273,14 +276,14 @@
                     min="1"
                     step="1"
                     inputmode="numeric"
-                    placeholder="Cropped width"
+                    [attr.placeholder]="i18n.t('imageCrop.field.outputWidthPlaceholder')"
                     [value]="outputWidth() ?? ''"
                     (input)="onOutputSizeInput('width', $event)"
                   />
                 </div>
 
                 <div class="field">
-                  <label class="label" for="image-crop-output-height">Output height (px)</label>
+                  <label class="label" for="image-crop-output-height">{{ i18n.t('imageCrop.field.outputHeight') }}</label>
                   <input
                     id="image-crop-output-height"
                     class="input"
@@ -288,14 +291,14 @@
                     min="1"
                     step="1"
                     inputmode="numeric"
-                    placeholder="Cropped height"
+                    [attr.placeholder]="i18n.t('imageCrop.field.outputHeightPlaceholder')"
                     [value]="outputHeight() ?? ''"
                     (input)="onOutputSizeInput('height', $event)"
                   />
                 </div>
 
                 <div class="field">
-                  <label class="label" for="image-crop-rotate">Rotate</label>
+                  <label class="label" for="image-crop-rotate">{{ i18n.t('imageCrop.field.rotate') }}</label>
                   <select
                     id="image-crop-rotate"
                     class="select"
@@ -309,7 +312,7 @@
                 </div>
 
                 <div class="field">
-                  <span class="label">Flip</span>
+                  <span class="label">{{ i18n.t('imageCrop.field.flip') }}</span>
                   <label class="check-row" for="image-crop-flip-h">
                     <input
                       id="image-crop-flip-h"
@@ -317,7 +320,7 @@
                       [checked]="flipH()"
                       (change)="onFlipToggle('h', $event)"
                     />
-                    Horizontal
+                    {{ i18n.t('imageCrop.field.horizontal') }}
                   </label>
                   <label class="check-row" for="image-crop-flip-v">
                     <input
@@ -326,12 +329,12 @@
                       [checked]="flipV()"
                       (change)="onFlipToggle('v', $event)"
                     />
-                    Vertical
+                    {{ i18n.t('imageCrop.field.vertical') }}
                   </label>
                 </div>
 
                 <div class="field advanced-format">
-                  <label class="label" for="image-crop-format">Output format</label>
+                  <label class="label" for="image-crop-format">{{ i18n.t('imageCrop.field.outputFormat') }}</label>
                   <select
                     id="image-crop-format"
                     class="select"
@@ -339,18 +342,18 @@
                     (change)="onFormatChange($event)"
                   >
                     @for (option of formatOptions; track option.value) {
-                      <option [value]="option.value">{{ option.label }}</option>
+                      <option [value]="option.value">{{ formatOptionLabel(option) }}</option>
                     }
                   </select>
-                  <p class="field-help">Preserve original keeps each source format.</p>
+                  <p class="field-help">{{ i18n.t('imageCrop.field.preserveHelp') }}</p>
                 </div>
               </div>
 
-              <p class="field-help">Transforms apply after cropping. Preview shows the crop.</p>
+              <p class="field-help">{{ i18n.t('imageCrop.advanced.transformsHelp') }}</p>
 
               <button type="button" class="btn btn-ghost btn-sm advanced-reset" (click)="resetTransforms()">
                 <lucide-icon [img]="resetIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Reset transforms
+                {{ i18n.t('imageCrop.advanced.reset') }}
               </button>
             </div>
           </details>
@@ -366,7 +369,7 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
-                Use original folders
+                {{ i18n.t('settings.output.useOriginal') }}
               </button>
             </div>
           }
@@ -403,7 +406,7 @@
             </button>
 
             @if (isPolling()) {
-              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('imageCrop.action.cancel') }}</button>
             }
           </div>
         </div>
@@ -411,7 +414,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Crop progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('imageCrop.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

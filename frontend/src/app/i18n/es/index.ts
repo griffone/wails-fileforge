@@ -8,6 +8,9 @@ import { fileDropEs } from './file-drop';
 import { fileQueueEs } from './file-queue';
 import { globalDropEs } from './global-drop';
 import { homeEs } from './home';
+import { imageAnnotateEs } from './image-annotate';
+import { imageConverterEs } from './image-converter';
+import { imageCropEs } from './image-crop';
 import { outputPlanEs } from './output-plan-card';
 import { paletteEs } from './palette';
 import { recipeRunEs } from './recipe-run';
@@ -28,6 +31,9 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...toolsEs,
   ...paletteEs,
   ...homeEs,
+  ...imageConverterEs,
+  ...imageCropEs,
+  ...imageAnnotateEs,
   ...recipesEs,
   ...recipeRunEs,
   ...fileDropEs,
