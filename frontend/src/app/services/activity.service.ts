@@ -10,6 +10,7 @@ import {
 import { Observable, Subscription } from 'rxjs';
 
 import { RECIPES } from '../config/recipes';
+import { I18nService } from './i18n.service';
 import { ToastService } from './toast.service';
 import { ToolRegistryService } from './tool-registry.service';
 import {
@@ -83,6 +84,7 @@ export class ActivityService implements OnDestroy {
   private readonly wails = inject(Wails);
   private readonly registry = inject(ToolRegistryService);
   private readonly toast = inject(ToastService);
+  private readonly i18n = inject(I18nService);
   private readonly zone = inject(NgZone);
 
   private readonly taskState = signal<readonly ActivityTask[]>([]);
@@ -199,10 +201,11 @@ export class ActivityService implements OnDestroy {
       return '';
     }
 
-    const message = outcome.message.trim() || 'Could not cancel the task.';
+    const message =
+      outcome.message.trim() || this.i18n.t('activity.cancelFailed');
     this.toast.push({
       tone: 'danger',
-      title: 'Cancel failed',
+      title: this.i18n.t('activity.cancelFailedTitle'),
       body: message,
     });
     return message;
@@ -305,7 +308,10 @@ export class ActivityService implements OnDestroy {
     const methodName = task.kind === 'recipe' ? 'cancelRecipe' : 'cancelJob';
     const cancel = (this.wails as unknown as Record<string, unknown>)[methodName];
     if (typeof cancel !== 'function') {
-      return { success: false, message: 'Cancelling is not available right now.' };
+      return {
+        success: false,
+        message: this.i18n.t('activity.cancelUnavailable'),
+      };
     }
 
     try {
@@ -327,7 +333,10 @@ export class ActivityService implements OnDestroy {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Cancel failed',
+        message:
+          error instanceof Error
+            ? error.message
+            : this.i18n.t('activity.cancelFailedTitle'),
       };
     }
   }
@@ -465,7 +474,9 @@ export class ActivityService implements OnDestroy {
   ): ActivityTask {
     const toolId = textOf(result.toolId);
     const definition = toolId ? this.registry.findById(toolId) : null;
-    const title = definition?.navName || definition?.name || toolId || result.jobId;
+    const title = definition
+      ? this.registry.navName(definition)
+      : toolId || result.jobId;
     const route = definition?.route || '/';
     const status =
       textOf(result.status) || previous?.status || 'queued';
@@ -509,7 +520,9 @@ export class ActivityService implements OnDestroy {
   ): ActivityTask {
     const recipeId = textOf(result.recipeId);
     const recipe = RECIPES.find((candidate) => candidate.id === recipeId) ?? null;
-    const title = recipe?.fallback.name?.trim() || recipeId || result.jobId;
+    const title = recipe
+      ? this.registry.recipeName(recipe)
+      : this.i18n.tOr(`tools.${recipeId}.name`, recipeId || result.jobId);
     const status = textOf(result.status) || previous?.status || 'queued';
     const current = toCount(result.currentStep);
     const total = toCount(result.totalSteps);
@@ -583,10 +596,10 @@ export class ActivityService implements OnDestroy {
       task.status === 'success' || task.status === 'partial_success';
     const cancelled = task.status === 'cancelled';
     const title = succeeded
-      ? `${task.title} finished`
+      ? this.i18n.t('activity.notify.finished', { title: task.title })
       : cancelled
-        ? `${task.title} cancelled`
-        : `${task.title} failed`;
+        ? this.i18n.t('activity.notify.cancelled', { title: task.title })
+        : this.i18n.t('activity.notify.failed', { title: task.title });
     const body = this.notificationBody(task, succeeded);
     const tone: ActivityTaskTone = succeeded
       ? 'success'
@@ -598,7 +611,7 @@ export class ActivityService implements OnDestroy {
       tone,
       title,
       body,
-      actionLabel: 'View activity',
+      actionLabel: this.i18n.t('activity.notify.action'),
       action: () => this.openPanel(),
     });
 
@@ -613,16 +626,36 @@ export class ActivityService implements OnDestroy {
     if (message) {
       body = message;
     } else if (succeeded) {
-      body = `${task.outputCount} files ready`;
+      body = this.i18n.t('activity.notify.filesReady', {
+        count: task.outputCount,
+      });
     } else if (textOf(task.errorMessage)) {
       body = textOf(task.errorMessage);
     } else {
-      body = statusLabel(task.status);
+      body = this.notificationStatusLabel(task.status);
     }
 
     return body.length > NOTIFICATION_BODY_LIMIT
       ? body.slice(0, NOTIFICATION_BODY_LIMIT).trimEnd()
       : body;
+  }
+
+  /** Frontend-owned fallback body when the task has no message or error. */
+  private notificationStatusLabel(status: string): string {
+    switch (status) {
+      case 'success':
+        return this.i18n.t('activity.notify.body.success');
+      case 'partial_success':
+        return this.i18n.t('activity.notify.body.partial');
+      case 'cancelled':
+        return this.i18n.t('activity.notify.body.cancelled');
+      case 'failed':
+        return this.i18n.t('activity.notify.body.failed');
+      case 'interrupted':
+        return this.i18n.t('activity.notify.body.interrupted');
+      default:
+        return status || this.i18n.t('activity.notify.body.finished');
+    }
   }
 
   private safeNotify(title: string, body: string): void {
@@ -799,21 +832,4 @@ function timestampOf(value: unknown, fallback: number | undefined): number {
 
 function notificationKey(kind: ActivityTaskKind, id: string): string {
   return `${kind}:${id}`;
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case 'success':
-      return 'Completed successfully';
-    case 'partial_success':
-      return 'Completed with warnings';
-    case 'cancelled':
-      return 'Cancelled';
-    case 'failed':
-      return 'Failed';
-    case 'interrupted':
-      return 'Interrupted';
-    default:
-      return status || 'Finished';
-  }
 }

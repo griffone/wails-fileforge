@@ -22,7 +22,9 @@ import {
 import { RECIPES, type RecipeDefinition } from '../../config/recipes';
 import { type ToolCategory, type ToolDefinition } from '../../config/tools';
 import { ActivityService, type ActivityTask } from '../../services/activity.service';
+import { I18nService } from '../../services/i18n.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
+import { formatCount } from '../../utils/format';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   'success',
@@ -51,6 +53,7 @@ type ActivityChipTone = 'success' | 'warning' | 'danger' | 'info';
 })
 export class ActivityPanel {
   protected readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
   private readonly registry = inject(ToolRegistryService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -144,60 +147,62 @@ export class ActivityPanel {
   }
 
   kindLabel(task: ActivityTask): string {
-    return task.kind === 'recipe' ? 'Recipe' : 'Tool';
+    return task.kind === 'recipe'
+      ? this.i18n.t('activity.kind.recipe')
+      : this.i18n.t('activity.kind.tool');
   }
 
   stageLabel(task: ActivityTask): string {
     const stage = (task.stage || task.status || '').trim();
     switch (stage) {
       case 'queued':
-        return 'Queued';
+        return this.i18n.t('activity.stage.queued');
       case 'running':
-        return 'Running';
+        return this.i18n.t('activity.stage.running');
       case 'processing':
-        return 'Processing';
+        return this.i18n.t('activity.stage.processing');
       case 'finalizing':
-        return 'Finalizing';
+        return this.i18n.t('activity.stage.finalizing');
       case 'ocr':
-        return 'OCR';
+        return this.i18n.t('activity.stage.ocr');
       case 'extract':
-        return 'Extracting';
+        return this.i18n.t('activity.stage.extract');
       case 'transcribe':
-        return 'Transcribing';
+        return this.i18n.t('activity.stage.transcribe');
       case 'publish':
-        return 'Saving';
+        return this.i18n.t('activity.stage.publish');
       case 'done':
       case 'success':
-        return 'Done';
+        return this.i18n.t('activity.stage.done');
       case 'partial_success':
-        return 'Partial success';
+        return this.i18n.t('activity.stage.partial');
       case 'failed':
-        return 'Failed';
+        return this.i18n.t('activity.stage.failed');
       case 'cancelled':
-        return 'Cancelled';
+        return this.i18n.t('activity.stage.cancelled');
       case 'interrupted':
-        return 'Interrupted';
+        return this.i18n.t('activity.stage.interrupted');
       default:
-        return this.humanize(stage) || 'Running';
+        return this.humanize(stage) || this.i18n.t('activity.stage.running');
     }
   }
 
   statusLabel(status: string): string {
     switch (status) {
       case 'success':
-        return 'Success';
+        return this.i18n.t('activity.status.success');
       case 'partial_success':
-        return 'Partial success';
+        return this.i18n.t('activity.status.partial');
       case 'failed':
-        return 'Failed';
+        return this.i18n.t('activity.status.failed');
       case 'interrupted':
-        return 'Interrupted';
+        return this.i18n.t('activity.status.interrupted');
       case 'cancelled':
-        return 'Cancelled';
+        return this.i18n.t('activity.status.cancelled');
       case 'queued':
-        return 'Queued';
+        return this.i18n.t('activity.status.queued');
       default:
-        return 'Running';
+        return this.i18n.t('activity.status.running');
     }
   }
 
@@ -248,7 +253,7 @@ export class ActivityPanel {
   }
 
   progressLabel(task: ActivityTask): string {
-    return `Progress for ${task.title}`;
+    return this.i18n.t('activity.progressAria', { title: task.title });
   }
 
   metaLine(task: ActivityTask): string {
@@ -257,14 +262,24 @@ export class ActivityPanel {
     if (task.total > 0) {
       parts.push(`${task.current} / ${task.total}`);
     } else if (task.inputCount > 0) {
-      parts.push(`${task.inputCount} files`);
+      parts.push(
+        formatCount(
+          task.inputCount,
+          this.i18n.t('common.fileOne'),
+          this.i18n.t('common.fileMany'),
+        ),
+      );
     }
 
     parts.push(this.formatElapsed(this.elapsedMs(task)));
 
     const eta = task.etaSeconds;
     if (!this.isTerminal(task) && eta !== null && eta > 0) {
-      parts.push(`~${Math.max(1, Math.round(eta))}s left`);
+      parts.push(
+        this.i18n.t('activity.meta.eta', {
+          seconds: Math.max(1, Math.round(eta)),
+        }),
+      );
     }
 
     return parts.join(' · ');

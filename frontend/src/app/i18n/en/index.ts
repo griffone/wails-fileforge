@@ -1,3 +1,4 @@
+import { activityEn } from './activity';
 import { categoriesEn } from './categories';
 import { commonEn } from './common';
 import { fileDropEn } from './file-drop';
@@ -28,6 +29,7 @@ export const en = {
   ...outputPlanEn,
   ...resultCardEn,
   ...toolErrorEn,
+  ...activityEn,
 } as const;
 
 export type TranslationKey = keyof typeof en;

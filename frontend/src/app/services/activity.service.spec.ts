@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 
 import { ActivityService, ActivityTask } from './activity.service';
+import { I18nService } from './i18n.service';
 import { ToastService } from './toast.service';
 import { ToolRegistryService } from './tool-registry.service';
 import {
@@ -79,6 +80,8 @@ describe('ActivityService', () => {
   let recipeProgress$: Subject<RecipeProgressEvent>;
 
   beforeEach(() => {
+    localStorage.setItem('ff-preferences', JSON.stringify({ language: 'en' }));
+
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'listJobs',
       'listRecipeRuns',
@@ -138,6 +141,11 @@ describe('ActivityService', () => {
 
     registry = TestBed.inject(ToolRegistryService);
     service = TestBed.inject(ActivityService);
+  });
+
+  afterEach(() => {
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('creates a task from a full snapshot with title, route and progress', () => {
@@ -309,6 +317,68 @@ describe('ActivityService', () => {
     expect(service.activeJobForTool('tool.pdf.merge')).toBeNull();
   });
 
+  it('translates the task title and completion toast in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+
+    jobState$.next(jobSnapshot({ jobId: 'job-es' }));
+
+    expect(service.tasks()[0].title).toBe('Unir');
+
+    jobState$.next(
+      jobSnapshot({
+        jobId: 'job-es',
+        status: 'success',
+        success: true,
+        message: '',
+        progress: { current: 2, total: 2, stage: 'done', message: '' },
+        items: [
+          {
+            inputPath: '/tmp/a.pdf',
+            outputPath: '/tmp/a-out.pdf',
+            outputs: ['/tmp/a-out.pdf'],
+            success: true,
+            message: 'ok',
+          },
+          {
+            inputPath: '/tmp/b.pdf',
+            outputPath: '/tmp/b-out.pdf',
+            outputs: ['/tmp/b-out.pdf'],
+            success: true,
+            message: 'ok',
+          },
+        ],
+        endedAt: 2000,
+      }),
+    );
+
+    const toast = toastSpy.push.calls.mostRecent().args[0];
+    expect(toast.title).toBe('Unir finalizado');
+    expect(toast.body).toBe('2 archivos listos');
+    expect(toast.actionLabel).toBe('Ver actividad');
+  });
+
+  it('uses the translated recipe name for a task title in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+
+    recipeState$.next(recipeSnapshot());
+
+    expect(service.tasks()[0].title).toBe('PDF por email');
+  });
+
+  it('translates cancel failures in Spanish', async () => {
+    TestBed.inject(I18nService).setLocale('es');
+    wailsSpy.cancelJob.and.rejectWith(new Error('boom'));
+
+    jobState$.next(jobSnapshot({ jobId: 'job-cancel-es' }));
+
+    const message = await service.cancelTask(service.tasks()[0]);
+    const toast = toastSpy.push.calls.mostRecent().args[0];
+
+    expect(message).toBe('boom');
+    expect(toast.title).toBe('No se pudo cancelar');
+    expect(toast.body).toBe('boom');
+  });
+
   it('treats terminal tasks found by refresh as already notified', async () => {
     const finished = jobSnapshot({
       jobId: 'job-old',
@@ -340,6 +410,14 @@ describe('ActivityService', () => {
 });
 
 describe('ActivityService with a partial Wails double', () => {
+  beforeEach(() => {
+    localStorage.setItem('ff-preferences', JSON.stringify({ language: 'en' }));
+  });
+
+  afterEach(() => {
+    localStorage.removeItem('ff-preferences');
+  });
+
   it('constructs and stays idle without the new streams or methods', async () => {
     const partial = jasmine.createSpyObj<Wails>('Wails', ['listTools']);
 

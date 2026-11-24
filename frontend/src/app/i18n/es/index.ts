@@ -1,6 +1,7 @@
 import type { TranslationKey } from '../en';
 import type { DictionaryValue } from '../types';
 
+import { activityEs } from './activity';
 import { categoriesEs } from './categories';
 import { commonEs } from './common';
 import { fileDropEs } from './file-drop';
@@ -31,4 +32,5 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...outputPlanEs,
   ...resultCardEs,
   ...toolErrorEs,
+  ...activityEs,
 };

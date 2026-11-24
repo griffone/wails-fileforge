@@ -4,6 +4,7 @@ import { WritableSignal, computed, signal } from '@angular/core';
 
 import { ActivityPanel } from './activity-panel';
 import { ActivityService, type ActivityTask } from '../../services/activity.service';
+import { I18nService } from '../../services/i18n.service';
 
 function activityTask(overrides: Partial<ActivityTask> = {}): ActivityTask {
   return {
@@ -40,6 +41,7 @@ describe('ActivityPanel', () => {
   let clearFinished: jasmine.Spy;
 
   beforeEach(async () => {
+    localStorage.setItem('ff-preferences', JSON.stringify({ language: 'en' }));
     panelOpen = signal(false);
     activeTasks = signal<readonly ActivityTask[]>([]);
     recentTasks = signal<readonly ActivityTask[]>([]);
@@ -82,6 +84,8 @@ describe('ActivityPanel', () => {
   });
 
   afterEach(() => {
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
     fixture.destroy();
   });
 
@@ -138,9 +142,59 @@ describe('ActivityPanel', () => {
     expect(compiled.querySelector('.activity-drawer')).toBeTruthy();
     expect(compiled.textContent).toContain('Nothing is running.');
     expect(compiled.textContent).toContain('Finished tasks will appear here.');
+    expect(text('.activity-eyebrow')).toBe('Background work');
+    expect(text('.activity-title')).toContain('Activity');
+    expect(text('#activity-running-title')).toBe('Running');
+    expect(text('#activity-recent-title')).toBe('Recent');
+    expect(text('.activity-clear')).toBe('Clear finished');
     expect(
       (compiled.querySelector('.activity-clear') as HTMLButtonElement).disabled,
     ).toBeTrue();
+  });
+
+  it('renders the drawer copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    open();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(text('.activity-eyebrow')).toBe('Trabajo en segundo plano');
+    expect(text('.activity-title')).toContain('Actividad');
+    expect(text('.activity-title')).toContain('0 en curso');
+    expect(text('#activity-running-title')).toBe('En curso');
+    expect(text('#activity-recent-title')).toBe('Recientes');
+    expect(text('.activity-clear')).toBe('Limpiar finalizadas');
+    expect(compiled.textContent).toContain('No hay nada en curso.');
+    expect(compiled.textContent).toContain(
+      'Las tareas finalizadas aparecerán aquí.',
+    );
+  });
+
+  it('translates task labels, progress and actions in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    activeTasks.set([
+      activityTask({
+        id: 'job-es',
+        title: 'Unir PDF',
+        status: 'processing',
+        stage: 'processing',
+        percent: 40,
+        etaSeconds: 5,
+        inputCount: 3,
+      }),
+    ]);
+    open();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(text('.activity-task-kind')).toBe('Herramienta');
+    expect(text('.activity-task-stage')).toBe('Procesando');
+    expect(text('.activity-chip')).toBe('En curso');
+    expect(text('.activity-meta')).toContain('3 archivos');
+    expect(text('.activity-meta')).toContain('~5s restantes');
+    expect(
+      compiled.querySelector('.activity-progress')?.getAttribute('aria-label'),
+    ).toBe('Progreso de Unir PDF');
+    expect(text('.activity-cancel')).toBe('Cancelar');
+    expect(text('.activity-open')).toBe('Abrir');
   });
 
   it('cancels an active task through the service', () => {
