@@ -18,6 +18,7 @@ import { Events } from '@wailsio/runtime';
 import { filter } from 'rxjs';
 import { Activity, LucideAngularModule, Menu, Moon, Search, Sun, X } from 'lucide-angular';
 
+import { RecipeDefinition } from './config/recipes';
 import { BRAND_ICON, ToolDefinition } from './config/tools';
 import { ActivityPanel } from './components/activity-panel/activity-panel';
 import { CommandPalette } from './components/command-palette/command-palette';
@@ -85,6 +86,7 @@ export class App {
   readonly prefixMatch = { exact: false } as const;
 
   readonly currentTool = signal<ToolDefinition | null>(null);
+  readonly currentRecipe = signal<RecipeDefinition | null>(null);
   readonly paletteOpen = signal(false);
   readonly mobileNavOpen = signal(false);
 
@@ -249,7 +251,9 @@ export class App {
   }
 
   private syncCurrentTool(route: string): void {
-    this.currentTool.set(this.registry.findByRoute(route));
+    const recipe = this.registry.findRecipeByRoute(route);
+    this.currentRecipe.set(recipe);
+    this.currentTool.set(recipe ? null : this.registry.findByRoute(route));
   }
 
   private listenForNativeDrops(): void {

@@ -8,6 +8,7 @@ import {
 } from 'lucide-angular';
 
 import { Recipe } from '../services/wails';
+import type { NavGroup, ToolCategory, ToolDefinition } from './tools';
 
 /**
  * A curated outcome that chains several tools behind one action.
@@ -216,6 +217,53 @@ export const RECIPES: readonly RecipeDefinition[] = [
     },
   },
 ];
+
+/**
+ * Derives the sidebar category for a recipe without registering it as a tool.
+ * Image and video recipes keep their category; PDF inputs land in `pdf` and
+ * everything else falls back to `docs`.
+ */
+function recipeNavCategory(recipe: RecipeDefinition): ToolCategory {
+  const { category, inputKind } = recipe.fallback;
+
+  if (category === 'image') {
+    return 'image';
+  }
+
+  if (category === 'video') {
+    return 'video';
+  }
+
+  if (inputKind === 'pdf') {
+    return 'pdf';
+  }
+
+  return 'docs';
+}
+
+/** Recipe entries shaped as navigation destinations, kept out of `NAVIGATION`. */
+export const RECIPE_NAV: readonly ToolDefinition[] = RECIPES.map((recipe) => {
+  const category = recipeNavCategory(recipe);
+  const nameWords = recipe.fallback.name.toLowerCase().split(/\s+/);
+
+  return {
+    id: recipe.id,
+    name: recipe.fallback.name,
+    navName: recipe.fallback.name,
+    description: recipe.fallback.description,
+    route: recipe.route,
+    category,
+    icon: recipe.icon,
+    formats: recipe.formats,
+    keywords: ['recipe', ...nameWords, 'outcome', category],
+  };
+});
+
+export const RECIPE_NAV_GROUP: NavGroup = {
+  id: 'recipes',
+  label: 'Recipes',
+  items: RECIPE_NAV,
+};
 
 /** Static definition for a recipe, used before the catalog answers or offline. */
 export function findRecipeFallback(recipeId: string): Recipe | null {

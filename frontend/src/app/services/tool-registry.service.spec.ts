@@ -78,19 +78,24 @@ describe('ToolRegistryService', () => {
     expect(transcribe && service.isTool(transcribe)).toBeTrue();
   });
 
-  it('groups every navigation entry exactly once', () => {
-    const grouped = service.navGroups.reduce((total, group) => total + group.items.length, 0);
+  it('groups every navigation entry exactly once, with Recipes after Workspace', () => {
+    const toolGroups = service.navGroups.filter((group) => group.id !== 'recipes');
+    const grouped = toolGroups.reduce((total, group) => total + group.items.length, 0);
 
-    expect(service.navGroups.length).toBe(6);
+    expect(service.navGroups.length).toBe(7);
     expect(grouped).toBe(service.navigation.length);
     expect(service.navGroups.map((group) => group.label)).toEqual([
       'Workspace',
+      'Recipes',
       'Image',
       'PDF',
       'Documents',
       'Video',
       'System',
     ]);
+    expect(
+      service.navGroups.find((group) => group.id === 'recipes')?.items.length,
+    ).toBe(5);
     expect(
       service.navGroups.find((group) => group.id === 'image')?.items.length,
     ).toBe(7);
@@ -100,6 +105,25 @@ describe('ToolRegistryService', () => {
     expect(
       service.navGroups.find((group) => group.id === 'video')?.items.length,
     ).toBe(4);
+  });
+
+  it('exposes the five recipes as navigation entries outside the tool counts', () => {
+    expect(service.recipes.length).toBe(5);
+    expect(service.recipeNav.length).toBe(5);
+    expect(service.navigation.length).toBe(24);
+    expect(service.tools.length).toBe(20);
+  });
+
+  it('resolves recipes by route', () => {
+    const emailPdf = service.findRecipeByRoute('/recipe/email-pdf');
+
+    expect(emailPdf?.id).toBe('recipe.email_pdf');
+    expect(emailPdf?.fallback.name).toBe('Email PDF');
+    expect(service.findRecipeByRoute('/recipe/email-pdf?x=1')?.id).toBe(
+      'recipe.email_pdf',
+    );
+    expect(service.findRecipeByRoute('/unknown')).toBeNull();
+    expect(service.findRecipeByRoute(undefined)).toBeNull();
   });
 
   it('labels categories', () => {
@@ -123,6 +147,12 @@ describe('ToolRegistryService', () => {
     for (const entry of service.navigation) {
       expect(declaredRoutes.has(entry.route))
         .withContext(`route ${entry.route} is declared in app.routes.ts`)
+        .toBeTrue();
+    }
+
+    for (const recipe of service.recipeNav) {
+      expect(declaredRoutes.has(recipe.route))
+        .withContext(`recipe route ${recipe.route} is declared in app.routes.ts`)
         .toBeTrue();
     }
   });

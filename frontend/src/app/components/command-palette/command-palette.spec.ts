@@ -52,7 +52,14 @@ describe('CommandPalette', () => {
     openPalette();
     typeQuery('merge');
 
-    expect(optionNames()).toEqual(['PDF Merge', 'Video Merge']);
+    expect(optionNames()).toEqual(['PDF Merge', 'Video Merge', 'Email PDF']);
+  });
+
+  it('finds a recipe by name', () => {
+    openPalette();
+    typeQuery('clean scan');
+
+    expect(optionNames()).toEqual(['Clean scan']);
   });
 
   it('filters by keyword', () => {
@@ -70,7 +77,8 @@ describe('CommandPalette', () => {
     pressKey('ArrowDown');
     pressKey('Enter');
 
-    expect(routes).toEqual(['/image-converter']);
+    // Recipes render right after Workspace, so the first step is a recipe.
+    expect(routes).toEqual(['/recipe/email-pdf']);
   });
 
   it('emits closed on Escape', () => {

@@ -272,17 +272,35 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
     }
 
     const scored: ScoredTool[] = [];
-    for (const tool of this.registry.navigation) {
+    for (const tool of [...this.registry.navigation, ...this.registry.recipeNav]) {
       const score = this.scoreTool(tool, tokens);
       if (score !== null) {
         scored.push({ tool, score });
       }
     }
 
+    const recipeIds = new Set(this.registry.recipeNav.map((recipe) => recipe.id));
+    const recipeMatches = scored
+      .filter((entry) => recipeIds.has(entry.tool.id))
+      .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name));
+    const toolMatches = scored.filter((entry) => !recipeIds.has(entry.tool.id));
+
     const ranked: Array<{ order: number; best: number; group: PaletteGroup }> = [];
 
+    if (recipeMatches.length > 0) {
+      ranked.push({
+        order: -1,
+        best: recipeMatches[0].score,
+        group: {
+          id: 'recipes',
+          label: 'Recipes',
+          entries: recipeMatches.map((entry) => this.toEntry(entry.tool, 'recipes')),
+        },
+      });
+    }
+
     this.registry.categories.forEach((category, order) => {
-      const matches = scored
+      const matches = toolMatches
         .filter((entry) => entry.tool.category === category.id)
         .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name));
 

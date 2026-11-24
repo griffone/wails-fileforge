@@ -81,7 +81,11 @@
         </button>
 
         <div class="topbar-context">
-          @if (currentTool(); as tool) {
+          @if (currentRecipe(); as recipe) {
+            <span class="topbar-crumb-category">Recipes</span>
+            <span class="topbar-crumb-sep" aria-hidden="true">/</span>
+            <span class="topbar-crumb">{{ recipe.fallback.name }}</span>
+          } @else if (currentTool(); as tool) {
             @if (tool.route === '/') {
               <span class="topbar-crumb">Workbench</span>
             } @else {

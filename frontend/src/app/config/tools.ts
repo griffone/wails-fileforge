@@ -27,6 +27,9 @@ import {
 
 export type ToolCategory = 'workspace' | 'image' | 'pdf' | 'docs' | 'video' | 'system';
 
+/** Sidebar groups include every tool category plus the curated recipes. */
+export type NavGroupId = ToolCategory | 'recipes';
+
 /** A single destination in the workbench: a tool, Home or System Status. */
 export interface ToolDefinition {
   /** Stable identifier; tool ids mirror the backend toolId values. */
@@ -53,7 +56,7 @@ export interface ToolCategoryDefinition {
 }
 
 export interface NavGroup {
-  id: ToolCategory;
+  id: NavGroupId;
   label: string;
   items: readonly ToolDefinition[];
 }

@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 
+import { RECIPES, RECIPE_NAV, RECIPE_NAV_GROUP, type RecipeDefinition } from '../config/recipes';
 import {
   HOME_TOOL,
   NAVIGATION,
@@ -31,8 +32,16 @@ export class ToolRegistryService {
   /** Home + twenty tools + System Status + Automations + Settings (24 entries). */
   readonly navigation: readonly ToolDefinition[] = NAVIGATION;
 
-  /** Navigation grouped for the sidebar rail. */
-  readonly navGroups: readonly NavGroup[] = NAV_GROUPS;
+  /** Navigation grouped for the sidebar rail, with Recipes after Workspace. */
+  readonly navGroups: readonly NavGroup[] = NAV_GROUPS.flatMap((group) =>
+    group.id === 'workspace' ? [group, RECIPE_NAV_GROUP] : [group],
+  );
+
+  /** The five curated recipes shaped as navigation destinations. */
+  readonly recipeNav: readonly ToolDefinition[] = RECIPE_NAV;
+
+  /** The curated recipes themselves, kept out of the tool registry. */
+  readonly recipes: readonly RecipeDefinition[] = RECIPES;
 
   readonly categories: readonly ToolCategoryDefinition[] = TOOL_CATEGORIES;
 
@@ -48,6 +57,16 @@ export class ToolRegistryService {
 
     const target = normalizeToolRoute(route);
     return this.navigation.find((item) => item.route === target) ?? null;
+  }
+
+  /** Resolves a recipe by its route, or null when the route is not a recipe. */
+  findRecipeByRoute(route: string | null | undefined): RecipeDefinition | null {
+    if (!route) {
+      return null;
+    }
+
+    const target = normalizeToolRoute(route);
+    return this.recipes.find((recipe) => recipe.route === target) ?? null;
   }
 
   /** Resolves a definition by its stable id, or null when unknown. */
