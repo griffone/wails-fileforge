@@ -21,7 +21,7 @@
 
     <div class="result-body">
       @if (outputRows().length > 0) {
-        <ul class="result-list" aria-label="Converted files">
+        <ul class="result-list" [attr.aria-label]="i18n.t('resultCard.convertedAria')">
           @for (row of outputRows(); track row.path) {
             <li class="result-row" [class.result-row-grouped]="row.grouped">
               <span class="result-file">
@@ -37,7 +37,7 @@
                   <button
                     type="button"
                     class="btn btn-ghost btn-sm result-show-folder result-reveal"
-                    [attr.aria-label]="'Show ' + row.name + ' in folder'"
+                    [attr.aria-label]="i18n.t('resultCard.showAria', { name: row.name })"
                     (click)="reveal.emit(row.path)"
                   >
                     <lucide-icon
@@ -46,13 +46,13 @@
                       [strokeWidth]="1.75"
                       aria-hidden="true"
                     ></lucide-icon>
-                    Show in folder
+                    {{ i18n.t('resultCard.showInFolder') }}
                   </button>
                 } @else {
                   <button
                     type="button"
                     class="icon-btn result-open"
-                    [attr.aria-label]="'Open ' + row.name"
+                    [attr.aria-label]="i18n.t('resultCard.openAria', { name: row.name })"
                     (click)="open.emit(row.path)"
                   >
                     <lucide-icon
@@ -65,7 +65,7 @@
                   <button
                     type="button"
                     class="icon-btn result-reveal"
-                    [attr.aria-label]="'Show ' + row.name + ' in folder'"
+                    [attr.aria-label]="i18n.t('resultCard.showAria', { name: row.name })"
                     (click)="reveal.emit(row.path)"
                   >
                     <lucide-icon
@@ -83,7 +83,7 @@
       }
 
       @if (failedRows().length > 0) {
-        <ul class="result-list result-failures" aria-label="Files that failed">
+        <ul class="result-list result-failures" [attr.aria-label]="i18n.t('resultCard.failedAria')">
           @for (row of failedRows(); track row.path) {
             <li class="result-row result-row-failed">
               <lucide-icon
@@ -104,13 +104,13 @@
       @if (showVerifyBlock()) {
         <section
           class="verify-block"
-          aria-label="Output verification"
+          [attr.aria-label]="i18n.t('resultCard.verificationAria')"
           aria-live="polite"
         >
           @if (verifyLoading) {
-            <p class="verify-state">Checking the output…</p>
+            <p class="verify-state">{{ i18n.t('resultCard.checking') }}</p>
           } @else if (verifyUnavailable) {
-            <p class="verify-state">Verification unavailable for this job.</p>
+            <p class="verify-state">{{ i18n.t('resultCard.verifyUnavailable') }}</p>
           } @else if (verifyReport) {
             <div class="verify-head">
               <span
@@ -134,7 +134,7 @@
             </div>
 
             @if (verifyOutputs().length > 0) {
-              <ul class="verify-outputs" aria-label="Verified files">
+              <ul class="verify-outputs" [attr.aria-label]="i18n.t('resultCard.verifiedFilesAria')">
                 @for (output of verifyOutputs(); track $index) {
                   <li
                     class="verify-output"
@@ -154,9 +154,7 @@
                       <span class="verify-output-meta mono">
                         {{ output.size }}
                         @if (output.passed) {
-                          · Checks passed: {{ output.checksPassed }}/{{
-                            output.totalChecks
-                          }}
+                          · {{ i18n.t('resultCard.checksPassedInline', { passed: output.checksPassed, total: output.totalChecks }) }}
                         } @else if (output.warning) {
                           · {{ output.warning }}
                         }
@@ -168,7 +166,7 @@
             }
 
             @if (verifyChecks().length > 0) {
-              <ul class="verify-checks" aria-label="Verification checks">
+              <ul class="verify-checks" [attr.aria-label]="i18n.t('resultCard.checksAria')">
                 @for (check of verifyChecks(); track $index) {
                   <li
                     class="verify-check"
@@ -195,7 +193,7 @@
             }
 
             @if (verifyWarnings().length > 0) {
-              <ul class="verify-warnings" aria-label="Verification warnings">
+              <ul class="verify-warnings" [attr.aria-label]="i18n.t('resultCard.warningsAria')">
                 @for (warning of verifyWarnings(); track $index) {
                   <li>{{ warning }}</li>
                 }
@@ -218,7 +216,7 @@
               [strokeWidth]="1.75"
               aria-hidden="true"
             ></lucide-icon>
-            Retry failed
+            {{ i18n.t('resultCard.retryFailed') }}
           </button>
         }
         @if (canUndoAction()) {
@@ -243,7 +241,7 @@
           class="btn btn-primary btn-sm result-reset"
           (click)="reset.emit()"
         >
-          Convert more
+          {{ i18n.t('resultCard.convertMore') }}
         </button>
       </div>
 
@@ -265,22 +263,22 @@
       }
 
       <details class="result-details">
-        <summary>Details</summary>
+        <summary>{{ i18n.t('resultCard.details') }}</summary>
         <dl class="result-details-grid mono">
           <div>
-            <dt>Job ID</dt>
+            <dt>{{ i18n.t('resultCard.jobId') }}</dt>
             <dd>{{ currentJob.jobId || '—' }}</dd>
           </div>
           <div>
-            <dt>Status</dt>
-            <dd>{{ currentJob.status }}</dd>
+            <dt>{{ i18n.t('resultCard.status') }}</dt>
+            <dd>{{ statusLabel(currentJob) }}</dd>
           </div>
           <div>
-            <dt>Started</dt>
+            <dt>{{ i18n.t('resultCard.started') }}</dt>
             <dd>{{ startedAt() }}</dd>
           </div>
           <div>
-            <dt>Ended</dt>
+            <dt>{{ i18n.t('resultCard.ended') }}</dt>
             <dd>{{ endedAt() }}</dd>
           </div>
         </dl>

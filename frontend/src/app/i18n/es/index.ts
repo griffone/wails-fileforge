@@ -10,8 +10,10 @@ import { outputPlanEs } from './output-plan-card';
 import { paletteEs } from './palette';
 import { recipeRunEs } from './recipe-run';
 import { recipesEs } from './recipes';
+import { resultCardEs } from './result-card';
 import { settingsEs } from './settings';
 import { shellEs } from './shell';
+import { toolErrorEs } from './tool-error';
 import { toolsEs } from './tools';
 
 export const es: Record<TranslationKey, DictionaryValue> = {
@@ -27,4 +29,6 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...fileDropEs,
   ...fileQueueEs,
   ...outputPlanEs,
+  ...resultCardEs,
+  ...toolErrorEs,
 };

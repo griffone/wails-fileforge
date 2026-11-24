@@ -224,6 +224,27 @@ describe('OutputPlanCard', () => {
     expect(banner.textContent).toContain("FileForge won't overwrite it.");
   });
 
+  it('renders a localized tool-error banner in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    component.plan = {
+      success: false,
+      message: 'exists',
+      outputs: [],
+      error: {
+        code: 'VALIDATION_INVALID_INPUT',
+        detail_code: 'IMAGE_OUTPUT_EXISTS',
+        message: 'output exists',
+      },
+    };
+    fixture.detectChanges();
+
+    const banner = fixture.nativeElement.querySelector('.banner-danger') as HTMLElement;
+    expect(banner.textContent).toContain('Ya existe un archivo con ese nombre.');
+    expect(banner.textContent).toContain(
+      'FileForge no lo sobrescribirá. Elige otro nombre o carpeta.',
+    );
+  });
+
   it('emits changeDestination from the Change button', () => {
     const spy = jasmine.createSpy('changeDestination');
     component.changeDestination.subscribe(spy);

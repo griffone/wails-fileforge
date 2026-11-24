@@ -5,6 +5,8 @@ import {
   Wails,
 } from '../../services/wails';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { ResultCard } from './result-card';
 
 describe('ResultCard', () => {
@@ -14,6 +16,10 @@ describe('ResultCard', () => {
   let wailsSpy: jasmine.SpyObj<Wails>;
 
   beforeEach(async () => {
+    localStorage.setItem(
+      PREFERENCES_STORAGE_KEY,
+      JSON.stringify({ language: 'en' }),
+    );
     recentSpy = jasmine.createSpyObj<RecentConversionsService>(
       'RecentConversionsService',
       ['record'],
@@ -58,6 +64,11 @@ describe('ResultCard', () => {
     }).compileComponents();
     fixture = TestBed.createComponent(ResultCard);
     component = fixture.componentInstance;
+  });
+
+  afterEach(() => {
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
   function job(overrides: Partial<JobResult>): JobResult {
@@ -572,5 +583,63 @@ describe('ResultCard', () => {
     expect(text).toContain('Could not undo the job.');
     expect(text).toContain('a.webp');
     expect(text).toContain('modified after conversion');
+  });
+
+  it('renders the success summary and details in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    component.toolLabel = 'PDF';
+    component.job = job({
+      items: [
+        {
+          inputPath: '/tmp/a.pdf',
+          outputPath: '/tmp/out/a.pdf',
+          success: true,
+          message: 'ok',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const summary = fixture.nativeElement.querySelector(
+      '.result-summary',
+    ) as HTMLElement;
+    expect(summary.textContent).toContain('Completado: 1 PDF');
+
+    const details = fixture.nativeElement.querySelector(
+      '.result-details',
+    ) as HTMLElement;
+    expect(details.textContent).toContain('Detalles');
+    expect(details.textContent).toContain('ID del trabajo');
+    expect(details.textContent).toContain('Estado');
+    expect(details.textContent).toContain('Inicio');
+    expect(details.textContent).toContain('Fin');
+    expect(details.textContent).toContain('Completado');
+  });
+
+  it('localizes the failed summary and tool-error copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    component.job = job({
+      status: 'failed',
+      items: [
+        {
+          inputPath: '/tmp/b.png',
+          outputPath: '',
+          success: false,
+          message: 'output exists',
+          error: {
+            code: 'IMAGE_OUTPUT_EXISTS',
+            message: 'output already exists',
+          },
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('No se pudo completar la conversión');
+    expect(text).toContain(
+      'FileForge no lo sobrescribirá. Elige otro nombre o carpeta.',
+    );
+    expect(text).not.toContain("FileForge won't overwrite it");
   });
 });

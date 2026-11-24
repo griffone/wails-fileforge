@@ -1,4 +1,5 @@
 import { JobError } from './wails';
+import type { TranslationKey } from '../i18n';
 
 export type ToolErrorAction =
   | 'retry'
@@ -8,7 +9,18 @@ export type ToolErrorAction =
   | 'installDependency'
   | 'none';
 
+export type ToolErrorKind =
+  | 'outputExists'
+  | 'outputDirUnusable'
+  | 'inputNotFound'
+  | 'formatUnsupported'
+  | 'dependencyMissing'
+  | 'cancelled'
+  | 'noBookmarks'
+  | 'generic';
+
 export interface ToolErrorCopy {
+  kind: ToolErrorKind;
   title: string;
   description: string;
   action: ToolErrorAction;
@@ -18,6 +30,7 @@ export interface ToolErrorCopy {
 type ToolErrorSeed = Omit<ToolErrorCopy, 'technical'>;
 
 const OUTPUT_EXISTS: ToolErrorSeed = {
+  kind: 'outputExists',
   title: 'A file with that name already exists.',
   description:
     "FileForge won't overwrite it. Choose another name or folder.",
@@ -25,36 +38,42 @@ const OUTPUT_EXISTS: ToolErrorSeed = {
 };
 
 const OUTPUT_DIR_UNUSABLE: ToolErrorSeed = {
+  kind: 'outputDirUnusable',
   title: "That folder can't be used.",
   description: 'Choose a folder you can write to.',
   action: 'chooseFolder',
 };
 
 const INPUT_NOT_FOUND: ToolErrorSeed = {
+  kind: 'inputNotFound',
   title: "That file couldn't be found.",
   description: 'It may have been moved or deleted. Add it again.',
   action: 'none',
 };
 
 const FORMAT_UNSUPPORTED: ToolErrorSeed = {
+  kind: 'formatUnsupported',
   title: "That format isn't supported.",
   description: 'Choose a supported format or a different file.',
   action: 'changeFormat',
 };
 
 const DEPENDENCY_MISSING: ToolErrorSeed = {
+  kind: 'dependencyMissing',
   title: 'A required tool is missing.',
   description: 'Install the missing dependency and try again.',
   action: 'installDependency',
 };
 
 const CANCELLED: ToolErrorSeed = {
+  kind: 'cancelled',
   title: 'Cancelled.',
   description: 'No files were changed.',
   action: 'none',
 };
 
 const NO_BOOKMARKS: ToolErrorSeed = {
+  kind: 'noBookmarks',
   title: 'This PDF has no bookmarks.',
   description:
     'Choose Every page, Page ranges, Selected pages or Pages per file instead.',
@@ -235,9 +254,30 @@ export function describeToolError(
       : fallbackText || GENERIC_DESCRIPTION;
 
   return {
+    kind: 'generic',
     title: 'Something went wrong.',
     description,
     action: 'retry',
     technical: technical || fallbackText || undefined,
   };
+}
+
+/**
+ * Swaps the plain-language title and description for translated copy.
+ *
+ * Generic errors keep their description: it is either a backend message or a
+ * caller fallback and is treated as technical detail. Recovery actions and the
+ * technical trail are locale-independent and pass through untouched.
+ */
+export function localizeToolError(
+  translate: (key: TranslationKey) => string,
+  copy: ToolErrorCopy,
+): ToolErrorCopy {
+  const title = translate(`toolError.${copy.kind}.title` as TranslationKey);
+  const description =
+    copy.kind === 'generic'
+      ? copy.description
+      : translate(`toolError.${copy.kind}.description` as TranslationKey);
+
+  return { ...copy, title, description };
 }

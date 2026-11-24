@@ -1,4 +1,10 @@
-import { describeToolError, looksTechnicalMessage } from './tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  looksTechnicalMessage,
+} from './tool-error';
+import type { ToolErrorKind } from './tool-error';
+import type { TranslationKey } from '../i18n';
 
 describe('describeToolError', () => {
   it('maps output collision detail codes to changeName', () => {
@@ -118,6 +124,66 @@ describe('describeToolError', () => {
     expect(empty.title).toBe('Something went wrong.');
     expect(empty.description).toBe('Drop a file first.');
     expect(empty.action).toBe('retry');
+  });
+});
+
+describe('localizeToolError', () => {
+  const translations: Partial<Record<TranslationKey, string>> = {
+    'toolError.outputExists.title': 'Ya existe un archivo con ese nombre.',
+    'toolError.outputExists.description':
+      'FileForge no lo sobrescribirá. Elige otro nombre o carpeta.',
+    'toolError.generic.title': 'Algo salió mal.',
+  };
+
+  const translate = (key: TranslationKey): string =>
+    translations[key] ?? key;
+
+  it('adds a kind to every seeded error', () => {
+    const cases: [string, ToolErrorKind][] = [
+      ['IMAGE_OUTPUT_EXISTS', 'outputExists'],
+      ['OUTPUT_DIR_NOT_WRITABLE', 'outputDirUnusable'],
+      ['INPUT_NOT_FOUND', 'inputNotFound'],
+      ['UNSUPPORTED_FORMAT', 'formatUnsupported'],
+      ['RUNTIME_DEP_MISSING', 'dependencyMissing'],
+      ['CANCELLED_BY_USER', 'cancelled'],
+      ['PDF_SPLIT_NO_BOOKMARKS', 'noBookmarks'],
+    ];
+
+    for (const [detailCode, kind] of cases) {
+      expect(
+        describeToolError({ code: 'EXEC_IO_TRANSIENT', detail_code: detailCode, message: '' })
+          .kind,
+      ).toBe(kind);
+    }
+
+    expect(describeToolError(null).kind).toBe('generic');
+  });
+
+  it('translates the title and description of a known kind', () => {
+    const copy = localizeToolError(
+      translate,
+      describeToolError({
+        code: 'VALIDATION_INVALID_INPUT',
+        detail_code: 'IMAGE_OUTPUT_EXISTS',
+        message: 'output exists',
+      }),
+    );
+
+    expect(copy.title).toBe('Ya existe un archivo con ese nombre.');
+    expect(copy.description).toBe(
+      'FileForge no lo sobrescribirá. Elige otro nombre o carpeta.',
+    );
+    expect(copy.action).toBe('changeName');
+    expect(copy.technical).toContain('IMAGE_OUTPUT_EXISTS');
+  });
+
+  it('keeps the generic description and technical trail', () => {
+    const copy = describeToolError(null, 'Drop a file first.');
+    const localized = localizeToolError(translate, copy);
+
+    expect(localized.title).toBe('Algo salió mal.');
+    expect(localized.description).toBe('Drop a file first.');
+    expect(localized.action).toBe('retry');
   });
 });
 

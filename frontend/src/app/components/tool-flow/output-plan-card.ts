@@ -10,7 +10,7 @@ import {
   PlanJobResponse,
 } from '../../services/wails';
 import { I18nService } from '../../services/i18n.service';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import { describeToolError, localizeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { fileDir, fileName, formatCount } from '../../utils/format';
 
 const VISIBLE_OUTPUT_LIMIT = 4;
@@ -65,7 +65,14 @@ export class OutputPlanCard {
   }
 
   errorCopy(): ToolErrorCopy | null {
-    return this.plan?.error ? describeToolError(this.plan.error) : null;
+    const error = this.plan?.error;
+    if (!error) {
+      return null;
+    }
+    return localizeToolError(
+      (key) => this.i18n.t(key),
+      describeToolError(error),
+    );
   }
 
   isDirectory(output: PlannedOutput): boolean {

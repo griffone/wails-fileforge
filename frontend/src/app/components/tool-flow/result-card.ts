@@ -29,14 +29,32 @@ import {
   VerificationReport,
   Wails,
 } from '../../services/wails';
-import { describeToolError } from '../../services/tool-error';
+import { describeToolError, localizeToolError } from '../../services/tool-error';
 import {
   RecentConversionsService,
   isTerminalJobStatus,
 } from '../../services/recent-conversions.service';
+import { I18nService } from '../../services/i18n.service';
+import type { TranslationKey } from '../../i18n';
 import { fileDir, fileName, formatBytes, formatCount } from '../../utils/format';
 
 const GROUP_OUTPUT_LIMIT = 4;
+
+const NOUN_KEYS: Readonly<
+  Record<string, { one: TranslationKey; many: TranslationKey }>
+> = {
+  PDF: { one: 'common.pdfOne', many: 'common.pdfMany' },
+  image: { one: 'common.imageOne', many: 'common.imageMany' },
+  video: { one: 'common.videoOne', many: 'common.videoMany' },
+  document: { one: 'common.documentOne', many: 'common.documentMany' },
+  DOCX: { one: 'common.docxOne', many: 'common.docxMany' },
+  file: { one: 'common.fileOne', many: 'common.fileMany' },
+};
+
+/** Host tokens that cannot be turned into a key by hyphenating the words. */
+const VERB_KEYS: Readonly<Record<string, TranslationKey>> = {
+  'made searchable': 'resultCard.verb.madeSearchable',
+};
 
 export interface ResultOutputRow {
   path: string;
@@ -158,6 +176,7 @@ export class ResultCard implements DoCheck {
 
   private readonly recentConversions = inject(RecentConversionsService);
   private readonly wailsService = inject(Wails);
+  readonly i18n = inject(I18nService);
   private readonly recordedJobIds = new Set<string>();
 
   readonly checkIcon = Check;
@@ -279,7 +298,9 @@ export class ResultCard implements DoCheck {
   }
 
   verifyTitle(): string {
-    return this.verifyReport?.success ? 'Verified' : 'Needs attention';
+    return this.verifyReport?.success
+      ? this.i18n.t('resultCard.verified')
+      : this.i18n.t('resultCard.needsAttention');
   }
 
   verifyIcon() {
@@ -298,7 +319,10 @@ export class ResultCard implements DoCheck {
     if (totals.total === 0) {
       return report.message;
     }
-    return `${totals.passed}/${totals.total} checks passed`;
+    return this.i18n.t('resultCard.checksPassed', {
+      passed: totals.passed,
+      total: totals.total,
+    });
   }
 
   verifyOutputs(): ResultVerifyOutputRow[] {
@@ -321,7 +345,7 @@ export class ResultCard implements DoCheck {
         checksPassed,
         totalChecks: checks.length,
         warning: !passed
-          ? (output.warnings?.[0] ?? 'One or more checks failed.')
+          ? (output.warnings?.[0] ?? this.i18n.t('resultCard.checkFailed'))
           : undefined,
       };
     });
@@ -369,7 +393,9 @@ export class ResultCard implements DoCheck {
   }
 
   undoLabel(): string {
-    return this.undoMode === 'undo' ? 'Undo' : 'Restore';
+    return this.undoMode === 'undo'
+      ? this.i18n.t('resultCard.undo')
+      : this.i18n.t('resultCard.restore');
   }
 
   undoActionIcon() {
@@ -379,7 +405,7 @@ export class ResultCard implements DoCheck {
   undoSkippedRows(): ResultUndoSkippedRow[] {
     return this.undoSkipped.slice(0, 2).map((skip) => ({
       path: skip.path,
-      name: skip.path ? fileName(skip.path) : 'A file',
+      name: skip.path ? fileName(skip.path) : this.i18n.t('resultCard.aFile'),
       reason: skip.reason,
     }));
   }
@@ -403,7 +429,9 @@ export class ResultCard implements DoCheck {
       this.applyUndoResult(result, action);
     } catch {
       this.undoMessage =
-        action === 'undo' ? 'Undo failed.' : 'Restore failed.';
+        action === 'undo'
+          ? this.i18n.t('resultCard.undoFailed')
+          : this.i18n.t('resultCard.restoreFailed');
       this.undoTone = 'warning';
       this.undoSkipped = [];
     } finally {
@@ -434,24 +462,48 @@ export class ResultCard implements DoCheck {
     this.undoTone = 'success';
   }
 
+  private nounPair(label: string): { one: string; many: string } {
+    const keys = NOUN_KEYS[label];
+    return keys
+      ? { one: this.i18n.t(keys.one), many: this.i18n.t(keys.many) }
+      : { one: label, many: label };
+  }
+
+  private verbFor(token: string): string {
+    const key =
+      VERB_KEYS[token] ??
+      (`resultCard.verb.${token.replace(/\s+/g, '-')}` as TranslationKey);
+    return this.i18n.tOr(key, token);
+  }
+
   summaryTitle(job: JobResult | null): string {
     if (!job) {
       return '';
     }
 
+    const nouns = this.nounPair(this.toolLabel);
+    const verb = this.verbFor(this.verbPast);
+
     switch (job.status) {
       case 'success':
-        return `${formatCount(this.successCount(), this.toolLabel)} ${this.verbPast}`;
+        return this.i18n.t('resultCard.summary.success', {
+          counted: formatCount(this.successCount(), nouns.one, nouns.many),
+          verb,
+        });
       case 'partial_success':
-        return `${this.successCount()} of ${this.totalCount()} ${this.verbPast}`;
+        return this.i18n.t('resultCard.summary.partial', {
+          done: this.successCount(),
+          total: this.totalCount(),
+          verb,
+        });
       case 'failed':
-        return "Couldn't finish the conversion";
+        return this.i18n.t('resultCard.summary.failed');
       case 'cancelled':
-        return 'Cancelled';
+        return this.i18n.t('resultCard.summary.cancelled');
       case 'interrupted':
-        return 'The job was interrupted';
+        return this.i18n.t('resultCard.summary.interrupted');
       default:
-        return job.message || 'Conversion finished';
+        return job.message || this.i18n.t('resultCard.summary.finished');
     }
   }
 
@@ -463,17 +515,36 @@ export class ResultCard implements DoCheck {
     switch (job.status) {
       case 'partial_success':
         return (
-          this.partialDetail.trim() ||
-          "Some files couldn't be converted. Retry them below."
+          this.partialDetail.trim() || this.i18n.t('resultCard.detail.partial')
         );
       case 'failed':
-        return describeToolError(job.error).description;
+        return localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(job.error),
+        ).description;
       case 'cancelled':
-        return 'No files were changed.';
+        return this.i18n.t('resultCard.detail.cancelled');
       case 'interrupted':
-        return 'The app stopped before the job finished.';
+        return this.i18n.t('resultCard.detail.interrupted');
       default:
         return '';
+    }
+  }
+
+  statusLabel(job: JobResult): string {
+    switch (job.status) {
+      case 'success':
+        return this.i18n.t('home.status.success');
+      case 'partial_success':
+        return this.i18n.t('home.status.partial');
+      case 'failed':
+        return this.i18n.t('home.status.failed');
+      case 'cancelled':
+        return this.i18n.t('home.status.cancelled');
+      case 'interrupted':
+        return this.i18n.t('home.status.interrupted');
+      default:
+        return job.status;
     }
   }
 
@@ -507,6 +578,7 @@ export class ResultCard implements DoCheck {
   outputRows(): ResultOutputRow[] {
     const rows: ResultOutputRow[] = [];
     const seen = new Set<string>();
+    const nouns = this.nounPair('file');
 
     for (const item of this.job?.items ?? []) {
       if (!item.success) {
@@ -526,7 +598,10 @@ export class ResultCard implements DoCheck {
         seen.add(directory);
         rows.push({
           path: directory,
-          name: `${formatCount(outputCount, 'file')} in ${fileName(directory)}`,
+          name: this.i18n.t('resultCard.folderSummary', {
+            count: formatCount(outputCount, nouns.one, nouns.many),
+            folder: fileName(directory),
+          }),
           meta: '',
           grouped: true,
         });
@@ -554,7 +629,7 @@ export class ResultCard implements DoCheck {
           path,
           name: fileName(path),
           meta: isDirectorySummary
-            ? formatCount(item.outputCount ?? 0, 'file')
+            ? formatCount(item.outputCount ?? 0, nouns.one, nouns.many)
             : this.sizeLabel(path),
         });
       }
@@ -569,7 +644,10 @@ export class ResultCard implements DoCheck {
       .map((item) => ({
         path: item.inputPath,
         name: fileName(item.inputPath),
-        description: describeToolError(item.error).description,
+        description: localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(item.error),
+        ).description,
       }));
   }
 
@@ -637,6 +715,6 @@ export class ResultCard implements DoCheck {
     if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
       return '—';
     }
-    return new Date(value).toLocaleString();
+    return new Date(value).toLocaleString(this.i18n.locale());
   }
 }

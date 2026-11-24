@@ -9,4 +9,8 @@ export const commonEs = {
   'common.videoMany': 'videos',
   'common.pdfOne': 'PDF',
   'common.pdfMany': 'PDF',
+  'common.documentOne': 'documento',
+  'common.documentMany': 'documentos',
+  'common.docxOne': 'DOCX',
+  'common.docxMany': 'DOCX',
 } as const;
