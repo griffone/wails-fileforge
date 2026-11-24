@@ -20,6 +20,26 @@
   padding: 16px 18px 18px;
 }
 
+/* ---- Language ------------------------------------------------------------ */
+
+.settings-language-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-language-option {
+  min-width: 104px;
+}
+
+.settings-language-option.is-active {
+  --btn-bg: var(--accent-soft);
+  --btn-bg-hover: var(--accent-soft);
+  --btn-border: var(--accent);
+  --btn-border-hover: var(--accent);
+  --btn-fg: var(--accent);
+}
+
 .settings-choice {
   display: flex;
   flex-wrap: wrap;

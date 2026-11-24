@@ -322,6 +322,7 @@ describe('Settings', () => {
       defaultOutputDir: '/tmp/exports',
       whisperPath: '',
       whisperModelPath: '',
+      language: '',
     });
     expect(
       element().querySelector('.settings-path')?.textContent,
@@ -338,6 +339,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '',
       whisperModelPath: '',
+      language: '',
     });
     expect(element().querySelector('.settings-path')).toBeNull();
     expect(button('.settings-next-to-original').getAttribute('aria-pressed')).toBe(
@@ -543,6 +545,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '',
+      language: '',
     });
     expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith(
       '/opt/whisper-cli',
@@ -558,6 +561,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '/models/ggml-medium.bin',
+      language: '',
     });
     expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith(
       '/opt/whisper-cli',
@@ -603,6 +607,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '',
       whisperModelPath: '',
+      language: '',
     });
     expect(
       wailsSpy.getTranscriptionCapabilities.calls.mostRecent().args,

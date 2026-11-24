@@ -8,6 +8,8 @@ import {
   signal,
 } from '@angular/core';
 
+import type { Locale } from '../i18n';
+
 /** localStorage key holding every persisted user default. */
 export const PREFERENCES_STORAGE_KEY = 'ff-preferences';
 
@@ -15,14 +17,25 @@ interface PreferencesState {
   defaultOutputDir: string;
   whisperPath: string;
   whisperModelPath: string;
+  language: Locale | '';
 }
 
 function emptyState(): PreferencesState {
-  return { defaultOutputDir: '', whisperPath: '', whisperModelPath: '' };
+  return {
+    defaultOutputDir: '',
+    whisperPath: '',
+    whisperModelPath: '',
+    language: '',
+  };
 }
 
 function normalizePath(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/** Only known locales survive; anything else means "use browser detection". */
+function normalizeLocale(value: unknown): Locale | '' {
+  return value === 'en' || value === 'es' ? value : '';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,11 +66,15 @@ export class PreferencesService {
   /** Whisper model override; empty lets the backend resolve the installed default. */
   readonly whisperModelPath: Signal<string>;
 
+  /** Persisted interface language; empty means detect from the browser. */
+  readonly language: Signal<Locale | ''>;
+
   constructor() {
     this.state = signal(this.load());
     this.defaultOutputDir = computed(() => this.state().defaultOutputDir);
     this.whisperPath = computed(() => this.state().whisperPath);
     this.whisperModelPath = computed(() => this.state().whisperModelPath);
+    this.language = computed(() => this.state().language);
   }
 
   setDefaultOutputDir(path: string): void {
@@ -77,6 +94,10 @@ export class PreferencesService {
 
   setWhisperModelPath(path: string): void {
     this.update({ ...this.state(), whisperModelPath: normalizePath(path) });
+  }
+
+  setLanguage(locale: Locale): void {
+    this.update({ ...this.state(), language: locale });
   }
 
   clearWhisperPaths(): void {
@@ -104,6 +125,7 @@ export class PreferencesService {
         defaultOutputDir: normalizePath(parsed['defaultOutputDir']),
         whisperPath: normalizePath(parsed['whisperPath']),
         whisperModelPath: normalizePath(parsed['whisperModelPath']),
+        language: normalizeLocale(parsed['language']),
       };
     } catch {
       // Corrupted JSON is treated as an empty preference set.
@@ -119,6 +141,7 @@ export class PreferencesService {
           defaultOutputDir: state.defaultOutputDir,
           whisperPath: state.whisperPath,
           whisperModelPath: state.whisperModelPath,
+          language: state.language,
         }),
       );
     } catch {

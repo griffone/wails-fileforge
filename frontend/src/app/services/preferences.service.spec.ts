@@ -46,6 +46,7 @@ describe('PreferencesService', () => {
       defaultOutputDir: '/tmp/exports',
       whisperPath: '',
       whisperModelPath: '',
+      language: '',
     });
   });
 
@@ -71,6 +72,7 @@ describe('PreferencesService', () => {
       defaultOutputDir: '',
       whisperPath: '',
       whisperModelPath: '',
+      language: '',
     });
   });
 
@@ -94,6 +96,7 @@ describe('PreferencesService', () => {
       defaultOutputDir: '',
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '/models/ggml-base.bin',
+      language: '',
     });
   });
 
@@ -144,6 +147,39 @@ describe('PreferencesService', () => {
 
     expect(service.whisperPath()).toBe('');
     expect(service.whisperModelPath()).toBe('');
+  });
+
+  it('starts with no language preference so the browser decides', () => {
+    const service = TestBed.inject(PreferencesService);
+
+    expect(service.language()).toBe('');
+  });
+
+  it('persists and reloads the chosen language', () => {
+    const service = TestBed.inject(PreferencesService);
+
+    service.setLanguage('es');
+
+    expect(service.language()).toBe('es');
+    expect(
+      JSON.parse(localStorage.getItem(PREFERENCES_STORAGE_KEY) ?? '{}')
+        .language,
+    ).toBe('es');
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({});
+
+    expect(TestBed.inject(PreferencesService).language()).toBe('es');
+  });
+
+  it('rejects an unknown stored language', () => {
+    localStorage.setItem(
+      PREFERENCES_STORAGE_KEY,
+      JSON.stringify({ language: 'fr' }),
+    );
+
+    const service = TestBed.inject(PreferencesService);
+    expect(service.language()).toBe('');
   });
 
   it('falls back to empty defaults for malformed storage', () => {

@@ -7,6 +7,41 @@
 
   <div class="settings-stack">
     <section
+      class="panel settings-panel settings-language"
+      aria-labelledby="settings-language-title"
+    >
+      <div class="panel-head">
+        <h2 id="settings-language-title" class="panel-title">
+          {{ i18n.t('settings.language.title') }}
+        </h2>
+      </div>
+
+      <div class="settings-body">
+        <p class="settings-help">
+          {{ i18n.t('settings.language.subtitle') }}
+        </p>
+
+        <div
+          class="settings-language-options"
+          role="group"
+          aria-labelledby="settings-language-title"
+        >
+          @for (locale of locales; track locale.id) {
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm settings-language-option"
+              [class.is-active]="i18n.locale() === locale.id"
+              [attr.aria-pressed]="i18n.locale() === locale.id"
+              (click)="setLocale(locale.id)"
+            >
+              {{ locale.label }}
+            </button>
+          }
+        </div>
+      </div>
+    </section>
+
+    <section
       class="panel settings-panel settings-toolchain"
       aria-labelledby="settings-toolchain-title"
     >

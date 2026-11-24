@@ -4,3 +4,18 @@
   display: block;
   min-height: 100vh;
 }
+
+.rail-locale {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  font-family: var(--font-mono);
+}
+
+.rail-locale-code {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+

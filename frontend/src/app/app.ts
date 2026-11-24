@@ -27,6 +27,7 @@ import { ToastHost } from './components/toast-host/toast-host';
 import { ToolchainSetup } from './components/toolchain-setup/toolchain-setup';
 import { ActivityService } from './services/activity.service';
 import { GlobalDropService } from './services/global-drop.service';
+import { I18nService } from './services/i18n.service';
 import { RecentToolsService } from './services/recent-tools.service';
 import { ThemeService } from './services/theme.service';
 import { ToolRegistryService } from './services/tool-registry.service';
@@ -59,6 +60,7 @@ const LOCAL_DROP_TARGET_PREFIX = 'ff-drop-';
 export class App {
   protected readonly registry = inject(ToolRegistryService);
   readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
   private readonly themeService = inject(ThemeService);
   private readonly wails = inject(Wails);
@@ -78,6 +80,12 @@ export class App {
   readonly themeActionLabel = computed(() =>
     this.isDark() ? 'Switch to light theme' : 'Switch to dark theme',
   );
+  readonly localeToggleLabel = computed(() => {
+    const locale = this.i18n.locale();
+    const label =
+      this.i18n.locales.find((option) => option.id === locale)?.label ?? locale;
+    return this.i18n.t('shell.locale.toggle', { language: label });
+  });
 
   readonly runtimeAvailable = this.wails.isRuntimeAvailable();
   readonly shortcutLabel = this.resolveShortcutLabel();
@@ -131,6 +139,10 @@ export class App {
 
   toggleTheme(): void {
     this.themeService.toggle();
+  }
+
+  toggleLocale(): void {
+    this.i18n.toggle();
   }
 
   openPalette(): void {

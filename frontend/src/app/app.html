@@ -53,6 +53,16 @@
       </div>
 
       <button
+        class="icon-btn rail-locale"
+        type="button"
+        [attr.aria-label]="localeToggleLabel()"
+        [title]="localeToggleLabel()"
+        (click)="toggleLocale()"
+      >
+        <span class="rail-locale-code">{{ i18n.locale().toUpperCase() }}</span>
+      </button>
+
+      <button
         class="icon-btn rail-theme"
         type="button"
         [attr.aria-label]="themeActionLabel()"

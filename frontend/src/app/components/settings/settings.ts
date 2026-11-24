@@ -19,6 +19,8 @@ import {
 
 import { PreferencesService } from '../../services/preferences.service';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
+import { I18nService } from '../../services/i18n.service';
+import type { Locale } from '../../i18n';
 import { Theme, ThemeService } from '../../services/theme.service';
 import {
   isUnsupportedStatus,
@@ -70,6 +72,8 @@ export class Settings implements OnInit {
   private readonly document = inject(DOCUMENT);
   private readonly toolchain = inject(ToolchainStateService);
 
+  readonly i18n = inject(I18nService);
+
   readonly folderIcon = FolderOpen;
   readonly sunIcon = Sun;
   readonly moonIcon = Moon;
@@ -83,6 +87,7 @@ export class Settings implements OnInit {
   readonly defaultOutputDir = this.preferences.defaultOutputDir;
   readonly isDark = this.themeService.isDark;
   readonly isLight = computed(() => !this.isDark());
+  readonly locales = this.i18n.locales;
 
   readonly recentCount = computed(() => this.recentConversions.recent().length);
   readonly historySummary = computed(() => {
@@ -621,6 +626,10 @@ export class Settings implements OnInit {
 
   setTheme(theme: Theme): void {
     this.themeService.set(theme);
+  }
+
+  setLocale(locale: Locale): void {
+    this.i18n.setLocale(locale);
   }
 
   clearHistory(): void {
