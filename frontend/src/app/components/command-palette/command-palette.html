@@ -6,17 +6,17 @@
       aria-modal="true"
       aria-labelledby="palette-title"
     >
-      <h2 id="palette-title" class="palette-sr">Command palette</h2>
+      <h2 id="palette-title" class="palette-sr">{{ i18n.t('palette.title') }}</h2>
 
       <div class="palette-search">
         <lucide-icon class="palette-search-icon" [img]="searchIcon" [size]="16" [strokeWidth]="1.75"></lucide-icon>
-        <label class="palette-sr" for="palette-search">Search tools and actions</label>
+        <label class="palette-sr" for="palette-search">{{ i18n.t('palette.search.label') }}</label>
         <input
           #searchInput
           id="palette-search"
           class="palette-input"
           type="text"
-          placeholder="Search tools and actions…"
+          [attr.placeholder]="i18n.t('palette.search.placeholder')"
           autocomplete="off"
           spellcheck="false"
           role="combobox"
@@ -31,7 +31,13 @@
         <kbd class="kbd palette-esc">Esc</kbd>
       </div>
 
-      <div #listbox id="palette-listbox" class="palette-body" role="listbox" aria-label="Search results">
+      <div
+        #listbox
+        id="palette-listbox"
+        class="palette-body"
+        role="listbox"
+        [attr.aria-label]="i18n.t('palette.results.label')"
+      >
         @if (groups().length > 0) {
           @for (group of groups(); track group.id) {
             <div class="palette-group" role="presentation">
@@ -52,8 +58,8 @@
                     <lucide-icon [img]="entry.tool.icon" [size]="16" [strokeWidth]="1.75"></lucide-icon>
                   </span>
                   <span class="palette-option-text">
-                    <span class="palette-option-name">{{ entry.tool.name }}</span>
-                    <span class="palette-option-desc">{{ entry.tool.description }}</span>
+                    <span class="palette-option-name">{{ entry.name }}</span>
+                    <span class="palette-option-desc">{{ entry.description }}</span>
                   </span>
                   <span class="palette-option-meta">{{ entry.meta }}</span>
                 </div>
@@ -63,8 +69,8 @@
         } @else {
           <div class="palette-empty" role="status">
             <lucide-icon [img]="emptyIcon" [size]="22" [strokeWidth]="1.5"></lucide-icon>
-            <p class="palette-empty-title">No matches for “{{ query() }}”</p>
-            <p class="palette-empty-hint">Try a tool name, a category, or a file format.</p>
+            <p class="palette-empty-title">{{ i18n.t('palette.empty.title', { query: query() }) }}</p>
+            <p class="palette-empty-hint">{{ i18n.t('palette.empty.hint') }}</p>
           </div>
         }
       </div>
@@ -73,15 +79,15 @@
         <span class="palette-hint">
           <lucide-icon [img]="upIcon" [size]="12" [strokeWidth]="2"></lucide-icon>
           <lucide-icon [img]="downIcon" [size]="12" [strokeWidth]="2"></lucide-icon>
-          Navigate
+          {{ i18n.t('palette.hint.navigate') }}
         </span>
         <span class="palette-hint">
           <lucide-icon [img]="enterIcon" [size]="12" [strokeWidth]="2"></lucide-icon>
-          Open
+          {{ i18n.t('palette.hint.open') }}
         </span>
         <span class="palette-hint">
           <kbd class="kbd">Esc</kbd>
-          Close
+          {{ i18n.t('palette.hint.close') }}
         </span>
       </div>
     </div>

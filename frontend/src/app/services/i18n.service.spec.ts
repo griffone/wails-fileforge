@@ -96,4 +96,38 @@ describe('I18nService', () => {
 
     expect(service.t(missing)).toBe('shell.missing.key');
   });
+
+  it('tOr resolves known keys through the Spanish dictionary', () => {
+    const service = TestBed.inject(I18nService);
+
+    service.setLocale('es');
+
+    expect(service.tOr('tools.tool.pdf.merge.name', 'PDF Merge')).toBe('Unir PDF');
+  });
+
+  it('tOr resolves known keys through the English dictionary', () => {
+    const service = TestBed.inject(I18nService);
+
+    expect(service.tOr('tools.tool.pdf.merge.name', 'Fallback')).toBe('PDF Merge');
+  });
+
+  it('tOr falls back to the call-site English string when the key is missing', () => {
+    const service = TestBed.inject(I18nService);
+
+    service.setLocale('es');
+
+    expect(service.tOr('tools.unknown.tool.name', 'English source label')).toBe(
+      'English source label',
+    );
+  });
+
+  it('tOr interpolates parameters', () => {
+    const service = TestBed.inject(I18nService);
+
+    service.setLocale('es');
+
+    expect(service.tOr('palette.empty.title', 'No matches for “{query}”', { query: 'unir' })).toBe(
+      'Sin resultados para «unir»',
+    );
+  });
 });

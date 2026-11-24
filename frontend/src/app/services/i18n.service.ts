@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 
 import { LOCALES, detectLocale, en, es } from '../i18n';
-import type { Locale, TranslationKey, TranslationParams } from '../i18n';
+import type { Dictionary, Locale, TranslationKey, TranslationParams } from '../i18n';
 import { PreferencesService } from './preferences.service';
 
 /**
@@ -52,9 +52,32 @@ export class I18nService {
   }
 
   t(key: TranslationKey, params?: TranslationParams): string {
-    const dictionary = this.localeState() === 'es' ? es : en;
+    const dictionary = this.dictionary();
     const template = dictionary[key] ?? en[key] ?? key;
 
+    return this.interpolate(template, params);
+  }
+
+  /**
+   * Translates an id-keyed overlay with an inline fallback.
+   *
+   * Used by config-driven surfaces (tools, recipes, categories) where the
+   * canonical English string lives in `config/` and the translation key is
+   * derived at runtime. Resolution order: active dictionary, English
+   * dictionary, caller fallback.
+   */
+  tOr(key: string, fallback: string, params?: TranslationParams): string {
+    const dictionary = this.dictionary();
+    const template = dictionary[key] ?? (en as Dictionary)[key] ?? fallback;
+
+    return this.interpolate(template, params);
+  }
+
+  private dictionary(): Dictionary {
+    return this.localeState() === 'es' ? es : en;
+  }
+
+  private interpolate(template: string, params?: TranslationParams): string {
     if (!params) {
       return template;
     }

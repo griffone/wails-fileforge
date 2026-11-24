@@ -1,6 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { RecentToolsService } from '../../services/recent-tools.service';
 import { CommandPalette } from './command-palette';
 
@@ -10,6 +12,7 @@ describe('CommandPalette', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-recent-tools');
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
 
     await TestBed.configureTestingModule({
       imports: [CommandPalette],
@@ -18,6 +21,11 @@ describe('CommandPalette', () => {
 
     fixture = TestBed.createComponent(CommandPalette);
     component = fixture.componentInstance;
+  });
+
+  afterEach(() => {
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
+    document.documentElement.lang = 'en';
   });
 
   function openPalette(): void {
@@ -110,5 +118,14 @@ describe('CommandPalette', () => {
 
     expect(groupLabels()[0]).toBe('Recent');
     expect(optionNames()[0]).toBe('PDF Merge');
+  });
+
+  it('searches translated labels in Spanish mode', () => {
+    TestBed.inject(I18nService).setLocale('es');
+
+    openPalette();
+    typeQuery('unir');
+
+    expect(optionNames()).toEqual(['Unir PDF', 'Unir video']);
   });
 });

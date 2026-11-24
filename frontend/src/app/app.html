@@ -5,20 +5,25 @@
   [class.is-nav-open]="mobileNavOpen()"
 >
   <aside class="rail" id="app-rail">
-    <a class="rail-brand" routerLink="/" aria-label="FileForge home" (click)="onRailNavigate()">
+    <a
+      class="rail-brand"
+      routerLink="/"
+      [attr.aria-label]="i18n.t('shell.brand.aria')"
+      (click)="onRailNavigate()"
+    >
       <span class="rail-brand-mark" aria-hidden="true">
         <lucide-icon [img]="brandIcon" [size]="19" [strokeWidth]="1.75"></lucide-icon>
       </span>
       <span class="rail-brand-text">
         <span class="rail-brand-wordmark">FILEFORGE</span>
-        <span class="rail-brand-subtitle">LOCAL TOOL SUITE</span>
+        <span class="rail-brand-subtitle">{{ i18n.t('shell.brand.subtitle') }}</span>
       </span>
     </a>
 
-    <nav #railNav class="rail-nav" aria-label="Workbench navigation">
+    <nav #railNav class="rail-nav" [attr.aria-label]="i18n.t('shell.nav.aria')">
       @for (group of registry.navGroups; track group.id) {
         <div class="rail-group">
-          <p class="rail-group-label">{{ group.label }}</p>
+          <p class="rail-group-label">{{ registry.groupLabel(group) }}</p>
           @for (item of group.items; track item.id) {
             <a
               class="nav-item"
@@ -26,7 +31,7 @@
               routerLinkActive="is-active"
               [routerLinkActiveOptions]="item.route === '/' ? exactMatch : prefixMatch"
               ariaCurrentWhenActive="page"
-              [attr.aria-label]="group.label + ': ' + item.navName"
+              [attr.aria-label]="registry.groupLabel(group) + ': ' + registry.navName(item)"
               (click)="onRailNavigate()"
             >
               <lucide-icon
@@ -35,7 +40,7 @@
                 [size]="17"
                 [strokeWidth]="1.75"
               ></lucide-icon>
-              <span class="nav-item-label">{{ item.navName }}</span>
+              <span class="nav-item-label">{{ registry.navName(item) }}</span>
             </a>
           }
         </div>
@@ -49,7 +54,7 @@
           [attr.data-state]="runtimeAvailable ? 'success' : 'idle'"
           aria-hidden="true"
         ></span>
-        <span class="runtime-label">{{ runtimeAvailable ? 'Runtime online' : 'Preview only' }}</span>
+        <span class="runtime-label">{{ i18n.t(runtimeAvailable ? 'shell.runtime.online' : 'shell.runtime.preview') }}</span>
       </div>
 
       <button
@@ -84,7 +89,7 @@
           type="button"
           aria-controls="app-rail"
           [attr.aria-expanded]="mobileNavOpen()"
-          [attr.aria-label]="mobileNavOpen() ? 'Close navigation' : 'Open navigation'"
+          [attr.aria-label]="i18n.t(mobileNavOpen() ? 'shell.nav.close' : 'shell.nav.open')"
           (click)="toggleMobileNav()"
         >
           <lucide-icon [img]="mobileNavOpen() ? closeIcon : menuIcon" [size]="18" [strokeWidth]="1.75"></lucide-icon>
@@ -92,19 +97,19 @@
 
         <div class="topbar-context">
           @if (currentRecipe(); as recipe) {
-            <span class="topbar-crumb-category">Recipes</span>
+            <span class="topbar-crumb-category">{{ i18n.t('categories.recipes') }}</span>
             <span class="topbar-crumb-sep" aria-hidden="true">/</span>
-            <span class="topbar-crumb">{{ recipe.fallback.name }}</span>
+            <span class="topbar-crumb">{{ registry.recipeName(recipe) }}</span>
           } @else if (currentTool(); as tool) {
             @if (tool.route === '/') {
-              <span class="topbar-crumb">Workbench</span>
+              <span class="topbar-crumb">{{ i18n.t('shell.crumb.workbench') }}</span>
             } @else {
               <span class="topbar-crumb-category">{{ registry.categoryLabel(tool.category) }}</span>
               <span class="topbar-crumb-sep" aria-hidden="true">/</span>
-              <span class="topbar-crumb">{{ tool.navName }}</span>
+              <span class="topbar-crumb">{{ registry.navName(tool) }}</span>
             }
           } @else {
-            <span class="topbar-crumb">Workbench</span>
+            <span class="topbar-crumb">{{ i18n.t('shell.crumb.workbench') }}</span>
           }
         </div>
       </div>
@@ -116,11 +121,11 @@
           type="button"
           aria-haspopup="dialog"
           [attr.aria-expanded]="paletteOpen()"
-          [attr.aria-label]="'Search tools and actions (' + shortcutLabel + ')'"
+          [attr.aria-label]="i18n.t('shell.search.aria', { shortcut: shortcutLabel })"
           (click)="openPalette()"
         >
           <lucide-icon [img]="searchIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>
-          <span class="palette-trigger-label">Search tools</span>
+          <span class="palette-trigger-label">{{ i18n.t('shell.search.trigger') }}</span>
           <kbd class="kbd palette-trigger-kbd">{{ shortcutLabel }}</kbd>
         </button>
 
@@ -133,14 +138,14 @@
           [attr.aria-expanded]="activity.panelOpen()"
           [attr.aria-label]="
             activity.runningCount() > 0
-              ? 'Open task activity (' + activity.runningCount() + ' running)'
-              : 'Open task activity'
+              ? i18n.t('shell.activity.ariaRunning', { count: activity.runningCount() })
+              : i18n.t('shell.activity.aria')
           "
           [class.is-active]="activity.panelOpen()"
           (click)="toggleActivity()"
         >
           <lucide-icon [img]="activityIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>
-          <span class="palette-trigger-label">Activity</span>
+          <span class="palette-trigger-label">{{ i18n.t('shell.activity.trigger') }}</span>
           @if (activity.runningCount() > 0) {
             <span class="activity-badge">{{ activity.runningCount() }}</span>
           }

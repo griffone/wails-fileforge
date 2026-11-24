@@ -1,3 +1,18 @@
 export const shellEs = {
   'shell.locale.toggle': 'Cambiar idioma. Actual: {language}',
+  'shell.brand.aria': 'Inicio de FileForge',
+  'shell.brand.subtitle': 'SUITE LOCAL DE HERRAMIENTAS',
+  'shell.nav.aria': 'Navegación del área de trabajo',
+  'shell.runtime.online': 'Entorno activo',
+  'shell.runtime.preview': 'Solo vista previa',
+  'shell.nav.open': 'Abrir navegación',
+  'shell.nav.close': 'Cerrar navegación',
+  'shell.crumb.workbench': 'Área de trabajo',
+  'shell.search.aria': 'Buscar herramientas y acciones ({shortcut})',
+  'shell.search.trigger': 'Buscar herramientas',
+  'shell.activity.aria': 'Abrir actividad de tareas',
+  'shell.activity.ariaRunning': 'Abrir actividad de tareas ({count} en curso)',
+  'shell.activity.trigger': 'Actividad',
+  'shell.theme.toDark': 'Cambiar al tema oscuro',
+  'shell.theme.toLight': 'Cambiar al tema claro',
 };

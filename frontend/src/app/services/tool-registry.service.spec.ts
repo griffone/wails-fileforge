@@ -1,14 +1,21 @@
 import { TestBed } from '@angular/core/testing';
 
 import { routes } from '../app.routes';
+import { I18nService } from './i18n.service';
+import { PREFERENCES_STORAGE_KEY } from './preferences.service';
 import { ToolRegistryService } from './tool-registry.service';
 
 describe('ToolRegistryService', () => {
   let service: ToolRegistryService;
 
   beforeEach(() => {
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
     TestBed.configureTestingModule({});
     service = TestBed.inject(ToolRegistryService);
+  });
+
+  afterEach(() => {
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
   it('exposes the twenty conversion tools', () => {
@@ -129,6 +136,83 @@ describe('ToolRegistryService', () => {
   it('labels categories', () => {
     expect(service.categoryLabel('docs')).toBe('Documents');
     expect(service.categoryLabel('pdf')).toBe('PDF');
+  });
+
+  it('keeps English overlays byte-identical to the canonical config', () => {
+    for (const entry of service.navigation) {
+      expect(service.toolName(entry))
+        .withContext(`name for ${entry.id}`)
+        .toBe(entry.name);
+      expect(service.navName(entry))
+        .withContext(`navName for ${entry.id}`)
+        .toBe(entry.navName);
+      expect(service.toolDescription(entry))
+        .withContext(`description for ${entry.id}`)
+        .toBe(entry.description);
+    }
+
+    for (const entry of service.recipeNav) {
+      expect(service.toolName(entry))
+        .withContext(`name for ${entry.id}`)
+        .toBe(entry.name);
+      expect(service.navName(entry))
+        .withContext(`navName for ${entry.id}`)
+        .toBe(entry.navName);
+      expect(service.toolDescription(entry))
+        .withContext(`description for ${entry.id}`)
+        .toBe(entry.description);
+    }
+
+    for (const recipe of service.recipes) {
+      expect(service.recipeName(recipe))
+        .withContext(`recipe name for ${recipe.id}`)
+        .toBe(recipe.fallback.name);
+      expect(service.recipeDescription(recipe))
+        .withContext(`recipe description for ${recipe.id}`)
+        .toBe(recipe.fallback.description);
+    }
+  });
+
+  it('resolves English overlays for tools, recipes and groups by default', () => {
+    const merge = service.findByRoute('/pdf-merge');
+    const emailPdf = service.findRecipeByRoute('/recipe/email-pdf');
+    const recipesGroup = service.navGroups.find((group) => group.id === 'recipes');
+
+    expect(merge && service.toolName(merge)).toBe('PDF Merge');
+    expect(merge && service.navName(merge)).toBe('Merge');
+    expect(merge && service.toolDescription(merge)).toBe(
+      'Combine several PDF files into one document in the order you choose.',
+    );
+    expect(service.categoryLabel('pdf')).toBe('PDF');
+    expect(recipesGroup && service.groupLabel(recipesGroup)).toBe('Recipes');
+    expect(service.recipesLabel()).toBe('Recipes');
+    expect(emailPdf && service.recipeName(emailPdf)).toBe('Email PDF');
+    expect(emailPdf && service.recipeDescription(emailPdf)).toBe(
+      'Merge one or more PDFs and compress the result to a size that is easy to send by email.',
+    );
+  });
+
+  it('resolves Spanish overlays for tools, recipes and groups', () => {
+    TestBed.inject(I18nService).setLocale('es');
+
+    const merge = service.findByRoute('/pdf-merge');
+    const emailPdf = service.findRecipeByRoute('/recipe/email-pdf');
+    const recipesGroup = service.navGroups.find((group) => group.id === 'recipes');
+    const pdfGroup = service.navGroups.find((group) => group.id === 'pdf');
+
+    expect(merge && service.toolName(merge)).toBe('Unir PDF');
+    expect(merge && service.navName(merge)).toBe('Unir');
+    expect(merge && service.toolDescription(merge)).toBe(
+      'Combina varios archivos PDF en un solo documento en el orden que elijas.',
+    );
+    expect(service.categoryLabel('docs')).toBe('Documentos');
+    expect(recipesGroup && service.groupLabel(recipesGroup)).toBe('Recetas');
+    expect(pdfGroup && service.groupLabel(pdfGroup)).toBe('PDF');
+    expect(service.recipesLabel()).toBe('Recetas');
+    expect(emailPdf && service.recipeName(emailPdf)).toBe('PDF por email');
+    expect(emailPdf && service.recipeDescription(emailPdf)).toBe(
+      'Une uno o varios PDF y comprime el resultado a un tamaño fácil de enviar por correo electrónico.',
+    );
   });
 
   it('matches every tool route declared in app.routes.ts', () => {

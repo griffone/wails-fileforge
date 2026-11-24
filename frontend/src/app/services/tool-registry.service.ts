@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 
 import { RECIPES, RECIPE_NAV, RECIPE_NAV_GROUP, type RecipeDefinition } from '../config/recipes';
 import {
@@ -14,6 +14,7 @@ import {
   type ToolDefinition,
   normalizeToolRoute,
 } from '../config/tools';
+import { I18nService } from './i18n.service';
 
 /**
  * Read-only view over the workbench tool model.
@@ -26,6 +27,8 @@ import {
   providedIn: 'root',
 })
 export class ToolRegistryService {
+  private readonly i18n = inject(I18nService);
+
   /** The twenty conversion tools, without Home or System Status. */
   readonly tools: readonly ToolDefinition[] = TOOLS;
 
@@ -75,7 +78,40 @@ export class ToolRegistryService {
   }
 
   categoryLabel(id: ToolCategory): string {
-    return this.categories.find((category) => category.id === id)?.label ?? '';
+    const fallback = this.categories.find((category) => category.id === id)?.label ?? '';
+    return this.i18n.tOr(`categories.${id}`, fallback);
+  }
+
+  /** Translated group heading; recipes use their own category key. */
+  groupLabel(group: NavGroup): string {
+    return group.id === 'recipes'
+      ? this.i18n.tOr('categories.recipes', group.label)
+      : this.categoryLabel(group.id);
+  }
+
+  /** Shared label for the recipes group in search and browse surfaces. */
+  recipesLabel(): string {
+    return this.i18n.tOr('categories.recipes', 'Recipes');
+  }
+
+  toolName(tool: ToolDefinition): string {
+    return this.i18n.tOr(`tools.${tool.id}.name`, tool.name);
+  }
+
+  navName(tool: ToolDefinition): string {
+    return this.i18n.tOr(`tools.${tool.id}.navName`, tool.navName);
+  }
+
+  toolDescription(tool: ToolDefinition): string {
+    return this.i18n.tOr(`tools.${tool.id}.description`, tool.description);
+  }
+
+  recipeName(recipe: RecipeDefinition): string {
+    return this.i18n.tOr(`tools.${recipe.id}.name`, recipe.fallback.name);
+  }
+
+  recipeDescription(recipe: RecipeDefinition): string {
+    return this.i18n.tOr(`tools.${recipe.id}.description`, recipe.fallback.description);
   }
 
   /** True when the definition is a real tool (not Home or System Status). */

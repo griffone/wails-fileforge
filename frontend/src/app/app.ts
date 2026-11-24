@@ -78,7 +78,7 @@ export class App {
   readonly isDark = this.themeService.isDark;
   readonly themeIcon = computed(() => (this.isDark() ? Moon : Sun));
   readonly themeActionLabel = computed(() =>
-    this.isDark() ? 'Switch to light theme' : 'Switch to dark theme',
+    this.i18n.t(this.isDark() ? 'shell.theme.toLight' : 'shell.theme.toDark'),
   );
   readonly localeToggleLabel = computed(() => {
     const locale = this.i18n.locale();

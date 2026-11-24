@@ -23,12 +23,15 @@ import {
 } from 'lucide-angular';
 
 import { ToolDefinition } from '../../config/tools';
+import { I18nService } from '../../services/i18n.service';
 import { RecentToolsService } from '../../services/recent-tools.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
 
-/** A single selectable row, carrying its position in the flattened result list. */
+/** A single selectable row, carrying its translated copy and flattened position. */
 interface PaletteEntry {
   tool: ToolDefinition;
+  name: string;
+  description: string;
   categoryLabel: string;
   meta: string;
   index: number;
@@ -66,7 +69,8 @@ function normalize(value: string): string {
   styleUrl: './command-palette.css',
 })
 export class CommandPalette implements OnChanges, AfterViewChecked {
-  private readonly registry = inject(ToolRegistryService);
+  readonly registry = inject(ToolRegistryService);
+  readonly i18n = inject(I18nService);
   private readonly recentTools = inject(RecentToolsService);
 
   @Input() open = false;
@@ -245,7 +249,7 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
     if (recent.length > 0) {
       groups.push({
         id: 'recent',
-        label: 'Recent',
+        label: this.i18n.t('palette.group.recent'),
         entries: recent.map((tool) => this.toEntry(tool, 'recent')),
       });
     }
@@ -257,7 +261,7 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
 
       groups.push({
         id: group.id,
-        label: group.label,
+        label: this.registry.groupLabel(group),
         entries: group.items.map((tool) => this.toEntry(tool, group.id)),
       });
     }
@@ -293,7 +297,7 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
         best: recipeMatches[0].score,
         group: {
           id: 'recipes',
-          label: 'Recipes',
+          label: this.registry.recipesLabel(),
           entries: recipeMatches.map((entry) => this.toEntry(entry.tool, 'recipes')),
         },
       });
@@ -313,7 +317,7 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
         best: matches[0].score,
         group: {
           id: category.id,
-          label: category.label,
+          label: this.registry.categoryLabel(category.id),
           entries: matches.map((entry) => this.toEntry(entry.tool, category.id)),
         },
       });
@@ -329,12 +333,14 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
    * Name and nav-label matches outrank keyword, format and description hits.
    */
   private scoreTool(tool: ToolDefinition, tokens: string[]): number | null {
-    const name = normalize(tool.name);
-    const navName = normalize(tool.navName);
-    const description = normalize(tool.description);
+    const name = normalize(this.registry.toolName(tool));
+    const navName = normalize(this.registry.navName(tool));
+    const description = normalize(this.registry.toolDescription(tool));
     const category = normalize(this.registry.categoryLabel(tool.category));
     const formats = tool.formats.map((format) => normalize(format));
-    const keywords = tool.keywords.map((keyword) => normalize(keyword));
+    const keywords = [...tool.keywords, tool.name, tool.navName].map((keyword) =>
+      normalize(keyword),
+    );
 
     let total = 0;
     for (const token of tokens) {
@@ -378,6 +384,8 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
 
     return {
       tool,
+      name: this.registry.toolName(tool),
+      description: this.registry.toolDescription(tool),
       categoryLabel,
       meta: groupId === 'recent' ? categoryLabel : formats || categoryLabel,
       index: 0,

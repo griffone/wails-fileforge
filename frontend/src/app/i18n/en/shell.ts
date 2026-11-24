@@ -1,3 +1,18 @@
 export const shellEn = {
   'shell.locale.toggle': 'Switch language. Current: {language}',
+  'shell.brand.aria': 'FileForge home',
+  'shell.brand.subtitle': 'LOCAL TOOL SUITE',
+  'shell.nav.aria': 'Workbench navigation',
+  'shell.runtime.online': 'Runtime online',
+  'shell.runtime.preview': 'Preview only',
+  'shell.nav.open': 'Open navigation',
+  'shell.nav.close': 'Close navigation',
+  'shell.crumb.workbench': 'Workbench',
+  'shell.search.aria': 'Search tools and actions ({shortcut})',
+  'shell.search.trigger': 'Search tools',
+  'shell.activity.aria': 'Open task activity',
+  'shell.activity.ariaRunning': 'Open task activity ({count} running)',
+  'shell.activity.trigger': 'Activity',
+  'shell.theme.toDark': 'Switch to dark theme',
+  'shell.theme.toLight': 'Switch to light theme',
 } as const;
