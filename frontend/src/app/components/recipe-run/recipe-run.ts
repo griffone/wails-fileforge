@@ -22,7 +22,9 @@ import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { findRecipeFallback } from '../../config/recipes';
+import type { TranslationKey } from '../../i18n';
 import { ActivityService } from '../../services/activity.service';
+import { I18nService } from '../../services/i18n.service';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import {
   FileInfo,
@@ -90,11 +92,6 @@ function normalizeStepState(value: string | undefined): RecipeStepState {
   }
 }
 
-/** `Email PDF` → `email PDF`, so the action button reads like a sentence. */
-function lowerFirst(value: string): string {
-  return value ? value.charAt(0).toLowerCase() + value.slice(1) : value;
-}
-
 function defaultTargetMb(recipe: Recipe | null): number {
   const bytes = recipe?.defaultTargetSizeBytes ?? 0;
   return bytes > 0 ? bytes / BYTES_PER_MB : 0;
@@ -134,6 +131,7 @@ export class RecipeRun implements OnDestroy, OnInit {
   private readonly wailsService = inject(Wails);
   private readonly route = inject(ActivatedRoute);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
   private readonly recipeId = this.resolveRecipeId();
 
   readonly shieldIcon = ShieldCheck;
@@ -176,7 +174,30 @@ export class RecipeRun implements OnDestroy, OnInit {
     () => (this.recipe()?.maxInputs ?? 0) !== 1,
   );
 
-  readonly recipeHighlights = computed(() => this.recipe()?.highlights ?? []);
+  readonly recipeHighlights = computed(() =>
+    this.i18n.tList(
+      `recipes.${this.recipeSlug()}.highlights` as TranslationKey,
+      this.recipe()?.highlights ?? [],
+    ),
+  );
+
+  /** Recipe name overlaid by id; config keeps the fallback. */
+  readonly recipeName = computed(() => {
+    const recipe = this.recipe();
+    return this.i18n.tOr(
+      `tools.${recipe?.id ?? this.recipeId}.name`,
+      recipe?.name ?? '',
+    );
+  });
+
+  /** Recipe description overlaid by id; config keeps the fallback. */
+  readonly recipeDescription = computed(() => {
+    const recipe = this.recipe();
+    return this.i18n.tOr(
+      `tools.${recipe?.id ?? this.recipeId}.description`,
+      recipe?.description ?? '',
+    );
+  });
 
   readonly acceptAttribute = computed(() => {
     const extensions = this.recipe()?.acceptExtensions ?? [];
@@ -198,33 +219,38 @@ export class RecipeRun implements OnDestroy, OnInit {
       const kind = this.inputKindLabel();
       const extensions = this.extensionsLabel();
       if (extensions.toLowerCase() === kind.toLowerCase()) {
-        return `One ${kind}`;
+        return this.i18n.t('recipeRun.input.one', { kind });
       }
-      return `One ${kind} · ${extensions}`;
+      return this.i18n.t('recipeRun.input.oneWithExtensions', {
+        kind,
+        extensions,
+      });
     }
 
-    return `${this.extensionsLabel()} files · order matters`;
+    return this.i18n.t('recipeRun.input.many', {
+      extensions: this.extensionsLabel(),
+    });
   });
 
   readonly dropTitle = computed(() => {
     if (this.multipleInputs()) {
-      return this.recipe()?.inputKind === 'pdf' ? 'Drop PDFs here' : 'Drop files here';
+      return this.recipe()?.inputKind === 'pdf'
+        ? this.i18n.t('recipeRun.drop.pdfMany')
+        : this.i18n.t('recipeRun.drop.filesMany');
     }
     switch (this.recipe()?.inputKind) {
       case 'pdf':
-        return 'Drop a PDF here';
+        return this.i18n.t('recipeRun.drop.pdf');
       case 'image':
-        return 'Drop an image here';
+        return this.i18n.t('recipeRun.drop.image');
       case 'video':
-        return 'Drop a video here';
+        return this.i18n.t('recipeRun.drop.video');
       default:
-        return 'Drop a file here';
+        return this.i18n.t('recipeRun.drop.file');
     }
   });
 
-  private readonly titleParts = computed(() =>
-    splitTitle(this.recipe()?.name ?? ''),
-  );
+  private readonly titleParts = computed(() => splitTitle(this.recipeName()));
 
   readonly titleLead = computed(() => this.titleParts().lead);
   readonly titleTail = computed(() => this.titleParts().tail);
@@ -254,12 +280,12 @@ export class RecipeRun implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting()) {
-      return 'Preparing…';
+      return this.i18n.t('recipeRun.action.preparing');
     }
     if (this.isRunning()) {
-      return 'Creating…';
+      return this.i18n.t('recipeRun.action.creating');
     }
-    return `Create ${lowerFirst(this.recipe()?.name ?? 'recipe')}`;
+    return this.i18n.t('recipeRun.action.create', { name: this.recipeName() });
   });
 
   /**
@@ -272,9 +298,13 @@ export class RecipeRun implements OnDestroy, OnInit {
       const allPdf = outputs.every(
         (path) => fileExtension(path).toLowerCase() === 'pdf',
       );
-      return allPdf ? 'PDF' : 'file';
+      return allPdf
+        ? this.i18n.t('recipeRun.result.pdf')
+        : this.i18n.t('recipeRun.result.file');
     }
-    return this.recipe()?.inputKind === 'pdf' ? 'PDF' : 'file';
+    return this.recipe()?.inputKind === 'pdf'
+      ? this.i18n.t('recipeRun.result.pdf')
+      : this.i18n.t('recipeRun.result.file');
   });
 
   readonly destinationLabel = computed(
@@ -288,13 +318,13 @@ export class RecipeRun implements OnDestroy, OnInit {
   readonly defaultDestinationHelp = computed(() => {
     switch (this.recipe()?.inputKind) {
       case 'pdf':
-        return 'The result is saved next to the first PDF.';
+        return this.i18n.t('recipeRun.output.helpPdf');
       case 'image':
-        return 'The result is saved next to the source image.';
+        return this.i18n.t('recipeRun.output.helpImage');
       case 'video':
-        return 'The results are saved next to the source video.';
+        return this.i18n.t('recipeRun.output.helpVideo');
       default:
-        return 'The result is saved next to the original file.';
+        return this.i18n.t('recipeRun.output.helpFile');
     }
   });
 
@@ -389,6 +419,7 @@ export class RecipeRun implements OnDestroy, OnInit {
     const active = this.isRunning();
     const liveStep = this.activeLiveProgress()?.currentStep ?? 0;
     const currentStep = liveStep > 0 ? liveStep : (result?.currentStep ?? 0);
+    const slug = this.recipeSlug();
 
     return recipeSteps.map((step, index) => {
       const resultStep = result?.steps?.[index];
@@ -399,10 +430,16 @@ export class RecipeRun implements OnDestroy, OnInit {
 
       return {
         id: step.id,
-        name: step.name,
+        name: this.i18n.tOr(
+          `recipes.${slug}.step.${step.id}.name`,
+          step.name,
+        ),
         state,
         message: resultStep?.message ?? '',
-        detail: step.detail ?? '',
+        detail: this.i18n.tOr(
+          `recipes.${slug}.step.${step.id}.detail`,
+          step.detail ?? '',
+        ),
       };
     });
   });
@@ -432,12 +469,15 @@ export class RecipeRun implements OnDestroy, OnInit {
     const live = this.activeLiveProgress();
     const result = this.result();
     if (!live && !result) {
-      return 'Starting…';
+      return this.i18n.t('recipeRun.progress.starting');
     }
 
     const total = live?.totalSteps || result?.totalSteps || this.steps().length;
     const currentStep = live?.currentStep || result?.currentStep || 1;
-    return `Step ${Math.max(1, Math.min(currentStep, total))} of ${total}`;
+    return this.i18n.t('recipeRun.progress.step', {
+      current: Math.max(1, Math.min(currentStep, total)),
+      total,
+    });
   });
 
   readonly activeStepMessage = computed(() => {
@@ -452,33 +492,34 @@ export class RecipeRun implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      const name = lowerFirst(this.recipe()?.name ?? 'the result');
-      const article = /^[aeiou]/.test(name) ? 'an' : 'a';
-      return `Add ${this.kindArticle()} to create ${article} ${name}.`;
+      return this.i18n.t('recipeRun.action.add', {
+        article: this.kindArticle(),
+        name: this.recipeName(),
+      });
     }
     if (this.targetInvalid()) {
-      return 'Enter a target size larger than 0 MB.';
+      return this.i18n.t('recipeRun.target.invalid');
     }
     return '';
   });
 
   readonly settingsSub = computed(() =>
     this.showTargetSize()
-      ? 'Set the target size and where the results are saved.'
-      : 'Choose where the results are saved.',
+      ? this.i18n.t('recipeRun.settings.subWithTarget')
+      : this.i18n.t('recipeRun.settings.sub'),
   );
 
   readonly runErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.actionError() ?? this.terminalResult()?.error;
     if (error) {
-      return describeToolError(error, 'The recipe could not finish.');
+      return describeToolError(error, this.i18n.t('recipeRun.error.finish'));
     }
 
     const result = this.terminalResult();
     if (result?.status === 'failed' && result.message.trim()) {
       return describeToolError(
         { code: 'EXEC_IO_TRANSIENT', message: result.message },
-        'The recipe could not finish.',
+        this.i18n.t('recipeRun.error.finish'),
       );
     }
 
@@ -501,7 +542,7 @@ export class RecipeRun implements OnDestroy, OnInit {
 
     const response = await this.wailsService.listRecipes().catch(() => ({
       success: false,
-      message: 'The recipe catalog could not be read.',
+      message: this.i18n.t('recipeRun.error.catalog'),
       recipes: [] as Recipe[],
     }));
     if (!response.success) {
@@ -529,40 +570,47 @@ export class RecipeRun implements OnDestroy, OnInit {
     return `${count} ${this.kindNoun(count)}`;
   }
 
+  /** Recipe id without the `recipe.` prefix; keys the recipe dictionaries. */
+  recipeSlug(): string {
+    return (this.recipe()?.id ?? this.recipeId).replace(/^recipe\./, '');
+  }
+
   /** Panel titles stay concrete per input kind instead of saying "files". */
   inputTitle(): string {
     switch (this.recipe()?.inputKind) {
       case 'pdf':
-        return 'PDFs';
+        return this.i18n.t('recipeRun.inputTitle.pdf');
       case 'image':
-        return 'Image';
+        return this.i18n.t('recipeRun.inputTitle.image');
       case 'video':
-        return 'Video';
+        return this.i18n.t('recipeRun.inputTitle.video');
       default:
-        return 'Files';
+        return this.i18n.t('recipeRun.inputTitle.file');
     }
   }
 
   chooseLabel(): string {
     if (this.multipleInputs()) {
-      return this.recipe()?.inputKind === 'pdf' ? 'Choose PDFs' : 'Choose files';
+      return this.recipe()?.inputKind === 'pdf'
+        ? this.i18n.t('recipeRun.choose.pdfMany')
+        : this.i18n.t('recipeRun.choose.filesMany');
     }
     switch (this.recipe()?.inputKind) {
       case 'pdf':
-        return 'Choose PDF';
+        return this.i18n.t('recipeRun.choose.pdf');
       case 'image':
-        return 'Choose image';
+        return this.i18n.t('recipeRun.choose.image');
       case 'video':
-        return 'Choose video';
+        return this.i18n.t('recipeRun.choose.video');
       default:
-        return 'Choose file';
+        return this.i18n.t('recipeRun.choose.file');
     }
   }
 
   orderHint(): string {
     return this.recipe()?.inputKind === 'pdf'
-      ? 'The order below is the merge order.'
-      : 'Files run in the order shown.';
+      ? this.i18n.t('recipeRun.order.pdf')
+      : this.i18n.t('recipeRun.order.files');
   }
 
   onPathsSelected(paths: string[]): void {
@@ -755,13 +803,13 @@ export class RecipeRun implements OnDestroy, OnInit {
       .runRecipe(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The recipe could not start.',
+        message: this.i18n.t('recipeRun.error.start'),
         jobId: '',
         status: 'failed',
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RECIPE_RUN_FAILED',
-          message: 'The recipe could not start.',
+          message: this.i18n.t('recipeRun.error.start'),
         },
       }));
     this.isSubmitting.set(false);
@@ -771,7 +819,7 @@ export class RecipeRun implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RECIPE_RUN_FAILED',
-          message: response.message || 'The recipe could not start.',
+          message: response.message || this.i18n.t('recipeRun.error.start'),
         },
       );
       return;
@@ -793,11 +841,11 @@ export class RecipeRun implements OnDestroy, OnInit {
       .catch(() => ({
         success: false,
         found: false,
-        message: 'The recipe could not be cancelled.',
+        message: this.i18n.t('recipeRun.error.cancel'),
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RECIPE_CANCEL_FAILED',
-          message: 'The recipe could not be cancelled.',
+          message: this.i18n.t('recipeRun.error.cancel'),
         },
       }));
     if (!response.success) {
@@ -805,7 +853,7 @@ export class RecipeRun implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RECIPE_CANCEL_FAILED',
-          message: response.message || 'The recipe could not be cancelled.',
+          message: response.message || this.i18n.t('recipeRun.error.cancel'),
         },
       );
     }
@@ -814,7 +862,9 @@ export class RecipeRun implements OnDestroy, OnInit {
   async openPath(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.notice.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('recipeRun.error.openFile'),
     );
   }
 
@@ -823,7 +873,7 @@ export class RecipeRun implements OnDestroy, OnInit {
     this.notice.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('recipeRun.error.openFolder'),
     );
   }
 
@@ -841,15 +891,15 @@ export class RecipeRun implements OnDestroy, OnInit {
   stepStateLabel(state: RecipeStepState): string {
     switch (state) {
       case 'success':
-        return 'Done';
+        return this.i18n.t('recipeRun.step.success');
       case 'failed':
-        return 'Failed';
+        return this.i18n.t('recipeRun.step.failed');
       case 'skipped':
-        return 'Skipped';
+        return this.i18n.t('recipeRun.step.skipped');
       case 'running':
-        return 'Running';
+        return this.i18n.t('recipeRun.step.running');
       default:
-        return 'Pending';
+        return this.i18n.t('recipeRun.step.pending');
     }
   }
 
@@ -922,14 +972,14 @@ export class RecipeRun implements OnDestroy, OnInit {
       .planRecipe(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('recipeRun.error.plan'),
         inputPaths: [],
         outputDir: '',
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RECIPE_PLAN_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('recipeRun.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -1037,7 +1087,7 @@ export class RecipeRun implements OnDestroy, OnInit {
       this.liveProgress.set(null);
       this.stopObserving();
       if (result.status === 'cancelled') {
-        this.notice.set('Cancelled — no output was written.');
+        this.notice.set(this.i18n.t('recipeRun.notice.cancelled'));
       }
     }
   }
@@ -1053,7 +1103,7 @@ export class RecipeRun implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'RECIPE_STATUS_MISSING',
-        message: response.message || 'The recipe status could not be read.',
+        message: response.message || this.i18n.t('recipeRun.error.status'),
       },
     );
   }
@@ -1145,25 +1195,42 @@ export class RecipeRun implements OnDestroy, OnInit {
 
     if (rejected.length === 1) {
       parts.push(
-        `${fileName(rejected[0])} wasn't added because it isn't ${this.kindArticle()}.`,
+        this.i18n.t('recipeRun.notice.rejectedOne', {
+          file: fileName(rejected[0]),
+          article: this.kindArticle(),
+        }),
       );
     } else if (rejected.length > 1) {
       const names = rejected.map((path) => fileName(path)).join(', ');
       parts.push(
-        `${names} weren't added because they aren't ${this.kindNoun(2)}.`,
+        this.i18n.t('recipeRun.notice.rejectedMany', {
+          files: names,
+          noun: this.kindNoun(2),
+        }),
       );
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('recipeRun.notice.duplicateOne', {
+          file: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
       parts.push(
-        `${duplicates.length} ${this.kindNoun(duplicates.length)} are already in the queue.`,
+        this.i18n.t('recipeRun.notice.duplicateMany', {
+          count: duplicates.length,
+          noun: this.kindNoun(duplicates.length),
+        }),
       );
     }
 
     if (extraAccepted > 0) {
-      parts.push(`Only the first ${this.inputKindLabel()} is used.`);
+      parts.push(
+        this.i18n.t('recipeRun.notice.onlyFirst', {
+          kind: this.inputKindLabel(),
+        }),
+      );
     }
 
     return parts.join(' ');
@@ -1187,52 +1254,60 @@ export class RecipeRun implements OnDestroy, OnInit {
   private kindLabel(kind: string): string {
     switch (kind) {
       case 'pdf':
-        return 'PDF';
+        return this.i18n.t('recipeRun.kind.pdf');
       case 'image':
-        return 'image';
+        return this.i18n.t('recipeRun.kind.image');
       case 'video':
-        return 'video';
+        return this.i18n.t('recipeRun.kind.video');
       default:
-        return 'file';
+        return this.i18n.t('recipeRun.kind.file');
     }
   }
 
   private kindArticle(): string {
     switch (this.recipe()?.inputKind) {
       case 'pdf':
-        return 'a PDF';
+        return this.i18n.t('recipeRun.kind.pdfArticle');
       case 'image':
-        return 'an image';
+        return this.i18n.t('recipeRun.kind.imageArticle');
       case 'video':
-        return 'a video';
+        return this.i18n.t('recipeRun.kind.videoArticle');
       default:
-        return 'a file';
+        return this.i18n.t('recipeRun.kind.fileArticle');
     }
   }
 
   private kindNoun(count: number): string {
     switch (this.recipe()?.inputKind) {
       case 'pdf':
-        return count === 1 ? 'PDF' : 'PDFs';
+        return this.i18n.t(
+          count === 1 ? 'recipeRun.kind.pdf' : 'recipeRun.kind.pdfMany',
+        );
       case 'image':
-        return count === 1 ? 'image' : 'images';
+        return this.i18n.t(
+          count === 1 ? 'recipeRun.kind.image' : 'recipeRun.kind.imageMany',
+        );
       case 'video':
-        return count === 1 ? 'video' : 'videos';
+        return this.i18n.t(
+          count === 1 ? 'recipeRun.kind.video' : 'recipeRun.kind.videoMany',
+        );
       default:
-        return count === 1 ? 'file' : 'files';
+        return this.i18n.t(
+          count === 1 ? 'recipeRun.kind.file' : 'recipeRun.kind.fileMany',
+        );
     }
   }
 
   private defaultDestinationLabel(): string {
     switch (this.recipe()?.inputKind) {
       case 'pdf':
-        return 'Next to the first PDF';
+        return this.i18n.t('recipeRun.output.nextToPdf');
       case 'image':
-        return 'Next to the image';
+        return this.i18n.t('recipeRun.output.nextToImage');
       case 'video':
-        return 'Next to the video';
+        return this.i18n.t('recipeRun.output.nextToVideo');
       default:
-        return 'Next to the original';
+        return this.i18n.t('recipeRun.output.nextToFile');
     }
   }
 }

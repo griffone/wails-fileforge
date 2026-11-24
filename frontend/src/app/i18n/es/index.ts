@@ -4,6 +4,7 @@ import type { DictionaryValue } from '../types';
 import { categoriesEs } from './categories';
 import { homeEs } from './home';
 import { paletteEs } from './palette';
+import { recipeRunEs } from './recipe-run';
 import { recipesEs } from './recipes';
 import { settingsEs } from './settings';
 import { shellEs } from './shell';
@@ -17,4 +18,5 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...paletteEs,
   ...homeEs,
   ...recipesEs,
+  ...recipeRunEs,
 };

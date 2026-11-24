@@ -9,6 +9,8 @@ import { ActivatedRoute } from '@angular/router';
 import { EMPTY, Subject } from 'rxjs';
 
 import { RecipeRun } from './recipe-run';
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import {
   FileInfo,
   RecipePlanResponse,
@@ -197,6 +199,11 @@ function createRoute(recipeId: string): ActivatedRoute {
   return { snapshot: { data: { recipeId } } } as unknown as ActivatedRoute;
 }
 
+/** The locale is persisted, so every spec starts from the default language. */
+function clearPreferences(): void {
+  localStorage.removeItem(PREFERENCES_STORAGE_KEY);
+}
+
 describe('RecipeRun (Email PDF)', () => {
   let fixture: ComponentFixture<RecipeRun>;
   let component: RecipeRun;
@@ -352,6 +359,7 @@ describe('RecipeRun (Email PDF)', () => {
   }
 
   beforeEach(async () => {
+    clearPreferences();
     wailsSpy = createWailsSpy();
 
     wailsSpy.listRecipes.and.resolveTo({
@@ -746,6 +754,7 @@ describe('RecipeRun (Web image set)', () => {
   }
 
   beforeEach(async () => {
+    clearPreferences();
     wailsSpy = createWailsSpy();
 
     wailsSpy.listRecipes.and.resolveTo({
@@ -1067,6 +1076,7 @@ describe('RecipeRun (Social clip)', () => {
   }
 
   beforeEach(async () => {
+    clearPreferences();
     wailsSpy = createWailsSpy();
 
     wailsSpy.listRecipes.and.resolveTo({
@@ -1302,6 +1312,7 @@ describe('RecipeRun (Clean scan)', () => {
   }
 
   beforeEach(async () => {
+    clearPreferences();
     wailsSpy = createWailsSpy();
 
     wailsSpy.listRecipes.and.resolveTo({
@@ -1536,6 +1547,7 @@ describe('RecipeRun (Burned-in subtitles)', () => {
   }
 
   beforeEach(async () => {
+    clearPreferences();
     wailsSpy = createWailsSpy();
 
     // The catalog predates the new recipe: the local fallback must cover it.
@@ -1657,5 +1669,80 @@ describe('RecipeRun (Burned-in subtitles)', () => {
     expect(text).toContain('lecture_subtitled.srt');
     expect(text).toContain('Verified');
   }));
+});
+
+describe('RecipeRun (Spanish)', () => {
+  let fixture: ComponentFixture<RecipeRun>;
+
+  function query<T extends Element>(selector: string): T | null {
+    return fixture.nativeElement.querySelector(selector) as T | null;
+  }
+
+  beforeEach(async () => {
+    clearPreferences();
+    const wailsSpy = createWailsSpy();
+    wailsSpy.listRecipes.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [emailPdfRecipe],
+    });
+
+    await TestBed.configureTestingModule({
+      imports: [RecipeRun],
+      providers: [
+        { provide: Wails, useValue: wailsSpy },
+        { provide: ActivatedRoute, useValue: createRoute(EMAIL_RECIPE_ID) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(RecipeRun);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    clearPreferences();
+  });
+
+  it('renders the recipe overlay, steps and action copy in Spanish', async () => {
+    const i18n = TestBed.inject(I18nService);
+    i18n.setLocale('es');
+
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('RECETA');
+    expect(text).toContain('Local · Verificado · Reversible');
+    expect(text).toContain('PDF por email');
+    expect(text).toContain(
+      'Une uno o varios PDF y comprime el resultado a un tamaño fácil de enviar por correo electrónico.',
+    );
+
+    // Highlights come from the recipes dictionary, not the English fallback.
+    expect(text).toContain('Unir si hace falta');
+    expect(text).toContain('Tamaño objetivo');
+    expect(text).toContain('Verificado + deshacer');
+    expect(text).not.toContain('Merge when needed');
+
+    expect(text).toContain('Unir PDF');
+    expect(text).toContain('Solo cuando hay dos o más PDF');
+    expect(text).toContain('Optimizar al objetivo');
+    expect(text).toContain('Ghostscript cuando el objetivo lo requiere');
+    expect(text).toContain('Pendiente');
+
+    expect(text).toContain('Ajustes');
+    expect(text).toContain('Carpeta de salida');
+    expect(text).toContain('Pasos');
+    expect(text).toContain('2 pasos');
+
+    expect(
+      query<HTMLButtonElement>('.action-primary')?.textContent?.trim(),
+    ).toBe('Crear PDF por email');
+    expect(text).toContain('Agrega un PDF para crear PDF por email.');
+
+    i18n.setLocale('en');
+  });
 });
 

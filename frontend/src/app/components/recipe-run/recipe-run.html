@@ -2,14 +2,14 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">RECIPE</p>
+        <p class="eyebrow">{{ i18n.t('recipeRun.eyebrow') }}</p>
         <h1 class="page-title">
           {{ titleLead() }} @if (titleTail()) { <em>{{ titleTail() }}</em> }
         </h1>
-        <p class="page-sub">{{ recipe()?.description }}</p>
+        <p class="page-sub">{{ recipeDescription() }}</p>
 
         @if (recipeHighlights().length > 0) {
-          <ul class="recipe-highlights" aria-label="Recipe capabilities">
+          <ul class="recipe-highlights" [attr.aria-label]="i18n.t('recipeRun.capabilitiesAria')">
             @for (highlight of recipeHighlights(); track highlight) {
               <li class="recipe-highlight">{{ highlight }}</li>
             }
@@ -19,7 +19,7 @@
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local · Verified · Undoable
+        {{ i18n.t('recipeRun.localBadge') }}
       </span>
     </div>
   </header>
@@ -46,14 +46,14 @@
           [accept]="acceptAttribute()"
           [title]="dropTitle()"
           [hint]="inputHint()"
-          [ariaLabel]="'Drop or choose files for the ' + (recipe()?.name ?? 'recipe') + ' recipe'"
+          [ariaLabel]="i18n.t('recipeRun.dropAria', { name: recipeName() })"
           [multiple]="multipleInputs()"
           [nativePicker]="true"
           (pathsSelected)="onPathsSelected($event)"
           (browseRequested)="chooseFiles()"
         ></app-file-drop>
 
-        <div class="toolbar" role="group" aria-label="File selection actions">
+        <div class="toolbar" role="group" [attr.aria-label]="i18n.t('recipeRun.selectionAria')">
           <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
             <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
             {{ chooseLabel() }}
@@ -65,7 +65,7 @@
             (click)="clear()"
           >
             <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Clear
+            {{ i18n.t('recipeRun.clear') }}
           </button>
         </div>
 
@@ -88,7 +88,7 @@
     <section class="panel" aria-labelledby="recipe-settings-title">
       <div class="panel-head">
         <div>
-          <h2 id="recipe-settings-title" class="panel-title">Settings</h2>
+          <h2 id="recipe-settings-title" class="panel-title">{{ i18n.t('recipeRun.settings.title') }}</h2>
           <p class="panel-sub">{{ settingsSub() }}</p>
         </div>
       </div>
@@ -97,7 +97,7 @@
         <div class="settings-grid" [class.settings-grid-single]="!showTargetSize()">
           @if (showTargetSize()) {
             <div class="field">
-              <label class="label" for="recipe-target-mb">Target size</label>
+              <label class="label" for="recipe-target-mb">{{ i18n.t('recipeRun.target.label') }}</label>
               <div class="input-suffix">
                 <input
                   id="recipe-target-mb"
@@ -116,34 +116,34 @@
               </div>
               @if (targetInvalid()) {
                 <p id="recipe-target-help" class="field-help field-error" role="alert">
-                  Enter a target size larger than 0 MB.
+                  {{ i18n.t('recipeRun.target.invalid') }}
                 </p>
               } @else {
                 <p id="recipe-target-help" class="field-help">
-                  Best effort: the recipe gets as close as the source allows.
+                  {{ i18n.t('recipeRun.target.help') }}
                 </p>
               }
             </div>
           }
 
           <div class="field">
-            <span class="label">Output folder</span>
+            <span class="label">{{ i18n.t('recipeRun.output.label') }}</span>
             <div class="destination">
               <span class="destination-path mono" [title]="destinationLabel()">{{ destinationLabel() }}</span>
               <button type="button" class="btn btn-secondary btn-sm" (click)="chooseOutputFolder()">
                 <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Choose folder
+                {{ i18n.t('recipeRun.output.choose') }}
               </button>
             </div>
             @if (isDefaultDestination()) {
               <p class="field-help">{{ defaultDestinationHelp() }}</p>
             } @else {
               <button type="button" class="btn btn-ghost btn-sm settings-reset" (click)="useDefaultFolder()">
-                Use the default folder
+                {{ i18n.t('recipeRun.output.useDefault') }}
               </button>
             }
             @if (!showTargetSize()) {
-              <p class="field-help">The recipe chooses the output formats.</p>
+              <p class="field-help">{{ i18n.t('recipeRun.output.fixedFormats') }}</p>
             }
           </div>
         </div>
@@ -153,14 +153,14 @@
     <section class="panel" aria-labelledby="recipe-steps-title">
       <div class="panel-head">
         <div>
-          <h2 id="recipe-steps-title" class="panel-title">Steps</h2>
-          <p class="panel-sub">The recipe runs these tools in order.</p>
+          <h2 id="recipe-steps-title" class="panel-title">{{ i18n.t('recipeRun.steps.title') }}</h2>
+          <p class="panel-sub">{{ i18n.t('recipeRun.steps.sub') }}</p>
         </div>
-        <span class="badge badge-neutral">{{ steps().length }} steps</span>
+        <span class="badge badge-neutral">{{ i18n.t('recipeRun.steps.count', { count: steps().length }) }}</span>
       </div>
 
       <div class="panel-body">
-        <ol class="recipe-steps" aria-label="Recipe steps">
+        <ol class="recipe-steps" [attr.aria-label]="i18n.t('recipeRun.steps.listAria')">
           @for (step of steps(); track step.id; let i = $index) {
             <li class="recipe-step" [attr.data-state]="step.state">
               <span class="recipe-step-index mono" aria-hidden="true">{{ i + 1 }}</span>
@@ -205,7 +205,7 @@
             <div
               class="progress"
               role="progressbar"
-              aria-label="Recipe progress"
+              [attr.aria-label]="i18n.t('recipeRun.progress.aria')"
               aria-valuemin="0"
               aria-valuemax="100"
               [attr.aria-valuenow]="progressPercent()"
@@ -250,7 +250,7 @@
               [disabled]="cancelRequested()"
               (click)="cancel()"
             >
-              {{ cancelRequested() ? 'Cancelling…' : 'Cancel' }}
+              {{ cancelRequested() ? i18n.t('recipeRun.action.cancelling') : i18n.t('recipeRun.action.cancel') }}
             </button>
           }
         </div>
