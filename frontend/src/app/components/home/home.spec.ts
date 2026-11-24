@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
 import { Home } from './home';
+import { I18nService } from '../../services/i18n.service';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
 import { RecentToolsService } from '../../services/recent-tools.service';
 import { JobResult, Wails } from '../../services/wails';
@@ -15,6 +16,7 @@ describe('Home', () => {
     localStorage.removeItem('ff-recent-tools');
     localStorage.removeItem('ff-recent-conversions');
     localStorage.removeItem('ff-onboarding-dismissed');
+    localStorage.setItem('ff-preferences', JSON.stringify({ language: 'en' }));
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'listTools',
@@ -49,6 +51,7 @@ describe('Home', () => {
     localStorage.removeItem('ff-recent-tools');
     localStorage.removeItem('ff-recent-conversions');
     localStorage.removeItem('ff-onboarding-dismissed');
+    localStorage.removeItem('ff-preferences');
   });
 
   function searchInput(): HTMLInputElement {
@@ -598,5 +601,33 @@ describe('Home', () => {
 
     expect(fresh.nativeElement.querySelector('.home-onboarding')).toBeNull();
     fresh.destroy();
+  });
+
+  it('renders the home copy in Spanish when the locale is Spanish', () => {
+    const i18n = TestBed.inject(I18nService);
+    i18n.setLocale('es');
+
+    fixture.detectChanges();
+
+    const title = query<HTMLElement>('.home-title')?.textContent
+      ?.replace(/\s+/g, ' ')
+      .trim();
+    expect(title).toBe(
+      'Todas las herramientas de archivo. Un solo espacio de trabajo.',
+    );
+    expect(query<HTMLElement>('.home-sub')?.textContent).toContain(
+      'Convierte, recorta, une y anota sin salir de tu equipo.',
+    );
+    expect(searchInput().placeholder).toBe(
+      'Encuentra una herramienta: prueba «unir» o «webp»',
+    );
+    expect(filterChip('Todas').getAttribute('aria-pressed')).toBe('true');
+    expect(cardNames()).toContain('Unir PDF');
+
+    const recipeCards = fixture.nativeElement.querySelectorAll(
+      '.home-recipe-card',
+    ) as NodeListOf<HTMLElement>;
+    expect(recipeCards[0].textContent).toContain('Unir si hace falta');
+    expect(recipeCards[0].textContent).toContain('Usar receta');
   });
 });

@@ -14,6 +14,7 @@ import {
   type ToolDefinition,
   normalizeToolRoute,
 } from '../config/tools';
+import type { TranslationKey } from '../i18n';
 import { I18nService } from './i18n.service';
 
 /**
@@ -114,8 +115,28 @@ export class ToolRegistryService {
     return this.i18n.tOr(`tools.${recipe.id}.description`, recipe.fallback.description);
   }
 
+  /** Localized input badge for a recipe card, e.g. `1+ PDFs`. */
+  recipeInputLabel(recipe: RecipeDefinition): string {
+    return this.i18n.tOr(
+      `recipes.${this.recipeSlug(recipe)}.inputLabel`,
+      recipe.inputLabel,
+    );
+  }
+
+  /** Localized highlight list for a recipe card. */
+  recipeHighlights(recipe: RecipeDefinition): string[] {
+    return this.i18n.tList(
+      `recipes.${this.recipeSlug(recipe)}.highlights` as TranslationKey,
+      recipe.fallback.highlights ?? [],
+    );
+  }
+
   /** True when the definition is a real tool (not Home or System Status). */
   isTool(definition: ToolDefinition): boolean {
     return this.tools.some((tool) => tool.route === definition.route);
+  }
+
+  private recipeSlug(recipe: RecipeDefinition): string {
+    return recipe.id.replace(/^recipe\./, '');
   }
 }

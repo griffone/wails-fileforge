@@ -9,8 +9,21 @@ import {
 } from '@angular/core';
 
 import { LOCALES, detectLocale, en, es } from '../i18n';
-import type { Dictionary, Locale, TranslationKey, TranslationParams } from '../i18n';
+import type {
+  Dictionary,
+  DictionaryValue,
+  Locale,
+  TranslationKey,
+  TranslationParams,
+} from '../i18n';
 import { PreferencesService } from './preferences.service';
+
+/** Separator used when a translated array is rendered through `t()`/`tOr()`. */
+const LIST_SEPARATOR = ' · ';
+
+function isStringArray(value: DictionaryValue): value is readonly string[] {
+  return Array.isArray(value);
+}
 
 /**
  * Runtime translation service.
@@ -52,10 +65,8 @@ export class I18nService {
   }
 
   t(key: TranslationKey, params?: TranslationParams): string {
-    const dictionary = this.dictionary();
-    const template = dictionary[key] ?? en[key] ?? key;
-
-    return this.interpolate(template, params);
+    const value = this.value(key);
+    return this.interpolate(this.stringify(value), params);
   }
 
   /**
@@ -64,13 +75,40 @@ export class I18nService {
    * Used by config-driven surfaces (tools, recipes, categories) where the
    * canonical English string lives in `config/` and the translation key is
    * derived at runtime. Resolution order: active dictionary, English
-   * dictionary, caller fallback.
+   * dictionary, caller fallback. Array values are joined with ' · '.
    */
   tOr(key: string, fallback: string, params?: TranslationParams): string {
     const dictionary = this.dictionary();
-    const template = dictionary[key] ?? (en as Dictionary)[key] ?? fallback;
+    const value = dictionary[key] ?? (en as Dictionary)[key] ?? fallback;
 
-    return this.interpolate(template, params);
+    return this.interpolate(this.stringify(value), params);
+  }
+
+  /**
+   * Resolves a key to a list of strings.
+   *
+   * Array values are copied, string values become a single-item list and
+   * missing keys fall back to English, then to the caller fallback.
+   */
+  tList(key: TranslationKey, fallback: readonly string[]): string[] {
+    const dictionary = this.dictionary();
+    const value: DictionaryValue | undefined =
+      dictionary[key] ?? (en as Dictionary)[key];
+
+    if (value === undefined) {
+      return [...fallback];
+    }
+
+    return isStringArray(value) ? [...value] : [value];
+  }
+
+  private value(key: TranslationKey): DictionaryValue {
+    const dictionary = this.dictionary();
+    return dictionary[key] ?? (en as Dictionary)[key] ?? key;
+  }
+
+  private stringify(value: DictionaryValue): string {
+    return isStringArray(value) ? value.join(LIST_SEPARATOR) : value;
   }
 
   private dictionary(): Dictionary {

@@ -25,6 +25,7 @@ import {
 
 import { RecipeDefinition, RECIPES } from '../../config/recipes';
 import { ToolCategory, ToolDefinition } from '../../config/tools';
+import { I18nService } from '../../services/i18n.service';
 import {
   RecentConversion,
   RecentConversionsService,
@@ -52,6 +53,7 @@ function normalize(value: string): string {
 })
 export class Home implements OnInit {
   readonly registry = inject(ToolRegistryService);
+  readonly i18n = inject(I18nService);
 
   private readonly recentTools = inject(RecentToolsService);
   private readonly recentConversionsService = inject(RecentConversionsService);
@@ -105,7 +107,16 @@ export class Home implements OnInit {
       }
 
       const haystack = normalize(
-        [tool.name, tool.description, ...tool.formats, ...tool.keywords].join(' '),
+        [
+          this.registry.toolName(tool),
+          this.registry.navName(tool),
+          this.registry.toolDescription(tool),
+          this.registry.categoryLabel(tool.category),
+          tool.name,
+          tool.navName,
+          ...tool.formats,
+          ...tool.keywords,
+        ].join(' '),
       );
       return tokens.every((token) => haystack.includes(token));
     });
@@ -225,21 +236,22 @@ export class Home implements OnInit {
   }
 
   toolName(entry: RecentConversion): string {
-    return this.toolFor(entry)?.name ?? entry.toolName;
+    const tool = this.toolFor(entry);
+    return tool ? this.registry.toolName(tool) : entry.toolName;
   }
 
   statusLabel(status: string): string {
     switch (status) {
       case 'success':
-        return 'Success';
+        return this.i18n.t('home.status.success');
       case 'partial_success':
-        return 'Partial';
+        return this.i18n.t('home.status.partial');
       case 'failed':
-        return 'Failed';
+        return this.i18n.t('home.status.failed');
       case 'cancelled':
-        return 'Cancelled';
+        return this.i18n.t('home.status.cancelled');
       case 'interrupted':
-        return 'Interrupted';
+        return this.i18n.t('home.status.interrupted');
       default:
         return status;
     }
@@ -276,14 +288,17 @@ export class Home implements OnInit {
   outputSummary(entry: RecentConversion): string {
     if (entry.outputs.length === 0) {
       return entry.status === 'failed' || entry.status === 'cancelled'
-        ? 'No files created'
-        : 'No outputs';
+        ? this.i18n.t('home.output.noneFailed')
+        : this.i18n.t('home.output.none');
     }
 
     const first = fileName(entry.outputs[0]);
     return entry.outputs.length === 1
       ? first
-      : `${entry.outputs.length} files · ${first} + more`;
+      : this.i18n.t('home.output.multiple', {
+          count: entry.outputs.length,
+          first,
+        });
   }
 
   canOpen(entry: RecentConversion): boolean {
@@ -300,15 +315,19 @@ export class Home implements OnInit {
     const diff = Math.max(0, now - timestamp);
 
     if (diff < 60_000) {
-      return 'Just now';
+      return this.i18n.t('home.time.justNow');
     }
 
     if (diff < 3_600_000) {
-      return `${Math.max(1, Math.floor(diff / 60_000))} min ago`;
+      return this.i18n.t('home.time.minutesAgo', {
+        count: Math.max(1, Math.floor(diff / 60_000)),
+      });
     }
 
     if (diff < 86_400_000) {
-      return `${Math.max(1, Math.floor(diff / 3_600_000))} h ago`;
+      return this.i18n.t('home.time.hoursAgo', {
+        count: Math.max(1, Math.floor(diff / 3_600_000)),
+      });
     }
 
     const date = new Date(timestamp);
@@ -316,8 +335,11 @@ export class Home implements OnInit {
     yesterday.setDate(yesterday.getDate() - 1);
 
     return date.toDateString() === yesterday.toDateString()
-      ? 'Yesterday'
-      : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      ? this.i18n.t('home.time.yesterday')
+      : date.toLocaleDateString(this.i18n.locale(), {
+          month: 'short',
+          day: 'numeric',
+        });
   }
 
   async openRecent(entry: RecentConversion): Promise<void> {
@@ -328,7 +350,7 @@ export class Home implements OnInit {
 
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      this.actionFailureMessage(response, 'The file could not be opened.'),
+      this.actionFailureMessage(response, this.i18n.t('home.error.openFile')),
     );
   }
 
@@ -340,7 +362,7 @@ export class Home implements OnInit {
 
     const response = await this.wailsService.revealInFolder(directory);
     this.actionMessage.set(
-      this.actionFailureMessage(response, 'The folder could not be opened.'),
+      this.actionFailureMessage(response, this.i18n.t('home.error.openFolder')),
     );
   }
 
