@@ -17,6 +17,8 @@ export const toolchainEn = {
   'toolchain.phase.installingWhisper': 'Installing Whisper',
   'toolchain.phase.downloadingModel': 'Downloading the model',
   'toolchain.phase.installingLanguages': 'Installing OCR languages',
+  'toolchain.phase.installingBackgroundRemoval':
+    'Installing background removal',
   'toolchain.phase.verifying': 'Verifying',
   'toolchain.phase.ready': 'Ready',
   'toolchain.phase.cancelling': 'Cancelling',

@@ -20,7 +20,7 @@ import {
 import { PreferencesService } from '../../services/preferences.service';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
 import { I18nService } from '../../services/i18n.service';
-import type { Locale } from '../../i18n';
+import type { Locale, TranslationKey } from '../../i18n';
 import { Theme, ThemeService } from '../../services/theme.service';
 import {
   isUnsupportedStatus,
@@ -38,22 +38,9 @@ import { formatBytes } from '../../utils/format';
 /** Shared with the Home onboarding strip. */
 const ONBOARDING_STORAGE_KEY = 'ff-onboarding-dismissed';
 
-const CAPABILITIES_ERROR_FALLBACK =
-  'The local capability check did not run. Open FileForge in the desktop app, then retry.';
+const TOOLCHAIN_MODELS = ['medium', 'small', 'large-v3'] as const;
 
-const TRANSCRIPTION_ERROR_FALLBACK =
-  'The transcription check did not run. Open FileForge in the desktop app, then retry.';
-
-const TOOLCHAIN_MODELS = [
-  { id: 'medium', label: 'Medium — recommended' },
-  { id: 'small', label: 'Small — lighter download' },
-  { id: 'large-v3', label: 'Large v3 — maximum quality' },
-] as const;
-
-const TOOLCHAIN_OCR_LANGUAGES = [
-  { id: 'eng', label: 'English' },
-  { id: 'spa', label: 'Spanish' },
-] as const;
+const TOOLCHAIN_OCR_LANGUAGES = ['eng', 'spa'] as const;
 
 const DEFAULT_OCR_LANGUAGES = ['eng', 'spa'];
 
@@ -93,9 +80,11 @@ export class Settings implements OnInit {
   readonly historySummary = computed(() => {
     const count = this.recentCount();
     if (count === 0) {
-      return 'No finished conversions yet.';
+      return this.i18n.t('settings.history.none');
     }
-    return count === 1 ? '1 finished conversion' : `${count} finished conversions`;
+    return count === 1
+      ? this.i18n.t('settings.history.one')
+      : this.i18n.t('settings.history.many', { count });
   });
 
   readonly hasDefaultDestination = computed(
@@ -139,14 +128,14 @@ export class Settings implements OnInit {
 
   readonly toolchainModel = computed(() => {
     const model = this.toolchainStatus()?.model ?? '';
-    const known = TOOLCHAIN_MODELS.some((option) => option.id === model);
-    return known ? model : TOOLCHAIN_MODELS[0].id;
+    const known = TOOLCHAIN_MODELS.some((option) => option === model);
+    return known ? model : TOOLCHAIN_MODELS[0];
   });
 
   readonly toolchainOcrLanguages = computed<string[]>(() => {
     const languages = this.toolchainStatus()?.ocrLanguages ?? [];
-    const selected = TOOLCHAIN_OCR_LANGUAGES.map((option) => option.id).filter(
-      (language) => languages.includes(language),
+    const selected = TOOLCHAIN_OCR_LANGUAGES.filter((language) =>
+      languages.includes(language),
     );
     return selected.length > 0 ? selected : [...DEFAULT_OCR_LANGUAGES];
   });
@@ -163,7 +152,7 @@ export class Settings implements OnInit {
     }
     return status.success
       ? ''
-      : status.message || 'The local toolchain is unavailable.';
+      : status.message || this.i18n.t('settings.toolchain.unavailable');
   });
 
   readonly toolchainUnsupported = computed(() => {
@@ -186,7 +175,7 @@ export class Settings implements OnInit {
   });
 
   readonly toolchainPhaseLabel = computed(() =>
-    toolchainPhaseLabel(this.toolchainStatus()?.phase ?? ''),
+    this.phaseLabel(this.toolchainStatus()?.phase ?? ''),
   );
 
   readonly toolchainIndeterminate = computed(() => {
@@ -254,7 +243,9 @@ export class Settings implements OnInit {
       this.capabilities.set(response);
     } catch {
       this.capabilities.set(null);
-      this.capabilitiesError.set(CAPABILITIES_ERROR_FALLBACK);
+      this.capabilitiesError.set(
+        this.i18n.t('settings.capabilities.unavailable'),
+      );
     } finally {
       this.capabilitiesLoading.set(false);
     }
@@ -279,7 +270,7 @@ export class Settings implements OnInit {
         this.transcriptionError.set(
           this.friendlyCapabilitiesError(
             response.message,
-            TRANSCRIPTION_ERROR_FALLBACK,
+            'settings.transcription.unavailable',
           ),
         );
         return;
@@ -288,7 +279,9 @@ export class Settings implements OnInit {
       this.transcriptionCapabilities.set(response);
     } catch {
       this.transcriptionCapabilities.set(null);
-      this.transcriptionError.set(TRANSCRIPTION_ERROR_FALLBACK);
+      this.transcriptionError.set(
+        this.i18n.t('settings.transcription.unavailable'),
+      );
     } finally {
       this.transcriptionLoading.set(false);
     }
@@ -323,18 +316,22 @@ export class Settings implements OnInit {
   toolchainStateLabel(): string {
     const status = this.toolchainStatus();
     if (!status) {
-      return this.toolchainLoading() ? 'Checking…' : 'Unknown';
+      return this.toolchainLoading()
+        ? this.i18n.t('settings.status.checking')
+        : this.i18n.t('settings.status.unknown');
     }
     if (status.ready) {
-      return 'Ready';
+      return this.i18n.t('settings.status.ready');
     }
     if (status.installing) {
-      return status.cancelling ? 'Cancelling' : 'Installing';
+      return status.cancelling
+        ? this.i18n.t('settings.status.cancelling')
+        : this.i18n.t('settings.status.installing');
     }
     if (this.toolchainError()) {
-      return 'Error';
+      return this.i18n.t('settings.status.error');
     }
-    return 'Setup needed';
+    return this.i18n.t('settings.status.setupNeeded');
   }
 
   toolchainComponentBadgeClass(component: ToolchainComponent): string {
@@ -346,9 +343,11 @@ export class Settings implements OnInit {
 
   toolchainComponentStateLabel(component: ToolchainComponent): string {
     if (component.ready) {
-      return 'Ready';
+      return this.i18n.t('settings.status.ready');
     }
-    return component.required ? 'Missing' : 'Optional';
+    return component.required
+      ? this.i18n.t('settings.status.missing')
+      : this.i18n.t('settings.status.optional');
   }
 
   toolchainComponentDotState(component: ToolchainComponent): string {
@@ -375,6 +374,23 @@ export class Settings implements OnInit {
 
   isToolchainLanguageSelected(language: string): boolean {
     return this.toolchainOcrLanguages().includes(language);
+  }
+
+  toolchainModelLabel(model: string): string {
+    switch (model) {
+      case 'small':
+        return this.i18n.t('settings.model.small');
+      case 'large-v3':
+        return this.i18n.t('settings.model.largeV3');
+      default:
+        return this.i18n.t('settings.model.medium');
+    }
+  }
+
+  toolchainOcrLanguageLabel(language: string): string {
+    return language === 'spa'
+      ? this.i18n.t('settings.ocrLanguage.spa')
+      : this.i18n.t('settings.ocrLanguage.eng');
   }
 
   onToolchainModelChange(event: Event): void {
@@ -407,9 +423,7 @@ export class Settings implements OnInit {
       selected.delete(language);
     }
 
-    const next = TOOLCHAIN_OCR_LANGUAGES.map((option) => option.id).filter(
-      (id) => selected.has(id),
-    );
+    const next = TOOLCHAIN_OCR_LANGUAGES.filter((id) => selected.has(id));
     if (next.length === 0) {
       // At least one OCR language must stay selected.
       input.checked = true;
@@ -488,57 +502,63 @@ export class Settings implements OnInit {
 
   transcriptionStateLabel(): string {
     if (!this.transcriptionCapabilities()) {
-      return 'Unknown';
+      return this.i18n.t('settings.status.unknown');
     }
-    return this.transcriptionReady() ? 'Ready' : 'Setup needed';
+    return this.transcriptionReady()
+      ? this.i18n.t('settings.status.ready')
+      : this.i18n.t('settings.status.setupNeeded');
   }
 
   transcriptionModelLine(): string {
     const capabilities = this.transcriptionCapabilities();
     if (!capabilities) {
-      return 'No Whisper model detected.';
+      return this.i18n.t('settings.transcription.noModel');
     }
 
-    const name = capabilities.modelName?.trim() || 'Whisper model';
+    const name =
+      capabilities.modelName?.trim() ||
+      this.i18n.t('settings.transcription.modelFallback');
     if (!capabilities.modelPresent) {
-      return `${name} not found`;
+      return this.i18n.t('settings.transcription.modelMissing', { name });
     }
     if (
       typeof capabilities.modelSizeBytes === 'number' &&
       capabilities.modelSizeBytes > 0
     ) {
-      return `${name} · ${formatBytes(capabilities.modelSizeBytes)}`;
+      return this.i18n.t('settings.transcription.modelInfo', {
+        name,
+        size: formatBytes(capabilities.modelSizeBytes),
+      });
     }
     return name;
   }
 
   transcriptionBinaryPath(): string {
-    return this.transcriptionCapabilities()?.whisperPath?.trim() || 'Not found';
+    return (
+      this.transcriptionCapabilities()?.whisperPath?.trim() ||
+      this.i18n.t('settings.status.notFound')
+    );
   }
 
   transcriptionModelPathLabel(): string {
-    return this.transcriptionCapabilities()?.modelPath?.trim() || 'Not found';
+    return (
+      this.transcriptionCapabilities()?.modelPath?.trim() ||
+      this.i18n.t('settings.status.notFound')
+    );
   }
 
   transcriptionLanguagesLabel(): string {
     const languages = this.transcriptionCapabilities()?.languages ?? [];
     if (languages.length === 0) {
-      return 'Languages: not reported';
+      return this.i18n.t('settings.transcription.languagesNone');
     }
 
-    const labels = languages.map((language) => {
-      switch (language) {
-        case 'auto':
-          return 'Auto';
-        case 'en':
-          return 'English';
-        case 'es':
-          return 'Spanish';
-        default:
-          return language.toUpperCase();
-      }
+    const labels = languages.map((language) =>
+      this.transcriptionLanguageLabel(language),
+    );
+    return this.i18n.t('settings.transcription.languages', {
+      languages: labels.join(' · '),
     });
-    return `Languages: ${labels.join(' · ')}`;
   }
 
   transcriptionGuidance(): string {
@@ -546,7 +566,7 @@ export class Settings implements OnInit {
     if (!capabilities || capabilities.available) {
       return '';
     }
-    return 'Install whisper.cpp and choose a ggml model file. FileForge never downloads models automatically.';
+    return this.i18n.t('settings.transcription.installHelp');
   }
 
   capabilityBadgeClass(check: LocalCapability): string {
@@ -558,9 +578,11 @@ export class Settings implements OnInit {
 
   capabilityStateLabel(check: LocalCapability): string {
     if (check.available) {
-      return 'Ready';
+      return this.i18n.t('settings.status.ready');
     }
-    return check.required ? 'Missing' : 'Optional';
+    return check.required
+      ? this.i18n.t('settings.status.missing')
+      : this.i18n.t('settings.status.optional');
   }
 
   capabilityDotState(check: LocalCapability): string {
@@ -574,7 +596,7 @@ export class Settings implements OnInit {
     const capabilities = this.capabilities();
     const languages = capabilities?.ocrLanguages ?? [];
     if (languages.length === 0) {
-      return 'No OCR language data installed';
+      return this.i18n.t('settings.capabilities.noOcrData');
     }
 
     const installed = languages
@@ -585,13 +607,16 @@ export class Settings implements OnInit {
       .toUpperCase();
 
     return recommended
-      ? `OCR languages: ${installed} · recommended ${recommended}`
-      : `OCR languages: ${installed}`;
+      ? this.i18n.t('settings.capabilities.ocrLanguagesRecommended', {
+          installed,
+          recommended,
+        })
+      : this.i18n.t('settings.capabilities.ocrLanguages', { installed });
   }
 
   private friendlyCapabilitiesError(
     message: string,
-    fallback: string = CAPABILITIES_ERROR_FALLBACK,
+    fallbackKey: TranslationKey = 'settings.capabilities.unavailable',
   ): string {
     const text = (message ?? '').trim();
     if (
@@ -599,10 +624,54 @@ export class Settings implements OnInit {
       /<\/?[a-z][\s\S]*>/i.test(text) ||
       /Cannot POST|DOCTYPE html/i.test(text)
     ) {
-      return fallback;
+      return this.i18n.t(fallbackKey);
     }
 
     return text.length > 240 ? `${text.slice(0, 237)}…` : text;
+  }
+
+  private transcriptionLanguageLabel(language: string): string {
+    switch (language) {
+      case 'auto':
+        return this.i18n.t('settings.status.auto');
+      case 'en':
+        return this.i18n.t('settings.languageName.english');
+      case 'es':
+        return this.i18n.t('settings.languageName.spanish');
+      default:
+        return language.toUpperCase();
+    }
+  }
+
+  private phaseLabel(phase: string): string {
+    switch (phase) {
+      case 'starting':
+        return this.i18n.t('toolchain.phase.preparingInstaller');
+      case 'micromamba':
+        return this.i18n.t('toolchain.phase.downloadingMicromamba');
+      case 'environment':
+        return this.i18n.t('toolchain.phase.installingPackages');
+      case 'whisper':
+        return this.i18n.t('toolchain.phase.installingWhisper');
+      case 'model':
+        return this.i18n.t('toolchain.phase.downloadingModel');
+      case 'tessdata':
+        return this.i18n.t('toolchain.phase.installingLanguages');
+      case 'rembg':
+        return this.i18n.t('toolchain.phase.installingBackgroundRemoval');
+      case 'finalize':
+        return this.i18n.t('toolchain.phase.verifying');
+      case 'ready':
+        return this.i18n.t('toolchain.phase.ready');
+      case 'cancelling':
+        return this.i18n.t('toolchain.phase.cancelling');
+      case 'cancelled':
+        return this.i18n.t('toolchain.phase.cancelled');
+      case 'idle':
+        return this.i18n.t('settings.status.notStarted');
+      default:
+        return this.i18n.t('toolchain.phase.preparing');
+    }
   }
 
   async chooseFolder(): Promise<void> {
@@ -638,7 +707,7 @@ export class Settings implements OnInit {
     }
 
     this.recentConversions.clear();
-    this.actionMessage.set('Recent conversions cleared.');
+    this.actionMessage.set(this.i18n.t('settings.action.historyCleared'));
   }
 
   resetOnboarding(): void {
@@ -650,37 +719,6 @@ export class Settings implements OnInit {
       // Storage can be unavailable; there is nothing to remove.
     }
 
-    this.actionMessage.set('Onboarding will show again on Home.');
-  }
-}
-
-function toolchainPhaseLabel(phase: string): string {
-  switch (phase) {
-    case 'starting':
-      return 'Preparing the installer';
-    case 'micromamba':
-      return 'Downloading micromamba';
-    case 'environment':
-      return 'Installing tool packages';
-    case 'whisper':
-      return 'Installing Whisper';
-    case 'model':
-      return 'Downloading the model';
-    case 'tessdata':
-      return 'Installing OCR languages';
-    case 'rembg':
-      return 'Installing background removal';
-    case 'finalize':
-      return 'Verifying';
-    case 'ready':
-      return 'Ready';
-    case 'cancelling':
-      return 'Cancelling';
-    case 'cancelled':
-      return 'Cancelled';
-    case 'idle':
-      return 'Not started';
-    default:
-      return 'Preparing';
+    this.actionMessage.set(this.i18n.t('settings.action.onboardingReset'));
   }
 }

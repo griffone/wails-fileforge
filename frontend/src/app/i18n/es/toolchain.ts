@@ -17,6 +17,8 @@ export const toolchainEs = {
   'toolchain.phase.installingWhisper': 'Instalando Whisper',
   'toolchain.phase.downloadingModel': 'Descargando el modelo',
   'toolchain.phase.installingLanguages': 'Instalando idiomas de OCR',
+  'toolchain.phase.installingBackgroundRemoval':
+    'Instalando la eliminación de fondos',
   'toolchain.phase.verifying': 'Verificando',
   'toolchain.phase.ready': 'Listo',
   'toolchain.phase.cancelling': 'Cancelando',

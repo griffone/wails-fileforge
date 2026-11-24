@@ -7,6 +7,7 @@ import {
 import { computed, signal } from '@angular/core';
 
 import { Settings } from './settings';
+import { I18nService } from '../../services/i18n.service';
 import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
 import { ToolchainStateService } from '../../services/toolchain-state.service';
@@ -207,6 +208,7 @@ describe('Settings', () => {
   let component: Settings;
   let wailsSpy: jasmine.SpyObj<Wails>;
   let toolchain: ToolchainStateStub;
+  let i18n: I18nService;
 
   function element(): HTMLElement {
     return fixture.nativeElement as HTMLElement;
@@ -289,6 +291,7 @@ describe('Settings', () => {
       ],
     }).compileComponents();
 
+    i18n = TestBed.inject(I18nService);
     fixture = TestBed.createComponent(Settings);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -296,8 +299,29 @@ describe('Settings', () => {
 
   afterEach(() => {
     fixture.destroy();
+    i18n.setLocale('en');
     resetStorage();
   });
+
+  it('renders the page, a status label and the About line in Spanish', fakeAsync(() => {
+    toolchain.status.set(readyToolchain());
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    i18n.setLocale('es');
+    fixture.detectChanges();
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('Configuración');
+    expect(text).toContain('Herramientas y modelos');
+    expect(
+      element().querySelector('.settings-toolchain-head .badge')?.textContent,
+    ).toContain('Listo');
+    expect(text).toContain(
+      'FileForge Desktop · herramientas de archivo locales',
+    );
+  }));
 
   it('defaults to keeping outputs next to the original', () => {
     expect(component.defaultOutputDir()).toBe('');
