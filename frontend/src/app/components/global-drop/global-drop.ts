@@ -15,7 +15,9 @@ import { ArrowRight, CloudUpload, FileSearch, LucideAngularModule, X } from 'luc
 import type { ToolDefinition } from '../../config/tools';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { GlobalDropService } from '../../services/global-drop.service';
+import { I18nService } from '../../services/i18n.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
+import { formatCount } from '../../utils/format';
 import { recommendDropTools, summarizeDropFiles } from './drop-recommendations';
 
 /**
@@ -37,6 +39,8 @@ export class GlobalDrop {
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
 
+  readonly i18n = inject(I18nService);
+
   readonly open = this.drop.open;
   readonly paths = this.drop.paths;
 
@@ -49,6 +53,26 @@ export class GlobalDrop {
   readonly recommendations = computed(() =>
     recommendDropTools(this.paths(), this.registry.tools),
   );
+
+  readonly fileCountLabel = computed(() =>
+    formatCount(
+      this.summary().total,
+      this.i18n.t('common.fileOne'),
+      this.i18n.t('common.fileMany'),
+    ),
+  );
+
+  readonly typeLabel = computed(
+    () => this.summary().extensions.join(' · ') || this.i18n.t('globalDrop.noFiles'),
+  );
+
+  toolName(tool: ToolDefinition): string {
+    return this.registry.toolName(tool);
+  }
+
+  toolDescription(tool: ToolDefinition): string {
+    return this.registry.toolDescription(tool);
+  }
 
   @ViewChild('panel') private panel?: ElementRef<HTMLElement>;
 

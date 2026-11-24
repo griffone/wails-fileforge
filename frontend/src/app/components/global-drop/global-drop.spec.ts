@@ -4,6 +4,8 @@ import { Router, provideRouter } from '@angular/router';
 import { GlobalDrop } from './global-drop';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { GlobalDropService } from '../../services/global-drop.service';
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 
 describe('GlobalDrop', () => {
   let fixture: ComponentFixture<GlobalDrop>;
@@ -12,6 +14,11 @@ describe('GlobalDrop', () => {
   let router: Router;
 
   beforeEach(async () => {
+    localStorage.setItem(
+      PREFERENCES_STORAGE_KEY,
+      JSON.stringify({ language: 'en' }),
+    );
+
     await TestBed.configureTestingModule({
       imports: [GlobalDrop],
       providers: [provideRouter([])],
@@ -25,6 +32,8 @@ describe('GlobalDrop', () => {
   });
 
   afterEach(() => {
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
     fixture.destroy();
   });
 
@@ -192,6 +201,27 @@ describe('GlobalDrop', () => {
     (fixture.nativeElement.querySelector('.drop-empty .btn') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(drop.open()).toBeFalse();
+  });
+
+  it('renders the overlay and empty state in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    show(['/tmp/notes.txt', '/tmp/archive.zip']);
+
+    expect(text('.eyebrow')).toBe('SOLTAR PARA ABRIR');
+    expect(text('.drop-title')).toBe('¿Qué quieres hacer?');
+    expect(text('.drop-files-warning')).toBe('2 sin soporte');
+    expect(text('.drop-empty-title')).toBe(
+      'Ninguna herramienta admite estos archivos todavía.',
+    );
+    expect(text('.drop-empty-hint')).toBe(
+      'Prueba con imágenes, PDF, Markdown, DOCX o videos.',
+    );
+    expect(text('.drop-empty .btn')).toBe('Cerrar');
+    expect(
+      fixture.nativeElement
+        .querySelector('.drop-close')
+        .getAttribute('aria-label'),
+    ).toBe('Cerrar el panel de archivos');
   });
 
   it('marks the panel as a native drop target', () => {

@@ -29,7 +29,7 @@
       <button
         class="icon-btn toast-close"
         type="button"
-        aria-label="Dismiss notification"
+        [attr.aria-label]="i18n.t('toast.dismissAria')"
         (click)="dismiss(toast.id)"
       >
         <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75"></lucide-icon>

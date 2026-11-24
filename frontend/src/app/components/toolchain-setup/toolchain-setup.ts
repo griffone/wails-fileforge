@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { LucideAngularModule, TriangleAlert, Wrench } from 'lucide-angular';
 
+import { I18nService } from '../../services/i18n.service';
 import { ToolchainStateService } from '../../services/toolchain-state.service';
 import { ToolchainInstallOptions } from '../../services/wails';
 
@@ -25,6 +26,8 @@ const FALLBACK_OCR_LANGUAGES = ['eng', 'spa'];
 export class ToolchainSetup implements OnInit {
   private readonly state = inject(ToolchainStateService);
   private readonly router = inject(Router);
+
+  readonly i18n = inject(I18nService);
 
   readonly status = this.state.status;
   readonly event = this.state.event;
@@ -66,27 +69,27 @@ export class ToolchainSetup implements OnInit {
   readonly phaseLabel = computed(() => {
     switch (this.phase()) {
       case 'starting':
-        return 'Preparing the installer';
+        return this.i18n.t('toolchain.phase.preparingInstaller');
       case 'micromamba':
-        return 'Downloading micromamba';
+        return this.i18n.t('toolchain.phase.downloadingMicromamba');
       case 'environment':
-        return 'Installing tool packages';
+        return this.i18n.t('toolchain.phase.installingPackages');
       case 'whisper':
-        return 'Installing Whisper';
+        return this.i18n.t('toolchain.phase.installingWhisper');
       case 'model':
-        return 'Downloading the model';
+        return this.i18n.t('toolchain.phase.downloadingModel');
       case 'tessdata':
-        return 'Installing OCR languages';
+        return this.i18n.t('toolchain.phase.installingLanguages');
       case 'finalize':
-        return 'Verifying';
+        return this.i18n.t('toolchain.phase.verifying');
       case 'ready':
-        return 'Ready';
+        return this.i18n.t('toolchain.phase.ready');
       case 'cancelling':
-        return 'Cancelling';
+        return this.i18n.t('toolchain.phase.cancelling');
       case 'cancelled':
-        return 'Cancelled';
+        return this.i18n.t('toolchain.phase.cancelled');
       default:
-        return 'Preparing';
+        return this.i18n.t('toolchain.phase.preparing');
     }
   });
 

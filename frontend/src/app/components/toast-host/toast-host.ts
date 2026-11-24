@@ -9,6 +9,7 @@ import {
   XCircle,
 } from 'lucide-angular';
 
+import { I18nService } from '../../services/i18n.service';
 import { ToastService, type ToastItem } from '../../services/toast.service';
 
 /**
@@ -26,6 +27,7 @@ import { ToastService, type ToastItem } from '../../services/toast.service';
 })
 export class ToastHost {
   protected readonly toastService = inject(ToastService);
+  readonly i18n = inject(I18nService);
 
   readonly closeIcon = X;
 

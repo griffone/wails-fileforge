@@ -1,6 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { ToastHost } from './toast-host';
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { ToastService } from '../../services/toast.service';
 
 describe('ToastHost', () => {
@@ -8,6 +10,11 @@ describe('ToastHost', () => {
   let toastService: ToastService;
 
   beforeEach(async () => {
+    localStorage.setItem(
+      PREFERENCES_STORAGE_KEY,
+      JSON.stringify({ language: 'en' }),
+    );
+
     await TestBed.configureTestingModule({
       imports: [ToastHost],
     }).compileComponents();
@@ -19,6 +26,8 @@ describe('ToastHost', () => {
   });
 
   afterEach(() => {
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
     toastService.clear();
     fixture.destroy();
   });
@@ -68,6 +77,18 @@ describe('ToastHost', () => {
     expect(action).toHaveBeenCalled();
     expect(toastService.toasts().length).toBe(0);
     expect(fixture.nativeElement.querySelector('.toast')).toBeNull();
+  });
+
+  it('labels the dismiss button in Spanish', () => {
+    push();
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    expect(
+      (fixture.nativeElement.querySelector('.toast-close') as HTMLElement).getAttribute(
+        'aria-label',
+      ),
+    ).toBe('Descartar notificación');
   });
 
   it('dismisses from the close button', () => {

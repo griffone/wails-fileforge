@@ -15,17 +15,14 @@
           ></lucide-icon>
         </span>
         <div class="toolchain-heading-text">
-          <p class="eyebrow">FIRST RUN</p>
+          <p class="eyebrow">{{ i18n.t('toolchain.eyebrow') }}</p>
           <h2 class="toolchain-title" id="toolchain-setup-title">
-            Installing local tools
+            {{ i18n.t('toolchain.title') }}
           </h2>
         </div>
       </header>
 
-      <p class="toolchain-sub">
-        FileForge is preparing Whisper, Tesseract, FFmpeg and the local
-        OCR/transcription tools. No admin rights and no system changes.
-      </p>
+      <p class="toolchain-sub">{{ i18n.t('toolchain.sub') }}</p>
 
       @if (unsupported()) {
         <div class="banner banner-warning toolchain-unsupported" role="alert">
@@ -44,14 +41,14 @@
             class="btn btn-secondary btn-sm toolchain-settings"
             (click)="openSettings()"
           >
-            Open Settings
+            {{ i18n.t('toolchain.openSettings') }}
           </button>
           <button
             type="button"
             class="btn btn-ghost btn-sm toolchain-continue"
             (click)="continueWithoutTools()"
           >
-            Continue without tools
+            {{ i18n.t('toolchain.continue') }}
           </button>
         </div>
       } @else {
@@ -97,8 +94,7 @@
 
         @if (cancelled()) {
           <p class="toolchain-cancelled" role="status">
-            The installation was cancelled. You can retry now or continue with
-            the tools that are already available.
+            {{ i18n.t('toolchain.cancelled') }}
           </p>
         }
 
@@ -110,7 +106,11 @@
               [disabled]="cancelling()"
               (click)="cancel()"
             >
-              {{ cancelling() ? 'Cancelling…' : 'Cancel' }}
+              {{
+                cancelling()
+                  ? i18n.t('toolchain.cancelling')
+                  : i18n.t('toolchain.cancel')
+              }}
             </button>
           } @else if (errorMessage() || cancelled()) {
             <button
@@ -118,21 +118,21 @@
               class="btn btn-primary btn-sm toolchain-retry"
               (click)="retry()"
             >
-              Retry
+              {{ i18n.t('toolchain.retry') }}
             </button>
             <button
               type="button"
               class="btn btn-secondary btn-sm toolchain-continue"
               (click)="continueWithoutTools()"
             >
-              Continue without tools
+              {{ i18n.t('toolchain.continue') }}
             </button>
             <button
               type="button"
               class="btn btn-ghost btn-sm toolchain-settings"
               (click)="openSettings()"
             >
-              Open Settings
+              {{ i18n.t('toolchain.openSettings') }}
             </button>
           } @else {
             <button
@@ -140,14 +140,14 @@
               class="btn btn-primary btn-sm toolchain-retry"
               (click)="retry()"
             >
-              Start installation
+              {{ i18n.t('toolchain.start') }}
             </button>
             <button
               type="button"
               class="btn btn-ghost btn-sm toolchain-continue"
               (click)="continueWithoutTools()"
             >
-              Continue without tools
+              {{ i18n.t('toolchain.continue') }}
             </button>
           }
         </div>

@@ -3,6 +3,8 @@ import { computed, signal } from '@angular/core';
 import { provideRouter } from '@angular/router';
 
 import { ToolchainSetup } from './toolchain-setup';
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { ToolchainStateService } from '../../services/toolchain-state.service';
 import {
   ToolchainInstallEvent,
@@ -62,6 +64,10 @@ describe('ToolchainSetup', () => {
   }
 
   beforeEach(async () => {
+    localStorage.setItem(
+      PREFERENCES_STORAGE_KEY,
+      JSON.stringify({ language: 'en' }),
+    );
     stub = new ToolchainStateStub();
 
     await TestBed.configureTestingModule({
@@ -76,6 +82,8 @@ describe('ToolchainSetup', () => {
   });
 
   afterEach(() => {
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
     fixture.destroy();
   });
 
@@ -190,6 +198,32 @@ describe('ToolchainSetup', () => {
 
     const fill = element().querySelector<HTMLElement>('.progress-fill');
     expect(fill?.style.width).toBe('63%');
+  }));
+
+  it('renders the overlay copy in Spanish', fakeAsync(() => {
+    TestBed.inject(I18nService).setLocale('es');
+    stub.status.set(
+      toolchainStatus({
+        installing: true,
+        percent: 35,
+        phase: 'model',
+        detail: 'Downloading the model…',
+      }),
+    );
+
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('PRIMERA EJECUCIÓN');
+    expect(text).toContain('Instalando herramientas locales');
+    expect(text).toContain('Descargando el modelo');
+    expect(text).toContain('35%');
+    expect(text).toContain('Cancelar');
+    expect(text).toContain(
+      'FileForge está preparando Whisper, Tesseract, FFmpeg y las herramientas locales de OCR y transcripción.',
+    );
   }));
 
   it('stays hidden when IPC is unavailable (success: false preview)', fakeAsync(() => {
