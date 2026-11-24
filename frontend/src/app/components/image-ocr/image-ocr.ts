@@ -22,8 +22,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -95,18 +100,17 @@ export interface RecognizedSummary {
 }
 
 /** `['afr']` → `AFR`; `['afr','deu']` → `AFR and DEU`; more use commas. */
-function joinWords(values: readonly string[]): string {
+function joinWordsWith(
+  values: readonly string[],
+  conjunction: string,
+): string {
   if (values.length <= 1) {
     return values[0] ?? '';
   }
   if (values.length === 2) {
-    return `${values[0]} and ${values[1]}`;
+    return `${values[0]} ${conjunction} ${values[1]}`;
   }
-  return `${values.slice(0, -1).join(', ')} and ${values[values.length - 1]}`;
-}
-
-function joinLabels(values: readonly string[]): string {
-  return joinWords(values.map((value) => value.toUpperCase()));
+  return `${values.slice(0, -1).join(', ')} ${conjunction} ${values[values.length - 1]}`;
 }
 
 @Component({
@@ -127,6 +131,7 @@ export class ImageOcr implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -169,7 +174,7 @@ export class ImageOcr implements OnDestroy, OnInit {
   );
 
   readonly installedLanguagesLabel = computed(() =>
-    joinLabels(this.languages()),
+    this.joinLabels(this.languages()),
   );
 
   /**
@@ -222,32 +227,36 @@ export class ImageOcr implements OnDestroy, OnInit {
 
     const sentences: string[] = [];
     if (dependencies.length > 0) {
-      sentences.push(`Missing ${joinWords(dependencies)}.`);
+      sentences.push(
+        this.i18n.t('imageOcr.capability.missing', {
+          dependencies: this.joinWords(dependencies),
+        }),
+      );
     }
     if (missingLanguages) {
-      sentences.push(
-        'No Tesseract language data is installed; install eng or spa.',
-      );
+      sentences.push(this.i18n.t('imageOcr.capability.noLanguage'));
     }
     if (sentences.length === 0) {
       sentences.push(
         capabilities?.message?.trim() ||
-          'Install the missing OCR dependencies and reload this page.',
+          this.i18n.t('imageOcr.capability.installMissing'),
       );
     } else {
-      sentences.push('Install the missing pieces and reload this page.');
+      sentences.push(this.i18n.t('imageOcr.capability.installPieces'));
     }
 
     return {
-      title: 'Local image OCR is unavailable.',
+      title: this.i18n.t('imageOcr.capability.title'),
       detail: sentences.join(' '),
     };
   });
 
   readonly languageHelp = computed(() =>
     this.languages().length > 0
-      ? `Installed: ${this.installedLanguagesLabel()}.`
-      : 'No Tesseract language data is installed.',
+      ? this.i18n.t('imageOcr.language.installed', {
+          languages: this.installedLanguagesLabel(),
+        })
+      : this.i18n.t('imageOcr.language.none'),
   );
 
   readonly languageMissing = computed(
@@ -260,17 +269,21 @@ export class ImageOcr implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Recognizing…';
+      return this.i18n.t('imageOcr.action.recognizing');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'OCR images';
+      return this.i18n.t('imageOcr.action.ocr');
     }
-    return count === 1 ? 'OCR 1 image' : `OCR ${count} images`;
+    return count === 1
+      ? this.i18n.t('imageOcr.action.ocrOne')
+      : this.i18n.t('imageOcr.action.ocrMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each image',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('imageOcr.destination.original'),
   );
 
   readonly isDefaultDestination = computed(
@@ -293,16 +306,19 @@ export class ImageOcr implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      return 'Add at least one image.';
+      return this.i18n.t('imageOcr.helper.addImage');
     }
     if (this.ocrBlocked()) {
-      return 'Local image OCR is unavailable on this machine.';
+      return this.i18n.t('imageOcr.helper.unavailable');
     }
     if (this.languageMissing()) {
-      return 'Choose a language.';
+      return this.i18n.t('imageOcr.helper.chooseLanguage');
     }
     if (!this.dpiValid()) {
-      return `Enter a DPI between ${MIN_DPI} and ${MAX_DPI}.`;
+      return this.i18n.t('imageOcr.helper.dpi', {
+        min: MIN_DPI,
+        max: MAX_DPI,
+      });
     }
     return '';
   });
@@ -344,7 +360,10 @@ export class ImageOcr implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The OCR job could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('imageOcr.error.start')),
+        )
       : null;
   });
 
@@ -371,7 +390,19 @@ export class ImageOcr implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'image');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.imageOne'),
+      this.i18n.t('common.imageMany'),
+    );
+  }
+
+  private joinWords(values: readonly string[]): string {
+    return joinWordsWith(values, this.i18n.t('imageOcr.list.and'));
+  }
+
+  private joinLabels(values: readonly string[]): string {
+    return this.joinWords(values.map((value) => value.toUpperCase()));
   }
 
   onPathsSelected(paths: string[]): void {
@@ -529,13 +560,13 @@ export class ImageOcr implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The OCR job could not start.',
+        message: this.i18n.t('imageOcr.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The OCR job could not start.',
+          message: this.i18n.t('imageOcr.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -543,7 +574,7 @@ export class ImageOcr implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The OCR job could not start.',
+          message: response.message || this.i18n.t('imageOcr.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -555,14 +586,14 @@ export class ImageOcr implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('imageOcr.status.waiting'),
       toolId: IMAGE_OCR_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('imageOcr.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -580,7 +611,7 @@ export class ImageOcr implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('imageOcr.error.cancel'),
       );
     }
   }
@@ -588,7 +619,7 @@ export class ImageOcr implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success ? '' : response.message || this.i18n.t('imageOcr.error.openFile'),
     );
   }
 
@@ -597,7 +628,7 @@ export class ImageOcr implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('imageOcr.error.openFolder'),
     );
   }
 
@@ -699,12 +730,12 @@ export class ImageOcr implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('imageOcr.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('imageOcr.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -721,7 +752,7 @@ export class ImageOcr implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('imageOcr.error.plan'),
     };
     // Keep the failed plan so the shared plan card shows the reason next to
     // the destination it belongs to.
@@ -837,7 +868,7 @@ export class ImageOcr implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('imageOcr.error.status'),
       },
     );
   }
@@ -879,7 +910,7 @@ export class ImageOcr implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('imageOcr.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -999,14 +1030,21 @@ export class ImageOcr implements OnDestroy, OnInit {
 
     const count = rejected.length;
     const filesCopy =
-      count === 1 ? "1 file wasn't added." : `${count} files weren't added.`;
+      count === 1
+        ? this.i18n.t('imageOcr.notice.filesOne')
+        : this.i18n.t('imageOcr.notice.filesMany', { count });
 
     let extensionsCopy: string;
     if (extensions.length === 1) {
-      extensionsCopy = `${extensions[0]} isn't supported.`;
+      extensionsCopy = this.i18n.t('imageOcr.notice.extensionOne', {
+        extension: extensions[0],
+      });
     } else {
       const head = extensions.slice(0, -1).join(', ');
-      extensionsCopy = `${head} and ${extensions[extensions.length - 1]} aren't supported.`;
+      extensionsCopy = this.i18n.t('imageOcr.notice.extensionsMany', {
+        head,
+        tail: extensions[extensions.length - 1],
+      });
     }
 
     return `${filesCopy} ${extensionsCopy}`;

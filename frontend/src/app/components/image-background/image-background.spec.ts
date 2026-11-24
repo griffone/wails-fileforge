@@ -10,6 +10,7 @@ import { EMPTY, Subject } from 'rxjs';
 
 import { ImageBackground } from './image-background';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobRequest,
@@ -226,10 +227,13 @@ describe('ImageBackground', () => {
       imports: [ImageBackground],
       providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
+
+    TestBed.inject(I18nService).setLocale('en');
   });
 
   afterEach(() => {
     fixture?.destroy();
+    TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
   });
 
@@ -493,5 +497,24 @@ describe('ImageBackground', () => {
       '/tmp/queued-two.jpg',
     ]);
     expect(wailsSpy.planJob).toHaveBeenCalled();
+  }));
+
+  it('renders the page copy in Spanish', fakeAsync(() => {
+    TestBed.inject(I18nService).setLocale('es');
+    create();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Eliminar');
+    expect(title).toContain('fondo');
+    expect(
+      element.querySelector('#background-mode option[value="transparent"]')
+        ?.textContent,
+    ).toContain('Transparente');
+    expect(
+      element.querySelector('.action-primary')?.textContent,
+    ).toContain('Quitar fondo');
   }));
 });

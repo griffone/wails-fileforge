@@ -9,6 +9,7 @@ import { EMPTY, Subject } from 'rxjs';
 
 import { ImageOcr } from './image-ocr';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobRequest,
@@ -209,10 +210,13 @@ describe('ImageOcr', () => {
       imports: [ImageOcr],
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
+
+    TestBed.inject(I18nService).setLocale('en');
   });
 
   afterEach(() => {
     fixture?.destroy();
+    TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
   });
 
@@ -549,5 +553,23 @@ describe('ImageOcr', () => {
       '/tmp/queued-two.jpg',
     ]);
     expect(wailsSpy.planJob).toHaveBeenCalled();
+  }));
+
+  it('renders the page copy in Spanish', fakeAsync(() => {
+    TestBed.inject(I18nService).setLocale('es');
+    create();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Reconocer');
+    expect(title).toContain('imágenes');
+    expect(
+      element.querySelector('label[for="image-ocr-write-pdf"]')?.textContent,
+    ).toContain('Escribir también un PDF con texto reconocido');
+    expect(
+      element.querySelector('.action-primary')?.textContent,
+    ).toContain('Reconocer imágenes');
   }));
 });

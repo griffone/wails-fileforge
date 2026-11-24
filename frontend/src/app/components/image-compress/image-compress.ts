@@ -22,8 +22,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -117,6 +122,7 @@ export class ImageCompress implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -184,30 +190,34 @@ export class ImageCompress implements OnDestroy, OnInit {
   readonly targetError = computed<string | null>(() => {
     const target = this.targetMb();
     if (target === null || !Number.isFinite(target) || target <= 0) {
-      return 'Enter a target size greater than 0 MB.';
+      return this.i18n.t('imageCompress.target.errorPositive');
     }
     if (target > MAX_TARGET_MB) {
-      return `Enter a target size of ${MAX_TARGET_MB_LABEL} MB or less.`;
+      return this.i18n.t('imageCompress.target.errorMax', {
+        max: MAX_TARGET_MB_LABEL,
+      });
     }
     if (!this.targetValid()) {
-      return 'The target size is too large to use.';
+      return this.i18n.t('imageCompress.target.errorTooLarge');
     }
     return null;
   });
 
   readonly targetLabel = computed(() =>
-    this.targetValid() ? formatBytes(this.targetSizeBytes()) : 'No target',
+    this.targetValid()
+      ? formatBytes(this.targetSizeBytes())
+      : this.i18n.t('imageCompress.target.noTarget'),
   );
 
   readonly targetSummary = computed(() =>
-    this.targetValid() ? `Target ${this.targetLabel()} per image` : '',
+    this.targetValid()
+      ? this.i18n.t('imageCompress.target.summary', {
+          size: this.targetLabel(),
+        })
+      : '',
   );
 
-  readonly formatBadge = computed(
-    () =>
-      FORMAT_OPTIONS.find((option) => option.value === this.format())?.label ??
-      this.format(),
-  );
+  readonly formatBadge = computed(() => this.formatOptionLabel(this.format()));
 
   readonly inputTotalBytes = computed(() => {
     const infos = this.inputInfos();
@@ -240,9 +250,14 @@ export class ImageCompress implements OnDestroy, OnInit {
     if (output < input) {
       const saved = input - output;
       const percent = Math.max(1, Math.round((saved / input) * 100));
-      return `Saved ${formatBytes(saved)} (${percent}%)`;
+      return this.i18n.t('imageCompress.savings.saved', {
+        size: formatBytes(saved),
+        percent,
+      });
     }
-    return `Output is ${formatBytes(output - input)} larger`;
+    return this.i18n.t('imageCompress.savings.larger', {
+      size: formatBytes(output - input),
+    });
   });
 
   /**
@@ -272,28 +287,41 @@ export class ImageCompress implements OnDestroy, OnInit {
     const atTarget = sizes.filter((size) => size <= target).length;
     if (atTarget === sizes.length) {
       return sizes.length === 1
-        ? `The output is at or under the ${targetLabel} target.`
-        : `All ${formatCount(sizes.length, 'output')} are at or under the ${targetLabel} target.`;
+        ? this.i18n.t('imageCompress.outcome.single', { target: targetLabel })
+        : this.i18n.t('imageCompress.outcome.all', {
+            count: sizes.length,
+            target: targetLabel,
+          });
     }
     if (atTarget === 0) {
-      return `No output reached the ${targetLabel} target; the files are the smallest the encoder could produce.`;
+      return this.i18n.t('imageCompress.outcome.none', {
+        target: targetLabel,
+      });
     }
-    return `${atTarget} of ${sizes.length} outputs are at or under the ${targetLabel} target; the rest are the smallest available.`;
+    return this.i18n.t('imageCompress.outcome.partial', {
+      atTarget,
+      total: sizes.length,
+      target: targetLabel,
+    });
   });
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Compressing…';
+      return this.i18n.t('imageCompress.action.compressing');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Compress';
+      return this.i18n.t('imageCompress.action.compress');
     }
-    return count === 1 ? 'Compress 1 image' : `Compress ${count} images`;
+    return count === 1
+      ? this.i18n.t('imageCompress.action.compressOne')
+      : this.i18n.t('imageCompress.action.compressMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each original',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('imageCompress.destination.original'),
   );
 
   readonly isDefaultDestination = computed(
@@ -314,10 +342,12 @@ export class ImageCompress implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      return 'Add at least one image to compress.';
+      return this.i18n.t('imageCompress.helper.addImage');
     }
     if (!this.targetValid()) {
-      return this.targetError() ?? 'Enter a target size greater than 0 MB.';
+      return (
+        this.targetError() ?? this.i18n.t('imageCompress.target.errorPositive')
+      );
     }
     return '';
   });
@@ -335,7 +365,13 @@ export class ImageCompress implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The compression could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            error,
+            this.i18n.t('imageCompress.error.start'),
+          ),
+        )
       : null;
   });
 
@@ -360,7 +396,19 @@ export class ImageCompress implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'image');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.imageOne'),
+      this.i18n.t('common.imageMany'),
+    );
+  }
+
+  /** Format copy resolved at render time so the locale switch applies. */
+  formatOptionLabel(format: CompressFormat): string {
+    return this.i18n.tOr(
+      `imageCompress.format.${format}.label`,
+      FORMAT_OPTIONS.find((option) => option.value === format)?.label ?? format,
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -538,13 +586,13 @@ export class ImageCompress implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The compression could not start.',
+        message: this.i18n.t('imageCompress.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The compression could not start.',
+          message: this.i18n.t('imageCompress.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -552,7 +600,8 @@ export class ImageCompress implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The compression could not start.',
+          message:
+            response.message || this.i18n.t('imageCompress.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -565,14 +614,14 @@ export class ImageCompress implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('imageCompress.status.waiting'),
       toolId: IMAGE_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('imageCompress.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -590,7 +639,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('imageCompress.error.cancel'),
       );
     }
   }
@@ -600,7 +649,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The file could not be opened.',
+        : response.message || this.i18n.t('imageCompress.error.openFile'),
     );
   }
 
@@ -609,7 +658,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('imageCompress.error.openFolder'),
     );
   }
 
@@ -697,12 +746,12 @@ export class ImageCompress implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('imageCompress.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('imageCompress.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -719,7 +768,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('imageCompress.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the problem next
     // to the destination it belongs to.
@@ -838,7 +887,7 @@ export class ImageCompress implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('imageCompress.error.status'),
       },
     );
   }
@@ -880,7 +929,7 @@ export class ImageCompress implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('imageCompress.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -1004,14 +1053,21 @@ export class ImageCompress implements OnDestroy, OnInit {
 
     const count = rejected.length;
     const filesCopy =
-      count === 1 ? "1 file wasn't added." : `${count} files weren't added.`;
+      count === 1
+        ? this.i18n.t('imageCompress.notice.filesOne')
+        : this.i18n.t('imageCompress.notice.filesMany', { count });
 
     let extensionsCopy: string;
     if (extensions.length === 1) {
-      extensionsCopy = `${extensions[0]} isn't supported.`;
+      extensionsCopy = this.i18n.t('imageCompress.notice.extensionOne', {
+        extension: extensions[0],
+      });
     } else {
       const head = extensions.slice(0, -1).join(', ');
-      extensionsCopy = `${head} and ${extensions[extensions.length - 1]} aren't supported.`;
+      extensionsCopy = this.i18n.t('imageCompress.notice.extensionsMany', {
+        head,
+        tail: extensions[extensions.length - 1],
+      });
     }
 
     return `${filesCopy} ${extensionsCopy}`;

@@ -2,11 +2,13 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">IMAGE</p>
-        <h1 class="page-title">Image <em>Compress</em></h1>
+        <p class="eyebrow">{{ i18n.t('imageCompress.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('imageCompress.page.titleLead') }}
+          <em>{{ i18n.t('imageCompress.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Compress images to a target file size. The tool searches quality, uses
-          a palette for PNG and can downscale when the target needs it.
+          {{ i18n.t('imageCompress.page.sub') }}
         </p>
       </div>
 
@@ -17,7 +19,7 @@
           [strokeWidth]="2"
           aria-hidden="true"
         ></lucide-icon>
-        Local only
+        {{ i18n.t('imageCompress.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -30,9 +32,9 @@
       >
         <div class="panel-head">
           <div>
-            <h2 id="compress-input-title" class="panel-title">Images</h2>
+            <h2 id="compress-input-title" class="panel-title">{{ i18n.t('imageCompress.intake.title') }}</h2>
             <p class="panel-sub">
-              Drop images or choose them from your computer.
+              {{ i18n.t('imageCompress.intake.sub') }}
             </p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
@@ -41,9 +43,9 @@
         <div class="panel-body">
           <app-file-drop
             accept="image/*"
-            title="Drop images here"
+            [title]="i18n.t('imageCompress.intake.dropTitle')"
             hint="PNG · JPG · WebP · GIF · BMP · TIFF"
-            ariaLabel="Drop or choose images to compress"
+            [ariaLabel]="i18n.t('imageCompress.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
@@ -52,7 +54,7 @@
           <div
             class="toolbar"
             role="group"
-            aria-label="Image selection actions"
+            [attr.aria-label]="i18n.t('imageCompress.intake.actionsAria')"
           >
             <button
               type="button"
@@ -65,7 +67,7 @@
                 [strokeWidth]="1.75"
                 aria-hidden="true"
               ></lucide-icon>
-              Choose files
+              {{ i18n.t('imageCompress.intake.choose') }}
             </button>
             <button
               type="button"
@@ -79,7 +81,7 @@
                 [strokeWidth]="1.75"
                 aria-hidden="true"
               ></lucide-icon>
-              Clear
+              {{ i18n.t('imageCompress.intake.clear') }}
             </button>
           </div>
 
@@ -109,7 +111,7 @@
 
           @if (selectedPaths().length > 1) {
             <p class="batch-note">
-              The same target and settings apply to every image.
+              {{ i18n.t('imageCompress.intake.batchNote') }}
             </p>
           }
         </div>
@@ -121,9 +123,9 @@
       >
         <div class="panel-head">
           <div>
-            <h2 id="compress-output-title" class="panel-title">Output</h2>
+            <h2 id="compress-output-title" class="panel-title">{{ i18n.t('imageCompress.output.title') }}</h2>
             <p class="panel-sub">
-              Set the target, then check where the files will go.
+              {{ i18n.t('imageCompress.output.sub') }}
             </p>
           </div>
           <span class="badge badge-neutral">{{ formatBadge() }}</span>
@@ -131,7 +133,7 @@
 
         <div class="panel-body">
           <div class="field">
-            <label class="label" for="compress-target">Target size (MB)</label>
+            <label class="label" for="compress-target">{{ i18n.t('imageCompress.field.target') }}</label>
             <div class="target-row">
               <input
                 id="compress-target"
@@ -167,7 +169,7 @@
           </div>
 
           <div class="field">
-            <label class="label" for="compress-format">Format</label>
+            <label class="label" for="compress-format">{{ i18n.t('imageCompress.field.format') }}</label>
             <select
               id="compress-format"
               class="select"
@@ -175,28 +177,26 @@
               (change)="onFormatChange($event)"
             >
               @for (option of formatOptions; track option.value) {
-                <option [value]="option.value">{{ option.label }}</option>
+                <option [value]="option.value">{{ formatOptionLabel(option.value) }}</option>
               }
             </select>
             @if (format() === "auto") {
               <p class="field-help">
-                Keeps JPEG, WebP and PNG. Other sources become JPEG, or PNG when
-                they have transparency.
+                {{ i18n.t('imageCompress.formatHelp.auto') }}
               </p>
             } @else if (format() === "png") {
               <p class="field-help">
-                PNG is lossless; the tool quantises the palette to reach the
-                target.
+                {{ i18n.t('imageCompress.formatHelp.png') }}
               </p>
             } @else {
               <p class="field-help">
-                Every image is encoded as {{ formatBadge() }}.
+                {{ i18n.t('imageCompress.formatHelp.other', { format: formatBadge() }) }}
               </p>
             }
           </div>
 
           <div class="field">
-            <span class="label">Downscaling</span>
+            <span class="label">{{ i18n.t('imageCompress.field.downscaling') }}</span>
             <label class="check-row" for="compress-downscale">
               <input
                 id="compress-downscale"
@@ -204,11 +204,10 @@
                 [checked]="allowDownscale()"
                 (change)="onAllowDownscaleToggle($event)"
               />
-              Allow downscaling to reach the target
+              {{ i18n.t('imageCompress.field.allowDownscale') }}
             </label>
             <p class="field-help">
-              Reduces the longest edge in steps when quality alone can't hit the
-              target. Never enlarges.
+              {{ i18n.t('imageCompress.field.allowDownscaleHelp') }}
             </p>
           </div>
 
@@ -227,7 +226,7 @@
                 class="btn btn-ghost btn-sm"
                 (click)="useOriginalFolders()"
               >
-                Use original folders
+                {{ i18n.t('settings.output.useOriginal') }}
               </button>
             </div>
           }
@@ -238,9 +237,9 @@
             (toggle)="onAdvancedToggle($event)"
           >
             <summary class="advanced-summary">
-              <span class="advanced-title">Advanced</span>
+              <span class="advanced-title">{{ i18n.t('imageCompress.advanced.title') }}</span>
               <span class="advanced-hint"
-                >Dimension limit, quality ceiling and metadata</span
+                >{{ i18n.t('imageCompress.advanced.hint') }}</span
               >
             </summary>
 
@@ -248,7 +247,7 @@
               <div class="advanced-grid">
                 <div class="field">
                   <label class="label" for="compress-max-dimension"
-                    >Max dimension (px)</label
+                    >{{ i18n.t('imageCompress.field.maxDimension') }}</label
                   >
                   <input
                     id="compress-max-dimension"
@@ -257,19 +256,18 @@
                     min="1"
                     step="1"
                     inputmode="numeric"
-                    placeholder="Original size"
+                    [attr.placeholder]="i18n.t('imageCompress.field.maxDimensionPlaceholder')"
                     [value]="maxDimension() ?? ''"
                     (input)="onMaxDimensionInput($event)"
                   />
                   <p class="field-help">
-                    Caps the longest edge before compression. Leave empty to
-                    keep the original.
+                    {{ i18n.t('imageCompress.field.maxDimensionHelp') }}
                   </p>
                 </div>
 
                 <div class="field">
                   <label class="label" for="compress-quality"
-                    >Quality ceiling (40–95)</label
+                    >{{ i18n.t('imageCompress.field.qualityCeiling') }}</label
                   >
                   <input
                     id="compress-quality"
@@ -279,18 +277,17 @@
                     max="95"
                     step="1"
                     inputmode="numeric"
-                    placeholder="Encoder default"
+                    [attr.placeholder]="i18n.t('imageCompress.field.qualityPlaceholder')"
                     [value]="quality() ?? ''"
                     (input)="onQualityInput($event)"
                   />
                   <p class="field-help">
-                    40–95. Caps the encoder search; PNG ignores it and quantises
-                    instead.
+                    {{ i18n.t('imageCompress.field.qualityHelp') }}
                   </p>
                 </div>
 
                 <div class="field">
-                  <span class="label">Metadata</span>
+                  <span class="label">{{ i18n.t('imageCompress.field.metadata') }}</span>
                   <label class="check-row" for="compress-strip-metadata">
                     <input
                       id="compress-strip-metadata"
@@ -298,11 +295,10 @@
                       [checked]="stripMetadata()"
                       (change)="onStripMetadataToggle($event)"
                     />
-                    Strip metadata
+                    {{ i18n.t('imageCompress.field.stripMetadata') }}
                   </label>
                   <p class="field-help">
-                    Removes EXIF, GPS and color profiles unless keeping them is
-                    the only way to reach the target.
+                    {{ i18n.t('imageCompress.field.stripMetadataHelp') }}
                   </p>
                 </div>
               </div>
@@ -318,7 +314,7 @@
                   [strokeWidth]="1.75"
                   aria-hidden="true"
                 ></lucide-icon>
-                Reset advanced settings
+                {{ i18n.t('imageCompress.advanced.reset') }}
               </button>
             </div>
           </details>
@@ -331,11 +327,9 @@
               aria-hidden="true"
             ></lucide-icon>
             <div class="banner-copy">
-              <strong>Targets are best effort</strong>
+              <strong>{{ i18n.t('imageCompress.note.title') }}</strong>
               <span
-                >When an image can't reach the target, the tool stops at the
-                smallest result it can produce and reports the actual
-                size.</span
+                >{{ i18n.t('imageCompress.note.body') }}</span
               >
             </div>
           </div>
@@ -383,7 +377,7 @@
 
             @if (isPolling()) {
               <button type="button" class="btn btn-ghost" (click)="cancel()">
-                Cancel
+                {{ i18n.t('imageCompress.action.cancel') }}
               </button>
             }
           </div>
@@ -392,7 +386,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Compression progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('imageCompress.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

@@ -2,11 +2,13 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">IMAGE</p>
-        <h1 class="page-title">Remove <em>Background</em></h1>
+        <p class="eyebrow">{{ i18n.t('imageBackground.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('imageBackground.page.titleLead') }}
+          <em>{{ i18n.t('imageBackground.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Cut the background out of photos and product shots locally. Save a
-          transparent PNG or fill the background with a color.
+          {{ i18n.t('imageBackground.page.sub') }}
         </p>
       </div>
 
@@ -17,7 +19,7 @@
           [strokeWidth]="2"
           aria-hidden="true"
         ></lucide-icon>
-        Local only
+        {{ i18n.t('imageBackground.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -54,7 +56,7 @@
 
           <div class="pack-actions">
             <a class="btn btn-secondary btn-sm" routerLink="/settings"
-              >Open Settings and run Install / repair</a
+              >{{ i18n.t('imageBackground.pack.openSettings') }}</a
             >
             <button
               type="button"
@@ -68,7 +70,7 @@
                 [strokeWidth]="1.75"
                 aria-hidden="true"
               ></lucide-icon>
-              {{ toolchainChecking() ? "Rechecking…" : "Recheck" }}
+              {{ toolchainChecking() ? i18n.t('imageBackground.pack.rechecking') : i18n.t('imageBackground.pack.recheck') }}
             </button>
           </div>
         </div>
@@ -79,9 +81,9 @@
       <section class="panel intake-panel" aria-labelledby="background-input-title">
         <div class="panel-head">
           <div>
-            <h2 id="background-input-title" class="panel-title">Images</h2>
+            <h2 id="background-input-title" class="panel-title">{{ i18n.t('imageBackground.intake.title') }}</h2>
             <p class="panel-sub">
-              Drop images or choose them from your computer.
+              {{ i18n.t('imageBackground.intake.sub') }}
             </p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
@@ -90,9 +92,9 @@
         <div class="panel-body">
           <app-file-drop
             accept="image/*"
-            title="Drop images here"
+            [title]="i18n.t('imageBackground.intake.dropTitle')"
             hint="PNG · JPG · WebP · BMP · TIFF · GIF"
-            ariaLabel="Drop or choose images to remove the background from"
+            [ariaLabel]="i18n.t('imageBackground.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
@@ -101,7 +103,7 @@
           <div
             class="toolbar"
             role="group"
-            aria-label="Image selection actions"
+            [attr.aria-label]="i18n.t('imageBackground.intake.actionsAria')"
           >
             <button
               type="button"
@@ -114,7 +116,7 @@
                 [strokeWidth]="1.75"
                 aria-hidden="true"
               ></lucide-icon>
-              Choose files
+              {{ i18n.t('imageBackground.intake.choose') }}
             </button>
             <button
               type="button"
@@ -128,7 +130,7 @@
                 [strokeWidth]="1.75"
                 aria-hidden="true"
               ></lucide-icon>
-              Clear
+              {{ i18n.t('imageBackground.intake.clear') }}
             </button>
           </div>
 
@@ -158,7 +160,7 @@
 
           @if (selectedPaths().length > 1) {
             <p class="batch-note">
-              The same background choice applies to every image.
+              {{ i18n.t('imageBackground.intake.batchNote') }}
             </p>
           }
         </div>
@@ -170,9 +172,9 @@
       >
         <div class="panel-head">
           <div>
-            <h2 id="background-output-title" class="panel-title">Output</h2>
+            <h2 id="background-output-title" class="panel-title">{{ i18n.t('imageBackground.output.title') }}</h2>
             <p class="panel-sub">
-              Choose the background, then check where the PNG files go.
+              {{ i18n.t('imageBackground.output.sub') }}
             </p>
           </div>
           <div class="panel-head-badges">
@@ -188,7 +190,7 @@
 
         <div class="panel-body">
           <div class="field">
-            <label class="label" for="background-mode">Background</label>
+            <label class="label" for="background-mode">{{ i18n.t('imageBackground.field.background') }}</label>
             <select
               id="background-mode"
               class="select"
@@ -199,38 +201,37 @@
                 value="transparent"
                 [selected]="backgroundMode() === 'transparent'"
               >
-                Transparent
+                {{ i18n.t('imageBackground.mode.transparent') }}
               </option>
               <option value="color" [selected]="backgroundMode() === 'color'">
-                Solid color
+                {{ i18n.t('imageBackground.mode.color') }}
               </option>
             </select>
             <p id="background-mode-help" class="field-help">
-              Transparent keeps the alpha channel; a solid color fills the cut
-              area.
+              {{ i18n.t('imageBackground.field.backgroundHelp') }}
             </p>
           </div>
 
           @if (backgroundMode() === "color") {
             <div class="field">
-              <label class="label" for="background-color">Color</label>
+              <label class="label" for="background-color">{{ i18n.t('imageBackground.field.color') }}</label>
               <div class="color-row">
                 <input
                   id="background-color"
                   class="color-input"
                   type="color"
-                  aria-label="Background color"
+                  [attr.aria-label]="i18n.t('imageBackground.field.colorAria')"
                   [value]="color()"
                   (input)="onColorInput($event)"
                 />
-                <span class="color-value mono">{{ normalizedColor() || "Invalid color" }}</span>
+                <span class="color-value mono">{{ normalizedColor() || i18n.t('imageBackground.color.invalid') }}</span>
               </div>
               @if (!colorValid()) {
                 <p class="field-help field-help-error" role="alert">
-                  Choose a color in the #rrggbb format.
+                  {{ i18n.t('imageBackground.color.invalidHelp') }}
                 </p>
               } @else {
-                <p class="field-help">The output keeps this color behind the subject.</p>
+                <p class="field-help">{{ i18n.t('imageBackground.color.help') }}</p>
               }
             </div>
           }
@@ -250,7 +251,7 @@
                 class="btn btn-ghost btn-sm"
                 (click)="useOriginalFolders()"
               >
-                Use original folders
+                {{ i18n.t('settings.output.useOriginal') }}
               </button>
             </div>
           }
@@ -263,10 +264,9 @@
               aria-hidden="true"
             ></lucide-icon>
             <div class="banner-copy">
-              <strong>Always a PNG</strong>
+              <strong>{{ i18n.t('imageBackground.note.title') }}</strong>
               <span
-                >Each image becomes &lt;name&gt;_nobg.png. The first frame is
-                used for animated images.</span
+                >{{ i18n.t('imageBackground.note.body') }}</span
               >
             </div>
           </div>
@@ -314,7 +314,7 @@
 
             @if (isPolling()) {
               <button type="button" class="btn btn-ghost" (click)="cancel()">
-                Cancel
+                {{ i18n.t('imageBackground.action.cancel') }}
               </button>
             }
           </div>
@@ -323,7 +323,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Background removal progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('imageBackground.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

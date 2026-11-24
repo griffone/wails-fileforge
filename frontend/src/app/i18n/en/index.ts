@@ -6,8 +6,12 @@ import { fileQueueEn } from './file-queue';
 import { globalDropEn } from './global-drop';
 import { homeEn } from './home';
 import { imageAnnotateEn } from './image-annotate';
+import { imageBackgroundEn } from './image-background';
+import { imageCompressEn } from './image-compress';
 import { imageConverterEn } from './image-converter';
 import { imageCropEn } from './image-crop';
+import { imageOcrEn } from './image-ocr';
+import { imageWatermarkEn } from './image-watermark';
 import { outputPlanEn } from './output-plan-card';
 import { paletteEn } from './palette';
 import { recipeRunEn } from './recipe-run';
@@ -31,6 +35,10 @@ export const en = {
   ...imageConverterEn,
   ...imageCropEn,
   ...imageAnnotateEn,
+  ...imageCompressEn,
+  ...imageWatermarkEn,
+  ...imageOcrEn,
+  ...imageBackgroundEn,
   ...recipesEn,
   ...recipeRunEn,
   ...fileDropEn,

@@ -9,6 +9,7 @@ import { Subject } from 'rxjs';
 
 import { ImageCompress } from './image-compress';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -180,6 +181,7 @@ describe('ImageCompress', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(ImageCompress);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -187,6 +189,7 @@ describe('ImageCompress', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
   });
 
@@ -511,4 +514,24 @@ describe('ImageCompress', () => {
 
     queuedFixture.destroy();
   }));
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Comprimir');
+    expect(title).toContain('imágenes');
+    expect(
+      element.querySelector('#compress-format option[value="auto"]')
+        ?.textContent,
+    ).toContain('Automático');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir archivos');
+    expect(
+      element.querySelector('.action-primary')?.textContent,
+    ).toContain('Comprimir');
+  });
 });

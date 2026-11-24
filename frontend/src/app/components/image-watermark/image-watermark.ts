@@ -23,8 +23,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -188,6 +193,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -263,7 +269,9 @@ export class ImageWatermark implements OnDestroy, OnInit {
   );
 
   readonly kindLabel = computed(() =>
-    this.kind() === 'logo' ? 'Logo' : 'Text',
+    this.kind() === 'logo'
+      ? this.i18n.t('imageWatermark.kind.logo')
+      : this.i18n.t('imageWatermark.kind.text'),
   );
 
   readonly scalePercent = computed(() =>
@@ -483,30 +491,45 @@ export class ImageWatermark implements OnDestroy, OnInit {
     if (!this.hasPreview()) {
       return '';
     }
-    const position = this.activeAnchor().label.toLowerCase();
+    const position = this.anchorLabel(this.activeAnchor()).toLowerCase();
     const opacity = Math.round(this.opacity() * 100);
     if (this.kind() === 'logo') {
-      return `Logo watermark at ${position}, ${this.scalePercent()}% of the image width, ${opacity}% opacity.`;
+      return this.i18n.t('imageWatermark.preview.description.logo', {
+        position,
+        scale: this.scalePercent(),
+        opacity,
+      });
     }
     if (this.tile()) {
-      return `Tiled text watermark, ${this.scalePercent()}% font size, ${opacity}% opacity. The tiled preview is approximate.`;
+      return this.i18n.t('imageWatermark.preview.description.tiled', {
+        scale: this.scalePercent(),
+        opacity,
+      });
     }
-    return `Text watermark at ${position}, ${this.scalePercent()}% font size, ${opacity}% opacity.`;
+    return this.i18n.t('imageWatermark.preview.description.text', {
+      position,
+      scale: this.scalePercent(),
+      opacity,
+    });
   });
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Watermarking…';
+      return this.i18n.t('imageWatermark.action.watermarking');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Watermark';
+      return this.i18n.t('imageWatermark.action.watermark');
     }
-    return count === 1 ? 'Watermark 1 image' : `Watermark ${count} images`;
+    return count === 1
+      ? this.i18n.t('imageWatermark.action.watermarkOne')
+      : this.i18n.t('imageWatermark.action.watermarkMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each original',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('imageWatermark.destination.original'),
   );
 
   readonly isDefaultDestination = computed(
@@ -526,31 +549,38 @@ export class ImageWatermark implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (!this.hasSelection()) {
-      return 'Add at least one image to watermark.';
+      return this.i18n.t('imageWatermark.helper.addImage');
     }
     if (this.kind() === 'logo') {
       if (!this.logoPath().trim()) {
-        return 'Choose a logo image.';
+        return this.i18n.t('imageWatermark.helper.chooseLogo');
       }
       if (!this.contentValid()) {
-        return 'Use a PNG, JPEG or WebP logo.';
+        return this.i18n.t('imageWatermark.helper.logoFormat');
       }
       return '';
     }
     if (!this.text().trim()) {
-      return 'Enter the watermark text.';
+      return this.i18n.t('imageWatermark.helper.textRequired');
     }
     if (this.textRuneCount() > MAX_TEXT_RUNES) {
-      return `Text must be at most ${MAX_TEXT_RUNES} characters.`;
+      return this.i18n.t('imageWatermark.helper.textTooLong', {
+        max: MAX_TEXT_RUNES,
+      });
     }
     if (this.textLines().length > MAX_TEXT_LINES) {
-      return `Text must be at most ${MAX_TEXT_LINES} lines.`;
+      return this.i18n.t('imageWatermark.helper.tooManyLines', {
+        max: MAX_TEXT_LINES,
+      });
     }
     return '';
   });
 
-  readonly textLimitLabel = computed(
-    () => `${this.textRuneCount()}/${MAX_TEXT_RUNES} characters`,
+  readonly textLimitLabel = computed(() =>
+    this.i18n.t('imageWatermark.textLimit', {
+      count: this.textRuneCount(),
+      max: MAX_TEXT_RUNES,
+    }),
   );
 
   readonly terminalJob = computed<JobResult | null>(() => {
@@ -566,7 +596,13 @@ export class ImageWatermark implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The watermark could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            error,
+            this.i18n.t('imageWatermark.error.start'),
+          ),
+        )
       : null;
   });
 
@@ -599,7 +635,26 @@ export class ImageWatermark implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'image');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.imageOne'),
+      this.i18n.t('common.imageMany'),
+    );
+  }
+
+  /** Anchor copy resolved at render time so the locale switch applies. */
+  anchorLabel(anchor: AnchorOption): string {
+    return this.i18n.tOr(
+      `imageWatermark.anchor.${anchor.id}`,
+      anchor.label,
+    );
+  }
+
+  formatOptionLabel(format: WatermarkFormat): string {
+    return this.i18n.tOr(
+      `imageWatermark.format.${format}.label`,
+      FORMAT_OPTIONS.find((option) => option.value === format)?.label ?? format,
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -823,7 +878,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
       return;
     }
     if (!SUPPORTED_LOGO_EXTENSIONS.has(fileExtension(path).toLowerCase())) {
-      this.logoError.set('Use a PNG, JPEG or WebP logo.');
+      this.logoError.set(this.i18n.t('imageWatermark.error.logoFormat'));
       this.actionMessage.set('');
       return;
     }
@@ -857,12 +912,16 @@ export class ImageWatermark implements OnDestroy, OnInit {
     this.imageWidth.set(0);
     this.imageHeight.set(0);
     this.previewLoading.set(false);
-    this.previewError.set('The preview image could not be displayed.');
+    this.previewError.set(
+      this.i18n.t('imageWatermark.error.previewImage'),
+    );
   }
 
   onLogoPreviewError(): void {
     this.logoPreviewUrl.set('');
-    this.logoError.set('The logo preview could not be displayed.');
+    this.logoError.set(
+      this.i18n.t('imageWatermark.error.logoPreview'),
+    );
   }
 
   async chooseOutputFolder(): Promise<void> {
@@ -907,13 +966,13 @@ export class ImageWatermark implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The watermark could not start.',
+        message: this.i18n.t('imageWatermark.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The watermark could not start.',
+          message: this.i18n.t('imageWatermark.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -921,7 +980,8 @@ export class ImageWatermark implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The watermark could not start.',
+          message:
+            response.message || this.i18n.t('imageWatermark.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -933,14 +993,14 @@ export class ImageWatermark implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('imageWatermark.status.waiting'),
       toolId: IMAGE_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('imageWatermark.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -958,7 +1018,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('imageWatermark.error.cancel'),
       );
     }
   }
@@ -968,7 +1028,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The file could not be opened.',
+        : response.message || this.i18n.t('imageWatermark.error.openFile'),
     );
   }
 
@@ -977,7 +1037,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('imageWatermark.error.openFolder'),
     );
   }
 
@@ -1079,12 +1139,12 @@ export class ImageWatermark implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('imageWatermark.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('imageWatermark.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -1101,7 +1161,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('imageWatermark.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the problem next
     // to the destination it belongs to.
@@ -1183,11 +1243,11 @@ export class ImageWatermark implements OnDestroy, OnInit {
       .getImagePreviewSource(path)
       .catch(() => ({
         success: false,
-        message: 'The image preview could not be loaded.',
+        message: this.i18n.t('imageWatermark.error.preview'),
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'IMAGE_PREVIEW_READ_FAILED',
-          message: 'The image preview could not be loaded.',
+          message: this.i18n.t('imageWatermark.error.preview'),
         },
       }));
     if (generation !== this.previewGeneration) {
@@ -1201,9 +1261,12 @@ export class ImageWatermark implements OnDestroy, OnInit {
       this.imageWidth.set(0);
       this.imageHeight.set(0);
       this.previewError.set(
-        describeToolError(
-          response.error,
-          'The image preview could not be loaded.',
+        localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            response.error,
+            this.i18n.t('imageWatermark.error.preview'),
+          ),
         ).description,
       );
       return;
@@ -1260,7 +1323,9 @@ export class ImageWatermark implements OnDestroy, OnInit {
       this.logoThumbnailUrl.set(this.logoPreviewUrl());
     }
     if (!this.logoThumbnailUrl() && !this.logoPreviewUrl()) {
-      this.logoError.set('The logo preview could not be loaded.');
+      this.logoError.set(
+        this.i18n.t('imageWatermark.error.logoPreviewLoad'),
+      );
       return;
     }
 
@@ -1401,7 +1466,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('imageWatermark.error.status'),
       },
     );
   }
@@ -1443,7 +1508,7 @@ export class ImageWatermark implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('imageWatermark.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -1561,18 +1626,30 @@ export class ImageWatermark implements OnDestroy, OnInit {
 
     if (rejected.length === 1) {
       parts.push(
-        `${fileName(rejected[0])} wasn't added because it isn't an image.`,
+        this.i18n.t('imageWatermark.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
       );
     } else if (rejected.length > 1) {
       parts.push(
-        `${rejected.length} files weren't added because they aren't images.`,
+        this.i18n.t('imageWatermark.notice.rejectedMany', {
+          count: rejected.length,
+        }),
       );
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('imageWatermark.notice.duplicateOne', {
+          name: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} images are already in the queue.`);
+      parts.push(
+        this.i18n.t('imageWatermark.notice.duplicateMany', {
+          count: duplicates.length,
+        }),
+      );
     }
 
     return parts.length > 0 ? { tone: 'warning', text: parts.join(' ') } : null;

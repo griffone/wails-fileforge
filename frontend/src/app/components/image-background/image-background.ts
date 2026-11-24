@@ -23,8 +23,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -55,8 +60,6 @@ const BACKGROUND_TOOL_ID = 'tool.image.background';
 const PLAN_DEBOUNCE_MS = 250;
 const THUMBNAIL_SIZE = 160;
 const DEFAULT_BACKGROUND_COLOR = '#ffffff';
-/** The opt-in pack: a dedicated Python environment plus the model file. */
-const PACK_SIZE_LABEL = 'about 630 MB';
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'jpg',
@@ -123,6 +126,7 @@ export class ImageBackground implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -174,8 +178,8 @@ export class ImageBackground implements OnDestroy, OnInit {
     };
 
     return [
-      resolve('rembg', 'Background removal engine'),
-      resolve('rembg-model', 'Background removal model'),
+      resolve('rembg', this.i18n.t('imageBackground.pack.engineFallback')),
+      resolve('rembg-model', this.i18n.t('imageBackground.pack.modelFallback')),
     ];
   });
 
@@ -195,26 +199,29 @@ export class ImageBackground implements OnDestroy, OnInit {
 
     if (this.toolchainState() === 'error') {
       return {
-        title: 'The background removal pack could not be checked.',
-        detail:
-          'Open Settings and run Install / repair, then recheck the pack here.',
+        title: this.i18n.t('imageBackground.pack.checkErrorTitle'),
+        detail: this.i18n.t('imageBackground.pack.checkErrorDetail'),
       };
     }
 
     const anyReady = this.packComponents().some((component) => component.ready);
     return {
       title: anyReady
-        ? 'The background removal pack needs repair.'
-        : 'The background removal pack is not installed.',
-      detail: `It adds ${PACK_SIZE_LABEL} on disk and runs entirely on this machine. Open Settings and run Install / repair, then recheck.`,
+        ? this.i18n.t('imageBackground.pack.needsRepairTitle')
+        : this.i18n.t('imageBackground.pack.missingTitle'),
+      detail: this.i18n.t('imageBackground.pack.detail', {
+        size: this.i18n.t('imageBackground.pack.size'),
+      }),
     };
   });
 
   readonly packBadge = computed(() => {
     if (this.toolchainState() === 'loading' || this.toolchainChecking()) {
-      return 'Checking pack…';
+      return this.i18n.t('imageBackground.pack.badge.checking');
     }
-    return this.packReady() ? 'Pack ready' : 'Pack missing';
+    return this.packReady()
+      ? this.i18n.t('imageBackground.pack.badge.ready')
+      : this.i18n.t('imageBackground.pack.badge.missing');
   });
 
   readonly normalizedColor = computed(() =>
@@ -227,25 +234,27 @@ export class ImageBackground implements OnDestroy, OnInit {
 
   readonly backgroundLabel = computed(() =>
     this.backgroundMode() === 'color'
-      ? this.normalizedColor() || 'Color'
-      : 'Transparent',
+      ? this.normalizedColor() || this.i18n.t('imageBackground.field.color')
+      : this.i18n.t('imageBackground.mode.transparent'),
   );
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Removing backgrounds…';
+      return this.i18n.t('imageBackground.action.removing');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Remove background';
+      return this.i18n.t('imageBackground.action.remove');
     }
     return count === 1
-      ? 'Remove background from 1 image'
-      : `Remove background from ${count} images`;
+      ? this.i18n.t('imageBackground.action.removeOne')
+      : this.i18n.t('imageBackground.action.removeMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each image',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('imageBackground.destination.original'),
   );
 
   readonly isDefaultDestination = computed(
@@ -267,16 +276,16 @@ export class ImageBackground implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      return 'Add at least one image.';
+      return this.i18n.t('imageBackground.helper.addImage');
     }
     if (this.toolchainState() === 'loading' || this.toolchainChecking()) {
-      return 'Checking the background removal pack…';
+      return this.i18n.t('imageBackground.helper.checking');
     }
     if (!this.packReady()) {
-      return 'The background removal pack is not ready. Install it in Settings first.';
+      return this.i18n.t('imageBackground.helper.notReady');
     }
     if (!this.colorValid()) {
-      return 'Choose a valid background color.';
+      return this.i18n.t('imageBackground.helper.color');
     }
     return '';
   });
@@ -311,7 +320,13 @@ export class ImageBackground implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The background removal could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            error,
+            this.i18n.t('imageBackground.error.start'),
+          ),
+        )
       : null;
   });
 
@@ -338,7 +353,11 @@ export class ImageBackground implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'image');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.imageOne'),
+      this.i18n.t('common.imageMany'),
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -504,13 +523,13 @@ export class ImageBackground implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The background removal could not start.',
+        message: this.i18n.t('imageBackground.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The background removal could not start.',
+          message: this.i18n.t('imageBackground.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -518,7 +537,8 @@ export class ImageBackground implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The background removal could not start.',
+          message:
+            response.message || this.i18n.t('imageBackground.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -530,14 +550,14 @@ export class ImageBackground implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('imageBackground.status.waiting'),
       toolId: BACKGROUND_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('imageBackground.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -555,7 +575,7 @@ export class ImageBackground implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('imageBackground.error.cancel'),
       );
     }
   }
@@ -563,7 +583,7 @@ export class ImageBackground implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success ? '' : response.message || this.i18n.t('imageBackground.error.openFile'),
     );
   }
 
@@ -572,7 +592,7 @@ export class ImageBackground implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('imageBackground.error.openFolder'),
     );
   }
 
@@ -657,12 +677,12 @@ export class ImageBackground implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('imageBackground.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('imageBackground.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -679,7 +699,7 @@ export class ImageBackground implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('imageBackground.error.plan'),
     };
     // Keep the failed plan so the shared plan card shows the reason next to
     // the destination it belongs to.
@@ -804,7 +824,7 @@ export class ImageBackground implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('imageBackground.error.status'),
       },
     );
   }
@@ -846,7 +866,7 @@ export class ImageBackground implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('imageBackground.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -966,14 +986,24 @@ export class ImageBackground implements OnDestroy, OnInit {
 
     const count = rejected.length;
     const filesCopy =
-      count === 1 ? "1 file wasn't added." : `${count} files weren't added.`;
+      count === 1
+        ? this.i18n.t('imageBackground.notice.filesOne')
+        : this.i18n.t('imageBackground.notice.filesMany', { count });
 
     let extensionsCopy: string;
     if (extensions.length === 1) {
-      extensionsCopy = `${extensions[0]} isn't supported.`;
+      extensionsCopy = this.i18n.t('imageBackground.notice.extensionOne', {
+        extension: extensions[0],
+      });
     } else {
       const head = extensions.slice(0, -1).join(', ');
-      extensionsCopy = `${head} and ${extensions[extensions.length - 1]} aren't supported.`;
+      extensionsCopy = this.i18n.t(
+        'imageBackground.notice.extensionsMany',
+        {
+          head,
+          tail: extensions[extensions.length - 1],
+        },
+      );
     }
 
     return `${filesCopy} ${extensionsCopy}`;

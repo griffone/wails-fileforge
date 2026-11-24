@@ -9,6 +9,7 @@ import { Subject } from 'rxjs';
 
 import { ImageWatermark } from './image-watermark';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   ImagePreviewSourceResponse,
@@ -212,6 +213,7 @@ describe('ImageWatermark', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(ImageWatermark);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -219,6 +221,7 @@ describe('ImageWatermark', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
   });
 
@@ -648,4 +651,20 @@ describe('ImageWatermark', () => {
 
     queuedFixture.destroy();
   }));
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Añadir');
+    expect(title).toContain('marca de agua');
+    expect(
+      element.querySelector('.segmented .chip')?.textContent,
+    ).toContain('Texto');
+    expect(
+      element.querySelector('.action-primary')?.textContent,
+    ).toContain('Aplicar marca de agua');
+  });
 });

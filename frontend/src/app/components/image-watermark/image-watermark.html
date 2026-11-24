@@ -2,11 +2,13 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">IMAGE</p>
-        <h1 class="page-title">Image <em>Watermark</em></h1>
+        <p class="eyebrow">{{ i18n.t('imageWatermark.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('imageWatermark.page.titleLead') }}
+          <em>{{ i18n.t('imageWatermark.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Add a text or logo watermark to a batch of images. Pick one of nine
-          anchors and check the placement before running.
+          {{ i18n.t('imageWatermark.page.sub') }}
         </p>
       </div>
 
@@ -17,7 +19,7 @@
           [strokeWidth]="2"
           aria-hidden="true"
         ></lucide-icon>
-        Local only
+        {{ i18n.t('imageWatermark.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -28,9 +30,9 @@
         <section class="panel intake-panel" aria-labelledby="wm-input-title">
           <div class="panel-head">
             <div>
-              <h2 id="wm-input-title" class="panel-title">Images</h2>
+              <h2 id="wm-input-title" class="panel-title">{{ i18n.t('imageWatermark.intake.title') }}</h2>
               <p class="panel-sub">
-                Drop images or choose them from your computer.
+                {{ i18n.t('imageWatermark.intake.sub') }}
               </p>
             </div>
             <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
@@ -39,9 +41,9 @@
           <div class="panel-body">
             <app-file-drop
               accept="image/*"
-              title="Drop images here"
+              [title]="i18n.t('imageWatermark.intake.dropTitle')"
               hint="PNG · JPG · WebP · GIF · BMP · TIFF"
-              ariaLabel="Drop or choose images to watermark"
+              [ariaLabel]="i18n.t('imageWatermark.intake.dropAria')"
               [nativePicker]="true"
               (pathsSelected)="onPathsSelected($event)"
               (browseRequested)="chooseFiles()"
@@ -50,7 +52,7 @@
             <div
               class="toolbar"
               role="group"
-              aria-label="Image selection actions"
+              [attr.aria-label]="i18n.t('imageWatermark.intake.actionsAria')"
             >
               <button
                 type="button"
@@ -63,7 +65,7 @@
                   [strokeWidth]="1.75"
                   aria-hidden="true"
                 ></lucide-icon>
-                Choose files
+                {{ i18n.t('imageWatermark.intake.choose') }}
               </button>
               <button
                 type="button"
@@ -77,7 +79,7 @@
                   [strokeWidth]="1.75"
                   aria-hidden="true"
                 ></lucide-icon>
-                Clear
+                {{ i18n.t('imageWatermark.intake.clear') }}
               </button>
             </div>
 
@@ -107,7 +109,7 @@
 
             @if (isBatch()) {
               <p class="batch-note">
-                The same watermark applies to every image.
+                {{ i18n.t('imageWatermark.intake.batchNote') }}
               </p>
             }
           </div>
@@ -116,13 +118,13 @@
         <section class="panel preview-panel" aria-labelledby="wm-preview-title">
           <div class="panel-head">
             <div>
-              <h2 id="wm-preview-title" class="panel-title">Preview</h2>
+              <h2 id="wm-preview-title" class="panel-title">{{ i18n.t('imageWatermark.preview.title') }}</h2>
               <p class="panel-sub">
-                The first selected image with the current placement.
+                {{ i18n.t('imageWatermark.preview.sub') }}
               </p>
             </div>
             @if (tilePreview()) {
-              <span class="badge badge-warning">Approximate</span>
+              <span class="badge badge-warning">{{ i18n.t('imageWatermark.preview.approximate') }}</span>
             }
           </div>
 
@@ -133,7 +135,7 @@
                   <div class="preview-canvas">
                     <img
                       [src]="previewUrl()"
-                      alt="First image with the watermark preview"
+                      [attr.alt]="i18n.t('imageWatermark.preview.alt')"
                       class="preview-image"
                       draggable="false"
                       (error)="onPreviewImageError()"
@@ -215,18 +217,15 @@
 
                 @if (tilePreview()) {
                   <p class="preview-note">
-                    Tiled preview is approximate. The output repeats the text on
-                    a rotated grid using the bundled font.
+                    {{ i18n.t('imageWatermark.preview.note.tiled') }}
                   </p>
                 } @else if (kind() === "logo") {
                   <p class="preview-note">
-                    Logo preview uses the selected logo. The output never
-                    upscales a logo beyond its natural width.
+                    {{ i18n.t('imageWatermark.preview.note.logo') }}
                   </p>
                 } @else {
                   <p class="preview-note">
-                    Preview is approximate; the output auto-fits the text and
-                    uses the bundled font.
+                    {{ i18n.t('imageWatermark.preview.note.text') }}
                   </p>
                 }
               </figure>
@@ -241,18 +240,18 @@
                 <strong>
                   {{
                     previewLoading()
-                      ? "Loading preview…"
+                      ? i18n.t('imageWatermark.preview.loadingTitle')
                       : hasSelection()
-                        ? "Preview unavailable"
-                        : "No image to watermark yet"
+                        ? i18n.t('imageWatermark.preview.unavailableTitle')
+                        : i18n.t('imageWatermark.preview.emptyTitle')
                   }}
                 </strong>
                 <span>
                   {{
                     previewLoading()
-                      ? "Reading the first image from disk."
+                      ? i18n.t('imageWatermark.preview.loadingBody')
                       : previewError() ||
-                        "Add an image above to see the watermark placement."
+                        i18n.t('imageWatermark.preview.emptyBody')
                   }}
                 </span>
               </div>
@@ -268,9 +267,9 @@
         >
           <div class="panel-head">
             <div>
-              <h2 id="wm-settings-title" class="panel-title">Watermark</h2>
+              <h2 id="wm-settings-title" class="panel-title">{{ i18n.t('imageWatermark.settings.title') }}</h2>
               <p class="panel-sub">
-                Choose the content, placement and visibility.
+                {{ i18n.t('imageWatermark.settings.sub') }}
               </p>
             </div>
             <span class="badge badge-neutral">{{ kindLabel() }}</span>
@@ -278,15 +277,15 @@
 
           <div class="panel-body">
             <div class="field">
-              <span class="label">Type</span>
-              <div class="segmented" role="group" aria-label="Watermark type">
+              <span class="label">{{ i18n.t('imageWatermark.field.type') }}</span>
+              <div class="segmented" role="group" [attr.aria-label]="i18n.t('imageWatermark.field.typeAria')">
                 <button
                   type="button"
                   class="chip"
                   [attr.aria-pressed]="kind() === 'text'"
                   (click)="setKind('text')"
                 >
-                  Text
+                  {{ i18n.t('imageWatermark.kind.text') }}
                 </button>
                 <button
                   type="button"
@@ -294,18 +293,20 @@
                   [attr.aria-pressed]="kind() === 'logo'"
                   [disabled]="tile()"
                   [attr.title]="
-                    tile() ? 'Untick tiling to use a logo' : 'Logo watermark'
+                    tile()
+                      ? i18n.t('imageWatermark.kind.logoDisabledTitle')
+                      : i18n.t('imageWatermark.kind.logoTitle')
                   "
                   (click)="setKind('logo')"
                 >
-                  Logo
+                  {{ i18n.t('imageWatermark.kind.logo') }}
                 </button>
               </div>
             </div>
 
             @if (kind() === "text") {
               <div class="field">
-                <label class="label" for="wm-text">Text</label>
+                <label class="label" for="wm-text">{{ i18n.t('imageWatermark.field.text') }}</label>
                 <textarea
                   id="wm-text"
                   class="textarea"
@@ -315,20 +316,19 @@
                   (input)="onTextInput($event)"
                 ></textarea>
                 <p id="wm-text-help" class="field-help">
-                  Line breaks are preserved. {{ textLimitLabel() }}, up to 10
-                  lines.
+                  {{ i18n.t('imageWatermark.field.textHelp', { limit: textLimitLabel() }) }}
                 </p>
               </div>
 
               <div class="inline-fields">
                 <div class="field">
-                  <label class="label" for="wm-color">Color</label>
+                  <label class="label" for="wm-color">{{ i18n.t('imageWatermark.field.color') }}</label>
                   <div class="color-row">
                     <input
                       id="wm-color"
                       class="color-input"
                       type="color"
-                      aria-label="Watermark color"
+                      [attr.aria-label]="i18n.t('imageWatermark.field.colorAria')"
                       [value]="color()"
                       (input)="onColorInput($event)"
                     />
@@ -337,7 +337,7 @@
                 </div>
 
                 <div class="field">
-                  <span class="label">Weight</span>
+                  <span class="label">{{ i18n.t('imageWatermark.field.weight') }}</span>
                   <label class="check-row" for="wm-bold">
                     <input
                       id="wm-bold"
@@ -345,13 +345,13 @@
                       [checked]="bold()"
                       (change)="onBoldToggle($event)"
                     />
-                    Bold text
+                    {{ i18n.t('imageWatermark.field.bold') }}
                   </label>
                 </div>
               </div>
             } @else {
               <div class="field">
-                <span class="label">Logo</span>
+                <span class="label">{{ i18n.t('imageWatermark.field.logo') }}</span>
                 <div class="logo-picker">
                   <span class="logo-thumb" aria-hidden="true">
                     @if (logoThumbnailUrl()) {
@@ -367,7 +367,9 @@
                   <span class="logo-copy">
                     <span class="logo-name mono" [title]="logoPath()">
                       {{
-                        logoPath() ? fileName(logoPath()) : "No logo selected"
+                        logoPath()
+                          ? fileName(logoPath())
+                          : i18n.t('imageWatermark.logo.none')
                       }}
                     </span>
                     <span
@@ -377,8 +379,8 @@
                       {{
                         logoError() ||
                           (logoLoading()
-                            ? "Loading thumbnail…"
-                            : "PNG, JPEG or WebP.")
+                            ? i18n.t('imageWatermark.logo.loading')
+                            : i18n.t('imageWatermark.logo.hint'))
                       }}
                     </span>
                   </span>
@@ -388,14 +390,14 @@
                       class="btn btn-secondary btn-sm"
                       (click)="chooseLogo()"
                     >
-                      Choose logo
+                      {{ i18n.t('imageWatermark.logo.choose') }}
                     </button>
                     @if (logoPath()) {
                       <button
                         type="button"
                         class="icon-btn"
-                        aria-label="Remove logo"
-                        title="Remove logo"
+                        [attr.aria-label]="i18n.t('imageWatermark.logo.removeAria')"
+                        [attr.title]="i18n.t('imageWatermark.logo.removeTitle')"
                         (click)="removeLogo()"
                       >
                         <lucide-icon
@@ -412,7 +414,7 @@
             }
 
             <div class="field">
-              <span class="label" id="wm-anchor-label">Anchor</span>
+              <span class="label" id="wm-anchor-label">{{ i18n.t('imageWatermark.field.anchor') }}</span>
               <div class="anchor-row">
                 <div
                   class="anchor-grid"
@@ -424,8 +426,8 @@
                       type="button"
                       class="anchor-button"
                       [attr.aria-pressed]="isActiveAnchor(option.id)"
-                      [attr.aria-label]="'Anchor: ' + option.label"
-                      [attr.title]="option.label"
+                      [attr.aria-label]="i18n.t('imageWatermark.anchor.aria', { label: anchorLabel(option) })"
+                      [attr.title]="anchorLabel(option)"
                       (click)="setAnchor(option.id)"
                     >
                       <span
@@ -436,13 +438,13 @@
                     </button>
                   }
                 </div>
-                <span class="anchor-value">{{ activeAnchor().label }}</span>
+                <span class="anchor-value">{{ anchorLabel(activeAnchor()) }}</span>
               </div>
             </div>
 
             <div class="field">
               <label class="label" for="wm-margin"
-                >Margin (% of short edge)</label
+                >{{ i18n.t('imageWatermark.field.margin') }}</label
               >
               <div class="range-row">
                 <input
@@ -452,7 +454,7 @@
                   min="2"
                   max="5"
                   step="0.5"
-                  aria-label="Margin percent"
+                  [attr.aria-label]="i18n.t('imageWatermark.field.marginAria')"
                   [value]="marginPercent()"
                   (input)="onMarginInput($event)"
                 />
@@ -474,8 +476,8 @@
               <label class="label" for="wm-scale">
                 {{
                   kind() === "logo"
-                    ? "Scale (% of image width)"
-                    : "Scale (% of short edge)"
+                    ? i18n.t('imageWatermark.field.scaleLogo')
+                    : i18n.t('imageWatermark.field.scaleText')
                 }}
               </label>
               <div class="range-row">
@@ -486,7 +488,7 @@
                   [min]="scaleRange().min"
                   [max]="scaleRange().max"
                   [step]="scaleRange().step"
-                  aria-label="Watermark scale percent"
+                  [attr.aria-label]="i18n.t('imageWatermark.field.scaleAria')"
                   [value]="scalePercent()"
                   (input)="onScaleInput($event)"
                 />
@@ -505,14 +507,14 @@
               <p class="field-help">
                 {{
                   kind() === "logo"
-                    ? "Logo width relative to the image."
-                    : "Font size relative to the shorter image edge."
+                    ? i18n.t('imageWatermark.field.scaleLogoHelp')
+                    : i18n.t('imageWatermark.field.scaleTextHelp')
                 }}
               </p>
             </div>
 
             <div class="field">
-              <label class="label" for="wm-opacity">Opacity (0.05–1)</label>
+              <label class="label" for="wm-opacity">{{ i18n.t('imageWatermark.field.opacity') }}</label>
               <div class="range-row">
                 <input
                   id="wm-opacity-range"
@@ -521,7 +523,7 @@
                   min="0.05"
                   max="1"
                   step="0.05"
-                  aria-label="Opacity"
+                  [attr.aria-label]="i18n.t('imageWatermark.field.opacityAria')"
                   [value]="opacity()"
                   (input)="onOpacityInput($event)"
                 />
@@ -541,7 +543,7 @@
 
             @if (kind() === "text") {
               <div class="field">
-                <span class="label">Tiling</span>
+                <span class="label">{{ i18n.t('imageWatermark.field.tiling') }}</span>
                 <label class="check-row" for="wm-tile">
                   <input
                     id="wm-tile"
@@ -549,18 +551,17 @@
                     [checked]="tile()"
                     (change)="onTileToggle($event)"
                   />
-                  Repeat the text across the image
+                  {{ i18n.t('imageWatermark.field.tile') }}
                 </label>
                 <p class="field-help">
-                  Tiling applies to text watermarks only; it replaces the single
-                  anchored placement.
+                  {{ i18n.t('imageWatermark.field.tileHelp') }}
                 </p>
               </div>
 
               @if (tile()) {
                 <div class="field">
                   <label class="label" for="wm-rotation"
-                    >Rotation (-90° to 90°)</label
+                    >{{ i18n.t('imageWatermark.field.rotation') }}</label
                   >
                   <div class="range-row">
                     <input
@@ -570,7 +571,7 @@
                       min="-90"
                       max="90"
                       step="1"
-                      aria-label="Tile rotation degrees"
+                      [attr.aria-label]="i18n.t('imageWatermark.field.rotationAria')"
                       [value]="rotationDegrees()"
                       (input)="onRotationInput($event)"
                     />
@@ -595,9 +596,9 @@
         <section class="panel outcome-panel" aria-labelledby="wm-output-title">
           <div class="panel-head">
             <div>
-              <h2 id="wm-output-title" class="panel-title">Output</h2>
+              <h2 id="wm-output-title" class="panel-title">{{ i18n.t('imageWatermark.output.title') }}</h2>
               <p class="panel-sub">
-                Check where the watermarked images will go.
+                {{ i18n.t('imageWatermark.output.sub') }}
               </p>
             </div>
           </div>
@@ -609,14 +610,14 @@
               (toggle)="onAdvancedToggle($event)"
             >
               <summary class="advanced-summary">
-                <span class="advanced-title">Advanced</span>
-                <span class="advanced-hint">Format and quality</span>
+                <span class="advanced-title">{{ i18n.t('imageWatermark.advanced.title') }}</span>
+                <span class="advanced-hint">{{ i18n.t('imageWatermark.advanced.hint') }}</span>
               </summary>
 
               <div class="advanced-body">
                 <div class="advanced-grid">
                   <div class="field">
-                    <label class="label" for="wm-format">Format</label>
+                    <label class="label" for="wm-format">{{ i18n.t('imageWatermark.field.format') }}</label>
                     <select
                       id="wm-format"
                       class="select"
@@ -625,18 +626,17 @@
                     >
                       @for (option of formatOptions; track option.value) {
                         <option [value]="option.value">
-                          {{ option.label }}
+                          {{ formatOptionLabel(option.value) }}
                         </option>
                       }
                     </select>
                     <p class="field-help">
-                      Auto keeps JPEG, PNG and WebP. Other sources become JPEG,
-                      or PNG when they have transparency.
+                      {{ i18n.t('imageWatermark.field.formatHelp') }}
                     </p>
                   </div>
 
                   <div class="field">
-                    <label class="label" for="wm-quality">Quality</label>
+                    <label class="label" for="wm-quality">{{ i18n.t('imageWatermark.field.quality') }}</label>
                     <input
                       id="wm-quality"
                       class="input"
@@ -649,7 +649,7 @@
                       (input)="onQualityInput($event)"
                     />
                     <p class="field-help">
-                      40–100. Applies to JPEG and WebP; PNG is lossless.
+                      {{ i18n.t('imageWatermark.field.qualityHelp') }}
                     </p>
                   </div>
                 </div>
@@ -671,7 +671,7 @@
                   class="btn btn-ghost btn-sm"
                   (click)="useOriginalFolders()"
                 >
-                  Use original folders
+                  {{ i18n.t('settings.output.useOriginal') }}
                 </button>
               </div>
             }
@@ -719,7 +719,7 @@
 
               @if (isPolling()) {
                 <button type="button" class="btn btn-ghost" (click)="cancel()">
-                  Cancel
+                  {{ i18n.t('imageWatermark.action.cancel') }}
                 </button>
               }
             </div>
@@ -729,7 +729,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Watermark progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('imageWatermark.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

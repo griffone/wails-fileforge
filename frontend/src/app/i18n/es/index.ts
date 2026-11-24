@@ -9,8 +9,12 @@ import { fileQueueEs } from './file-queue';
 import { globalDropEs } from './global-drop';
 import { homeEs } from './home';
 import { imageAnnotateEs } from './image-annotate';
+import { imageBackgroundEs } from './image-background';
+import { imageCompressEs } from './image-compress';
 import { imageConverterEs } from './image-converter';
 import { imageCropEs } from './image-crop';
+import { imageOcrEs } from './image-ocr';
+import { imageWatermarkEs } from './image-watermark';
 import { outputPlanEs } from './output-plan-card';
 import { paletteEs } from './palette';
 import { recipeRunEs } from './recipe-run';
@@ -34,6 +38,10 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...imageConverterEs,
   ...imageCropEs,
   ...imageAnnotateEs,
+  ...imageCompressEs,
+  ...imageWatermarkEs,
+  ...imageOcrEs,
+  ...imageBackgroundEs,
   ...recipesEs,
   ...recipeRunEs,
   ...fileDropEs,
