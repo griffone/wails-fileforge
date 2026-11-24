@@ -1,4 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { FileQueue } from './file-queue';
 import { FileQueueItem } from './tool-flow.types';
 
@@ -7,9 +9,18 @@ describe('FileQueue', () => {
   let component: FileQueue;
 
   beforeEach(async () => {
+    localStorage.setItem(
+      PREFERENCES_STORAGE_KEY,
+      JSON.stringify({ language: 'en' }),
+    );
     await TestBed.configureTestingModule({ imports: [FileQueue] }).compileComponents();
     fixture = TestBed.createComponent(FileQueue);
     component = fixture.componentInstance;
+  });
+
+  afterEach(() => {
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
   it('renders the empty state copy', () => {
@@ -18,6 +29,31 @@ describe('FileQueue', () => {
     const empty = fixture.nativeElement.querySelector('.file-queue-empty') as HTMLElement;
     expect(empty.textContent).toContain('No files yet');
     expect(empty.textContent).toContain('Drop files above to get started.');
+  });
+
+  it('renders the list and empty state copy in Spanish', () => {
+    const i18n = TestBed.inject(I18nService);
+    i18n.setLocale('es');
+    component.reorderable = true;
+    fixture.detectChanges();
+
+    const list = fixture.nativeElement.querySelector('.file-queue') as HTMLElement;
+    expect(list.getAttribute('aria-label')).toBe('Archivos seleccionados');
+
+    const empty = fixture.nativeElement.querySelector('.file-queue-empty') as HTMLElement;
+    expect(empty.textContent).toContain('Aún no hay archivos');
+    expect(empty.textContent).toContain('Suelta archivos arriba para empezar.');
+
+    component.items = [{ path: '/tmp/a.pdf', name: 'a.pdf' }];
+    fixture.detectChanges();
+
+    const row = fixture.nativeElement.querySelector('.file-queue-row') as HTMLElement;
+    const actions = row.querySelectorAll('.file-queue-action');
+    expect(actions[0].getAttribute('aria-label')).toBe('Mover a.pdf hacia arriba');
+    expect(actions[1].getAttribute('aria-label')).toBe('Mover a.pdf hacia abajo');
+    expect(
+      row.querySelector('.file-queue-remove')?.getAttribute('aria-label'),
+    ).toBe('Quitar a.pdf');
   });
 
   it('renders rows and emits the path on remove', () => {

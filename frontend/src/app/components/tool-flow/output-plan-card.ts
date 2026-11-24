@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import {
   Folder,
   FolderOpen,
@@ -9,6 +9,7 @@ import {
   PlannedOutput,
   PlanJobResponse,
 } from '../../services/wails';
+import { I18nService } from '../../services/i18n.service';
 import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { fileDir, fileName, formatCount } from '../../utils/format';
 
@@ -24,12 +25,15 @@ const VISIBLE_OUTPUT_LIMIT = 4;
 export class OutputPlanCard {
   @Input() plan: PlanJobResponse | null = null;
   @Input() loading = false;
-  @Input() destinationLabel = 'Next to the original';
+  /** Optional destination copy; falls back to the translated default. */
+  @Input() destinationLabel = '';
   @Input() isDefaultDestination = true;
   /** How many planned outputs stay listed before the `+ N more` row. */
   @Input() visibleLimit = VISIBLE_OUTPUT_LIMIT;
 
   @Output() changeDestination = new EventEmitter<void>();
+
+  readonly i18n = inject(I18nService);
 
   readonly folderIcon = FolderOpen;
   readonly outputFolderIcon = Folder;
@@ -79,7 +83,13 @@ export class OutputPlanCard {
   /** `N files` when the plan knows how many files the folder will contain. */
   outputCountLabel(output: PlannedOutput): string {
     const count = output.outputCount ?? 0;
-    return count > 0 ? formatCount(count, 'file') : '';
+    return count > 0
+      ? formatCount(
+          count,
+          this.i18n.t('common.fileOne'),
+          this.i18n.t('common.fileMany'),
+        )
+      : '';
   }
 
   /**

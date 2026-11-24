@@ -5,7 +5,7 @@
   data-file-drop-target
   role="button"
   tabindex="0"
-  [attr.aria-label]="ariaLabel"
+  [attr.aria-label]="ariaLabel || i18n.t('fileDrop.aria')"
   [attr.aria-describedby]="hintId"
   (click)="triggerFileInput()"
   (keydown.enter)="onEnter($event)"
@@ -32,7 +32,11 @@
     <lucide-icon [img]="uploadIcon" [size]="22" [strokeWidth]="1.5"></lucide-icon>
   </span>
 
-  <p class="file-drop-title">{{ dragOver ? 'Drop to add files' : title }}</p>
-  <p class="file-drop-sub">{{ dragOver ? 'Release to queue them' : 'or click to browse' }}</p>
+  <p class="file-drop-title">
+    {{ dragOver ? i18n.t('fileDrop.dropNow') : title || i18n.t('fileDrop.title') }}
+  </p>
+  <p class="file-drop-sub">
+    {{ dragOver ? i18n.t('fileDrop.releaseNow') : i18n.t('fileDrop.orBrowse') }}
+  </p>
   <p class="file-drop-hint mono" [id]="hintId">{{ displayHint() }}</p>
 </div>

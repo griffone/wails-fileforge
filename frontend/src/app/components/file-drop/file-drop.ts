@@ -13,12 +13,20 @@ import {
 import { Events } from '@wailsio/runtime';
 import { CloudUpload, LucideAngularModule } from 'lucide-angular';
 
+import type { TranslationKey } from '../../i18n';
+import { I18nService } from '../../services/i18n.service';
+
+/** Generic MIME families resolve to dictionary keys. */
+const MIME_KEYS: Record<string, TranslationKey> = {
+  '*/*': 'fileDrop.anyFileType',
+  '*': 'fileDrop.anyFileType',
+  'image/*': 'fileDrop.images',
+  'video/*': 'fileDrop.videos',
+  'audio/*': 'fileDrop.audio',
+};
+
+/** Code-like labels stay as-is across locales. */
 const MIME_LABELS: Record<string, string> = {
-  '*/*': 'any file type',
-  '*': 'any file type',
-  'image/*': 'images',
-  'video/*': 'videos',
-  'audio/*': 'audio files',
   'application/pdf': 'PDF',
   'application/msword': 'DOC',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
@@ -49,9 +57,10 @@ export class FileDrop implements OnInit, OnDestroy {
 
   @Input() accept = '';
   @Input() multiple = true;
-  @Input() ariaLabel = 'File drop zone';
-  /** Optional headline; defaults to "Drop files here". */
-  @Input() title = 'Drop files here';
+  /** Optional aria label; falls back to the translated default. */
+  @Input() ariaLabel = '';
+  /** Optional headline; falls back to the translated default. */
+  @Input() title = '';
   /** Optional copy that replaces the derived supported-format hint. */
   @Input() hint = '';
   /** When true, clicking asks the host to open a native file dialog instead. */
@@ -70,6 +79,8 @@ export class FileDrop implements OnInit, OnDestroy {
   readonly dropId = `ff-drop-${(FileDrop.nextDropId += 1)}`;
 
   dragOver = false;
+
+  readonly i18n = inject(I18nService);
 
   private readonly zone = inject(NgZone);
   private nativeDropUnsubscribe: (() => void) | null = null;
@@ -102,7 +113,7 @@ export class FileDrop implements OnInit, OnDestroy {
       return custom;
     }
 
-    return `Accepts ${this.formatsHint()}`;
+    return this.i18n.t('fileDrop.accepts', { formats: this.formatsHint() });
   }
 
   /** Readable, de-duplicated list derived from the native accept attribute. */
@@ -113,7 +124,7 @@ export class FileDrop implements OnInit, OnDestroy {
       .filter(Boolean);
 
     if (parts.length === 0) {
-      return 'any file type';
+      return this.i18n.t('fileDrop.anyFileType');
     }
 
     const labels: string[] = [];
@@ -124,7 +135,9 @@ export class FileDrop implements OnInit, OnDestroy {
       }
     }
 
-    return labels.length > 0 ? labels.join(' · ') : 'any file type';
+    return labels.length > 0
+      ? labels.join(' · ')
+      : this.i18n.t('fileDrop.anyFileType');
   }
 
   triggerFileInput(): void {
@@ -221,6 +234,11 @@ export class FileDrop implements OnInit, OnDestroy {
 
   private formatLabel(token: string): string {
     const value = token.toLowerCase();
+    const key = MIME_KEYS[value];
+    if (key) {
+      return this.i18n.t(key);
+    }
+
     const mapped = MIME_LABELS[value];
     if (mapped) {
       return mapped;

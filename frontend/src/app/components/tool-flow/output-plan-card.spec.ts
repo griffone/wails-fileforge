@@ -1,4 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { PlanJobResponse } from '../../services/wails';
 import { OutputPlanCard } from './output-plan-card';
 
@@ -7,9 +9,18 @@ describe('OutputPlanCard', () => {
   let component: OutputPlanCard;
 
   beforeEach(async () => {
+    localStorage.setItem(
+      PREFERENCES_STORAGE_KEY,
+      JSON.stringify({ language: 'en' }),
+    );
     await TestBed.configureTestingModule({ imports: [OutputPlanCard] }).compileComponents();
     fixture = TestBed.createComponent(OutputPlanCard);
     component = fixture.componentInstance;
+  });
+
+  afterEach(() => {
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
   function planWith(outputs: PlanJobResponse['outputs']): PlanJobResponse {
@@ -83,6 +94,52 @@ describe('OutputPlanCard', () => {
     expect(text).toContain('Folder');
     expect(text).toContain('6 files');
     expect(text).toContain('1 file');
+  });
+
+  it('renders the card copy and counts in Spanish', () => {
+    const i18n = TestBed.inject(I18nService);
+    i18n.setLocale('es');
+    component.plan = planWith(
+      Array.from({ length: 6 }, (_, index) => ({
+        inputPath: `/tmp/in/${index}.png`,
+        outputPath: `/tmp/in/${index}.webp`,
+        outputKind: index === 0 ? 'directory' : 'file',
+        outputCount: index === 0 ? 3 : undefined,
+        exists: false,
+        adjusted: index === 0,
+      })),
+    );
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Guardar en');
+    expect(text).toContain('Elige dónde deben ir los archivos convertidos.');
+    expect(text).toContain('Cambiar');
+    expect(text).toContain('Destino');
+    expect(text).toContain('Predeterminado');
+    expect(text).toContain('Carpeta');
+    expect(text).toContain('3 archivos');
+    expect(text).toContain('Ajustado');
+    expect(text).toContain('+ 2 más');
+    expect(text).toContain(
+      'Los nombres existentes se ajustarán para no sobrescribir.',
+    );
+    expect(
+      fixture.nativeElement
+        .querySelector('.output-plan-list')
+        ?.getAttribute('aria-label'),
+    ).toBe('Salidas planificadas');
+
+    i18n.setLocale('en');
+  });
+
+  it('renders the empty state copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Los detalles de salida aparecerán cuando elijas archivos.',
+    );
   });
 
   it('makes a single output directory the primary line', () => {

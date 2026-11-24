@@ -1,8 +1,8 @@
 <section class="panel output-plan">
   <div class="panel-head">
     <div>
-      <h2 class="panel-title">Save to</h2>
-      <p class="panel-sub">Choose where the converted files should go.</p>
+      <h2 class="panel-title">{{ i18n.t('outputPlan.title') }}</h2>
+      <p class="panel-sub">{{ i18n.t('outputPlan.sub') }}</p>
     </div>
     <button
       type="button"
@@ -10,16 +10,18 @@
       (click)="changeDestination.emit()"
     >
       <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-      Change
+      {{ i18n.t('outputPlan.change') }}
     </button>
   </div>
 
   <div class="output-plan-body">
     <div class="output-plan-destination">
-      <span class="output-plan-label">Destination</span>
-      <span class="output-plan-value">{{ destinationLabel }}</span>
+      <span class="output-plan-label">{{ i18n.t('outputPlan.destination') }}</span>
+      <span class="output-plan-value">
+        {{ destinationLabel || i18n.t('outputPlan.nextToOriginal') }}
+      </span>
       @if (isDefaultDestination) {
-        <span class="badge badge-neutral">Default</span>
+        <span class="badge badge-neutral">{{ i18n.t('outputPlan.default') }}</span>
       }
     </div>
 
@@ -34,7 +36,7 @@
     }
 
     @if (loading) {
-      <p class="output-plan-status" role="status">Working out the output…</p>
+      <p class="output-plan-status" role="status">{{ i18n.t('outputPlan.working') }}</p>
     } @else if (primaryDirectory(); as output) {
       <div class="output-plan-primary">
         <span class="output-plan-primary-icon" aria-hidden="true">
@@ -45,17 +47,17 @@
           <span class="output-plan-directory mono" [title]="output.outputPath">{{ outputDirectory(output) }}</span>
         </span>
         <span class="output-plan-tags">
-          <span class="badge badge-neutral">Folder</span>
+          <span class="badge badge-neutral">{{ i18n.t('outputPlan.folder') }}</span>
           @if (outputCountLabel(output); as countLabel) {
             <span class="output-plan-count">{{ countLabel }}</span>
           }
           @if (output.adjusted) {
-            <span class="badge badge-warning">Adjusted</span>
+            <span class="badge badge-warning">{{ i18n.t('outputPlan.adjusted') }}</span>
           }
         </span>
       </div>
     } @else if (listedOutputs().length > 0) {
-      <ul class="output-plan-list" aria-label="Planned outputs">
+      <ul class="output-plan-list" [attr.aria-label]="i18n.t('outputPlan.plannedAria')">
         @for (output of listedOutputs(); track output.outputPath) {
           <li class="output-plan-item">
             <span class="output-plan-file">
@@ -75,27 +77,29 @@
             </span>
             <span class="output-plan-tags">
               @if (isDirectory(output)) {
-                <span class="badge badge-neutral">Folder</span>
+                <span class="badge badge-neutral">{{ i18n.t('outputPlan.folder') }}</span>
                 @if (outputCountLabel(output); as countLabel) {
                   <span class="output-plan-count">{{ countLabel }}</span>
                 }
               }
               @if (output.adjusted) {
-                <span class="badge badge-warning">Adjusted</span>
+                <span class="badge badge-warning">{{ i18n.t('outputPlan.adjusted') }}</span>
               }
             </span>
           </li>
         }
         @if (remainingCount() > 0) {
-          <li class="output-plan-more mono">+ {{ remainingCount() }} more</li>
+          <li class="output-plan-more mono">
+            {{ i18n.t('outputPlan.more', { count: remainingCount() }) }}
+          </li>
         }
       </ul>
     } @else if (!errorCopy()) {
-      <p class="output-plan-status">Output details will appear once files are selected.</p>
+      <p class="output-plan-status">{{ i18n.t('outputPlan.empty') }}</p>
     }
 
     @if (hasAdjusted()) {
-      <p class="output-plan-note">Existing names will be adjusted to avoid overwriting.</p>
+      <p class="output-plan-note">{{ i18n.t('outputPlan.adjustedNote') }}</p>
     }
 
     @if (planWarnings().length > 0) {

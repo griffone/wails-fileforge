@@ -1181,7 +1181,13 @@ export class RecipeRun implements OnDestroy, OnInit {
       parts.push(`${info.width} × ${info.height} px`);
     }
     if (typeof info.pageCount === 'number' && info.pageCount > 0) {
-      parts.push(formatCount(info.pageCount, 'page'));
+      parts.push(
+        formatCount(
+          info.pageCount,
+          this.i18n.t('common.pageOne'),
+          this.i18n.t('common.pageMany'),
+        ),
+      );
     }
     return parts.join(' · ');
   }

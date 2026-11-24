@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import {
   ArrowDown,
   ArrowUp,
@@ -8,6 +8,7 @@ import {
   Video,
   X,
 } from 'lucide-angular';
+import { I18nService } from '../../services/i18n.service';
 import { fileExtension } from '../../utils/format';
 import { FileQueueItem } from './tool-flow.types';
 
@@ -35,14 +36,17 @@ const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v']);
 })
 export class FileQueue {
   @Input() items: FileQueueItem[] = [];
-  @Input() emptyTitle = 'No files yet';
-  @Input() emptyHint = 'Drop files above to get started.';
+  /** Optional empty-state copy; falls back to the translated defaults. */
+  @Input() emptyTitle = '';
+  @Input() emptyHint = '';
   /** Shows move-up/move-down controls for order-sensitive queues. */
   @Input() reorderable = false;
 
   @Output() remove = new EventEmitter<string>();
   @Output() moveUp = new EventEmitter<string>();
   @Output() moveDown = new EventEmitter<string>();
+
+  readonly i18n = inject(I18nService);
 
   readonly imageIcon = Image;
   readonly videoIcon = Video;
@@ -63,6 +67,6 @@ export class FileQueue {
   }
 
   removeLabel(item: FileQueueItem): string {
-    return `Remove ${item.name}`;
+    return this.i18n.t('fileQueue.remove', { name: item.name });
   }
 }

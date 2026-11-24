@@ -1,4 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { FileDrop } from './file-drop';
 
 describe('FileDrop', () => {
@@ -6,10 +8,19 @@ describe('FileDrop', () => {
   let component: FileDrop;
 
   beforeEach(async () => {
+    localStorage.setItem(
+      PREFERENCES_STORAGE_KEY,
+      JSON.stringify({ language: 'en' }),
+    );
     await TestBed.configureTestingModule({ imports: [FileDrop] }).compileComponents();
     fixture = TestBed.createComponent(FileDrop);
     component = fixture.componentInstance;
     fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
   function surface(): HTMLElement {
@@ -30,6 +41,20 @@ describe('FileDrop', () => {
 
     expect(component.formatsHint()).toBe('PDF');
     expect(surface().textContent).toContain('Accepts PDF');
+  });
+
+  it('renders the derived copy in Spanish when the locale is Spanish', () => {
+    const i18n = TestBed.inject(I18nService);
+    i18n.setLocale('es');
+    component.accept = 'image/*';
+    fixture.detectChanges();
+
+    expect(surface().getAttribute('aria-label')).toBe(
+      'Zona para soltar archivos',
+    );
+    expect(surface().textContent).toContain('Suelta archivos aquí');
+    expect(surface().textContent).toContain('o haz clic para examinar');
+    expect(surface().textContent).toContain('Acepta imágenes');
   });
 
   it('keeps a custom hint over the derived formats', () => {

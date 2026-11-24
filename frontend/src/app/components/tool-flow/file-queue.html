@@ -1,4 +1,4 @@
-<ul class="file-queue" aria-label="Selected files">
+<ul class="file-queue" [attr.aria-label]="i18n.t('fileQueue.listAria')">
   @for (item of items; track item.path; let i = $index) {
     <li class="file-queue-row">
       <span class="file-queue-thumb" aria-hidden="true">
@@ -30,7 +30,7 @@
             type="button"
             class="icon-btn file-queue-action"
             [disabled]="i === 0"
-            [attr.aria-label]="'Move ' + item.name + ' up'"
+            [attr.aria-label]="i18n.t('fileQueue.moveUp', { name: item.name })"
             (click)="moveUp.emit(item.path)"
           >
             <lucide-icon [img]="upIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
@@ -39,7 +39,7 @@
             type="button"
             class="icon-btn file-queue-action"
             [disabled]="i === items.length - 1"
-            [attr.aria-label]="'Move ' + item.name + ' down'"
+            [attr.aria-label]="i18n.t('fileQueue.moveDown', { name: item.name })"
             (click)="moveDown.emit(item.path)"
           >
             <lucide-icon [img]="downIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
@@ -64,8 +64,8 @@
   } @empty {
     <li class="file-queue-empty empty-state">
       <lucide-icon [img]="fileIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
-      <strong>{{ emptyTitle }}</strong>
-      <span>{{ emptyHint }}</span>
+      <strong>{{ emptyTitle || i18n.t('fileQueue.emptyTitle') }}</strong>
+      <span>{{ emptyHint || i18n.t('fileQueue.emptyHint') }}</span>
     </li>
   }
 </ul>
