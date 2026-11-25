@@ -71,5 +71,6 @@ export const routes: Routes = [
     component: RecipeRun,
     data: { recipeId: 'recipe.burned_subtitles' },
   },
+  { path: 'recipe/user/:recipeId', component: RecipeRun },
   { path: '**', redirectTo: '' },
 ];

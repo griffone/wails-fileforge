@@ -24,10 +24,16 @@ describe('Home', () => {
       'openPath',
       'revealInFolder',
       'getAutomationStatus',
+      'listRecipes',
     ]);
     wailsSpy.listTools.and.returnValue(
       Promise.resolve({ success: true, message: 'ok', tools: [] }),
     );
+    wailsSpy.listRecipes.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [],
+    });
     wailsSpy.isRuntimeAvailable.and.returnValue(false);
     wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
     wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
@@ -369,22 +375,22 @@ describe('Home', () => {
 
     const cards = fixture.nativeElement.querySelectorAll(
       '.home-recipe-card',
-    ) as NodeListOf<HTMLAnchorElement>;
+    ) as NodeListOf<HTMLElement>;
     expect(cards.length).toBe(5);
 
     expect(cards[0].textContent).toContain('Email PDF');
     expect(cards[0].textContent).toContain('Target size');
     expect(cards[0].textContent).toContain('Use recipe');
-    expect(cards[0].getAttribute('href')).toBe('/recipe/email-pdf');
+    expect(cards[0].querySelector('a')?.getAttribute('href')).toBe('/recipe/email-pdf');
 
     expect(cards[1].textContent).toContain('Web image set');
     expect(cards[1].textContent).toContain('ZIP + srcset');
-    expect(cards[1].getAttribute('href')).toBe('/recipe/web-image-set');
+    expect(cards[1].querySelector('a')?.getAttribute('href')).toBe('/recipe/web-image-set');
 
     expect(cards[2].textContent).toContain('Social clip');
     expect(cards[2].textContent).toContain('MP4 + WebM');
     expect(cards[2].textContent).toContain('Use recipe');
-    expect(cards[2].getAttribute('href')).toBe('/recipe/social-clip');
+    expect(cards[2].querySelector('a')?.getAttribute('href')).toBe('/recipe/social-clip');
 
     expect(cards[3].textContent).toContain('Clean scan');
     expect(cards[3].textContent).toContain('Local OCR');
@@ -393,7 +399,7 @@ describe('Home', () => {
     expect(cards[3].textContent).toContain('PDF');
     expect(cards[3].textContent).toContain('TXT');
     expect(cards[3].textContent).toContain('Use recipe');
-    expect(cards[3].getAttribute('href')).toBe('/recipe/clean-scan');
+    expect(cards[3].querySelector('a')?.getAttribute('href')).toBe('/recipe/clean-scan');
 
     expect(cards[4].textContent).toContain('Burned-in subtitles');
     expect(cards[4].textContent).toContain('Local Whisper');
@@ -402,7 +408,7 @@ describe('Home', () => {
     expect(cards[4].textContent).toContain('MP4');
     expect(cards[4].textContent).toContain('SRT');
     expect(cards[4].textContent).toContain('Use recipe');
-    expect(cards[4].getAttribute('href')).toBe('/recipe/burned-subtitles');
+    expect(cards[4].querySelector('a')?.getAttribute('href')).toBe('/recipe/burned-subtitles');
 
     expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
       'Outcomes, not one tool at a time.',

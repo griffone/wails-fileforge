@@ -1,7 +1,9 @@
 import { DOCUMENT } from '@angular/common';
 import {
+  ChangeDetectorRef,
   Component,
   ElementRef,
+  HostListener,
   OnInit,
   Signal,
   ViewChild,
@@ -13,12 +15,16 @@ import {
 import { Router, RouterLink } from '@angular/router';
 import {
   ArrowUpRight,
+  Copy,
   ExternalLink,
   FolderOpen,
   LucideAngularModule,
+  Pencil,
+  Play,
   Search,
   SearchX,
   ShieldCheck,
+  Trash2,
   Workflow,
   X,
 } from 'lucide-angular';
@@ -32,7 +38,16 @@ import {
 } from '../../services/recent-conversions.service';
 import { RecentToolsService } from '../../services/recent-tools.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
-import { ToolCatalogEntry, PathActionResponse, AutomationStatusResponse, Wails } from '../../services/wails';
+import {
+  AutomationStatusResponse,
+  PathActionResponse,
+  Recipe,
+  RecipeOptionChoice,
+  RecipeOptionField,
+  ToolCatalogEntry,
+  UserRecipeResponse,
+  Wails,
+} from '../../services/wails';
 import {
   fileDir,
   fileExtension,
@@ -45,6 +60,8 @@ type CategoryFilter = 'all' | ToolCategory;
 
 const DIACRITICS = /[\u0300-\u036f]/g;
 const ONBOARDING_STORAGE_KEY = 'ff-onboarding-dismissed';
+
+type RecipeDialogMode = 'duplicate' | 'edit' | 'rename';
 
 function normalize(value: string): string {
   return value.normalize('NFD').replace(DIACRITICS, '').toLowerCase();
@@ -66,6 +83,7 @@ export class Home implements OnInit {
   private readonly router = inject(Router);
   private readonly wailsService = inject(Wails);
   private readonly document = inject(DOCUMENT);
+  private readonly changeDetector = inject(ChangeDetectorRef);
 
   readonly searchIcon = Search;
   readonly clearIcon = X;
@@ -75,11 +93,85 @@ export class Home implements OnInit {
   readonly openIcon = ExternalLink;
   readonly folderIcon = FolderOpen;
   readonly automationIcon = Workflow;
+  readonly copyIcon = Copy;
+  readonly editIcon = Pencil;
+  readonly runIcon = Play;
+  readonly deleteIcon = Trash2;
 
   readonly query = signal('');
   readonly activeCategory = signal<CategoryFilter>('all');
   readonly actionMessage = signal('');
   readonly automationStatus = signal<AutomationStatusResponse | null>(null);
+
+  // User recipes come from the backend catalog; built-in cards stay static.
+  private readonly runtimeRecipesState = signal<Recipe[]>([]);
+  readonly recipeMessage = signal('');
+  readonly userRecipes = computed(() =>
+    this.runtimeRecipesState().filter((recipe) => recipe.userDefined),
+  );
+
+  // Duplicate/edit/rename dialog state.
+  readonly recipeDialogOpen = signal(false);
+  readonly recipeDialogMode = signal<RecipeDialogMode>('duplicate');
+  readonly recipeDialogName = signal('');
+  readonly recipeDialogRecipe = signal<Recipe | null>(null);
+  readonly recipeDialogValues = signal<Record<string, string | boolean>>({});
+  readonly recipeDialogErrors = signal<Record<string, string>>({});
+  readonly recipeDialogMessage = signal('');
+  readonly recipeDialogSaving = signal(false);
+
+  // Deletion is permanent, so it goes through a blocking confirmation.
+  readonly recipeDeleteConfirmOpen = signal(false);
+  readonly recipeDeleteTarget = signal<Recipe | null>(null);
+  readonly recipeDeleteSaving = signal(false);
+
+  readonly recipeDeleteConfirmBody = computed(() =>
+    this.i18n.t('home.myRecipes.deleteConfirmBody', {
+      name: this.recipeDeleteTarget()?.name ?? '',
+    }),
+  );
+
+  @ViewChild('recipeDeleteDialog')
+  private recipeDeleteDialog?: ElementRef<HTMLElement>;
+  @ViewChild('recipeDeleteCancel')
+  private recipeDeleteCancel?: ElementRef<HTMLButtonElement>;
+
+  private recipeDeleteFocusOrigin: HTMLElement | null = null;
+
+  readonly recipeDialogFields = computed<RecipeOptionField[]>(() => {
+    if (this.recipeDialogMode() === 'rename') {
+      return [];
+    }
+    return this.recipeDialogRecipe()?.optionSchema ?? [];
+  });
+
+  readonly recipeDialogTitle = computed(() => {
+    switch (this.recipeDialogMode()) {
+      case 'edit':
+        return this.i18n.t('home.recipeDialog.titleEdit');
+      case 'rename':
+        return this.i18n.t('home.recipeDialog.titleRename');
+      default:
+        return this.i18n.t('home.recipeDialog.titleDuplicate');
+    }
+  });
+
+  readonly recipeDialogSaveLabel = computed(() => {
+    switch (this.recipeDialogMode()) {
+      case 'edit':
+        return this.i18n.t('home.recipeDialog.saveEdit');
+      case 'rename':
+        return this.i18n.t('home.recipeDialog.saveRename');
+      default:
+        return this.i18n.t('home.recipeDialog.saveDuplicate');
+    }
+  });
+
+  readonly recipeDialogValid = computed(
+    () =>
+      this.recipeDialogName().trim().length > 0 &&
+      Object.keys(this.recipeDialogErrors()).length === 0,
+  );
 
   readonly showAutomationStatus = computed(() => {
     const status = this.automationStatus();
@@ -166,6 +258,556 @@ export class Home implements OnInit {
     return recipe.fallback.inputKind === 'pdf' ? 'pdf' : 'docs';
   }
 
+  /** Runtime recipe for a static card; null until the catalog answers. */
+  runtimeRecipe(id: string): Recipe | null {
+    return this.runtimeRecipesState().find((recipe) => recipe.id === id) ?? null;
+  }
+
+  /** Duplicate is only offered when the runtime recipe declares a schema. */
+  duplicableRecipe(definition: RecipeDefinition): Recipe | null {
+    const recipe = this.runtimeRecipe(definition.id);
+    return recipe && !recipe.userDefined && recipe.duplicable ? recipe : null;
+  }
+
+  /** Human label for the base recipe a user recipe was copied from. */
+  recipeBaseName(recipe: Recipe): string {
+    if (!recipe.baseRecipeId) {
+      return '';
+    }
+
+    const runtime = this.runtimeRecipe(recipe.baseRecipeId);
+    if (runtime) {
+      return runtime.name;
+    }
+
+    const definition = RECIPES.find(
+      (candidate) => candidate.id === recipe.baseRecipeId,
+    );
+    return definition
+      ? this.registry.recipeName(definition)
+      : recipe.baseRecipeId;
+  }
+
+  /** Input badge for a user recipe card. */
+  userRecipeInputLabel(recipe: Recipe): string {
+    return (recipe.acceptExtensions ?? [])
+      .map((extension) => extension.toUpperCase())
+      .join(' · ');
+  }
+
+  /** Tone class for a user recipe card, borrowed from its input kind. */
+  userRecipeTone(recipe: Recipe): string {
+    if (recipe.category === 'video' || recipe.inputKind === 'video') {
+      return 'video';
+    }
+    if (recipe.category === 'image') {
+      return 'image';
+    }
+    return recipe.inputKind === 'pdf' ? 'pdf' : 'docs';
+  }
+
+  openDuplicate(recipe: Recipe): void {
+    if (!recipe.duplicable) {
+      return;
+    }
+
+    this.resetRecipeDialog();
+    this.recipeDialogMode.set('duplicate');
+    this.recipeDialogRecipe.set(recipe);
+    this.recipeDialogName.set(
+      `${recipe.name} ${this.i18n.t('home.recipeDialog.copySuffix')}`,
+    );
+    this.recipeDialogValues.set(
+      this.initialDialogValues(recipe, recipe.userDefined === true),
+    );
+    this.recipeDialogOpen.set(true);
+  }
+
+  openEdit(recipe: Recipe): void {
+    this.resetRecipeDialog();
+    this.recipeDialogMode.set('edit');
+    this.recipeDialogRecipe.set(recipe);
+    this.recipeDialogName.set(recipe.name);
+    this.recipeDialogValues.set(this.initialDialogValues(recipe, true));
+    this.recipeDialogOpen.set(true);
+  }
+
+  openRename(recipe: Recipe): void {
+    this.resetRecipeDialog();
+    this.recipeDialogMode.set('rename');
+    this.recipeDialogRecipe.set(recipe);
+    this.recipeDialogName.set(recipe.name);
+    this.recipeDialogOpen.set(true);
+  }
+
+  closeRecipeDialog(): void {
+    this.recipeDialogOpen.set(false);
+    this.recipeDialogSaving.set(false);
+  }
+
+  onRecipeDialogNameInput(event: Event): void {
+    const value = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.recipeDialogName.set(value);
+    this.updateDialogNameError();
+  }
+
+  onRecipeOptionInput(field: RecipeOptionField, event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    this.setDialogFieldValue(field, target?.value ?? '');
+  }
+
+  onRecipeOptionBoolean(field: RecipeOptionField, event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    this.setDialogFieldValue(field, target?.checked === true);
+  }
+
+  dialogFieldText(field: RecipeOptionField): string {
+    const value = this.recipeDialogValues()[field.key];
+    return typeof value === 'boolean' ? '' : (value ?? '');
+  }
+
+  dialogFieldChecked(field: RecipeOptionField): boolean {
+    return this.recipeDialogValues()[field.key] === true;
+  }
+
+  dialogOptionLabel(field: RecipeOptionField): string {
+    return this.i18n.tOr(
+      `home.recipeDialog.option.${field.key}`,
+      field.label,
+    );
+  }
+
+  dialogOptionChoiceLabel(choice: RecipeOptionChoice): string {
+    return this.i18n.tOr(
+      `home.recipeDialog.choice.${choice.value}`,
+      choice.label,
+    );
+  }
+
+  dialogOptionHelp(field: RecipeOptionField): string {
+    return this.i18n.tOr(
+      `home.recipeDialog.help.${field.key}`,
+      field.help ?? '',
+    );
+  }
+
+  dialogOptionMin(field: RecipeOptionField): number | null {
+    return this.optionBound(field, field.min);
+  }
+
+  dialogOptionMax(field: RecipeOptionField): number | null {
+    return this.optionBound(field, field.max);
+  }
+
+  async saveRecipeDialog(): Promise<void> {
+    if (this.recipeDialogSaving()) {
+      return;
+    }
+
+    this.recipeDialogMessage.set('');
+    this.updateDialogNameError();
+    this.validateAllDialogFields();
+    if (!this.recipeDialogValid()) {
+      return;
+    }
+
+    const source = this.recipeDialogRecipe();
+    const mode = this.recipeDialogMode();
+    const name = this.recipeDialogName().trim();
+    if (!source && mode !== 'duplicate') {
+      this.recipeDialogMessage.set(
+        this.i18n.t('home.recipeDialog.error.missingSource'),
+      );
+      return;
+    }
+
+    this.recipeDialogSaving.set(true);
+    let response: UserRecipeResponse;
+    if (mode === 'rename' && source) {
+      response = await this.wailsService.renameUserRecipe(source.id, name);
+    } else {
+      const baseRecipeId = source?.userDefined
+        ? (source.baseRecipeId ?? '')
+        : (source?.id ?? '');
+      response = await this.wailsService.saveUserRecipe({
+        id: mode === 'edit' ? (source?.id ?? '') : '',
+        name,
+        baseRecipeId,
+        options: this.buildDialogOptions(),
+      });
+    }
+    this.recipeDialogSaving.set(false);
+
+    if (!response.success) {
+      this.recipeDialogMessage.set(
+        response.message || this.i18n.t('home.recipeDialog.error.save'),
+      );
+      return;
+    }
+
+    this.recipeMessage.set(this.i18n.t('home.myRecipes.saved'));
+    this.closeRecipeDialog();
+    await this.loadRecipes();
+  }
+
+  /** Opens the blocking delete confirmation and focuses the safe choice. */
+  requestDeleteUserRecipe(recipe: Recipe): void {
+    if (this.recipeDeleteConfirmOpen()) {
+      return;
+    }
+
+    const active = this.document.activeElement;
+    this.recipeDeleteFocusOrigin =
+      active instanceof HTMLElement ? active : null;
+    this.recipeDeleteTarget.set(recipe);
+    this.recipeDeleteConfirmOpen.set(true);
+    // Render first so the cancel button exists before focusing it.
+    this.changeDetector.detectChanges();
+    this.recipeDeleteCancel?.nativeElement.focus();
+  }
+
+  /** Dismisses the confirmation without touching the store or the list. */
+  cancelDeleteUserRecipe(): void {
+    if (this.recipeDeleteSaving()) {
+      return;
+    }
+    this.closeDeleteConfirm();
+  }
+
+  /** Deletes exactly once after explicit consent, then refreshes the list. */
+  async confirmDeleteUserRecipe(): Promise<void> {
+    if (!this.recipeDeleteConfirmOpen() || this.recipeDeleteSaving()) {
+      return;
+    }
+
+    const recipe = this.recipeDeleteTarget();
+    if (!recipe) {
+      this.closeDeleteConfirm();
+      return;
+    }
+
+    this.recipeDeleteSaving.set(true);
+    const response = await this.wailsService.deleteUserRecipe(recipe.id);
+    this.recipeDeleteSaving.set(false);
+    this.closeDeleteConfirm();
+
+    if (!response.success) {
+      this.recipeMessage.set(
+        response.message || this.i18n.t('home.myRecipes.deleteError'),
+      );
+      return;
+    }
+
+    this.recipeMessage.set(this.i18n.t('home.myRecipes.deleted'));
+    await this.loadRecipes();
+  }
+
+  onRecipeDeleteDialogKeydown(event: KeyboardEvent): void {
+    if (event.isComposing) {
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelDeleteUserRecipe();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      this.trapDialogFocus(event, this.recipeDeleteDialog?.nativeElement);
+      event.stopPropagation();
+      return;
+    }
+
+    // The dialog is modal: shortcuts must not fire behind it.
+    event.stopPropagation();
+  }
+
+  /**
+   * A blocking dialog owns the keyboard: Escape cancels, Tab stays inside, and
+   * every other shortcut is suspended until it closes.
+   */
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(event: KeyboardEvent): void {
+    if (!this.recipeDeleteConfirmOpen()) {
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelDeleteUserRecipe();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      this.trapDialogFocus(event, this.recipeDeleteDialog?.nativeElement);
+      return;
+    }
+
+    event.stopPropagation();
+  }
+
+  /** Keeps Tab inside the confirmation dialog, matching the app's dialogs. */
+  private trapDialogFocus(
+    event: KeyboardEvent,
+    dialog: HTMLElement | undefined,
+  ): void {
+    if (!dialog) {
+      return;
+    }
+
+    const focusable = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => element.offsetParent !== null);
+    if (focusable.length === 0) {
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+      return;
+    }
+    if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  private closeDeleteConfirm(): void {
+    if (!this.recipeDeleteConfirmOpen()) {
+      return;
+    }
+
+    this.recipeDeleteConfirmOpen.set(false);
+    this.recipeDeleteTarget.set(null);
+    const origin = this.recipeDeleteFocusOrigin;
+    this.recipeDeleteFocusOrigin = null;
+    // Remove the dialog before handing focus back to the element that opened it.
+    this.changeDetector.detectChanges();
+    origin?.focus();
+  }
+
+  private resetRecipeDialog(): void {
+    this.recipeDialogRecipe.set(null);
+    this.recipeDialogName.set('');
+    this.recipeDialogValues.set({});
+    this.recipeDialogErrors.set({});
+    this.recipeDialogMessage.set('');
+    this.recipeDialogSaving.set(false);
+  }
+
+  private async loadRecipes(): Promise<void> {
+    try {
+      const response = await this.wailsService.listRecipes();
+      this.runtimeRecipesState.set(response.success ? response.recipes : []);
+    } catch {
+      this.runtimeRecipesState.set([]);
+    }
+  }
+
+  private initialDialogValues(
+    recipe: Recipe,
+    useOverrides: boolean,
+  ): Record<string, string | boolean> {
+    const values: Record<string, string | boolean> = {};
+    for (const field of recipe.optionSchema ?? []) {
+      const override = useOverrides
+        ? recipe.optionOverrides?.[field.key]
+        : undefined;
+      const raw = override ?? field.default;
+      if (field.kind === 'boolean') {
+        values[field.key] = raw === true;
+        continue;
+      }
+      if (field.kind === 'integer') {
+        const numeric = typeof raw === 'number' ? raw : Number(raw);
+        const scale = this.fieldScale(field);
+        values[field.key] = Number.isFinite(numeric)
+          ? String(Number((numeric / scale).toFixed(2)))
+          : '';
+        continue;
+      }
+      values[field.key] = raw == null ? '' : String(raw);
+    }
+
+    return values;
+  }
+
+  private fieldScale(field: RecipeOptionField): number {
+    return field.scale && field.scale > 0 ? field.scale : 1;
+  }
+
+  private optionBound(
+    field: RecipeOptionField,
+    bound: number | null | undefined,
+  ): number | null {
+    if (bound === null || bound === undefined) {
+      return null;
+    }
+    return bound / this.fieldScale(field);
+  }
+
+  private setDialogFieldValue(
+    field: RecipeOptionField,
+    value: string | boolean,
+  ): void {
+    this.recipeDialogValues.update((values) => ({
+      ...values,
+      [field.key]: value,
+    }));
+
+    const error = this.validateOptionField(field, value);
+    this.recipeDialogErrors.update((errors) => {
+      const next = { ...errors };
+      if (error) {
+        next[field.key] = error;
+      } else {
+        delete next[field.key];
+      }
+      return next;
+    });
+  }
+
+  private updateDialogNameError(): void {
+    const name = this.recipeDialogName().trim();
+    const error = name
+      ? ''
+      : this.i18n.t('home.recipeDialog.error.nameRequired');
+    this.recipeDialogErrors.update((errors) => {
+      const next = { ...errors };
+      if (error) {
+        next['name'] = error;
+      } else {
+        delete next['name'];
+      }
+      return next;
+    });
+  }
+
+  private validateAllDialogFields(): void {
+    this.updateDialogNameError();
+
+    const fields = this.recipeDialogFields();
+    const values = this.recipeDialogValues();
+    const errors: Record<string, string> = {};
+    for (const field of fields) {
+      const error = this.validateOptionField(field, values[field.key] ?? '');
+      if (error) {
+        errors[field.key] = error;
+      }
+    }
+
+    this.recipeDialogErrors.update((current) => ({
+      ...current,
+      ...errors,
+    }));
+  }
+
+  private validateOptionField(
+    field: RecipeOptionField,
+    raw: string | boolean,
+  ): string {
+    const label = this.dialogOptionLabel(field);
+
+    switch (field.kind) {
+      case 'integer': {
+        const text = String(raw ?? '').trim();
+        if (!text) {
+          return this.i18n.t('home.recipeDialog.error.required', { label });
+        }
+        const value = Number(text);
+        if (!Number.isFinite(value) || !Number.isInteger(value)) {
+          return this.i18n.t('home.recipeDialog.error.integer', {
+            label,
+            unit: field.unit ?? '',
+          });
+        }
+        const minimum = this.optionBound(field, field.min);
+        const maximum = this.optionBound(field, field.max);
+        if (minimum !== null && value < minimum) {
+          return this.rangeError(label, minimum, maximum, field.unit);
+        }
+        if (maximum !== null && value > maximum) {
+          return this.rangeError(label, minimum, maximum, field.unit);
+        }
+        return '';
+      }
+
+      case 'enum': {
+        const value = String(raw ?? '');
+        const allowed = (field.values ?? []).some(
+          (choice) => choice.value === value,
+        );
+        if (!allowed) {
+          return this.i18n.t('home.recipeDialog.error.enum', {
+            label,
+            values: (field.values ?? [])
+              .map((choice) => this.dialogOptionChoiceLabel(choice))
+              .join(', '),
+          });
+        }
+        return '';
+      }
+
+      case 'text': {
+        return String(raw ?? '').trim()
+          ? ''
+          : this.i18n.t('home.recipeDialog.error.required', { label });
+      }
+
+      default:
+        return '';
+    }
+  }
+
+  private rangeError(
+    label: string,
+    minimum: number | null,
+    maximum: number | null,
+    unit: string | undefined,
+  ): string {
+    const min = minimum !== null ? String(minimum) : '';
+    const max = maximum !== null ? String(maximum) : '';
+    return this.i18n.t('home.recipeDialog.error.range', {
+      label,
+      min,
+      max,
+      unit: unit ?? '',
+    });
+  }
+
+  private buildDialogOptions(): Record<string, unknown> {
+    const fields = this.recipeDialogFields();
+    const values = this.recipeDialogValues();
+    const options: Record<string, unknown> = {};
+    for (const field of fields) {
+      const raw = values[field.key];
+      switch (field.kind) {
+        case 'integer':
+          options[field.key] = Math.round(
+            Number(raw ?? 0) * this.fieldScale(field),
+          );
+          break;
+        case 'boolean':
+          options[field.key] = raw === true;
+          break;
+        default:
+          options[field.key] = String(raw ?? '');
+          break;
+      }
+    }
+
+    return options;
+  }
+
   readonly recent = this.recentTools.recent;
   readonly showRecent = computed(() => !this.hasFilters() && this.recent().length > 0);
 
@@ -184,6 +826,7 @@ export class Home implements OnInit {
   ngOnInit(): void {
     void this.loadData();
     void this.loadAutomationStatus();
+    void this.loadRecipes();
   }
 
   isRuntimeAvailable(): boolean {

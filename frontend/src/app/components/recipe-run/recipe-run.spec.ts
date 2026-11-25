@@ -19,6 +19,7 @@ import {
   RecipeResult,
   RecipeStatusResponse,
   Recipe,
+  RecipeOptionKind,
   Wails,
 } from '../../services/wails';
 
@@ -53,6 +54,7 @@ const emailPdfRecipe: Recipe = {
     },
   ],
   defaultTargetSizeBytes: TARGET_BYTES,
+  duplicable: false,
 };
 
 const webImageSetRecipe: Recipe = {
@@ -86,6 +88,7 @@ const webImageSetRecipe: Recipe = {
     },
   ],
   defaultTargetSizeBytes: 0,
+  duplicable: false,
 };
 
 const WEB_OUTPUTS = [
@@ -128,6 +131,7 @@ const socialClipRecipe: Recipe = {
     },
   ],
   defaultTargetSizeBytes: 0,
+  duplicable: false,
 };
 
 const SOCIAL_OUTPUTS = [
@@ -161,6 +165,7 @@ const cleanScanRecipe: Recipe = {
     },
   ],
   defaultTargetSizeBytes: 0,
+  duplicable: false,
 };
 
 const CLEAN_SCAN_OUTPUTS = [
@@ -1746,3 +1751,168 @@ describe('RecipeRun (Spanish)', () => {
   });
 });
 
+
+describe('RecipeRun (user recipe)', () => {
+  const USER_RECIPE_ID = 'recipe.user.42';
+  const USER_TARGET_BYTES = 5 * 1024 * 1024;
+
+  const userRecipe: Recipe = {
+    ...emailPdfRecipe,
+    id: USER_RECIPE_ID,
+    name: 'Email under 5 MB',
+    userDefined: true,
+    baseRecipeId: EMAIL_RECIPE_ID,
+    duplicable: true,
+    optionSchema: [
+      {
+        key: 'targetSizeBytes',
+        label: 'Target size',
+        kind: 'integer' as RecipeOptionKind,
+        unit: 'MB',
+        min: 1 * 1024 * 1024,
+        max: 100 * 1024 * 1024,
+        scale: 1024 * 1024,
+        default: USER_TARGET_BYTES,
+      },
+    ],
+    optionOverrides: { targetSizeBytes: USER_TARGET_BYTES },
+  };
+
+  let fixture: ComponentFixture<RecipeRun>;
+  let component: RecipeRun;
+  let wailsSpy: jasmine.SpyObj<Wails>;
+
+  function createUserRoute(recipeId: string): ActivatedRoute {
+    return {
+      snapshot: { data: {}, params: { recipeId } },
+    } as unknown as ActivatedRoute;
+  }
+
+  beforeEach(async () => {
+    clearPreferences();
+    wailsSpy = createWailsSpy();
+
+    wailsSpy.listRecipes.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [emailPdfRecipe, userRecipe],
+    });
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map((path) => ({
+          path,
+          name: path.split(/[\\/]/).pop() ?? path,
+          directory: '/tmp',
+          extension: 'pdf',
+          sizeBytes: 1024,
+          kind: 'pdf',
+          exists: true,
+        })),
+      }),
+    );
+    wailsSpy.planRecipe.and.callFake((request: RecipeRequest) =>
+      Promise.resolve({
+        success: true,
+        message: 'Ready to email 1 PDF.',
+        recipe: userRecipe,
+        inputPaths: request.inputPaths,
+        outputDir: '/tmp',
+        outputs: [
+          {
+            inputPath: request.inputPaths[0] ?? '',
+            outputPath: '/tmp/a_email.pdf',
+            outputKind: 'file',
+            outputCount: 1,
+            exists: false,
+            adjusted: false,
+          },
+        ],
+        warnings: [],
+      }),
+    );
+    wailsSpy.runRecipe.and.resolveTo({
+      success: true,
+      message: 'recipe submitted',
+      jobId: 'user-job-1',
+      status: 'queued',
+    });
+    wailsSpy.getRecipeStatus.and.resolveTo({
+      success: true,
+      found: true,
+      message: 'success',
+      result: {
+        jobId: 'user-job-1',
+        recipeId: USER_RECIPE_ID,
+        status: 'success',
+        message: 'Email PDF ready: a_email.pdf.',
+        currentStep: 2,
+        totalSteps: 2,
+        steps: [],
+        outputs: ['/tmp/a_email.pdf'],
+        targetSizeBytes: USER_TARGET_BYTES,
+        startedAt: 1,
+        endedAt: 2,
+      },
+    });
+    wailsSpy.openFileDialog.and.resolveTo('');
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
+    wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+
+    await TestBed.configureTestingModule({
+      imports: [RecipeRun],
+      providers: [
+        { provide: Wails, useValue: wailsSpy },
+        { provide: ActivatedRoute, useValue: createUserRoute(USER_RECIPE_ID) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(RecipeRun);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('loads the user recipe, hides the built-in target and runs with saved overrides', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.recipe()?.id).toBe(USER_RECIPE_ID);
+    expect(component.recipe()?.userDefined).toBeTrue();
+    expect(component.showTargetSize()).toBeFalse();
+    expect(component.userOptionSummaries()).toEqual([
+      { key: 'targetSizeBytes', label: 'Target size', value: '5 MB' },
+    ]);
+
+    component.onPathsSelected(['/tmp/a.pdf']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const planRequest = wailsSpy.planRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
+    expect(planRequest.recipeId).toBe(USER_RECIPE_ID);
+    expect(planRequest.options).toEqual({});
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const runRequest = wailsSpy.runRecipe.calls.mostRecent()
+      .args[0] as RecipeRequest;
+    expect(runRequest.recipeId).toBe(USER_RECIPE_ID);
+    expect(runRequest.options).toEqual({});
+    expect(component.terminalResult()?.recipeId).toBe(USER_RECIPE_ID);
+
+    component.resetRun();
+    fixture.detectChanges();
+  }));
+});

@@ -104,6 +104,23 @@ export class WailsIpc {
     return RecipeService.CancelRecipe(jobId);
   }
 
+  saveUserRecipe(
+    request: Models.SaveUserRecipeRequest,
+  ): Promise<Models.UserRecipeResponse> {
+    return RecipeService.SaveUserRecipe(request);
+  }
+
+  renameUserRecipe(
+    id: string,
+    name: string,
+  ): Promise<Models.UserRecipeResponse> {
+    return RecipeService.RenameUserRecipe(id, name);
+  }
+
+  deleteUserRecipe(id: string): Promise<Models.UserRecipeResponse> {
+    return RecipeService.DeleteUserRecipe(id);
+  }
+
   // Automation.
   listAutomationRules(): Promise<Models.ListAutomationRulesResponse> {
     return AutomationService.ListAutomationRules();

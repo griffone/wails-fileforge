@@ -109,6 +109,13 @@ type Service struct {
 
 	mu   sync.RWMutex
 	jobs map[string]*recipeJob
+
+	// userRecipes is the persisted duplicate-and-edit catalog. It is empty and
+	// unsaved when no user store path is configured.
+	userMu      sync.RWMutex
+	userPath    string
+	userStore   *jsonstore.Store
+	userRecipes []userRecipe
 }
 
 // NewService builds the recipe service without persistence. emit may be nil in
@@ -193,10 +200,19 @@ func (s *Service) ListRuns(limit int) []models.RecipeResult {
 	return runs
 }
 
-// List returns the built-in recipes. Email PDF is always first, followed by
-// Web image set, Social clip, Clean scan and Burned-in subtitles.
+// List returns the built-in recipes followed by the saved user recipes. Email
+// PDF is always first. User recipes carry their base recipe id, their stored
+// overrides and the duplicable marker; built-ins without a schema are not
+// duplicable.
 func (s *Service) List() []models.Recipe {
-	return []models.Recipe{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe()}
+	builtins := []models.Recipe{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe()}
+	users := s.userRecipeModels()
+
+	recipes := make([]models.Recipe, 0, len(builtins)+len(users))
+	recipes = append(recipes, builtins...)
+	recipes = append(recipes, users...)
+
+	return recipes
 }
 
 // Plan validates a recipe request without executing any tool and resolves the
@@ -218,7 +234,7 @@ func (s *Service) plan(req models.RecipeRequest) (models.RecipePlanResponse, *re
 
 	// Only Email PDF delegates part of its planning to the optimize tool; the
 	// Web image set plan is fully recipe-owned.
-	if resolved.Recipe.ID == RecipeIDEmailPDF {
+	if resolved.BaseRecipe != nil && resolved.BaseRecipe.ID == RecipeIDEmailPDF {
 		toolWarnings, toolErr := s.optimizePlanWarnings(resolved)
 		if toolErr != nil {
 			return recipePlanFailure(toolErr), nil
@@ -374,26 +390,69 @@ func (s *Service) Shutdown() {
 }
 
 func (s *Service) resolve(req models.RecipeRequest) (*resolvedRecipe, *models.JobError) {
-	recipe := recipeByID(req.RecipeID)
-	if recipe == nil {
-		trimmed := strings.TrimSpace(req.RecipeID)
-		return nil, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' was not found", trimmed), nil)
+	base, display, effective, jobErr := s.resolveRecipeRequest(req)
+	if jobErr != nil {
+		return nil, jobErr
 	}
 
-	switch recipe.ID {
+	request := req
+	request.Options = effective
+
+	var resolved *resolvedRecipe
+	switch base.ID {
 	case RecipeIDEmailPDF:
-		return resolveEmailPDF(recipe, req)
+		resolved, jobErr = resolveEmailPDF(base, request)
 	case RecipeIDWebImageSet:
-		return resolveWebImageSet(recipe, req)
+		resolved, jobErr = resolveWebImageSet(base, request)
 	case RecipeIDSocialClip:
-		return resolveSocialClip(recipe, req)
+		resolved, jobErr = resolveSocialClip(base, request)
 	case RecipeIDCleanScan:
-		return s.resolveCleanScan(recipe, req)
+		resolved, jobErr = s.resolveCleanScan(base, request)
 	case RecipeIDBurnedSubtitles:
-		return resolveBurnedSubtitles(recipe, req)
+		resolved, jobErr = resolveBurnedSubtitles(base, request)
 	default:
-		return nil, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", recipe.ID), nil)
+		return nil, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", base.ID), nil)
 	}
+	if jobErr != nil {
+		return nil, jobErr
+	}
+
+	resolved.BaseRecipe = base
+	resolved.Recipe = display
+
+	return resolved, nil
+}
+
+// resolveRecipeRequest maps a request id to the built-in base recipe, the
+// recipe shown to the caller and the effective option values. A built-in
+// request keeps its caller options; a user recipe applies its stored overrides
+// after validating them against the base schema.
+func (s *Service) resolveRecipeRequest(req models.RecipeRequest) (*models.Recipe, *models.Recipe, map[string]any, *models.JobError) {
+	if builtin := recipeByID(req.RecipeID); builtin != nil {
+		return builtin, builtin, req.Options, nil
+	}
+
+	stored, found := s.userRecipeByID(req.RecipeID)
+	if !found {
+		trimmed := strings.TrimSpace(req.RecipeID)
+		return nil, nil, nil, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' was not found", trimmed), nil)
+	}
+
+	base := recipeByID(stored.BaseRecipeID)
+	if base == nil {
+		return nil, nil, nil, newRecipeError(
+			"RECIPE_BASE_NOT_FOUND",
+			fmt.Sprintf("User recipe '%s' references base recipe '%s', which is no longer available. Delete or recreate it.", stored.Name, stored.BaseRecipeID),
+			map[string]any{"recipeId": stored.ID, "baseRecipeId": stored.BaseRecipeID},
+		)
+	}
+
+	overrides, optionsErr := validateRecipeOptions(base, stored.Options)
+	if optionsErr != nil {
+		return nil, nil, nil, optionsErr
+	}
+
+	return base, userRecipeModel(base, stored), overrides, nil
 }
 
 func (s *Service) job(jobID string) (*recipeJob, bool) {
@@ -585,7 +644,12 @@ func cancelledEngineStepError(ctx context.Context) *models.JobError {
 }
 
 func (s *Service) execute(ctx context.Context, tracked *recipeJob, resolved *resolvedRecipe) {
-	switch resolved.Recipe.ID {
+	base := resolved.BaseRecipe
+	if base == nil {
+		base = resolved.Recipe
+	}
+
+	switch base.ID {
 	case RecipeIDEmailPDF:
 		s.executeEmailPDF(ctx, tracked, resolved)
 	case RecipeIDWebImageSet:
@@ -597,7 +661,7 @@ func (s *Service) execute(ctx context.Context, tracked *recipeJob, resolved *res
 	case RecipeIDBurnedSubtitles:
 		s.executeBurnedSubtitles(ctx, tracked, resolved)
 	default:
-		s.failJob(tracked, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", resolved.Recipe.ID), nil))
+		s.failJob(tracked, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", base.ID), nil))
 	}
 }
 

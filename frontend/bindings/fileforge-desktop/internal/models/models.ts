@@ -473,8 +473,9 @@ export interface PlannedOutput {
 
 /**
  * Recipe is a curated outcome: one input kind, a chain of tools and one
- * verified result set. Recipes are built-in Go definitions, not user files.
- * MaxInputs is 0 when the recipe accepts any number of inputs.
+ * verified result set. Built-in recipes are Go definitions; user recipes are
+ * stored overrides applied on top of a built-in base recipe. MaxInputs is 0
+ * when the recipe accepts any number of inputs.
  */
 export interface Recipe {
     "id": string;
@@ -487,7 +488,73 @@ export interface Recipe {
     "highlights"?: string[] | null;
     "steps": RecipeStep[] | null;
     "defaultTargetSizeBytes": number;
+    "optionSchema"?: RecipeOptionField[] | null;
+    "optionOverrides"?: { [_ in string]?: any } | null;
+    "userDefined"?: boolean;
+    "baseRecipeId"?: string;
+    "duplicable": boolean;
 }
+
+/**
+ * RecipeOptionChoice is one allowed value of an enum option.
+ */
+export interface RecipeOptionChoice {
+    "value": string;
+    "label": string;
+}
+
+/**
+ * RecipeOptionField declares one editable option a recipe can honour. It
+ * carries enough metadata for the UI to render and validate the control
+ * without recipe-specific code.
+ * 
+ * Scale converts the canonical stored value to the unit shown to the user. For
+ * example an integer field stored in bytes with Unit "MB" and Scale 1048576 is
+ * rendered as a whole number of megabytes. Min and Max are expressed in the
+ * canonical stored unit.
+ */
+export interface RecipeOptionField {
+    "key": string;
+    "label": string;
+    "kind": RecipeOptionKind;
+    "unit"?: string;
+    "min"?: number | null;
+    "max"?: number | null;
+    "scale"?: number;
+    "values"?: RecipeOptionChoice[] | null;
+    "default": any;
+    "help"?: string;
+}
+
+/**
+ * RecipeOptionKind is the control type declared by a recipe option field.
+ */
+export enum RecipeOptionKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * RecipeOptionInteger is a whole number, optionally bounded and scaled.
+     */
+    RecipeOptionInteger = "integer",
+
+    /**
+     * RecipeOptionBoolean is a checkbox.
+     */
+    RecipeOptionBoolean = "boolean",
+
+    /**
+     * RecipeOptionEnum is a fixed set of allowed string values.
+     */
+    RecipeOptionEnum = "enum",
+
+    /**
+     * RecipeOptionText is a free-form string.
+     */
+    RecipeOptionText = "text",
+};
 
 /**
  * RecipePlanResponse resolves what a run would produce without executing any
@@ -608,6 +675,18 @@ export interface RunRecipeResponse {
     "jobId": string;
     "status": string;
     "error"?: JobError | null;
+}
+
+/**
+ * SaveUserRecipeRequest is the duplicate/edit payload for a user recipe. An
+ * empty ID creates a new recipe; a non-empty ID updates the stored one. The
+ * options are validated against the base recipe schema before they are kept.
+ */
+export interface SaveUserRecipeRequest {
+    "id"?: string;
+    "name": string;
+    "baseRecipeId": string;
+    "options": { [_ in string]?: any } | null;
 }
 
 export interface ToolCatalogEntry {
@@ -764,6 +843,16 @@ export interface UndoResult {
 export interface UndoSkipped {
     "path": string;
     "reason": string;
+}
+
+/**
+ * UserRecipeResponse returns the saved, renamed or deleted user recipe.
+ */
+export interface UserRecipeResponse {
+    "success": boolean;
+    "message": string;
+    "recipe"?: Recipe | null;
+    "error"?: JobError | null;
 }
 
 export interface ValidateJobResponse {

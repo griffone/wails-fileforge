@@ -42,6 +42,7 @@ import {
   RecipeResult,
   RecipeStatusResponse,
   Recipe,
+  RecipeOptionField,
   RunRecipeResponse,
   VerificationReport,
   Wails,
@@ -168,10 +169,37 @@ export class RecipeRun implements OnDestroy, OnInit {
 
   readonly fileName = fileName;
 
-  /** Recipes with a fixed outcome (no target size) hide the field entirely. */
+  /**
+   * Recipes with a fixed outcome (no target size) hide the field entirely.
+   * User recipes always run with their saved overrides, so the built-in target
+   * input would either duplicate or contradict them.
+   */
   readonly showTargetSize = computed(
-    () => (this.recipe()?.defaultTargetSizeBytes ?? 0) > 0,
+    () =>
+      !this.recipe()?.userDefined &&
+      (this.recipe()?.defaultTargetSizeBytes ?? 0) > 0,
   );
+
+  /** Read-only summary of the declared options a user recipe runs with. */
+  readonly userOptionSummaries = computed(() => {
+    const recipe = this.recipe();
+    if (!recipe?.userDefined) {
+      return [] as { key: string; label: string; value: string }[];
+    }
+
+    return (recipe.optionSchema ?? []).map((field) => {
+      const raw =
+        recipe.optionOverrides?.[field.key] ?? field.default ?? '';
+      return {
+        key: field.key,
+        label: this.i18n.tOr(
+          `recipeRun.option.${field.key}`,
+          field.label,
+        ),
+        value: this.formatOptionValue(field, raw),
+      };
+    });
+  });
 
   /** Only `maxInputs === 1` restricts the queue; 0 means unlimited. */
   readonly multipleInputs = computed(
@@ -944,6 +972,13 @@ export class RecipeRun implements OnDestroy, OnInit {
   }
 
   private resolveRecipeId(): string {
+    const params = this.route.snapshot?.params ?? {};
+    const fromParams =
+      typeof params['recipeId'] === 'string' ? params['recipeId'].trim() : '';
+    if (fromParams) {
+      return fromParams;
+    }
+
     const data = this.route.snapshot?.data ?? {};
     const candidate =
       typeof data['recipeId'] === 'string' ? data['recipeId'].trim() : '';
@@ -951,9 +986,45 @@ export class RecipeRun implements OnDestroy, OnInit {
   }
 
   private resolveFallback(): Recipe | null {
-    return (
-      findRecipeFallback(this.recipeId) ?? findRecipeFallback(DEFAULT_RECIPE_ID)
-    );
+    const fallback = findRecipeFallback(this.recipeId);
+    if (fallback) {
+      return fallback;
+    }
+
+    // A user recipe has no static config: the catalog must provide it.
+    if (this.recipeId.startsWith('recipe.user.')) {
+      return null;
+    }
+
+    return findRecipeFallback(DEFAULT_RECIPE_ID);
+  }
+
+  /** Renders a stored option value in the declared display unit. */
+  private formatOptionValue(field: RecipeOptionField, raw: unknown): string {
+    if (field.kind === 'integer') {
+      const numeric = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isFinite(numeric)) {
+        return String(raw ?? '');
+      }
+      const scale = field.scale && field.scale > 0 ? field.scale : 1;
+      const display = String(Number((numeric / scale).toFixed(2)));
+      return field.unit ? `${display} ${field.unit}` : display;
+    }
+
+    if (field.kind === 'boolean') {
+      return raw === true ? this.i18n.t('common.yes') : this.i18n.t('common.no');
+    }
+
+    if (field.kind === 'enum') {
+      const choice = (field.values ?? []).find(
+        (candidate) => candidate.value === raw,
+      );
+      return choice
+        ? this.i18n.tOr(`recipeRun.choice.${choice.value}`, choice.label)
+        : String(raw ?? '');
+    }
+
+    return String(raw ?? '');
   }
 
   private buildRequest(): RecipeRequest {

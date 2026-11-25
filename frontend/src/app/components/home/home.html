@@ -135,33 +135,134 @@
 
       <div class="home-recipe-list">
         @for (recipe of recipes; track recipe.id) {
-          <a class="tool-card home-recipe-card" [routerLink]="recipe.route">
-            <span class="home-recipe-top">
-              <span class="tool-icon" [attr.data-tone]="recipeTone(recipe)" aria-hidden="true">
-                <lucide-icon [img]="recipe.icon" [size]="18" [strokeWidth]="1.75"></lucide-icon>
+          <div class="tool-card home-recipe-card">
+            <a class="home-recipe-main" [routerLink]="recipe.route">
+              <span class="home-recipe-top">
+                <span class="tool-icon" [attr.data-tone]="recipeTone(recipe)" aria-hidden="true">
+                  <lucide-icon [img]="recipe.icon" [size]="18" [strokeWidth]="1.75"></lucide-icon>
+                </span>
+                <span class="badge badge-neutral">{{ registry.recipeInputLabel(recipe) }}</span>
               </span>
-              <span class="badge badge-neutral">{{ registry.recipeInputLabel(recipe) }}</span>
-            </span>
-            <span class="home-recipe-name">{{ registry.recipeName(recipe) }}</span>
-            <span class="home-recipe-desc">{{ registry.recipeDescription(recipe) }}</span>
-            <span class="home-recipe-meta mono">{{ registry.recipeHighlights(recipe).join(' · ') }}</span>
-            <span class="home-recipe-foot">
-              <span class="home-recipe-formats">
-                @for (format of recipe.formats; track format) {
-                  <span class="chip home-format-chip">{{ format }}</span>
-                }
+              <span class="home-recipe-name">{{ registry.recipeName(recipe) }}</span>
+              <span class="home-recipe-desc">{{ registry.recipeDescription(recipe) }}</span>
+              <span class="home-recipe-meta mono">{{ registry.recipeHighlights(recipe).join(' · ') }}</span>
+              <span class="home-recipe-foot">
+                <span class="home-recipe-formats">
+                  @for (format of recipe.formats; track format) {
+                    <span class="chip home-format-chip">{{ format }}</span>
+                  }
+                </span>
+                <span class="home-recipe-cta">
+                  {{ i18n.t('home.recipes.use') }}
+                  <lucide-icon
+                    [img]="arrowIcon"
+                    [size]="13"
+                    [strokeWidth]="2"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                </span>
               </span>
-              <span class="home-recipe-cta">
-                {{ i18n.t('home.recipes.use') }}
-                <lucide-icon
-                  [img]="arrowIcon"
-                  [size]="13"
-                  [strokeWidth]="2"
-                  aria-hidden="true"
-                ></lucide-icon>
+            </a>
+
+            @if (duplicableRecipe(recipe); as baseRecipe) {
+              <div class="home-recipe-actions">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm recipe-duplicate"
+                  (click)="openDuplicate(baseRecipe)"
+                >
+                  <lucide-icon [img]="copyIcon" [size]="13" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                  {{ i18n.t('home.recipes.duplicate') }}
+                </button>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </section>
+  }
+
+  @if (userRecipes().length > 0) {
+    <section class="home-recipes home-user-recipes" aria-labelledby="home-user-recipes-title">
+      <div class="section-head">
+        <div>
+          <h2 id="home-user-recipes-title" class="section-title">{{ i18n.t('home.myRecipes.title') }}</h2>
+          <p class="home-recipes-sub">{{ i18n.t('home.myRecipes.subtitle') }}</p>
+        </div>
+      </div>
+
+      @if (recipeMessage(); as message) {
+        <p class="home-recipes-message" role="status">{{ message }}</p>
+      }
+
+      <div class="home-recipe-list">
+        @for (recipe of userRecipes(); track recipe.id) {
+          <div class="tool-card home-recipe-card home-user-recipe-card">
+            <a class="home-recipe-main" [routerLink]="['/recipe/user', recipe.id]">
+              <span class="home-recipe-top">
+                <span class="tool-icon" [attr.data-tone]="userRecipeTone(recipe)" aria-hidden="true">
+                  <lucide-icon [img]="automationIcon" [size]="18" [strokeWidth]="1.75"></lucide-icon>
+                </span>
+                <span class="badge badge-neutral">{{ userRecipeInputLabel(recipe) }}</span>
               </span>
-            </span>
-          </a>
+              <span class="home-recipe-name">{{ recipe.name }}</span>
+              <span class="home-recipe-desc">{{ recipe.description }}</span>
+              <span class="home-recipe-meta mono">
+                {{ i18n.t('home.myRecipes.basedOn', { name: recipeBaseName(recipe) }) }}
+              </span>
+              <span class="home-recipe-foot">
+                <span class="home-recipe-formats">
+                  @for (format of recipe.acceptExtensions; track format) {
+                    <span class="chip home-format-chip">{{ format.toUpperCase() }}</span>
+                  }
+                </span>
+                <span class="home-recipe-cta">
+                  {{ i18n.t('home.myRecipes.run') }}
+                  <lucide-icon [img]="runIcon" [size]="13" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+                </span>
+              </span>
+            </a>
+
+            <div class="home-recipe-actions">
+              <a class="btn btn-secondary btn-sm recipe-run" [routerLink]="['/recipe/user', recipe.id]">
+                <lucide-icon [img]="runIcon" [size]="13" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                {{ i18n.t('home.myRecipes.run') }}
+              </a>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm recipe-edit"
+                (click)="openEdit(recipe)"
+              >
+                <lucide-icon [img]="editIcon" [size]="13" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                {{ i18n.t('home.myRecipes.edit') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm recipe-rename"
+                (click)="openRename(recipe)"
+              >
+                {{ i18n.t('home.myRecipes.rename') }}
+              </button>
+              @if (recipe.duplicable) {
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm recipe-duplicate"
+                  (click)="openDuplicate(recipe)"
+                >
+                  <lucide-icon [img]="copyIcon" [size]="13" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                  {{ i18n.t('home.myRecipes.duplicate') }}
+                </button>
+              }
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm recipe-delete"
+                (click)="requestDeleteUserRecipe(recipe)"
+              >
+                <lucide-icon [img]="deleteIcon" [size]="13" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                {{ i18n.t('home.myRecipes.delete') }}
+              </button>
+            </div>
+          </div>
         }
       </div>
     </section>
@@ -425,4 +526,174 @@
     <p class="home-local-meta">{{ i18n.t('home.footer.meta') }}</p>
     <p class="home-shortcut">{{ i18n.t('home.footer.shortcutPrefix') }} <kbd class="kbd">{{ shortcutLabel }}</kbd> {{ i18n.t('home.footer.shortcutSuffix') }}</p>
   </footer>
+
+  @if (recipeDialogOpen()) {
+    <div class="modal-backdrop" role="presentation" (click)="closeRecipeDialog()"></div>
+    <div
+      class="modal recipe-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="recipe-dialog-title"
+    >
+      <div class="modal-head">
+        <h2 id="recipe-dialog-title" class="modal-title">{{ recipeDialogTitle() }}</h2>
+        <button
+          type="button"
+          class="icon-btn"
+          [attr.aria-label]="i18n.t('home.recipeDialog.close')"
+          (click)="closeRecipeDialog()"
+        >
+          <lucide-icon [img]="clearIcon" [size]="14" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        @if (recipeDialogMessage(); as message) {
+          <div class="banner banner-danger" role="alert">{{ message }}</div>
+        }
+
+        <div class="field">
+          <label class="label" for="recipe-dialog-name">{{ i18n.t('home.recipeDialog.name') }}</label>
+          <input
+            id="recipe-dialog-name"
+            class="input"
+            type="text"
+            autocomplete="off"
+            [value]="recipeDialogName()"
+            [attr.aria-invalid]="recipeDialogErrors()['name'] ? 'true' : null"
+            (input)="onRecipeDialogNameInput($event)"
+          />
+          @if (recipeDialogErrors()['name']; as error) {
+            <p class="field-help field-error" role="alert">{{ error }}</p>
+          }
+        </div>
+
+        @for (field of recipeDialogFields(); track field.key) {
+          <div class="field">
+            <label class="label" [attr.for]="'recipe-option-' + field.key">
+              {{ dialogOptionLabel(field) }}
+            </label>
+
+            @switch (field.kind) {
+              @case ('integer') {
+                <div class="input-suffix">
+                  <input
+                    [id]="'recipe-option-' + field.key"
+                    class="input"
+                    type="number"
+                    step="1"
+                    [attr.min]="dialogOptionMin(field)"
+                    [attr.max]="dialogOptionMax(field)"
+                    [value]="dialogFieldText(field)"
+                    [attr.aria-invalid]="recipeDialogErrors()[field.key] ? 'true' : null"
+                    (input)="onRecipeOptionInput(field, $event)"
+                  />
+                  @if (field.unit) {
+                    <span class="input-suffix-label mono" aria-hidden="true">{{ field.unit }}</span>
+                  }
+                </div>
+              }
+              @case ('boolean') {
+                <label class="checkbox-row">
+                  <input
+                    [id]="'recipe-option-' + field.key"
+                    type="checkbox"
+                    [checked]="dialogFieldChecked(field)"
+                    (change)="onRecipeOptionBoolean(field, $event)"
+                  />
+                  <span>{{ dialogOptionLabel(field) }}</span>
+                </label>
+              }
+              @case ('enum') {
+                <select
+                  [id]="'recipe-option-' + field.key"
+                  class="input"
+                  [value]="dialogFieldText(field)"
+                  [attr.aria-invalid]="recipeDialogErrors()[field.key] ? 'true' : null"
+                  (change)="onRecipeOptionInput(field, $event)"
+                >
+                  @for (choice of field.values ?? []; track choice.value) {
+                    <option
+                      [value]="choice.value"
+                      [selected]="choice.value === dialogFieldText(field)"
+                    >{{ dialogOptionChoiceLabel(choice) }}</option>
+                  }
+                </select>
+              }
+              @default {
+                <input
+                  [id]="'recipe-option-' + field.key"
+                  class="input"
+                  type="text"
+                  autocomplete="off"
+                  [value]="dialogFieldText(field)"
+                  [attr.aria-invalid]="recipeDialogErrors()[field.key] ? 'true' : null"
+                  (input)="onRecipeOptionInput(field, $event)"
+                />
+              }
+            }
+
+            @if (recipeDialogErrors()[field.key]; as error) {
+              <p class="field-help field-error" role="alert">{{ error }}</p>
+            } @else if (dialogOptionHelp(field); as help) {
+              <p class="field-help">{{ help }}</p>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="modal-foot">
+        <button type="button" class="btn btn-ghost" (click)="closeRecipeDialog()">
+          {{ i18n.t('home.recipeDialog.cancel') }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary recipe-dialog-save"
+          [disabled]="recipeDialogSaving() || !recipeDialogValid()"
+          (click)="saveRecipeDialog()"
+        >
+          {{ recipeDialogSaving() ? i18n.t('home.recipeDialog.saving') : recipeDialogSaveLabel() }}
+        </button>
+      </div>
+    </div>
+  }
+
+  @if (recipeDeleteConfirmOpen()) {
+    <div class="modal-backdrop" aria-hidden="true"></div>
+    <div
+      #recipeDeleteDialog
+      class="recipe-dialog recipe-delete-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="recipe-delete-title"
+      aria-describedby="recipe-delete-body"
+      (keydown)="onRecipeDeleteDialogKeydown($event)"
+    >
+      <h2 id="recipe-delete-title" class="modal-title">
+        {{ i18n.t('home.myRecipes.deleteConfirmTitle') }}
+      </h2>
+      <p id="recipe-delete-body" class="recipe-delete-body">
+        {{ recipeDeleteConfirmBody() }}
+      </p>
+      <div class="modal-foot">
+        <button
+          #recipeDeleteCancel
+          type="button"
+          class="btn btn-secondary recipe-delete-cancel"
+          [disabled]="recipeDeleteSaving()"
+          (click)="cancelDeleteUserRecipe()"
+        >
+          {{ i18n.t('home.myRecipes.cancel') }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-danger recipe-delete-confirm"
+          [disabled]="recipeDeleteSaving()"
+          (click)="confirmDeleteUserRecipe()"
+        >
+          {{ i18n.t('home.myRecipes.confirmDelete') }}
+        </button>
+      </div>
+    </div>
+  }
 </div>

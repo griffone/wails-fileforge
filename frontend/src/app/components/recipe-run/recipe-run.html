@@ -95,6 +95,17 @@
       </div>
 
       <div class="panel-body">
+        @if (userOptionSummaries().length > 0) {
+          <dl class="recipe-options-summary">
+            @for (option of userOptionSummaries(); track option.key) {
+              <div class="recipe-option-row">
+                <dt>{{ option.label }}</dt>
+                <dd class="mono">{{ option.value }}</dd>
+              </div>
+            }
+          </dl>
+        }
+
         <div class="settings-grid" [class.settings-grid-single]="!showTargetSize()">
           @if (showTargetSize()) {
             <div class="field">

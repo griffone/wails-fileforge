@@ -51,3 +51,20 @@ func (s *RecipeService) ListRecipeRuns(limit int) []models.RecipeResult {
 func (s *RecipeService) CancelRecipe(jobID string) models.RecipeStatusResponse {
 	return s.service.Cancel(jobID)
 }
+
+// SaveUserRecipe creates or updates a duplicate-and-edit recipe. The overrides
+// are validated against the base recipe schema before they are persisted.
+func (s *RecipeService) SaveUserRecipe(req models.SaveUserRecipeRequest) models.UserRecipeResponse {
+	return s.service.SaveUserRecipe(req)
+}
+
+// RenameUserRecipe changes the display name of a saved user recipe.
+func (s *RecipeService) RenameUserRecipe(id, name string) models.UserRecipeResponse {
+	return s.service.RenameUserRecipe(id, name)
+}
+
+// DeleteUserRecipe permanently removes a saved user recipe. Run history is a
+// separate store and is unaffected.
+func (s *RecipeService) DeleteUserRecipe(id string) models.UserRecipeResponse {
+	return s.service.DeleteUserRecipe(id)
+}

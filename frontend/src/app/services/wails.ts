@@ -194,10 +194,28 @@ export interface UndoResult extends Models.UndoResult {
 
 export type RecipeStep = Models.RecipeStep;
 
+export type RecipeOptionKind = Models.RecipeOptionKind;
+export type RecipeOptionChoice = Models.RecipeOptionChoice;
+
+export interface RecipeOptionField extends Models.RecipeOptionField {
+  values?: RecipeOptionChoice[];
+}
+
 export interface Recipe extends Models.Recipe {
   acceptExtensions: string[];
   highlights?: string[];
   steps: RecipeStep[];
+  optionSchema?: RecipeOptionField[];
+  optionOverrides?: Record<string, unknown>;
+}
+
+export interface SaveUserRecipeRequest extends Models.SaveUserRecipeRequest {
+  options: Record<string, unknown>;
+}
+
+export interface UserRecipeResponse extends Models.UserRecipeResponse {
+  recipe?: Recipe;
+  error?: JobError;
 }
 
 export interface RecipeRequest extends Models.RecipeRequest {
@@ -1185,6 +1203,80 @@ export class Wails {
     }
   }
 
+  async saveUserRecipe(
+    request: SaveUserRecipeRequest,
+  ): Promise<UserRecipeResponse> {
+    try {
+      const response = await this.ipc.saveUserRecipe(request);
+      return {
+        ...response,
+        recipe: response.recipe
+          ? this.normalizeRecipe(response.recipe)
+          : undefined,
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Save user recipe failed', error),
+        error: this.defaultError(
+          'VALIDATION_INVALID_INPUT',
+          'RECIPE_USER_SAVE_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async renameUserRecipe(
+    id: string,
+    name: string,
+  ): Promise<UserRecipeResponse> {
+    try {
+      const response = await this.ipc.renameUserRecipe(id, name);
+      return {
+        ...response,
+        recipe: response.recipe
+          ? this.normalizeRecipe(response.recipe)
+          : undefined,
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Rename user recipe failed', error),
+        error: this.defaultError(
+          'VALIDATION_INVALID_INPUT',
+          'RECIPE_USER_RENAME_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async deleteUserRecipe(id: string): Promise<UserRecipeResponse> {
+    try {
+      const response = await this.ipc.deleteUserRecipe(id);
+      return {
+        ...response,
+        recipe: response.recipe
+          ? this.normalizeRecipe(response.recipe)
+          : undefined,
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Delete user recipe failed', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'RECIPE_USER_DELETE_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
   async listAutomationRules(): Promise<ListAutomationRulesResponse> {
     try {
       const response = await this.ipc.listAutomationRules();
@@ -2026,6 +2118,12 @@ export class Wails {
       acceptExtensions: recipe.acceptExtensions ?? [],
       highlights: recipe.highlights ?? undefined,
       steps: recipe.steps ?? [],
+      optionSchema: (recipe.optionSchema ?? undefined) as
+        | RecipeOptionField[]
+        | undefined,
+      optionOverrides: (recipe.optionOverrides ?? undefined) as
+        | Record<string, unknown>
+        | undefined,
     };
   }
 

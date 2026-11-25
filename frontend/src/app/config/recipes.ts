@@ -64,6 +64,7 @@ export const RECIPES: readonly RecipeDefinition[] = [
         },
       ],
       defaultTargetSizeBytes: 10 * MEGABYTE,
+      duplicable: false,
     },
   },
   {
@@ -103,6 +104,7 @@ export const RECIPES: readonly RecipeDefinition[] = [
         },
       ],
       defaultTargetSizeBytes: 0,
+      duplicable: false,
     },
   },
   {
@@ -142,6 +144,7 @@ export const RECIPES: readonly RecipeDefinition[] = [
         },
       ],
       defaultTargetSizeBytes: 0,
+      duplicable: false,
     },
   },
   {
@@ -175,6 +178,7 @@ export const RECIPES: readonly RecipeDefinition[] = [
         },
       ],
       defaultTargetSizeBytes: 0,
+      duplicable: false,
     },
   },
   {
@@ -214,6 +218,7 @@ export const RECIPES: readonly RecipeDefinition[] = [
         },
       ],
       defaultTargetSizeBytes: 0,
+      duplicable: false,
     },
   },
 ];

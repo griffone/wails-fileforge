@@ -22,6 +22,14 @@ export function CancelRecipe(jobID: string): $CancellablePromise<models$0.Recipe
 }
 
 /**
+ * DeleteUserRecipe permanently removes a saved user recipe. Run history is a
+ * separate store and is unaffected.
+ */
+export function DeleteUserRecipe(id: string): $CancellablePromise<models$0.UserRecipeResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.DeleteUserRecipe", id);
+}
+
+/**
  * GetRecipeStatus returns the per-step snapshot of a recipe run.
  */
 export function GetRecipeStatus(jobID: string): $CancellablePromise<models$0.RecipeStatusResponse> {
@@ -52,8 +60,23 @@ export function PlanRecipe(req: models$0.RecipeRequest): $CancellablePromise<mod
 }
 
 /**
+ * RenameUserRecipe changes the display name of a saved user recipe.
+ */
+export function RenameUserRecipe(id: string, name: string): $CancellablePromise<models$0.UserRecipeResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.RenameUserRecipe", id, name);
+}
+
+/**
  * RunRecipe starts a recipe chain in the background and returns its job id.
  */
 export function RunRecipe(req: models$0.RecipeRequest): $CancellablePromise<models$0.RunRecipeResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.RecipeService.RunRecipe", req);
+}
+
+/**
+ * SaveUserRecipe creates or updates a duplicate-and-edit recipe. The overrides
+ * are validated against the base recipe schema before they are persisted.
+ */
+export function SaveUserRecipe(req: models$0.SaveUserRecipeRequest): $CancellablePromise<models$0.UserRecipeResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.SaveUserRecipe", req);
 }

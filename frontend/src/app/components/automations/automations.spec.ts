@@ -31,6 +31,7 @@ const EMAIL_RECIPE: Recipe = {
   maxInputs: 0,
   steps: [],
   defaultTargetSizeBytes: 0,
+  duplicable: false,
 };
 
 function sampleRule(

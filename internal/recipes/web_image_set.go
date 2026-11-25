@@ -38,6 +38,15 @@ const (
 	webImageSetZipTempPattern     = ".fileforge-web-set-*.tmp"
 	webImageSetSnippetTempPattern = ".fileforge-srcset-*.tmp"
 	webImageSetVariantWidthCheck  = "variant_width"
+
+	// webImageSetVariantPresetOptionKey is the schema key for the width preset.
+	webImageSetVariantPresetOptionKey = "variantPreset"
+
+	// webImageSetPresetStandard is the default preset and preserves the
+	// original 1600/800 px behaviour.
+	webImageSetPresetStandard = "standard"
+	webImageSetPresetCompact  = "compact"
+	webImageSetPresetLarge    = "large"
 )
 
 // webImageSetVariant is one planned variant: its destination, encoder and the
@@ -97,7 +106,26 @@ func webImageSetRecipe() models.Recipe {
 				Detail: "Ready-to-paste picture markup",
 			},
 		},
+		OptionSchema: webImageSetOptionSchema(),
+		Duplicable:   true,
 	}
+}
+
+// webImageSetOptionSchema declares the width preset the recipe can honour. The
+// standard preset reproduces the original hardcoded 1600/800 behaviour.
+func webImageSetOptionSchema() []models.RecipeOptionField {
+	return []models.RecipeOptionField{{
+		Key:     webImageSetVariantPresetOptionKey,
+		Label:   "Variant preset",
+		Kind:    models.RecipeOptionEnum,
+		Default: webImageSetPresetStandard,
+		Values: []models.RecipeOptionChoice{
+			{Value: webImageSetPresetStandard, Label: "1600 / 800 px (default)"},
+			{Value: webImageSetPresetCompact, Label: "1200 / 600 px"},
+			{Value: webImageSetPresetLarge, Label: "2400 / 1200 px"},
+		},
+		Help: "Widths are capped at the source width; images are never upscaled.",
+	}}
 }
 
 func resolveWebImageSet(recipe *models.Recipe, req models.RecipeRequest) (*resolvedRecipe, *models.JobError) {
@@ -144,8 +172,13 @@ func resolveWebImageSet(recipe *models.Recipe, req models.RecipeRequest) (*resol
 		)
 	}
 
+	preset, presetErr := webImageSetPreset(req.Options)
+	if presetErr != nil {
+		return nil, presetErr
+	}
+
 	stem := recipeSourceStem(sourcePath)
-	widths := webImageSetWidths(info.Width)
+	widths := webImageSetWidths(info.Width, preset)
 	used := make(map[string]struct{}, len(widths)*2+2)
 
 	variants := make([]webImageSetVariant, 0, len(widths)*2)
@@ -193,7 +226,7 @@ func resolveWebImageSet(recipe *models.Recipe, req models.RecipeRequest) (*resol
 		OutputCount: 1,
 	})
 
-	warnings := webImageSetPlanWarnings(info.Width)
+	warnings := webImageSetPlanWarnings(info.Width, preset)
 
 	return &resolvedRecipe{
 		Recipe:         recipe,
@@ -256,11 +289,66 @@ func supportsWebImageSetExtension(inputPath string) bool {
 	}
 }
 
-// webImageSetWidths requests the 1600 and 800 px variants, caps each at the
-// source width and dedupes equal widths while preserving order. A source can
-// therefore never produce an upscaled variant.
-func webImageSetWidths(sourceWidth int) []int {
-	requested := []int{1600, 800}
+// webImageSetPresetWidths maps a declared preset to the widths it requests.
+// The standard preset keeps the original 1600/800 pair.
+func webImageSetPresetWidths(preset string) ([]int, *models.JobError) {
+	switch preset {
+	case "", webImageSetPresetStandard:
+		return []int{1600, 800}, nil
+	case webImageSetPresetCompact:
+		return []int{1200, 600}, nil
+	case webImageSetPresetLarge:
+		return []int{2400, 1200}, nil
+	default:
+		return nil, newRecipeError(
+			"RECIPE_OPTION_INVALID_VALUE",
+			fmt.Sprintf("Option '%s' must be one of: %s, %s, %s.", webImageSetVariantPresetOptionKey, webImageSetPresetStandard, webImageSetPresetCompact, webImageSetPresetLarge),
+			map[string]any{"option": webImageSetVariantPresetOptionKey, "value": preset},
+		)
+	}
+}
+
+// webImageSetPreset reads options.variantPreset, defaulting to the standard
+// preset when absent or null.
+func webImageSetPreset(options map[string]any) (string, *models.JobError) {
+	if options == nil {
+		return webImageSetPresetStandard, nil
+	}
+
+	raw, exists := options[webImageSetVariantPresetOptionKey]
+	if !exists || raw == nil {
+		return webImageSetPresetStandard, nil
+	}
+
+	preset, ok := raw.(string)
+	if !ok {
+		return "", newRecipeError(
+			"RECIPE_OPTION_INVALID_VALUE",
+			fmt.Sprintf("Option '%s' must be one of: %s, %s, %s.", webImageSetVariantPresetOptionKey, webImageSetPresetStandard, webImageSetPresetCompact, webImageSetPresetLarge),
+			map[string]any{"option": webImageSetVariantPresetOptionKey},
+		)
+	}
+
+	preset = strings.TrimSpace(preset)
+	if _, err := webImageSetPresetWidths(preset); err != nil {
+		return "", err
+	}
+
+	return preset, nil
+}
+
+// webImageSetWidths turns the requested preset widths into the variants the
+// source can support: each is capped at the source width and equal widths are
+// deduped while preserving order. A source can therefore never produce an
+// upscaled variant.
+func webImageSetWidths(sourceWidth int, preset string) []int {
+	requested, err := webImageSetPresetWidths(preset)
+	if err != nil {
+		// The preset is validated before this point; fall back to the default
+		// so a programming mistake cannot silently produce an empty plan.
+		requested, _ = webImageSetPresetWidths(webImageSetPresetStandard)
+	}
+
 	widths := make([]int, 0, len(requested))
 	seen := make(map[int]struct{}, len(requested))
 
@@ -282,19 +370,39 @@ func webImageSetWidths(sourceWidth int) []int {
 	return widths
 }
 
-func webImageSetPlanWarnings(sourceWidth int) []string {
+// webImageSetPlanWarnings explains how the source width limits the selected
+// preset. The largest and smallest preset widths drive the two cases so the
+// copy stays correct for every preset.
+func webImageSetPlanWarnings(sourceWidth int, preset string) []string {
+	requested, err := webImageSetPresetWidths(preset)
+	if err != nil || len(requested) == 0 {
+		requested, _ = webImageSetPresetWidths(webImageSetPresetStandard)
+	}
+
+	smallest := requested[len(requested)-1]
+	largest := requested[0]
+	for _, width := range requested {
+		if width < smallest {
+			smallest = width
+		}
+		if width > largest {
+			largest = width
+		}
+	}
+
 	warnings := make([]string, 0, 1)
 	switch {
-	case sourceWidth <= 800:
+	case sourceWidth <= smallest:
 		warnings = append(warnings, fmt.Sprintf(
 			"Source is %d px wide; only a %d px variant is generated (no upscaling).",
 			sourceWidth,
 			sourceWidth,
 		))
-	case sourceWidth < 1600:
+	case sourceWidth < largest:
 		warnings = append(warnings, fmt.Sprintf(
-			"Source is %d px wide; the 1600 px variant is capped at %d px (no upscaling).",
+			"Source is %d px wide; the %d px variant is capped at %d px (no upscaling).",
 			sourceWidth,
+			largest,
 			sourceWidth,
 		))
 	}

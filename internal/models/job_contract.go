@@ -412,6 +412,27 @@ var canonicalVideoCodes = canonicalCodeFamilies{
 
 // canonicalSystemCodes keeps runtime-wide codes (job engine, service layer)
 // classified as they were before the per-domain table existed.
+// canonicalRecipeCodes classifies the duplicate-and-edit errors so the UI and
+// retry policy treat a bad override as a deterministic validation failure
+// instead of an unknown or transient one.
+var canonicalRecipeCodes = canonicalCodeFamilies{
+	validation: []string{
+		"RECIPE_BASE_NOT_FOUND",
+		"RECIPE_NOT_DUPLICABLE",
+		"RECIPE_OPTION_INVALID_TYPE",
+		"RECIPE_OPTION_INVALID_VALUE",
+		"RECIPE_OPTION_OUT_OF_RANGE",
+		"RECIPE_OPTION_UNKNOWN",
+		"RECIPE_USER_NAME_REQUIRED",
+		"RECIPE_USER_NAME_TOO_LONG",
+		"RECIPE_USER_NOT_FOUND",
+	},
+	execution: []string{
+		"RECIPE_USER_DELETE_FAILED",
+		"RECIPE_USER_SAVE_FAILED",
+	},
+}
+
 var canonicalSystemCodes = canonicalCodeFamilies{
 	runtime: []string{
 		"RUNTIME_DEP_MISSING",
@@ -433,6 +454,7 @@ var canonicalCodeTable = buildCanonicalCodeTable(
 	canonicalImageCodes,
 	canonicalOutputNameCodes,
 	canonicalPDFCodes,
+	canonicalRecipeCodes,
 	canonicalVideoCodes,
 	canonicalSystemCodes,
 )

@@ -43,6 +43,11 @@ export const recipeRunEs = {
     'Define el tamaño objetivo y dónde se guardan los resultados.',
   'recipeRun.settings.sub': 'Elige dónde se guardan los resultados.',
   'recipeRun.target.label': 'Tamaño objetivo',
+  'recipeRun.option.targetSizeBytes': 'Tamaño objetivo',
+  'recipeRun.option.variantPreset': 'Preajuste de variantes',
+  'recipeRun.choice.standard': '1600 / 800 px',
+  'recipeRun.choice.compact': '1200 / 600 px',
+  'recipeRun.choice.large': '2400 / 1200 px',
   'recipeRun.target.invalid': 'Introduce un tamaño objetivo mayor que 0 MB.',
   'recipeRun.target.help':
     'Mejor esfuerzo: la receta se acerca tanto como lo permita el origen.',

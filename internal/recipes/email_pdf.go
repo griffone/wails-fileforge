@@ -28,6 +28,14 @@ const (
 
 	emailPDFDefaultTargetBytes = 10 * 1024 * 1024
 
+	// bytesPerMegabyte converts the declared MB unit to canonical bytes.
+	bytesPerMegabyte = 1024 * 1024
+
+	// emailPDFTargetMinBytes and emailPDFTargetMaxBytes bound the declared
+	// target-size option. They are stored in bytes; the schema unit is MB.
+	emailPDFTargetMinBytes = 1 * 1024 * 1024
+	emailPDFTargetMaxBytes = 100 * 1024 * 1024
+
 	recipeStepStatusPending  = "pending"
 	recipeStepStatusSkipped  = "skipped"
 	recipeStepStatusFailed   = models.JobStatusFailed
@@ -46,7 +54,13 @@ const (
 // Clean scan recipe and Burn for the Burned-in subtitles recipe, whose plans are
 // fully resolved before execution.
 type resolvedRecipe struct {
-	Recipe          *models.Recipe
+	// Recipe is the recipe shown to the caller: the built-in definition for a
+	// curated recipe, or the user recipe (base metadata plus its own id and
+	// name) for a stored duplicate.
+	Recipe *models.Recipe
+	// BaseRecipe is the built-in definition that owns the runnable chain and
+	// decides which executor handles the run.
+	BaseRecipe      *models.Recipe
 	Inputs          []string
 	OutputDir       string
 	TargetSizeBytes int64
@@ -87,7 +101,29 @@ func emailPDFRecipe() models.Recipe {
 			},
 		},
 		DefaultTargetSizeBytes: emailPDFDefaultTargetBytes,
+		OptionSchema:           emailPDFOptionSchema(),
+		Duplicable:             true,
 	}
+}
+
+// emailPDFOptionSchema declares the only knob Email PDF can honour today: the
+// best-effort target size. The canonical stored value stays in bytes, matching
+// the optimize tool; the UI renders it in MB through Scale.
+func emailPDFOptionSchema() []models.RecipeOptionField {
+	minimum := float64(emailPDFTargetMinBytes)
+	maximum := float64(emailPDFTargetMaxBytes)
+
+	return []models.RecipeOptionField{{
+		Key:     emailPDFTargetOptionKey,
+		Label:   "Target size",
+		Kind:    models.RecipeOptionInteger,
+		Unit:    "MB",
+		Min:     &minimum,
+		Max:     &maximum,
+		Scale:   bytesPerMegabyte,
+		Default: emailPDFDefaultTargetBytes,
+		Help:    "Best effort: the output may stay above the target.",
+	}}
 }
 
 func recipeByID(recipeID string) *models.Recipe {

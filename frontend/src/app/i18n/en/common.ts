@@ -14,4 +14,6 @@ export const commonEn = {
   'common.docxOne': 'DOCX',
   'common.docxMany': 'DOCX',
   'common.retry': 'Retry',
+  'common.yes': 'Yes',
+  'common.no': 'No',
 } as const;
