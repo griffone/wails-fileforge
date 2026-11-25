@@ -1,6 +1,6 @@
 // Package execx runs external commands with bounded output, per-command
 // timeouts, and reliable cancellation. On Unix it kills the whole process
-// group so child engines (ffmpeg, LibreOffice, Ghostscript) cannot outlive a
+// group so child engines (ffmpeg, Ghostscript, tesseract) cannot outlive a
 // cancelled job.
 package execx
 

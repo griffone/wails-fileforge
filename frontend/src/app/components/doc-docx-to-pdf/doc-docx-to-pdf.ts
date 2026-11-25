@@ -90,7 +90,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
   /** Page range applied to every input; empty keeps all pages. */
   readonly pageSelection = signal('');
 
-  /** PDF/A archival export; LibreOffice only, off by default. */
+  /** PDF/A archival export; post-processed with Ghostscript, off by default. */
   readonly pdfa = signal(false);
 
   readonly plan = signal<PlanJobResponse | null>(null);
@@ -303,7 +303,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     }
     this.pdfa.set(enabled);
     this.actionMessage.set('');
-    // The plan probes LibreOffice for PDF/A, so the refresh is immediate.
+    // The plan is refreshed immediately so the result reflects the new export mode.
     void this.refreshPlan();
   }
 

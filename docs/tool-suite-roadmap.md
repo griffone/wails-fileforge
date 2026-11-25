@@ -40,7 +40,7 @@ La referencia de completitud es explícita: **MVP + DoD** (global y por herramie
 | `tool.pdf.merge` | Faltante | Debe respetar orden de PDFs recibido |
 | `tool.pdf.crop` | Implementado (v1) | Soporta single+batch robusto con `partial_success` y autoincremento de salida |
 | `tool.doc.md_to_pdf` | Faltante | Requiere header/footer opcional y configurable |
-| `tool.doc.docx_to_pdf` | Implementado (v1) | Conversión con fidelidad estándar: LibreOffice primario + fallback Pandoc |
+| `tool.doc.docx_to_pdf` | Implementado (v1) | Conversión con fidelidad estándar mediante un motor pure-Go incluido; PDF/A con Ghostscript |
 | `tool.video.convert` | Faltante | Mantener en roadmap MVP |
 | `tool.video.trim` | Faltante | Mantener en roadmap MVP |
 | Batch transversal | Parcial (infra base) | Debe cerrar `partial success` + retries + recuperación al reinicio |
@@ -500,15 +500,14 @@ Habilitar conversión DOCX→PDF utilitaria para uso diario.
 
 **Detalles implementados (Etapa 5):**
 - Tool backend nuevo: `tool.doc.docx_to_pdf` registrado en catálogo V1 con soporte `single` y `batch`.
-- Arquitectura híbrida real v1: dos motores activos en ejecución.
-  - Primario: **LibreOffice**.
-  - Fallback: **Pandoc**.
-- Regla de fallback implementada: si el primario falla en ejecución (cualquier error), se intenta fallback Pandoc.
+- Motor de conversión: renderer pure-Go incluido en el binario, sin suite de oficina externa.
+- PDF/A: el PDF renderizado se post-procesa con Ghostscript; si falta, la exportación falla con una guía de instalación en lugar de degradar a PDF simple.
+- Selección de páginas: se renderiza el documento completo y se extraen las páginas pedidas con pdfcpu, validando el rango contra el total real.
 - Inputs v1 restringidos a `.docx` (validación estricta en backend y frontend).
 - Naming de salida no destructivo: `*_docx2pdf.pdf`, con colisiones `-2`, `-3`, ...
 - Batch v1 continúa procesando ítems ante error; el estado agregado del job queda en `partial_success` cuando hay mezcla de éxitos/fallos.
-- Rechazo de archivos protegidos: detección best-effort por metadata DOCX (`word/settings.xml`) y señales de ejecución del motor.
-- Fuentes faltantes/sustituidas: detección best-effort por señales de logs de conversión; cuando se detecta, retorna error explícito.
+- Rechazo de archivos protegidos: detección previa al renderizado por metadata DOCX (`word/settings.xml`), firma OLE/CFB y flag de cifrado ZIP.
+- Fuentes: el renderer elige una fuente del sistema o una fuente latina embebida; si la resolución falla, retorna un error canónico explícito.
 - Detail codes específicos con prefijo obligatorio `DOC_DOCX_TO_PDF_*` para validación, runtime, ejecución, protección y señales de fuentes.
 - Frontend nuevo con:
   - badge **“fidelidad estándar”**,

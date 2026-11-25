@@ -61,8 +61,6 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 	gs := binaryAvailable("gs")
 	ffmpeg := binaryAvailable("ffmpeg")
 	ffprobe := binaryAvailable("ffprobe")
-	libreoffice := binaryAvailable("libreoffice")
-	pandoc := binaryAvailable("pandoc")
 
 	tesseract := binaryAvailable("tesseract")
 	tesseractDetail := "Not installed"
@@ -127,22 +125,6 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 			Required:   true,
 			Detail:     "Video metadata and durations",
 			Suggestion: suggestion(ffprobe, "Install ffprobe (usually with ffmpeg)."),
-		},
-		{
-			ID:         "libreoffice",
-			Label:      "libreoffice",
-			Available:  libreoffice,
-			Required:   false,
-			Detail:     "DOCX to PDF/A archival export",
-			Suggestion: suggestion(libreoffice, "Install LibreOffice for PDF/A DOCX exports."),
-		},
-		{
-			ID:         "pandoc",
-			Label:      "pandoc",
-			Available:  pandoc,
-			Required:   false,
-			Detail:     "DOCX fallback conversion",
-			Suggestion: suggestion(pandoc, "Install Pandoc for the DOCX fallback path."),
 		},
 	}
 

@@ -1,8 +1,9 @@
 module fileforge-desktop
 
-go 1.26.0
+go 1.26.1
 
 require (
+	github.com/bobyeoh/docx2pdf-go v0.3.0
 	github.com/dgraph-io/ristretto/v2 v2.4.2
 	github.com/disintegration/imaging v1.6.2
 	github.com/fogleman/gg v1.3.0
@@ -28,9 +29,15 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/hhrutter/tiff v1.0.7 // indirect
 	github.com/mattn/go-runewidth v0.0.31 // indirect
+	github.com/phpdave11/gofpdi v1.0.14-0.20211212211723-1f10f9844311 // indirect
+	github.com/pkg/errors v0.8.1 // indirect
+	github.com/signintech/gopdf v0.36.0 // indirect
+	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
+	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 )

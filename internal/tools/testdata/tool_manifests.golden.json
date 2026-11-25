@@ -2,10 +2,10 @@
   {
     "toolId": "tool.doc.docx_to_pdf",
     "name": "DOCX to PDF",
-    "description": "Convert DOCX to PDF with standard fidelity (LibreOffice + Pandoc fallback)",
+    "description": "Convert DOCX to PDF with standard fidelity using the bundled pure-Go renderer. Complex desktop publishing layouts, exact floating-shape wrapping and some SmartArt diagrams may differ; PDF/A export needs Ghostscript.",
     "domain": "doc",
     "capability": "tool.doc.docx_to_pdf",
-    "version": "1.0",
+    "version": "1.1",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -14,16 +14,12 @@
     "outputExtensions": [
       "pdf"
     ],
-    "runtimeDependencies": [
-      "libreoffice",
-      "pandoc"
-    ],
+    "runtimeDependencies": [],
     "tags": [
       "doc",
       "docx",
       "pdf",
-      "standard-fidelity",
-      "fallback"
+      "standard-fidelity"
     ],
     "resourceClass": "external",
     "maxWorkers": 2

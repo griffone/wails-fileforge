@@ -8,7 +8,7 @@ import (
 	"fileforge-desktop/internal/models"
 )
 
-var allChecks = []string{"pdftoppm", "tesseract", "pdftotext", "gs", "ffmpeg", "ffprobe", "libreoffice", "pandoc"}
+var allChecks = []string{"pdftoppm", "tesseract", "pdftotext", "gs", "ffmpeg", "ffprobe"}
 
 func fakeLookPath(available ...string) func(string) (string, error) {
 	found := make(map[string]struct{}, len(available))
@@ -72,14 +72,12 @@ func TestDetectWithAllToolsAvailable(t *testing.T) {
 
 	byID := checksByID(t, response)
 	required := map[string]bool{
-		"pdftoppm":    true,
-		"tesseract":   true,
-		"pdftotext":   false,
-		"gs":          false,
-		"ffmpeg":      true,
-		"ffprobe":     true,
-		"libreoffice": false,
-		"pandoc":      false,
+		"pdftoppm":  true,
+		"tesseract": true,
+		"pdftotext": false,
+		"gs":        false,
+		"ffmpeg":    true,
+		"ffprobe":   true,
 	}
 	for id, wantRequired := range required {
 		check, found := byID[id]
@@ -113,7 +111,7 @@ func TestDetectWithAllToolsAvailable(t *testing.T) {
 
 func TestDetectWithMissingOptionalAndRequiredTools(t *testing.T) {
 	response := DetectWith(context.Background(), Options{
-		LookPath: fakeLookPath("pdftoppm", "tesseract", "pdftotext", "ffprobe", "libreoffice", "pandoc"),
+		LookPath: fakeLookPath("pdftoppm", "tesseract", "pdftotext", "ffprobe"),
 		OCR: fakeOCR(models.OCRCapabilitiesResponse{
 			Tesseract:           true,
 			Languages:           []string{"eng"},

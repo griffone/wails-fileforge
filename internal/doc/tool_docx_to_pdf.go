@@ -19,22 +19,23 @@ import (
 const (
 	ToolIDDocDOCXToPDF = "tool.doc.docx_to_pdf"
 
-	// docxConvertWorkers bounds concurrent conversions. LibreOffice is
-	// external and heavy, so two conversions per job is the ceiling.
+	// docxConvertWorkers bounds concurrent conversions. Rendering is in-process
+	// and allocates a full document layout, so two conversions per job is the
+	// ceiling.
 	docxConvertWorkers = 2
 )
 
 type DOCXToPDFTool struct {
-	probe  engine.RuntimeProbe
-	runner engine.CommandRunner
+	renderer engine.DOCXRenderer
+	runner   engine.CommandRunner
 }
 
 func NewDOCXToPDFTool() *DOCXToPDFTool {
 	return &DOCXToPDFTool{}
 }
 
-func NewDOCXToPDFToolWithDeps(probe engine.RuntimeProbe, runner engine.CommandRunner) *DOCXToPDFTool {
-	return &DOCXToPDFTool{probe: probe, runner: runner}
+func NewDOCXToPDFToolWithDeps(renderer engine.DOCXRenderer, runner engine.CommandRunner) *DOCXToPDFTool {
+	return &DOCXToPDFTool{renderer: renderer, runner: runner}
 }
 
 func (t *DOCXToPDFTool) ID() string {
@@ -49,31 +50,24 @@ func (t *DOCXToPDFTool) Manifest() models.ToolManifest {
 	return models.ToolManifest{
 		ToolID:           t.ID(),
 		Name:             "DOCX to PDF",
-		Description:      "Convert DOCX to PDF with standard fidelity (LibreOffice + Pandoc fallback)",
+		Description:      "Convert DOCX to PDF with standard fidelity using the bundled pure-Go renderer. Complex desktop publishing layouts, exact floating-shape wrapping and some SmartArt diagrams may differ; PDF/A export needs Ghostscript.",
 		Domain:           "doc",
 		Capability:       t.Capability(),
-		Version:          "1.0",
+		Version:          "1.1",
 		SupportsSingle:   true,
 		SupportsBatch:    true,
 		InputExtensions:  []string{"docx"},
 		OutputExtensions: []string{"pdf"},
-		RuntimeDeps:      []string{"libreoffice", "pandoc"},
+		RuntimeDeps:      []string{},
 		ResourceClass:    "external",
 		MaxWorkers:       2,
-		Tags:             []string{"doc", "docx", "pdf", "standard-fidelity", "fallback"},
+		Tags:             []string{"doc", "docx", "pdf", "standard-fidelity"},
 	}
 }
 
-func (t *DOCXToPDFTool) RuntimeState(ctx context.Context) models.ToolRuntimeState {
-	probe := t.probe
-	if probe == nil {
-		probe = engine.NewHybridRuntimeProbe()
-	}
-
-	if err := probe.Check(ctx); err != nil {
-		return models.ToolRuntimeState{Status: "degraded", Healthy: false, Reason: err.Error()}
-	}
-
+// RuntimeState is always healthy: rendering is bundled in the binary. PDF/A is
+// the only optional external step and is checked when the export is requested.
+func (t *DOCXToPDFTool) RuntimeState(_ context.Context) models.ToolRuntimeState {
 	return models.ToolRuntimeState{Status: "enabled", Healthy: true}
 }
 
@@ -82,34 +76,15 @@ func (t *DOCXToPDFTool) Validate(ctx context.Context, req models.JobRequest) *mo
 	return planErr
 }
 
-// Plan probes the conversion runtime, validates every input and resolves one
-// collision-safe output per input without writing anything. ExecutePlan reuses
-// this plan, so the shown destination and the written file always agree.
-func (t *DOCXToPDFTool) Plan(ctx context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
+// Plan validates every input and resolves one collision-safe output per input
+// without writing anything. ExecutePlan reuses this plan, so the shown
+// destination and the written file always agree.
+func (t *DOCXToPDFTool) Plan(_ context.Context, req models.JobRequest) (models.PlanJobResponse, *models.JobError) {
 	plan := models.PlanJobResponse{Outputs: []models.PlannedOutput{}}
 
 	parsed, parseErr := parseDOCXRequest(req)
 	if parseErr != nil {
 		return docPlanFailure(plan, parseErr)
-	}
-
-	probe := t.probe
-	if probe == nil {
-		probe = engine.NewHybridRuntimeProbe()
-	}
-
-	var probeErr error
-	if parsed.pdfa {
-		if pdfaProbe, ok := probe.(engine.PDFAProbe); ok {
-			probeErr = pdfaProbe.CheckPDFA(ctx)
-		} else {
-			probeErr = probe.Check(ctx)
-		}
-	} else {
-		probeErr = probe.Check(ctx)
-	}
-	if probeErr != nil {
-		return docPlanFailure(plan, mapDOCXEngineError(probeErr))
 	}
 
 	for _, inputPath := range parsed.inputPaths {
@@ -205,9 +180,9 @@ func (t *DOCXToPDFTool) ExecuteBatch(ctx context.Context, req models.JobRequest,
 }
 
 // ExecutePlan converts exactly the outputs resolved by Plan. It reuses the
-// plan's effective options and skips the runtime probe and ZIP protection scan
-// that Plan already performed, so a reduced retry plan only converts its own
-// outputs. Results keep plan order and item failures stay isolated.
+// plan's effective options and skips the ZIP protection scan that Plan already
+// performed, so a reduced retry plan only converts its own outputs. Results keep
+// plan order and item failures stay isolated.
 func (t *DOCXToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	total := len(plan.Outputs)
 	if total == 0 {
@@ -243,28 +218,19 @@ func (t *DOCXToPDFTool) ExecutePlan(ctx context.Context, req models.JobRequest, 
 	return items, firstFailedDocItemError(items)
 }
 
-// convertPlannedDOCX runs one already-planned conversion and applies the page
-// selection. It never re-plans, so it is safe to run concurrently.
+// convertPlannedDOCX runs one already-planned conversion. It never re-plans, so
+// it is safe to run concurrently.
 func (t *DOCXToPDFTool) convertPlannedDOCX(ctx context.Context, planned models.PlannedOutput, pdfa bool, pageSelection string) models.JobResultItem {
-	result, execErr := engine.ConvertDOCX(ctx, t.probe, t.runner, engine.ConvertDOCXRequest{
+	_, execErr := engine.ConvertDOCX(ctx, t.renderer, t.runner, engine.ConvertDOCXRequest{
 		InputPath:          planned.InputPath,
 		OutputPath:         planned.OutputPath,
 		PDFA:               pdfa,
+		PageSelection:      pageSelection,
 		SkipProtectedCheck: true,
-		SkipRuntimeCheck:   true,
 	})
 	if execErr != nil {
 		jobErr := mapDOCXEngineError(execErr)
 		return models.JobResultItem{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Success: false, Message: jobErr.Message, Error: jobErr}
-	}
-
-	if applyErr := applyDOCXPageSelection(planned.InputPath, planned.OutputPath, pageSelection); applyErr != nil {
-		return models.JobResultItem{InputPath: planned.InputPath, OutputPath: planned.OutputPath, Success: false, Message: applyErr.Message, Error: applyErr}
-	}
-
-	message := "docx to pdf successful"
-	if result.FallbackUsed {
-		message = "docx to pdf successful (fallback engine: pandoc)"
 	}
 
 	return models.JobResultItem{
@@ -273,7 +239,7 @@ func (t *DOCXToPDFTool) convertPlannedDOCX(ctx context.Context, planned models.P
 		Outputs:     []string{planned.OutputPath},
 		OutputCount: 1,
 		Success:     true,
-		Message:     message,
+		Message:     "docx to pdf successful",
 	}
 }
 
@@ -410,24 +376,6 @@ func docxEffectiveOptions(parsed docxRequest) map[string]any {
 	}
 
 	return options
-}
-
-// applyDOCXPageSelection keeps only the requested pages of a converted PDF.
-// An empty selection leaves the conversion untouched.
-func applyDOCXPageSelection(inputPath, outputPath, selection string) *models.JobError {
-	if strings.TrimSpace(selection) == "" {
-		return nil
-	}
-
-	if err := engine.ApplyPageSelection(inputPath, outputPath, selection); err != nil {
-		return models.NewCanonicalJobError(
-			"DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID",
-			fmt.Sprintf("page selection %q cannot be applied to %s. The document may have fewer pages than the selection.", selection, filepath.Base(inputPath)),
-			map[string]any{"inputPath": inputPath, "pageSelection": selection},
-		)
-	}
-
-	return nil
 }
 
 func validateDOCXInputPath(inputPath string) *models.JobError {

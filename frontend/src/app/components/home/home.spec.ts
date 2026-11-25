@@ -218,7 +218,7 @@ describe('Home', () => {
               supportsBatch: true,
               inputExtensions: ['docx'],
               outputExtensions: ['pdf'],
-              runtimeDependencies: ['libreoffice', 'pandoc'],
+              runtimeDependencies: [],
               tags: ['doc'],
             },
             state: { status: 'enabled', healthy: true },

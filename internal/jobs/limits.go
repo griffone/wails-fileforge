@@ -105,9 +105,9 @@ func (l Limits) capacity(class Class) int {
 }
 
 // classForTool maps a stable tool ID to its resource class. The mapping is
-// intentionally conservative: anything that spawns an external process
-// (LibreOffice, pandoc, ffmpeg, tesseract) is External, PDF rewrite work is
-// CPU, and unknown tools default to CPU.
+// intentionally conservative: tools that spawn an external process (ffmpeg,
+// tesseract, Ghostscript) or run a bundled Python engine are External, PDF
+// rewrite work is CPU, and unknown tools default to CPU.
 func classForTool(toolID string) Class {
 	id := strings.ToLower(strings.TrimSpace(toolID))
 

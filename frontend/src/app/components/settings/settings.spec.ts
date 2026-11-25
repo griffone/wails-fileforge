@@ -177,12 +177,12 @@ const CAPABILITIES: LocalCapabilitiesResponse = {
       detail: 'PDF compression for target sizes',
     },
     {
-      id: 'libreoffice',
-      label: 'libreoffice',
+      id: 'pdftotext',
+      label: 'pdftotext',
       available: false,
       required: false,
-      detail: 'DOCX to PDF/A archival export',
-      suggestion: 'Install LibreOffice for PDF/A DOCX exports.',
+      detail: 'OCR text-layer verification',
+      suggestion: 'Install poppler-utils for text verification.',
     },
   ],
   ocrLanguages: ['afr'],
@@ -447,7 +447,7 @@ describe('Settings', () => {
     expect(text).toContain('Required');
     expect(text).toContain('Optional');
     expect(text).toContain('Ready');
-    expect(text).toContain('Install LibreOffice for PDF/A DOCX exports.');
+    expect(text).toContain('Install poppler-utils for text verification.');
     expect(text).toContain('OCR languages: AFR · recommended AFR');
     expect(
       element().querySelector('.settings-capability-lang')?.textContent,

@@ -7,7 +7,7 @@ import (
 
 // CommandContext builds an external command whose console window is hidden on
 // Windows. FileForge is a GUI application; every child process it starts
-// (ffmpeg, tesseract, python, micromamba, LibreOffice, ...) is a console
+// (ffmpeg, tesseract, python, micromamba, Ghostscript, ...) is a console
 // program and must never flash a console window at the user.
 func CommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
 	command := exec.CommandContext(ctx, name, args...)

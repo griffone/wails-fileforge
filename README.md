@@ -10,10 +10,16 @@ Everything runs on your machine. There are no uploads, accounts, or cloud calls.
 | --- | --- |
 | Image | Convert (PNG/JPG/WebP/GIF), Crop, Annotate (text, arrow, box, blur, redact), Compress to target size, Watermark (text/logo), OCR, Remove background — single and batch |
 | PDF | Merge (explicit order), Split (pages, ranges, page count or bookmarks), Crop (presets or margins), Optimize (compression + metadata), OCR (searchable PDF + text sidecar), Images → PDF, PDF → DOCX |
-| Documents | Markdown → PDF (optional header/footer, single and batch), DOCX → PDF (LibreOffice + Pandoc fallback, single and batch) |
+| Documents | Markdown → PDF (optional header/footer, single and batch), DOCX → PDF (bundled pure-Go renderer, single and batch) |
 | Video | Convert, Trim, Merge, Transcribe (Whisper) |
 
 Every batch-capable tool plans one output per input and reports partial success per item; Merge, Images → PDF, and PDF → DOCX stay single-job operations.
+
+DOCX → PDF renders with the bundled pure-Go engine, so no office suite is
+installed or required. PDF/A export post-processes the rendered PDF with the
+managed Ghostscript. Standard business documents convert with their text,
+styles, tables and images; complex desktop-publishing layouts, exact
+floating-shape wrapping and some SmartArt diagrams may differ from Word.
 
 ## Background tasks
 

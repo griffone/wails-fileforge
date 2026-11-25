@@ -420,7 +420,7 @@ describe('DocDocxToPdf', () => {
     expect(lastPlanRequest().options['pageSelection']).toBe('1-2');
   }));
 
-  it('renders the archival toggle with the LibreOffice requirement', fakeAsync(() => {
+  it('renders the archival toggle with the Ghostscript requirement', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.docx']);
     flushMicrotasks();
     fixture.detectChanges();
@@ -432,9 +432,9 @@ describe('DocDocxToPdf', () => {
     const helper = fixture.nativeElement.querySelector(
       '#docx-pdfa-help',
     ) as HTMLElement;
-    expect(helper.textContent).toContain('Requires LibreOffice.');
+    expect(helper.textContent).toContain('Requires Ghostscript.');
     expect(helper.textContent).toContain(
-      'the conversion fails instead of producing a non-archival PDF',
+      'the export fails instead of producing a non-archival PDF',
     );
     expect(fixture.nativeElement.querySelector('.archival-note')).toBeNull();
 
@@ -541,12 +541,12 @@ describe('DocDocxToPdf', () => {
       if (request.options['pdfa'] === true) {
         return Promise.resolve({
           success: false,
-          message: 'libreoffice binary not found in PATH',
+          message: 'Ghostscript (gs) is required for PDF/A export but is not installed.',
           outputs: [],
           error: {
-            code: 'DOC_DOCX_TO_PDF_RUNTIME_LIBREOFFICE_MISSING',
-            detail_code: 'DOC_DOCX_TO_PDF_RUNTIME_LIBREOFFICE_MISSING',
-            message: 'libreoffice binary not found in PATH',
+            code: 'RUNTIME_DEP_MISSING',
+            detail_code: 'DOC_DOCX_TO_PDF_RUNTIME_GHOSTSCRIPT_MISSING',
+            message: 'Ghostscript (gs) is required for PDF/A export but is not installed.',
           },
         });
       }

@@ -186,7 +186,7 @@ function seedForMessage(message: string): ToolErrorSeed | null {
     return CANCELLED;
   }
   if (
-    /runtime|dependenc|not installed|ffmpeg not found|libreoffice not found/i.test(
+    /runtime|dependenc|not installed|ffmpeg not found/i.test(
       message,
     )
   ) {
@@ -203,7 +203,7 @@ export function looksTechnicalMessage(message: string): boolean {
   if (!message) {
     return false;
   }
-  if (/\b(exec|execve|exit status|ffmpeg|libreoffice|soffice|panic|goroutine)\b/i.test(message)) {
+  if (/\b(exec|execve|exit status|ffmpeg|ghostscript|panic|goroutine)\b/i.test(message)) {
     return true;
   }
   if (/(^|[\s("'`])(?:\/(?:[^\s/]+\/)+|[a-zA-Z]:\\[^\s]*)/.test(message)) {

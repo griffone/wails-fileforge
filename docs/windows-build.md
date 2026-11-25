@@ -191,6 +191,11 @@ Notes:
   PDF; the installer and the toolchain readiness check now guarantee them.
 - The default Whisper model is medium (`ggml-medium.bin`, about 1.5 GB). Small
   and large-v3 can be installed from Settings → Tools & Models.
+- DOCX to PDF uses a renderer bundled in the application binary (pure Go, no
+  office suite). Ghostscript, already present in the managed toolchain, is used
+  only for PDF/A post-processing. Complex desktop-publishing layouts, exact
+  floating-shape wrapping and some SmartArt diagrams may differ from Word; the
+  tool advertises standard fidelity, not pixel-identical output.
 - The PDF to DOCX engine uses the conda Python 3.11 only as its base
   interpreter. pdf2docx and its dependencies live in the isolated
   `pdf2docx-venv` (about 350 MB) with pinned versions; they are never installed

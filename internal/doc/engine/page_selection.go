@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 // pageSelectionTokenRegexp mirrors pdfcpu's intended page selection grammar.
@@ -87,15 +90,43 @@ func ValidatePageSelection(selection string) error {
 
 // ApplyPageSelection replaces outputPath with a PDF that only contains the
 // selected pages. An empty selection is a no-op.
+func ApplyPageSelection(inputPath, outputPath, selection string) error {
+	return ApplyPageSelectionContext(context.Background(), inputPath, outputPath, selection)
+}
+
+// ApplyPageSelectionContext is ApplyPageSelection with cancellation.
 //
 // The replacement is atomic: the collected pages are written to a temporary
 // file in the same directory and renamed over the output. On failure the
 // temporary file and the output are removed, so a failed selection never
 // leaves a partial document behind.
-func ApplyPageSelection(inputPath, outputPath, selection string) error {
+func ApplyPageSelectionContext(ctx context.Context, inputPath, outputPath, selection string) error {
 	trimmed := NormalizePageSelection(selection)
 	if trimmed == "" {
 		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	pageCount, countErr := api.PageCountFile(ctx, outputPath)
+	if countErr != nil {
+		_ = os.Remove(outputPath)
+		return &PageSelectionError{
+			InputPath:  inputPath,
+			OutputPath: outputPath,
+			Selection:  trimmed,
+			Cause:      fmt.Errorf("read page count: %w", countErr),
+		}
+	}
+	if rangeErr := validateSelectionForPageCount(trimmed, pageCount); rangeErr != nil {
+		_ = os.Remove(outputPath)
+		return &PageSelectionError{
+			InputPath:  inputPath,
+			OutputPath: outputPath,
+			Selection:  trimmed,
+			Cause:      rangeErr,
+		}
 	}
 
 	tempFile, err := os.CreateTemp(filepath.Dir(outputPath), ".fileforge-pages-*.pdf")
@@ -131,7 +162,7 @@ func ApplyPageSelection(inputPath, outputPath, selection string) error {
 	}
 	defer func() { _ = os.Remove(tempPath) }()
 
-	if collectErr := api.CollectFile(context.Background(), outputPath, tempPath, []string{trimmed}, model.NewDefaultConfiguration()); collectErr != nil {
+	if collectErr := api.CollectFile(ctx, outputPath, tempPath, []string{trimmed}, model.NewDefaultConfiguration()); collectErr != nil {
 		_ = os.Remove(outputPath)
 		return &PageSelectionError{
 			InputPath:  inputPath,
@@ -141,7 +172,7 @@ func ApplyPageSelection(inputPath, outputPath, selection string) error {
 		}
 	}
 
-	if renameErr := os.Rename(tempPath, outputPath); renameErr != nil {
+	if renameErr := fsx.ReplaceFile(tempPath, outputPath); renameErr != nil {
 		_ = os.Remove(outputPath)
 		return &PageSelectionError{
 			InputPath:  inputPath,
@@ -152,4 +183,57 @@ func ApplyPageSelection(inputPath, outputPath, selection string) error {
 	}
 
 	return nil
+}
+
+// validateSelectionForPageCount rejects selections that cannot select any page
+// of the rendered document before pdfcpu extracts anything. pdfcpu clamps
+// ranges, so a check performed only by CollectFile would accept a selection such
+// as "9-12" on a two-page document and produce an empty result.
+func validateSelectionForPageCount(selection string, pageCount int) error {
+	if pageCount < 1 {
+		return fmt.Errorf("document has no pages")
+	}
+
+	for _, token := range strings.Split(selection, ",") {
+		value := strings.TrimSpace(token)
+		if value == "" {
+			continue
+		}
+		if value[0] == '!' || value[0] == 'n' {
+			// Negated tokens never make a selection valid on their own.
+			continue
+		}
+
+		switch {
+		case value == "even":
+			if pageCount >= 2 {
+				return nil
+			}
+		case value == "odd":
+			return nil
+		case strings.HasPrefix(value, "l"):
+			return nil
+		case strings.HasPrefix(value, "-"):
+			if number, err := strconv.Atoi(strings.TrimPrefix(value, "-")); err == nil && number >= 1 {
+				return nil
+			}
+		case strings.HasSuffix(value, "-"):
+			if number, err := strconv.Atoi(strings.TrimSuffix(value, "-")); err == nil && number >= 1 && number <= pageCount {
+				return nil
+			}
+		default:
+			parts := strings.Split(value, "-")
+			if len(parts) >= 2 {
+				if start, err := strconv.Atoi(parts[0]); err == nil && start >= 1 && start <= pageCount {
+					return nil
+				}
+				continue
+			}
+			if page, err := strconv.Atoi(value); err == nil && page >= 1 && page <= pageCount {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("selection %q selects no page of a %d-page document", selection, pageCount)
 }

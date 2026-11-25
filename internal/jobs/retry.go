@@ -47,8 +47,8 @@ func isRetryableError(toolID string, jobErr *models.JobError) bool {
 			"PDF_CROP_FAILED": {},
 		},
 		"tool.doc.docx_to_pdf": {
-			"DOC_DOCX_TO_PDF_PRIMARY_EXECUTION_FAILED":  {},
-			"DOC_DOCX_TO_PDF_FALLBACK_EXECUTION_FAILED": {},
+			"DOC_DOCX_TO_PDF_PRIMARY_EXECUTION_FAILED": {},
+			"DOC_DOCX_TO_PDF_EXECUTION_FAILED":         {},
 		},
 		"tool.doc.md_to_pdf": {
 			"DOC_MD_TO_PDF_RENDER_FAILED": {},
