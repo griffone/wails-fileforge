@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">PDF</p>
-        <h1 class="page-title">PDF <em>Merge</em></h1>
+        <p class="eyebrow">{{ i18n.t('pdfMerge.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('pdfMerge.page.titleLead') }}
+          <em>{{ i18n.t('pdfMerge.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Combine PDFs in the order you choose. Everything runs on this machine.
+          {{ i18n.t('pdfMerge.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('pdfMerge.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -21,8 +24,8 @@
       <section class="panel intake-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">PDFs</h2>
-            <p class="panel-sub">Drop PDFs or choose them from your computer.</p>
+            <h2 class="panel-title">{{ i18n.t('pdfMerge.intake.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfMerge.intake.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
@@ -30,18 +33,22 @@
         <div class="panel-body">
           <app-file-drop
             accept=".pdf,application/pdf"
-            title="Drop PDFs here"
-            hint="PDF files only"
-            ariaLabel="Drop or choose PDFs to merge"
+            [title]="i18n.t('pdfMerge.intake.dropTitle')"
+            [hint]="i18n.t('pdfMerge.intake.dropHint')"
+            [ariaLabel]="i18n.t('pdfMerge.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
           ></app-file-drop>
 
-          <div class="toolbar" role="group" aria-label="PDF selection actions">
+          <div
+            class="toolbar"
+            role="group"
+            [attr.aria-label]="i18n.t('pdfMerge.intake.actionsAria')"
+          >
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose PDFs
+              {{ i18n.t('pdfMerge.intake.choose') }}
             </button>
             <button
               type="button"
@@ -50,7 +57,7 @@
               (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
+              {{ i18n.t('pdfMerge.intake.clear') }}
             </button>
           </div>
 
@@ -67,7 +74,7 @@
           }
 
           @if (fileItems().length > 0) {
-            <p class="order-hint">The order below is the merge order.</p>
+            <p class="order-hint">{{ i18n.t('pdfMerge.intake.orderHint') }}</p>
 
             <app-file-queue
               [items]="fileItems()"
@@ -83,8 +90,8 @@
       <section class="panel outcome-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Output</h2>
-            <p class="panel-sub">Check the exact file name and where it will be saved.</p>
+            <h2 class="panel-title">{{ i18n.t('pdfMerge.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfMerge.output.sub') }}</p>
           </div>
         </div>
 
@@ -100,44 +107,40 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useFirstPdfFolder()">
-                Use first PDF's folder
+                {{ i18n.t('pdfMerge.output.useFirstFolder') }}
               </button>
             </div>
           }
 
           <details class="advanced" (toggle)="onAdvancedToggle($event)">
             <summary class="advanced-summary">
-              <span class="advanced-title">Advanced</span>
-              <span class="advanced-hint">Output file name</span>
+              <span class="advanced-title">{{ i18n.t('pdfMerge.advanced.title') }}</span>
+              <span class="advanced-hint">{{ i18n.t('pdfMerge.advanced.nameHint') }}</span>
             </summary>
 
             <div class="advanced-body">
               <div class="field">
-                <label class="label" for="pdf-merge-name">Output file name</label>
+                <label class="label" for="pdf-merge-name">{{ i18n.t('pdfMerge.field.fileName') }}</label>
                 <input
                   id="pdf-merge-name"
                   class="input"
                   type="text"
                   autocomplete="off"
                   spellcheck="false"
-                  placeholder="Automatic"
+                  [attr.placeholder]="i18n.t('pdfMerge.field.fileNamePlaceholder')"
                   aria-describedby="pdf-merge-name-help"
                   [value]="customName()"
                   (input)="onCustomNameInput($event)"
                 />
                 <p id="pdf-merge-name-help" class="field-help">
-                  @if (automaticName(); as automaticName) {
-                    Leave empty to save as {{ automaticName }}.
-                  } @else {
-                    Leave empty to name the file automatically.
-                  }
+                  {{ fileNameHelp() }}
                 </p>
               </div>
 
               @if (customNameInvalid()) {
                 <div class="banner banner-warning error-banner" role="alert">
                   <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                  <span>Use a file name, not a path.</span>
+                  <span>{{ i18n.t('pdfMerge.error.fileNamePath') }}</span>
                 </div>
               }
             </div>
@@ -145,13 +148,13 @@
 
           <details class="advanced">
             <summary class="advanced-summary">
-              <span class="advanced-title">Page ranges</span>
-              <span class="advanced-hint">Per PDF, optional</span>
+              <span class="advanced-title">{{ i18n.t('pdfMerge.ranges.title') }}</span>
+              <span class="advanced-hint">{{ i18n.t('pdfMerge.ranges.hint') }}</span>
             </summary>
 
             <div class="advanced-body">
               <p class="field-help">
-                Use page numbers and ranges, e.g. 1-3,5. Leave empty to merge all pages.
+                {{ i18n.t('pdfMerge.ranges.help') }}
               </p>
 
               @for (path of selectedPaths(); track path; let i = $index) {
@@ -164,12 +167,12 @@
                       type="text"
                       autocomplete="off"
                       spellcheck="false"
-                      placeholder="All pages"
+                      [attr.placeholder]="i18n.t('pdfMerge.ranges.placeholder')"
                       [value]="pageRanges()[path] || ''"
                       (input)="onPageRangeInput(path, $event)"
                     />
                     @if (!(pageRanges()[path] || '').trim()) {
-                      <span class="badge badge-neutral range-badge">All pages</span>
+                      <span class="badge badge-neutral range-badge">{{ i18n.t('pdfMerge.ranges.badge') }}</span>
                     }
                   </div>
                 </div>
@@ -209,7 +212,7 @@
             </button>
 
             @if (isPolling()) {
-              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('pdfMerge.action.cancel') }}</button>
             }
           </div>
         </div>
@@ -217,7 +220,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Merge progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('pdfMerge.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

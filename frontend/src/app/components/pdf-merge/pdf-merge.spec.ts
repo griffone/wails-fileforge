@@ -9,6 +9,7 @@ import { Subject } from 'rxjs';
 
 import { PdfMerge } from './pdf-merge';
 import { ActivityService, ActivityTask } from '../../services/activity.service';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -215,6 +216,7 @@ describe('PdfMerge', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(PdfMerge);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -222,6 +224,8 @@ describe('PdfMerge', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('plans two PDFs and enables the primary action, while one PDF stays disabled', fakeAsync(() => {
@@ -790,5 +794,22 @@ describe('PdfMerge', () => {
     expect(component.customName()).toBe('');
     expect(component.plan()).toBeNull();
     expect(component.outputDir()).toBe('/tmp/out');
+  }));
+
+  it('renders the page copy in Spanish', fakeAsync(() => {
+    TestBed.inject(I18nService).setLocale('es');
+
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Unir');
+    expect(title).toContain('PDF');
+    expect(element.textContent).toContain('Todas las páginas');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir PDF');
   }));
 });

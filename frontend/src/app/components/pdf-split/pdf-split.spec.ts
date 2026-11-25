@@ -10,6 +10,7 @@ import { Subject } from 'rxjs';
 
 import { PdfSplit } from './pdf-split';
 import { PdfSplitPreview } from './pdf-split-preview';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -172,6 +173,7 @@ describe('PdfSplit', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(PdfSplit);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -179,6 +181,8 @@ describe('PdfSplit', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('plans one PDF as single and two PDFs as batch', fakeAsync(() => {
@@ -801,5 +805,23 @@ describe('PdfSplit', () => {
     const legacy = component as unknown as Record<string, unknown>;
     expect(legacy['validate']).toBeUndefined();
     expect(legacy['panelFields']).toBeUndefined();
+  });
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Dividir');
+    expect(title).toContain('PDF');
+
+    const presets = Array.from(
+      element.querySelectorAll('.strategy-card'),
+    ) as HTMLElement[];
+    expect(presets[1].textContent).toContain('Rangos de páginas');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir PDF');
   });
 });

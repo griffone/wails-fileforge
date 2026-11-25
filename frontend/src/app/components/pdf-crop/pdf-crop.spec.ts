@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { PdfCrop } from './pdf-crop';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -184,6 +185,7 @@ describe('PdfCrop', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(PdfCrop);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -191,6 +193,8 @@ describe('PdfCrop', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('plans one PDF as single with the default Small preset', fakeAsync(() => {
@@ -564,5 +568,23 @@ describe('PdfCrop', () => {
     expect(legacy['validate']).toBeUndefined();
     expect(legacy['panelFields']).toBeUndefined();
     expect(legacy['showRunSummaryConfirmation']).toBeUndefined();
+  });
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Recortar');
+    expect(title).toContain('PDF');
+
+    const presets = Array.from(
+      element.querySelectorAll('.preset-card'),
+    ) as HTMLElement[];
+    expect(presets[0].textContent).toContain('Pequeño');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir PDF');
   });
 });

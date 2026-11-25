@@ -20,8 +20,13 @@ import {
   normalizePageSelection,
   pagesToRangeSpec,
 } from './pdf-split-preview';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -133,6 +138,7 @@ export class PdfSplit implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -208,8 +214,10 @@ export class PdfSplit implements OnDestroy, OnInit {
 
   readonly activeStrategyLabel = computed(
     () =>
-      this.strategies.find((preset) => preset.id === this.strategy())?.label ??
-      'Every page',
+      this.strategyLabel(
+        this.strategies.find((preset) => preset.id === this.strategy()) ??
+          SPLIT_STRATEGIES[0],
+      ),
   );
 
   readonly rangesRequired = computed(
@@ -222,30 +230,45 @@ export class PdfSplit implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Splitting…';
+      return this.i18n.t('pdfSplit.action.splitting');
     }
     const count = this.selectedPaths().length;
     const base =
       count === 0
-        ? 'Split PDFs'
+        ? this.i18n.t('pdfSplit.action.split')
         : count === 1
-          ? 'Split 1 PDF'
-          : `Split ${count} PDFs`;
+          ? this.i18n.t('pdfSplit.action.splitOne')
+          : this.i18n.t('pdfSplit.action.splitMany', { count });
     if (this.isSelectedStrategy() && this.selectedPages().length > 0) {
       const parts = groupConsecutivePages(this.selectedPages()).length;
-      return `${base} into ${formatCount(parts, 'part')}`;
+      return this.i18n.t('pdfSplit.action.splitInto', {
+        base,
+        count: this.partCountLabel(parts),
+      });
     }
     if (this.isPagesPerFileStrategy() && this.plannedPartCount() > 0) {
-      return `${base} into ${formatCount(this.plannedPartCount(), 'part')}`;
+      return this.i18n.t('pdfSplit.action.splitInto', {
+        base,
+        count: this.partCountLabel(this.plannedPartCount()),
+      });
     }
     if (this.isBookmarksStrategy() && this.plannedPartCount() > 0) {
-      return `${base} into ${formatCount(this.plannedPartCount(), 'file')}`;
+      return this.i18n.t('pdfSplit.action.splitInto', {
+        base,
+        count: formatCount(
+          this.plannedPartCount(),
+          this.i18n.t('common.fileOne'),
+          this.i18n.t('common.fileMany'),
+        ),
+      });
     }
     return base;
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each PDF',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('pdfSplit.destination.each'),
   );
 
   readonly isDefaultDestination = computed(
@@ -267,16 +290,16 @@ export class PdfSplit implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      return 'Add at least one PDF to split.';
+      return this.i18n.t('pdfSplit.helper.addOne');
     }
     if (this.rangesRequired()) {
-      return 'Enter the page ranges to split.';
+      return this.i18n.t('pdfSplit.helper.ranges');
     }
     if (this.selectionRequired()) {
-      return 'Select at least one page to build the split.';
+      return this.i18n.t('pdfSplit.helper.selection');
     }
     if (this.pagesPerFileInvalid()) {
-      return 'Enter a whole number of pages from 1 to 1000.';
+      return this.i18n.t('pdfSplit.helper.pagesPerFile');
     }
     return '';
   });
@@ -294,7 +317,10 @@ export class PdfSplit implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The split could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('pdfSplit.error.start')),
+        )
       : null;
   });
 
@@ -319,7 +345,34 @@ export class PdfSplit implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'PDF', 'PDFs');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.pdfOne'),
+      this.i18n.t('common.pdfMany'),
+    );
+  }
+
+  /** Strategy copy resolved at render time so the locale switch applies. */
+  strategyLabel(preset: StrategyPreset): string {
+    return this.i18n.tOr(
+      `pdfSplit.strategy.${preset.id}.label`,
+      preset.label,
+    );
+  }
+
+  strategyHint(preset: StrategyPreset): string {
+    return this.i18n.tOr(
+      `pdfSplit.strategy.${preset.id}.hint`,
+      preset.hint,
+    );
+  }
+
+  private partCountLabel(count: number): string {
+    return formatCount(
+      count,
+      this.i18n.t('pdfSplit.unit.partOne'),
+      this.i18n.t('pdfSplit.unit.partMany'),
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -488,13 +541,13 @@ export class PdfSplit implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The split could not start.',
+        message: this.i18n.t('pdfSplit.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The split could not start.',
+          message: this.i18n.t('pdfSplit.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -502,7 +555,8 @@ export class PdfSplit implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The split could not start.',
+          message:
+            response.message || this.i18n.t('pdfSplit.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -514,14 +568,14 @@ export class PdfSplit implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('pdfSplit.status.waiting'),
       toolId: PDF_SPLIT_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('pdfSplit.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -539,7 +593,7 @@ export class PdfSplit implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('pdfSplit.error.cancel'),
       );
     }
   }
@@ -547,7 +601,9 @@ export class PdfSplit implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('pdfSplit.error.openFile'),
     );
   }
 
@@ -556,7 +612,7 @@ export class PdfSplit implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('pdfSplit.error.openFolder'),
     );
   }
 
@@ -660,12 +716,12 @@ export class PdfSplit implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('pdfSplit.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('pdfSplit.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -682,7 +738,7 @@ export class PdfSplit implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('pdfSplit.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the range or
     // destination problem next to the destination it belongs to.
@@ -791,7 +847,7 @@ export class PdfSplit implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('pdfSplit.error.status'),
       },
     );
   }
@@ -833,7 +889,7 @@ export class PdfSplit implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('pdfSplit.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -959,7 +1015,13 @@ export class PdfSplit implements OnDestroy, OnInit {
       parts.push(formatBytes(info.sizeBytes));
     }
     if (typeof info.pageCount === 'number' && info.pageCount > 0) {
-      parts.push(formatCount(info.pageCount, 'page'));
+      parts.push(
+        formatCount(
+          info.pageCount,
+          this.i18n.t('common.pageOne'),
+          this.i18n.t('common.pageMany'),
+        ),
+      );
     }
     return parts.join(' · ');
   }
@@ -968,16 +1030,28 @@ export class PdfSplit implements OnDestroy, OnInit {
     const parts: string[] = [];
 
     if (rejected.length === 1) {
-      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a PDF.`);
+      parts.push(
+        this.i18n.t('pdfSplit.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
+      );
     } else if (rejected.length > 1) {
       const names = rejected.map((path) => fileName(path)).join(', ');
-      parts.push(`${names} weren't added because they aren't PDFs.`);
+      parts.push(this.i18n.t('pdfSplit.notice.rejectedMany', { names }));
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('pdfSplit.notice.duplicateOne', {
+          name: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} PDFs are already in the queue.`);
+      parts.push(
+        this.i18n.t('pdfSplit.notice.duplicateMany', {
+          count: duplicates.length,
+        }),
+      );
     }
 
     return parts.length > 0

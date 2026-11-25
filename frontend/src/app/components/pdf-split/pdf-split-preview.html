@@ -2,7 +2,7 @@
   <div class="preview-toolbar">
     @if (files().length > 1) {
       <div class="preview-file">
-        <label class="label" for="pdf-split-preview-file">Previewing</label>
+        <label class="label" for="pdf-split-preview-file">{{ i18n.t('pdfSplit.preview.fileLabel') }}</label>
         <select
           id="pdf-split-preview-file"
           class="select"
@@ -24,22 +24,22 @@
   </div>
 
   @if (loading()) {
-    <p class="preview-status" role="status">Loading PDF preview…</p>
+    <p class="preview-status" role="status">{{ i18n.t('pdfSplit.preview.loading') }}</p>
   } @else if (rendering()) {
-    <p class="preview-status" role="status">Rendering page thumbnails…</p>
+    <p class="preview-status" role="status">{{ i18n.t('pdfSplit.preview.rendering') }}</p>
   }
 
   @if (unavailable()) {
     <div class="banner banner-warning preview-alert" role="alert">
       <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
       <span>
-        Preview unavailable for this PDF. The split will still work.
+        {{ i18n.t('pdfSplit.preview.unavailable') }}
         @if (isSelectable()) {
-          Switch to Page ranges to split it without a preview.
+          {{ i18n.t('pdfSplit.preview.unavailableSelectable') }}
         }
       </span>
     </div>
-  } @else if (rangeError(); as error) {
+  } @else if (rangeErrorText(); as error) {
     <div class="banner banner-warning preview-alert" role="alert">
       <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
       <span>{{ error }}</span>
@@ -49,7 +49,7 @@
       <div class="select-toolbar">
         <div class="select-actions">
           <button type="button" class="btn btn-secondary btn-sm" (click)="selectAll()">
-            Select all
+            {{ i18n.t('pdfSplit.preview.selectAll') }}
           </button>
           <button
             type="button"
@@ -57,27 +57,31 @@
             [disabled]="selection().length === 0"
             (click)="clearSelection()"
           >
-            Clear
+            {{ i18n.t('pdfSplit.preview.clear') }}
           </button>
         </div>
         <p class="select-count" role="status">{{ selectionLabel() }}</p>
       </div>
 
-      <div class="page-grid" role="group" aria-label="Select pages to split">
+      <div class="page-grid" role="group" [attr.aria-label]="i18n.t('pdfSplit.preview.selectAria')">
         @for (pageNumber of selectablePages(); track pageNumber) {
           <button
             type="button"
             class="page-card page-card-selectable"
             [class.is-selected]="isPageSelected(pageNumber)"
             [attr.aria-pressed]="isPageSelected(pageNumber)"
-            [attr.aria-label]="(isPageSelected(pageNumber) ? 'Deselect page ' : 'Select page ') + pageNumber"
+            [attr.aria-label]="
+              (isPageSelected(pageNumber)
+                ? i18n.t('pdfSplit.preview.deselectPage', { page: pageNumber })
+                : i18n.t('pdfSplit.preview.selectPage', { page: pageNumber }))
+            "
             (click)="togglePage(pageNumber)"
           >
             <span class="thumb-frame">
               @if (thumbnail(pageNumber); as url) {
                 <img
                   [src]="url"
-                  [alt]="'Page ' + pageNumber + ' preview'"
+                  [alt]="i18n.t('pdfSplit.preview.pageAlt', { page: pageNumber })"
                   width="140"
                   height="181"
                   loading="lazy"
@@ -91,7 +95,7 @@
                 </span>
               }
             </span>
-            <span class="page-number">Page {{ pageNumber }}</span>
+            <span class="page-number">{{ i18n.t('pdfSplit.preview.pageNumber', { page: pageNumber }) }}</span>
           </button>
         }
       </div>
@@ -99,12 +103,12 @@
 
     @if (strategy === 'bookmarks') {
       <p class="bookmark-hint">
-        Bookmark preview appears after planning. The plan lists each resulting file.
+        {{ i18n.t('pdfSplit.preview.bookmarkHint') }}
       </p>
     }
 
     @if (strategy === 'every_page' && !isSelectable()) {
-      <div class="page-grid" role="list" aria-label="Resulting pages">
+      <div class="page-grid" role="list" [attr.aria-label]="i18n.t('pdfSplit.preview.pagesAria')">
         @for (group of groups(); track group.key) {
           @let pageNumber = group.pages[0].page;
           <article class="page-card" role="listitem">
@@ -112,7 +116,7 @@
               @if (thumbnail(pageNumber); as url) {
                 <img
                   [src]="url"
-                  [alt]="'Page ' + pageNumber + ' preview'"
+                  [alt]="i18n.t('pdfSplit.preview.pageAlt', { page: pageNumber })"
                   width="140"
                   height="181"
                   loading="lazy"
@@ -121,17 +125,17 @@
                 <span class="thumb-placeholder" aria-hidden="true"></span>
               }
             </div>
-            <p class="page-number">Page {{ pageNumber }}</p>
+            <p class="page-number">{{ i18n.t('pdfSplit.preview.pageNumber', { page: pageNumber }) }}</p>
             <p class="output-name">{{ group.outputName }}</p>
           </article>
         }
       </div>
     } @else if (groups().length > 0) {
-      <div class="range-grid" aria-label="Resulting parts">
+      <div class="range-grid" [attr.aria-label]="i18n.t('pdfSplit.preview.partsAria')">
         @for (group of groups(); track group.key) {
           <article class="range-card">
             <header class="range-head">
-              <h3 class="range-title">{{ group.title }}</h3>
+              <h3 class="range-title">{{ groupTitle(group) }}</h3>
               <p class="output-name">{{ group.outputName }}</p>
             </header>
 
@@ -142,7 +146,7 @@
                     @if (thumbnail(page.page); as url) {
                       <img
                         [src]="url"
-                        [alt]="'Page ' + page.page + ' preview'"
+                        [alt]="i18n.t('pdfSplit.preview.pageAlt', { page: page.page })"
                         width="72"
                         height="93"
                         loading="lazy"
@@ -151,7 +155,7 @@
                       <span class="thumb-placeholder" aria-hidden="true"></span>
                     }
                   </div>
-                  <figcaption class="range-page-label">Page {{ page.page }}</figcaption>
+                  <figcaption class="range-page-label">{{ i18n.t('pdfSplit.preview.pageNumber', { page: page.page }) }}</figcaption>
                 </figure>
               }
             </div>
@@ -161,16 +165,16 @@
         }
       </div>
     } @else if (isSelectable()) {
-      <p class="select-hint">Select pages above to preview the parts they create.</p>
+      <p class="select-hint">{{ i18n.t('pdfSplit.preview.selectHint') }}</p>
     }
 
     @if (limited()) {
       <div class="preview-limit">
         <p class="preview-limit-copy">
-          Showing first {{ pageLimit }} of {{ totalPages() }} pages
+          {{ i18n.t('pdfSplit.preview.limit', { shown: pageLimit, total: totalPages() }) }}
         </p>
         <button type="button" class="btn btn-secondary btn-sm" (click)="showAll()">
-          Show all
+          {{ i18n.t('pdfSplit.preview.showAll') }}
         </button>
       </div>
     }

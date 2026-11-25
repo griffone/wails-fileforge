@@ -14,8 +14,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -177,6 +182,7 @@ export class PdfCrop implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -226,8 +232,10 @@ export class PdfCrop implements OnDestroy, OnInit {
 
   readonly activePresetLabel = computed(
     () =>
-      this.presets.find((preset) => preset.id === this.cropPreset())?.label ??
-      'Small',
+      this.presetLabel(
+        this.presets.find((preset) => preset.id === this.cropPreset()) ??
+          CROP_PRESETS[0],
+      ),
   );
 
   readonly marginsValidInput = computed(() =>
@@ -248,25 +256,31 @@ export class PdfCrop implements OnDestroy, OnInit {
       (side) => this.margins()[side].trim().length === 0,
     );
     if (empty) {
-      return 'Enter all four margins to use Custom.';
+      return this.i18n.t('pdfCrop.error.marginsEmpty');
     }
 
-    return `Use numbers from 0 to ${MAX_MARGIN_PT} pt for every margin.`;
+    return this.i18n.t('pdfCrop.error.marginsRange', {
+      max: MAX_MARGIN_PT,
+    });
   });
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Cropping…';
+      return this.i18n.t('pdfCrop.action.cropping');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Crop PDFs';
+      return this.i18n.t('pdfCrop.action.crop');
     }
-    return count === 1 ? 'Crop 1 PDF' : `Crop ${count} PDFs`;
+    return count === 1
+      ? this.i18n.t('pdfCrop.action.cropOne')
+      : this.i18n.t('pdfCrop.action.cropMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each PDF',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('pdfCrop.destination.each'),
   );
 
   readonly isDefaultDestination = computed(
@@ -279,8 +293,8 @@ export class PdfCrop implements OnDestroy, OnInit {
       return '';
     }
     return this.selectedPaths().length > 1
-      ? `First page of ${name}. The same crop applies to every PDF.`
-      : `First page of ${name}. The crop is applied when you run it.`;
+      ? this.i18n.t('pdfCrop.preview.noteBatch', { name })
+      : this.i18n.t('pdfCrop.preview.noteFirst', { name });
   });
 
   readonly previewAspectRatio = computed(() => {
@@ -332,13 +346,20 @@ export class PdfCrop implements OnDestroy, OnInit {
     const values = MARGIN_SIDES.map((side) => margins[side]);
     const uniform = values.every((value) => value === values[0]);
     if (uniform) {
-      return `${this.formatMarginValue(margins.top)} pt`;
+      return this.i18n.t('pdfCrop.preview.marginsUniform', {
+        value: this.formatMarginValue(margins.top),
+      });
     }
     const top = this.formatMarginValue(margins.top);
     const right = this.formatMarginValue(margins.right);
     const bottom = this.formatMarginValue(margins.bottom);
     const left = this.formatMarginValue(margins.left);
-    return `T ${top} · R ${right} · B ${bottom} · L ${left}`;
+    return this.i18n.t('pdfCrop.preview.marginsSides', {
+      top,
+      right,
+      bottom,
+      left,
+    });
   });
 
   readonly canRun = computed(
@@ -355,10 +376,10 @@ export class PdfCrop implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      return 'Add at least one PDF to crop.';
+      return this.i18n.t('pdfCrop.helper.addOne');
     }
     if (this.rangesRequired()) {
-      return 'Enter the page ranges to crop.';
+      return this.i18n.t('pdfCrop.helper.ranges');
     }
     return this.marginsError();
   });
@@ -376,7 +397,10 @@ export class PdfCrop implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The crop could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('pdfCrop.error.start')),
+        )
       : null;
   });
 
@@ -403,7 +427,30 @@ export class PdfCrop implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'PDF', 'PDFs');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.pdfOne'),
+      this.i18n.t('common.pdfMany'),
+    );
+  }
+
+  /** Preset copy resolved at render time so the locale switch applies. */
+  presetLabel(preset: CropPreset): string {
+    return this.i18n.tOr(
+      `pdfCrop.preset.${preset.id}.label`,
+      preset.label,
+    );
+  }
+
+  presetHint(preset: CropPreset): string {
+    return this.i18n.tOr(
+      `pdfCrop.preset.${preset.id}.hint`,
+      preset.hint,
+    );
+  }
+
+  marginLabel(side: MarginSide): string {
+    return this.i18n.tOr(`pdfCrop.margin.${side}`, side);
   }
 
   onPathsSelected(paths: string[]): void {
@@ -571,13 +618,13 @@ export class PdfCrop implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The crop could not start.',
+        message: this.i18n.t('pdfCrop.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The crop could not start.',
+          message: this.i18n.t('pdfCrop.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -585,7 +632,8 @@ export class PdfCrop implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The crop could not start.',
+          message:
+            response.message || this.i18n.t('pdfCrop.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -597,14 +645,14 @@ export class PdfCrop implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('pdfCrop.status.waiting'),
       toolId: PDF_CROP_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('pdfCrop.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -622,7 +670,7 @@ export class PdfCrop implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('pdfCrop.error.cancel'),
       );
     }
   }
@@ -630,7 +678,9 @@ export class PdfCrop implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('pdfCrop.error.openFile'),
     );
   }
 
@@ -639,7 +689,7 @@ export class PdfCrop implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('pdfCrop.error.openFolder'),
     );
   }
 
@@ -753,12 +803,12 @@ export class PdfCrop implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('pdfCrop.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('pdfCrop.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -775,7 +825,7 @@ export class PdfCrop implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('pdfCrop.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the range or
     // destination problem next to the destination it belongs to.
@@ -891,7 +941,7 @@ export class PdfCrop implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('pdfCrop.error.status'),
       },
     );
   }
@@ -933,7 +983,7 @@ export class PdfCrop implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('pdfCrop.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -1116,7 +1166,13 @@ export class PdfCrop implements OnDestroy, OnInit {
       parts.push(formatBytes(info.sizeBytes));
     }
     if (typeof info.pageCount === 'number' && info.pageCount > 0) {
-      parts.push(formatCount(info.pageCount, 'page'));
+      parts.push(
+        formatCount(
+          info.pageCount,
+          this.i18n.t('common.pageOne'),
+          this.i18n.t('common.pageMany'),
+        ),
+      );
     }
     return parts.join(' · ');
   }
@@ -1125,16 +1181,28 @@ export class PdfCrop implements OnDestroy, OnInit {
     const parts: string[] = [];
 
     if (rejected.length === 1) {
-      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a PDF.`);
+      parts.push(
+        this.i18n.t('pdfCrop.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
+      );
     } else if (rejected.length > 1) {
       const names = rejected.map((path) => fileName(path)).join(', ');
-      parts.push(`${names} weren't added because they aren't PDFs.`);
+      parts.push(this.i18n.t('pdfCrop.notice.rejectedMany', { names }));
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('pdfCrop.notice.duplicateOne', {
+          name: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} PDFs are already in the queue.`);
+      parts.push(
+        this.i18n.t('pdfCrop.notice.duplicateMany', {
+          count: duplicates.length,
+        }),
+      );
     }
 
     return parts.length > 0

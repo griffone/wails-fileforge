@@ -1,0 +1,72 @@
+export const pdfOptimizeEs = {
+  'pdfOptimize.page.eyebrow': 'PDF',
+  'pdfOptimize.page.titleLead': 'Optimizar',
+  'pdfOptimize.page.titleTail': 'PDF',
+  'pdfOptimize.page.sub':
+    'Comprime PDF y edita los metadatos del documento. Todo se ejecuta en este equipo.',
+  'pdfOptimize.page.localBadge': 'Solo local',
+  'pdfOptimize.intake.title': 'PDF',
+  'pdfOptimize.intake.sub': 'Suelta PDF o elígelos desde tu equipo.',
+  'pdfOptimize.intake.dropTitle': 'Suelta PDF aquí',
+  'pdfOptimize.intake.dropHint': 'Solo archivos PDF',
+  'pdfOptimize.intake.dropAria': 'Suelta o elige PDF para optimizar',
+  'pdfOptimize.intake.actionsAria': 'Acciones de selección de PDF',
+  'pdfOptimize.intake.choose': 'Elegir PDF',
+  'pdfOptimize.intake.clear': 'Limpiar',
+  'pdfOptimize.notice.rejectedOne':
+    '{name} no se agregó porque no es un PDF.',
+  'pdfOptimize.notice.rejectedMany':
+    '{names} no se agregaron porque no son PDF.',
+  'pdfOptimize.notice.duplicateOne': '{name} ya está en la cola.',
+  'pdfOptimize.notice.duplicateMany': 'Ya hay {count} PDF en la cola.',
+  'pdfOptimize.output.title': 'Salida',
+  'pdfOptimize.output.sub':
+    'Elige la compresión y los metadatos, luego comprueba dónde irán los archivos.',
+  'pdfOptimize.badge.compressOn': 'Compresión activada',
+  'pdfOptimize.badge.compressOff': 'Compresión desactivada',
+  'pdfOptimize.advanced.title': 'Avanzado',
+  'pdfOptimize.advanced.hint': 'Compresión y metadatos',
+  'pdfOptimize.field.compression': 'Compresión',
+  'pdfOptimize.field.compress': 'Comprimir PDF',
+  'pdfOptimize.field.compressHelpOn':
+    'Vuelve a comprimir el documento para reducir el tamaño del archivo cuando sea posible.',
+  'pdfOptimize.field.compressHelpOff':
+    'La compresión original se mantiene intacta.',
+  'pdfOptimize.metadata.label': 'Metadatos del documento',
+  'pdfOptimize.metadata.help':
+    'Déjalo vacío para conservar el valor existente.',
+  'pdfOptimize.metadata.title.label': 'Título',
+  'pdfOptimize.metadata.title.placeholder': 'Título del documento',
+  'pdfOptimize.metadata.author.label': 'Autor',
+  'pdfOptimize.metadata.author.placeholder': 'Autor del documento',
+  'pdfOptimize.metadata.subject.label': 'Asunto',
+  'pdfOptimize.metadata.subject.placeholder': 'Asunto del documento',
+  'pdfOptimize.metadata.keywords.label': 'Palabras clave',
+  'pdfOptimize.metadata.keywords.placeholder':
+    'Palabras clave separadas por comas',
+  'pdfOptimize.metadata.creator.label': 'Creador',
+  'pdfOptimize.metadata.creator.placeholder': 'Aplicación o fuente',
+  'pdfOptimize.metadata.error':
+    'Cada valor de metadatos debe tener 512 caracteres o menos.',
+  'pdfOptimize.metadata.copyNote':
+    'La compresión está desactivada y no hay metadatos definidos, así que el PDF se copiará sin cambios.',
+  'pdfOptimize.advanced.reset': 'Restablecer opciones',
+  'pdfOptimize.destination.each': 'Junto a cada PDF',
+  'pdfOptimize.helper.addOne': 'Añade al menos un PDF para optimizar.',
+  'pdfOptimize.helper.metadataTooLong':
+    'Acorta cada valor de metadatos a {max} caracteres o menos.',
+  'pdfOptimize.action.optimize': 'Optimizar PDF',
+  'pdfOptimize.action.optimizeOne': 'Optimizar 1 PDF',
+  'pdfOptimize.action.optimizeMany': 'Optimizar {count} PDF',
+  'pdfOptimize.action.optimizing': 'Optimizando…',
+  'pdfOptimize.action.cancel': 'Cancelar',
+  'pdfOptimize.progress.aria': 'Progreso de la optimización',
+  'pdfOptimize.status.waiting': 'Esperando para empezar',
+  'pdfOptimize.error.start': 'No se pudo iniciar la optimización.',
+  'pdfOptimize.error.plan': 'No se pudo planificar la salida.',
+  'pdfOptimize.error.cancel': 'No se pudo cancelar el trabajo.',
+  'pdfOptimize.error.openFile': 'No se pudo abrir el archivo.',
+  'pdfOptimize.error.openFolder': 'No se pudo abrir la carpeta.',
+  'pdfOptimize.error.status': 'No se pudo leer el estado del trabajo.',
+  'pdfOptimize.error.inspect': 'No se pudieron leer los tamaños de archivo.',
+} as const;

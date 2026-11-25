@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">PDF</p>
-        <h1 class="page-title">PDF <em>Split</em></h1>
+        <p class="eyebrow">{{ i18n.t('pdfSplit.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('pdfSplit.page.titleLead') }}
+          <em>{{ i18n.t('pdfSplit.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Split PDFs by page, explicit ranges, picked pages, page count or bookmarks. Everything runs on this machine.
+          {{ i18n.t('pdfSplit.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('pdfSplit.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -21,8 +24,8 @@
       <section class="panel intake-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">PDFs</h2>
-            <p class="panel-sub">Drop PDFs or choose them from your computer.</p>
+            <h2 class="panel-title">{{ i18n.t('pdfSplit.intake.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfSplit.intake.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
@@ -30,18 +33,22 @@
         <div class="panel-body">
           <app-file-drop
             accept=".pdf,application/pdf"
-            title="Drop PDFs here"
-            hint="PDF files only"
-            ariaLabel="Drop or choose PDFs to split"
+            [title]="i18n.t('pdfSplit.intake.dropTitle')"
+            [hint]="i18n.t('pdfSplit.intake.dropHint')"
+            [ariaLabel]="i18n.t('pdfSplit.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
           ></app-file-drop>
 
-          <div class="toolbar" role="group" aria-label="PDF selection actions">
+          <div
+            class="toolbar"
+            role="group"
+            [attr.aria-label]="i18n.t('pdfSplit.intake.actionsAria')"
+          >
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose PDFs
+              {{ i18n.t('pdfSplit.intake.choose') }}
             </button>
             <button
               type="button"
@@ -50,7 +57,7 @@
               (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
+              {{ i18n.t('pdfSplit.intake.clear') }}
             </button>
           </div>
 
@@ -78,14 +85,18 @@
       <section class="panel outcome-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Output</h2>
-            <p class="panel-sub">Choose how to split and check where the files will go.</p>
+            <h2 class="panel-title">{{ i18n.t('pdfSplit.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfSplit.output.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ activeStrategyLabel() }}</span>
         </div>
 
         <div class="panel-body">
-          <div class="preset-grid" role="group" aria-label="Split strategy">
+          <div
+            class="preset-grid"
+            role="group"
+            [attr.aria-label]="i18n.t('pdfSplit.strategy.aria')"
+          >
             @for (preset of strategies; track preset.id) {
               <button
                 type="button"
@@ -95,44 +106,44 @@
                 [attr.data-strategy]="preset.id"
                 (click)="selectStrategy(preset.id)"
               >
-                <span class="preset-label">{{ preset.label }}</span>
-                <span class="preset-hint">{{ preset.hint }}</span>
+                <span class="preset-label">{{ strategyLabel(preset) }}</span>
+                <span class="preset-hint">{{ strategyHint(preset) }}</span>
               </button>
             }
           </div>
 
           @if (isRangesStrategy()) {
             <div class="field">
-              <label class="label" for="pdf-split-ranges">Page ranges</label>
+              <label class="label" for="pdf-split-ranges">{{ i18n.t('pdfSplit.ranges.label') }}</label>
               <input
                 id="pdf-split-ranges"
                 class="input"
                 type="text"
                 autocomplete="off"
                 spellcheck="false"
-                placeholder="1-3,5,8-10"
+                [attr.placeholder]="i18n.t('pdfSplit.ranges.placeholder')"
                 aria-describedby="pdf-split-ranges-help"
                 [value]="ranges()"
                 (input)="onRangesInput($event)"
               />
               <p id="pdf-split-ranges-help" class="field-help">
-                Use page numbers and ranges separated by commas. Duplicates and overlaps are not allowed.
+                {{ i18n.t('pdfSplit.ranges.help') }}
               </p>
             </div>
           }
 
           @if (isSelectedStrategy()) {
             <p class="field-help">
-              Pick pages in the preview below. Consecutive pages become one part.
+              {{ i18n.t('pdfSplit.selected.help') }}
               @if (selectedPaths().length > 1) {
-                The same pages apply to every PDF in the batch.
+                {{ i18n.t('pdfSplit.selected.batch') }}
               }
             </p>
           }
 
           @if (isPagesPerFileStrategy()) {
             <div class="field">
-              <label class="label" for="pdf-split-pages-per-file">Pages per file</label>
+              <label class="label" for="pdf-split-pages-per-file">{{ i18n.t('pdfSplit.pagesPerFile.label') }}</label>
               <input
                 id="pdf-split-pages-per-file"
                 class="input"
@@ -147,12 +158,11 @@
                 (input)="onPagesPerFileInput($event)"
               />
               <p id="pdf-split-pages-per-file-help" class="field-help">
-                Split every {{ pagesPerFile() ?? 'N' }} pages into one file.
-                The last file may hold fewer pages.
+                {{ i18n.t('pdfSplit.pagesPerFile.help', { count: pagesPerFile() ?? 'N' }) }}
               </p>
               @if (pagesPerFileInvalid()) {
                 <p class="field-error" role="alert">
-                  Enter a whole number from 1 to 1000.
+                  {{ i18n.t('pdfSplit.pagesPerFile.error') }}
                 </p>
               }
             </div>
@@ -160,7 +170,7 @@
 
           @if (isBookmarksStrategy()) {
             <p class="field-help">
-              Uses the PDF's top-level outline. If it has no bookmarks, the plan will explain what to do.
+              {{ i18n.t('pdfSplit.bookmarks.help') }}
             </p>
           }
 
@@ -175,7 +185,7 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
-                Use original folders
+                {{ i18n.t('settings.output.useOriginal') }}
               </button>
             </div>
           }
@@ -212,7 +222,7 @@
             </button>
 
             @if (isPolling()) {
-              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('pdfSplit.action.cancel') }}</button>
             }
           </div>
         </div>
@@ -223,14 +233,14 @@
       <section class="panel" aria-labelledby="pdf-split-result-preview-title">
         <div class="panel-head">
           <div>
-            <h2 id="pdf-split-result-preview-title" class="panel-title">Resulting files</h2>
+            <h2 id="pdf-split-result-preview-title" class="panel-title">{{ i18n.t('pdfSplit.preview.panelTitle') }}</h2>
             <p class="panel-sub">
               @if (isSelectedStrategy()) {
-                Pick pages; consecutive pages become one file.
+                {{ i18n.t('pdfSplit.preview.subSelected') }}
               } @else if (isBookmarksStrategy()) {
-                Bookmark output is listed in the plan above.
+                {{ i18n.t('pdfSplit.preview.subBookmarks') }}
               } @else {
-                Preview every file the split will create.
+                {{ i18n.t('pdfSplit.preview.subDefault') }}
               }
             </p>
           </div>
@@ -250,7 +260,7 @@
     }
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Split progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('pdfSplit.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

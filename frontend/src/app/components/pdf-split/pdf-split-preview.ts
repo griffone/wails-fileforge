@@ -7,6 +7,7 @@ import {
   Output,
   SimpleChanges,
   computed,
+  inject,
   signal,
 } from '@angular/core';
 import {
@@ -15,9 +16,11 @@ import {
   TriangleAlert,
 } from 'lucide-angular';
 
+import { I18nService } from '../../services/i18n.service';
 import { PdfRendererService } from '../../services/pdf-renderer.service';
 import { Wails } from '../../services/wails';
 import { fileName, formatCount } from '../../utils/format';
+import type { TranslationKey, TranslationParams } from '../../i18n';
 
 const STRATEGY_EVERY_PAGE = 'every_page';
 const STRATEGY_RANGES = 'ranges';
@@ -43,7 +46,9 @@ interface PreviewPage {
 
 interface PreviewGroup {
   key: string;
-  title: string;
+  part: number;
+  start: number;
+  end: number;
   outputName: string;
   /** Pages whose thumbnails are inside the current render window. */
   pages: PreviewPage[];
@@ -58,7 +63,8 @@ export interface PageRange {
 
 interface RangeParseResult {
   ranges: PageRange[];
-  error: string;
+  error: TranslationKey | null;
+  errorParams?: TranslationParams;
 }
 
 const RANGE_TOKEN = /^(\d+)(?:\s*-\s*(\d+))?$/;
@@ -88,17 +94,21 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
   readonly checkIcon = Check;
   readonly pageLimit = INITIAL_PAGE_LIMIT;
 
+  readonly i18n = inject(I18nService);
+
   readonly files = signal<string[]>([]);
   readonly selectedPath = signal('');
   readonly loading = signal(false);
   readonly unavailable = signal(false);
   readonly rendering = signal(false);
-  readonly rangeError = signal('');
+  readonly rangeError = signal<TranslationKey | null>(null);
+  readonly rangeErrorParams = signal<TranslationParams | undefined>(undefined);
   readonly groups = signal<PreviewGroup[]>([]);
   readonly thumbnails = signal<Record<number, string>>({});
   readonly limited = signal(false);
   readonly totalPages = signal(0);
-  readonly countLabel = signal('');
+  readonly countValue = signal(0);
+  readonly countKind = signal<'file' | 'part' | ''>('');
   readonly showAllRequested = signal(false);
   /** Page cards offered for selection in selected mode. */
   readonly selectablePages = signal<number[]>([]);
@@ -106,9 +116,41 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
   readonly selection = signal<number[]>([]);
 
   readonly selectedFileName = computed(() => fileName(this.selectedPath()));
-  readonly selectionLabel = computed(
-    () => `${formatCount(this.selection().length, 'page')} selected`,
-  );
+  readonly selectionLabel = computed(() => {
+    const count = this.selection().length;
+    const pages = formatCount(
+      count,
+      this.i18n.t('common.pageOne'),
+      this.i18n.t('common.pageMany'),
+    );
+    return count === 1
+      ? this.i18n.t('pdfSplit.preview.selectionOne', { count: pages })
+      : this.i18n.t('pdfSplit.preview.selectionMany', { count: pages });
+  });
+
+  readonly countLabel = computed(() => {
+    const kind = this.countKind();
+    const value = this.countValue();
+    if (!kind || value <= 0) {
+      return '';
+    }
+    return kind === 'part'
+      ? formatCount(
+          value,
+          this.i18n.t('pdfSplit.unit.partOne'),
+          this.i18n.t('pdfSplit.unit.partMany'),
+        )
+      : formatCount(
+          value,
+          this.i18n.t('common.fileOne'),
+          this.i18n.t('common.fileMany'),
+        );
+  });
+
+  readonly rangeErrorText = computed(() => {
+    const key = this.rangeError();
+    return key ? this.i18n.t(key, this.rangeErrorParams()) : '';
+  });
 
   private readonly pdf = signal<unknown>(null);
   private readonly numPages = signal(0);
@@ -167,7 +209,25 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
   }
 
   fileCountLabel(count: number): string {
-    return formatCount(count, 'file');
+    return formatCount(
+      count,
+      this.i18n.t('common.fileOne'),
+      this.i18n.t('common.fileMany'),
+    );
+  }
+
+  /** Group headers resolved at render time so the locale switch applies. */
+  groupTitle(group: PreviewGroup): string {
+    return group.start === group.end
+      ? this.i18n.t('pdfSplit.preview.partPage', {
+          part: group.part,
+          page: group.start,
+        })
+      : this.i18n.t('pdfSplit.preview.partPages', {
+          part: group.part,
+          start: group.start,
+          end: group.end,
+        });
   }
 
   thumbnail(page: number): string {
@@ -315,8 +375,10 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     this.numPages.set(0);
     this.thumbnails.set({});
     this.groups.set([]);
-    this.rangeError.set('');
-    this.countLabel.set('');
+    this.rangeError.set(null);
+    this.rangeErrorParams.set(undefined);
+    this.countValue.set(0);
+    this.countKind.set('');
     this.limited.set(false);
     this.totalPages.set(0);
     this.selectablePages.set([]);
@@ -329,11 +391,13 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     this.unavailable.set(true);
     this.numPages.set(0);
     this.groups.set([]);
-    this.countLabel.set('');
+    this.countValue.set(0);
+    this.countKind.set('');
     this.limited.set(false);
     this.totalPages.set(0);
     this.selectablePages.set([]);
-    this.rangeError.set('');
+    this.rangeError.set(null);
+    this.rangeErrorParams.set(undefined);
   }
 
   private rebuildView(): void {
@@ -341,7 +405,8 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
       return;
     }
 
-    this.rangeError.set('');
+    this.rangeError.set(null);
+    this.rangeErrorParams.set(undefined);
     this.renderQueue = [];
     this.queuedPages.clear();
 
@@ -377,14 +442,17 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     const pages = Array.from({ length: visible }, (_, index) => index + 1);
     const groups: PreviewGroup[] = pages.map((page) => ({
       key: `page-${page}`,
-      title: `Page ${page}`,
+      part: page,
+      start: page,
+      end: page,
       outputName: everyPageOutputName(page),
       pages: [{ page }],
       pageCount: 1,
     }));
 
     this.groups.set(groups);
-    this.countLabel.set(formatCount(numPages, 'file'));
+    this.countValue.set(numPages);
+    this.countKind.set('file');
     this.totalPages.set(numPages);
     this.limited.set(visible < numPages);
     this.scheduleRender(pages);
@@ -401,12 +469,11 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     let part = 1;
     for (let start = 1; start <= numPages; start += chunkSize) {
       const end = Math.min(start + chunkSize - 1, numPages);
-      const singlePage = start === end;
       groups.push({
         key: `pages-${part}-${start}-${end}`,
-        title: `Part ${part} · ${
-          singlePage ? `Page ${start}` : `Pages ${start}-${end}`
-        }`,
+        part,
+        start,
+        end,
         outputName: pagesPerFileOutputName(part, { start, end }),
         pages: visiblePages
           .filter((page) => page >= start && page <= end)
@@ -417,7 +484,8 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     }
 
     this.groups.set(groups);
-    this.countLabel.set(formatCount(groups.length, 'file'));
+    this.countValue.set(groups.length);
+    this.countKind.set('file');
     this.totalPages.set(numPages);
     this.limited.set(visiblePages.length < numPages);
     this.scheduleRender(visiblePages);
@@ -429,7 +497,8 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
    */
   private buildBookmarkPlaceholder(): void {
     this.groups.set([]);
-    this.countLabel.set('');
+    this.countValue.set(0);
+    this.countKind.set('');
     this.totalPages.set(0);
     this.limited.set(false);
     this.selectablePages.set([]);
@@ -440,7 +509,9 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     if (parsed.error) {
       this.groups.set([]);
       this.rangeError.set(parsed.error);
-      this.countLabel.set('');
+      this.rangeErrorParams.set(parsed.errorParams);
+      this.countValue.set(0);
+      this.countKind.set('');
       this.totalPages.set(0);
       this.limited.set(false);
       return;
@@ -452,12 +523,11 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
       : allPages.slice(0, INITIAL_PAGE_LIMIT);
     const groups: PreviewGroup[] = parsed.ranges.map((range, index) => {
       const part = index + 1;
-      const singlePage = range.start === range.end;
       return {
         key: `range-${part}-${range.start}-${range.end}`,
-        title: `Part ${part} · ${
-          singlePage ? `Page ${range.start}` : `Pages ${range.start}-${range.end}`
-        }`,
+        part,
+        start: range.start,
+        end: range.end,
         outputName: rangeOutputName(part, range),
         pages: visiblePages
           .filter((page) => page >= range.start && page <= range.end)
@@ -467,7 +537,8 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
     });
 
     this.groups.set(groups);
-    this.countLabel.set(formatCount(parsed.ranges.length, 'part'));
+    this.countValue.set(parsed.ranges.length);
+    this.countKind.set('part');
     this.totalPages.set(allPages.length);
     this.limited.set(visiblePages.length < allPages.length);
     this.scheduleRender(visiblePages);
@@ -482,12 +553,11 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
 
     const groups: PreviewGroup[] = runs.map((range, index) => {
       const part = index + 1;
-      const singlePage = range.start === range.end;
       return {
         key: `selected-${part}-${range.start}-${range.end}`,
-        title: `Part ${part} · ${
-          singlePage ? `Page ${range.start}` : `Pages ${range.start}-${range.end}`
-        }`,
+        part,
+        start: range.start,
+        end: range.end,
         outputName: rangeOutputName(part, range),
         pages: allPages
           .filter((page) => page >= range.start && page <= range.end)
@@ -498,9 +568,8 @@ export class PdfSplitPreview implements OnChanges, OnDestroy {
 
     this.selectablePages.set(visiblePages);
     this.groups.set(groups);
-    this.countLabel.set(
-      groups.length > 0 ? formatCount(groups.length, 'part') : '',
-    );
+    this.countValue.set(groups.length);
+    this.countKind.set(groups.length > 0 ? 'part' : '');
     this.totalPages.set(numPages);
     this.limited.set(visiblePages.length < numPages);
     // Selected pages outside the window still need their part thumbnails.
@@ -721,7 +790,7 @@ function parseRanges(value: string, numPages: number): RangeParseResult {
   if (!trimmed) {
     return {
       ranges: [],
-      error: 'Enter page ranges to preview the resulting parts.',
+      error: 'pdfSplit.preview.error.emptyRanges',
     };
   }
 
@@ -735,7 +804,7 @@ function parseRanges(value: string, numPages: number): RangeParseResult {
     if (!match) {
       return {
         ranges: [],
-        error: 'Use page numbers and ranges separated by commas, like 1-3,5,8-10.',
+        error: 'pdfSplit.preview.error.invalidSyntax',
       };
     }
 
@@ -744,14 +813,15 @@ function parseRanges(value: string, numPages: number): RangeParseResult {
     if (!start || !end || start > end) {
       return {
         ranges: [],
-        error: 'Each range must start at a page lower than or equal to its end.',
+        error: 'pdfSplit.preview.error.invalidRange',
       };
     }
 
     if (end > numPages) {
       return {
         ranges: [],
-        error: `Page ${end} is outside this PDF (${numPages} pages).`,
+        error: 'pdfSplit.preview.error.outside',
+        errorParams: { page: end, total: numPages },
       };
     }
 
@@ -759,7 +829,8 @@ function parseRanges(value: string, numPages: number): RangeParseResult {
       if (seen.has(page)) {
         return {
           ranges: [],
-          error: `Page ${page} appears more than once. Remove duplicate or overlapping ranges.`,
+          error: 'pdfSplit.preview.error.duplicate',
+          errorParams: { page },
         };
       }
       seen.add(page);
@@ -768,5 +839,5 @@ function parseRanges(value: string, numPages: number): RangeParseResult {
     ranges.push({ start, end });
   }
 
-  return { ranges, error: '' };
+  return { ranges, error: null };
 }

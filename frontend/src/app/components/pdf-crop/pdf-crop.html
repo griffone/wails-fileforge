@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">PDF</p>
-        <h1 class="page-title">PDF <em>Crop</em></h1>
+        <p class="eyebrow">{{ i18n.t('pdfCrop.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('pdfCrop.page.titleLead') }}
+          <em>{{ i18n.t('pdfCrop.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Trim page margins with presets or exact values. Everything runs on this machine.
+          {{ i18n.t('pdfCrop.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('pdfCrop.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -21,8 +24,8 @@
       <section class="panel intake-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">PDFs</h2>
-            <p class="panel-sub">Drop PDFs or choose them from your computer.</p>
+            <h2 class="panel-title">{{ i18n.t('pdfCrop.intake.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfCrop.intake.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
@@ -30,18 +33,22 @@
         <div class="panel-body">
           <app-file-drop
             accept=".pdf,application/pdf"
-            title="Drop PDFs here"
-            hint="PDF files only"
-            ariaLabel="Drop or choose PDFs to crop"
+            [title]="i18n.t('pdfCrop.intake.dropTitle')"
+            [hint]="i18n.t('pdfCrop.intake.dropHint')"
+            [ariaLabel]="i18n.t('pdfCrop.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
           ></app-file-drop>
 
-          <div class="toolbar" role="group" aria-label="PDF selection actions">
+          <div
+            class="toolbar"
+            role="group"
+            [attr.aria-label]="i18n.t('pdfCrop.intake.actionsAria')"
+          >
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose PDFs
+              {{ i18n.t('pdfCrop.intake.choose') }}
             </button>
             <button
               type="button"
@@ -50,7 +57,7 @@
               (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
+              {{ i18n.t('pdfCrop.intake.clear') }}
             </button>
           </div>
 
@@ -78,14 +85,18 @@
       <section class="panel outcome-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Output</h2>
-            <p class="panel-sub">Pick a crop preset, page range and destination.</p>
+            <h2 class="panel-title">{{ i18n.t('pdfCrop.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfCrop.output.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ activePresetLabel() }}</span>
         </div>
 
         <div class="panel-body">
-          <div class="preset-grid" role="group" aria-label="Crop preset">
+          <div
+            class="preset-grid"
+            role="group"
+            [attr.aria-label]="i18n.t('pdfCrop.preset.aria')"
+          >
             @for (preset of presets; track preset.id) {
               <button
                 type="button"
@@ -95,14 +106,14 @@
                 [attr.data-preset]="preset.id"
                 (click)="selectPreset(preset.id)"
               >
-                <span class="preset-label">{{ preset.label }}</span>
-                <span class="preset-hint">{{ preset.hint }}</span>
+                <span class="preset-label">{{ presetLabel(preset) }}</span>
+                <span class="preset-hint">{{ presetHint(preset) }}</span>
               </button>
             }
           </div>
 
           <div class="field page-selection">
-            <span class="label" id="pdf-crop-pages-label">Pages</span>
+            <span class="label" id="pdf-crop-pages-label">{{ i18n.t('pdfCrop.pages.label') }}</span>
             <div class="page-mode" role="group" aria-labelledby="pdf-crop-pages-label">
               <button
                 type="button"
@@ -110,7 +121,7 @@
                 [attr.aria-pressed]="pageSelectionMode() === 'all'"
                 (click)="selectPageMode('all')"
               >
-                All pages
+                {{ i18n.t('pdfCrop.pages.all') }}
               </button>
               <button
                 type="button"
@@ -118,25 +129,25 @@
                 [attr.aria-pressed]="pageSelectionMode() === 'ranges'"
                 (click)="selectPageMode('ranges')"
               >
-                Custom range
+                {{ i18n.t('pdfCrop.pages.customRange') }}
               </button>
             </div>
 
             @if (isRangesMode()) {
-              <label class="label ranges-label" for="pdf-crop-ranges">Page ranges</label>
+              <label class="label ranges-label" for="pdf-crop-ranges">{{ i18n.t('pdfCrop.pages.rangesLabel') }}</label>
               <input
                 id="pdf-crop-ranges"
                 class="input"
                 type="text"
                 autocomplete="off"
                 spellcheck="false"
-                placeholder="1-3,5,8-10"
+                [attr.placeholder]="i18n.t('pdfCrop.pages.rangesPlaceholder')"
                 aria-describedby="pdf-crop-ranges-help"
                 [value]="ranges()"
                 (input)="onRangesInput($event)"
               />
               <p id="pdf-crop-ranges-help" class="field-help">
-                Use page numbers and ranges separated by commas.
+                {{ i18n.t('pdfCrop.pages.rangesHelp') }}
               </p>
             }
           </div>
@@ -144,15 +155,15 @@
           @if (isCustom()) {
             <details class="advanced" open>
               <summary class="advanced-summary">
-                <span class="advanced-title">Advanced</span>
-                <span class="advanced-hint">Margins in points</span>
+                <span class="advanced-title">{{ i18n.t('pdfCrop.advanced.title') }}</span>
+                <span class="advanced-hint">{{ i18n.t('pdfCrop.advanced.hint') }}</span>
               </summary>
 
               <div class="advanced-body">
                 <div class="advanced-grid">
                   @for (field of marginFields; track field.key) {
                     <div class="field">
-                      <label class="label" [for]="'pdf-crop-margin-' + field.key">{{ field.label }} (pt)</label>
+                      <label class="label" [for]="'pdf-crop-margin-' + field.key">{{ marginLabel(field.key) }} (pt)</label>
                       <input
                         [id]="'pdf-crop-margin-' + field.key"
                         class="input"
@@ -186,7 +197,7 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
-                Use original folders
+                {{ i18n.t('settings.output.useOriginal') }}
               </button>
             </div>
           }
@@ -223,7 +234,7 @@
             </button>
 
             @if (isPolling()) {
-              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('pdfCrop.action.cancel') }}</button>
             }
           </div>
         </div>
@@ -231,10 +242,10 @@
     </div>
 
     @if (previewName(); as previewFile) {
-      <section class="panel preview-panel" aria-label="First page crop preview">
+      <section class="panel preview-panel" [attr.aria-label]="i18n.t('pdfCrop.preview.aria')">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Preview</h2>
+            <h2 class="panel-title">{{ i18n.t('pdfCrop.preview.title') }}</h2>
             <p class="panel-sub">{{ previewNote() }}</p>
           </div>
         </div>
@@ -246,7 +257,7 @@
                 <img
                   class="preview-image"
                   [src]="thumbnail"
-                  [alt]="'First page of ' + previewFile"
+                  [alt]="i18n.t('pdfCrop.preview.alt', { name: previewFile })"
                 />
               } @else {
                 <div class="preview-placeholder" aria-hidden="true"></div>
@@ -265,20 +276,20 @@
             </div>
 
             <figcaption class="preview-caption">
-              <span>Approximate crop preview</span>
+              <span>{{ i18n.t('pdfCrop.preview.caption') }}</span>
               <span class="preview-caption-margins mono">{{ previewMarginsLabel() }}</span>
             </figcaption>
           </figure>
 
           <p class="field-help">
-            The preview is approximate; cropping is applied when you run it.
+            {{ i18n.t('pdfCrop.preview.help') }}
           </p>
         </div>
       </section>
     }
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Crop progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('pdfCrop.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

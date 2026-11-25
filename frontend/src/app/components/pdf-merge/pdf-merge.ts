@@ -14,8 +14,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -77,6 +82,7 @@ export class PdfMerge implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -117,14 +123,18 @@ export class PdfMerge implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Merging…';
+      return this.i18n.t('pdfMerge.action.merging');
     }
     const count = this.selectedPaths().length;
-    return count >= 2 ? `Merge ${count} PDFs` : 'Merge PDFs';
+    return count >= 2
+      ? this.i18n.t('pdfMerge.action.mergeMany', { count })
+      : this.i18n.t('pdfMerge.action.merge');
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to the first PDF',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('pdfMerge.destination.firstPdf'),
   );
 
   readonly isDefaultDestination = computed(
@@ -148,13 +158,20 @@ export class PdfMerge implements OnDestroy, OnInit {
     return first ? `${fileStem(first)}_merged.pdf` : '';
   });
 
+  readonly fileNameHelp = computed(() => {
+    const name = this.automaticName();
+    return name
+      ? this.i18n.t('pdfMerge.field.fileNameHelpNamed', { name })
+      : this.i18n.t('pdfMerge.field.fileNameHelpEmpty');
+  });
+
   readonly actionHelper = computed(() => {
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Add at least two PDFs to merge.';
+      return this.i18n.t('pdfMerge.helper.addTwo');
     }
     if (count === 1) {
-      return 'Add one more PDF to merge.';
+      return this.i18n.t('pdfMerge.helper.addOneMore');
     }
     return '';
   });
@@ -171,7 +188,12 @@ export class PdfMerge implements OnDestroy, OnInit {
 
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
-    return error ? describeToolError(error, 'The merge could not start.') : null;
+    return error
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('pdfMerge.error.start')),
+        )
+      : null;
   });
 
   private jobSubscription: Subscription | null = null;
@@ -196,8 +218,11 @@ export class PdfMerge implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    const count = this.selectedPaths().length;
-    return count === 1 ? '1 PDF' : `${count} PDFs`;
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.pdfOne'),
+      this.i18n.t('common.pdfMany'),
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -349,13 +374,13 @@ export class PdfMerge implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The merge could not start.',
+        message: this.i18n.t('pdfMerge.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The merge could not start.',
+          message: this.i18n.t('pdfMerge.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -363,7 +388,8 @@ export class PdfMerge implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The merge could not start.',
+          message:
+            response.message || this.i18n.t('pdfMerge.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -375,14 +401,14 @@ export class PdfMerge implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('pdfMerge.status.waiting'),
       toolId: PDF_MERGE_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('pdfMerge.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -400,7 +426,7 @@ export class PdfMerge implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('pdfMerge.error.cancel'),
       );
     }
   }
@@ -408,7 +434,9 @@ export class PdfMerge implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('pdfMerge.error.openFile'),
     );
   }
 
@@ -417,7 +445,7 @@ export class PdfMerge implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('pdfMerge.error.openFolder'),
     );
   }
 
@@ -530,12 +558,12 @@ export class PdfMerge implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('pdfMerge.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('pdfMerge.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -553,7 +581,7 @@ export class PdfMerge implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('pdfMerge.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the conflict in
     // context, next to the destination it belongs to.
@@ -665,7 +693,7 @@ export class PdfMerge implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('pdfMerge.error.status'),
       },
     );
   }
@@ -707,7 +735,7 @@ export class PdfMerge implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('pdfMerge.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -837,7 +865,13 @@ export class PdfMerge implements OnDestroy, OnInit {
       parts.push(formatBytes(info.sizeBytes));
     }
     if (typeof info.pageCount === 'number' && info.pageCount > 0) {
-      parts.push(formatCount(info.pageCount, 'page'));
+      parts.push(
+        formatCount(
+          info.pageCount,
+          this.i18n.t('common.pageOne'),
+          this.i18n.t('common.pageMany'),
+        ),
+      );
     }
     return parts.join(' · ');
   }
@@ -846,16 +880,28 @@ export class PdfMerge implements OnDestroy, OnInit {
     const parts: string[] = [];
 
     if (rejected.length === 1) {
-      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a PDF.`);
+      parts.push(
+        this.i18n.t('pdfMerge.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
+      );
     } else if (rejected.length > 1) {
       const names = rejected.map((path) => fileName(path)).join(', ');
-      parts.push(`${names} weren't added because they aren't PDFs.`);
+      parts.push(this.i18n.t('pdfMerge.notice.rejectedMany', { names }));
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('pdfMerge.notice.duplicateOne', {
+          name: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} PDFs are already in the queue.`);
+      parts.push(
+        this.i18n.t('pdfMerge.notice.duplicateMany', {
+          count: duplicates.length,
+        }),
+      );
     }
 
     return parts.length > 0

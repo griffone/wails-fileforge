@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { PdfSplitPreview } from './pdf-split-preview';
+import { I18nService } from '../../services/i18n.service';
 import { PdfRendererService } from '../../services/pdf-renderer.service';
 import { PDFPreviewSourceResponse, Wails } from '../../services/wails';
 
@@ -94,10 +95,14 @@ describe('PdfSplitPreview', () => {
         { provide: PdfRendererService, useValue: rendererSpy },
       ],
     });
+    localStorage.removeItem('ff-preferences');
+    TestBed.inject(I18nService).setLocale('en');
   });
 
   afterEach(() => {
     fixture?.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('renders one card per page with the output name for every_page', async () => {

@@ -14,6 +14,10 @@ import { imageOcrEn } from './image-ocr';
 import { imageWatermarkEn } from './image-watermark';
 import { outputPlanEn } from './output-plan-card';
 import { paletteEn } from './palette';
+import { pdfCropEn } from './pdf-crop';
+import { pdfMergeEn } from './pdf-merge';
+import { pdfOptimizeEn } from './pdf-optimize';
+import { pdfSplitEn } from './pdf-split';
 import { recipeRunEn } from './recipe-run';
 import { recipesEn } from './recipes';
 import { resultCardEn } from './result-card';
@@ -39,6 +43,10 @@ export const en = {
   ...imageWatermarkEn,
   ...imageOcrEn,
   ...imageBackgroundEn,
+  ...pdfMergeEn,
+  ...pdfSplitEn,
+  ...pdfCropEn,
+  ...pdfOptimizeEn,
   ...recipesEn,
   ...recipeRunEn,
   ...fileDropEn,
