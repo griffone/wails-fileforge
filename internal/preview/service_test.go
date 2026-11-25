@@ -24,6 +24,7 @@ func newTestService(t *testing.T, cfg Config) *PreviewService {
 		imageProc: NewBimgProcessor(),
 		pdfProc:   NewPDFProcessor(runner),
 		videoProc: NewVideoProcessor(runner),
+		docProc:   NewDocumentProcessor(runner),
 	}
 	t.Cleanup(func() {
 		_ = svc.wp.Stop(context.Background())

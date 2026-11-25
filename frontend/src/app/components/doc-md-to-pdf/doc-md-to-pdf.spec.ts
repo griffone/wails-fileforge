@@ -223,6 +223,23 @@ describe('DocMdToPdf', () => {
     expect(component.primaryLabel()).toBe('Convert to PDF');
   }));
 
+  it('loads the document first-page thumbnail into the queue', fakeAsync(() => {
+    wailsSpy.getThumbnail.and.resolveTo('data:image/jpeg;base64,abc');
+
+    component.onPathsSelected(['/tmp/notes.md']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.getThumbnail).toHaveBeenCalledWith('/tmp/notes.md', 160);
+    expect(component.fileItems()[0].thumbnailUrl).toBe(
+      'data:image/jpeg;base64,abc',
+    );
+    const image = fixture.nativeElement.querySelector(
+      '.file-queue-image',
+    ) as HTMLImageElement;
+    expect(image?.getAttribute('src')).toBe('data:image/jpeg;base64,abc');
+  }));
+
   it('keeps single mode and the same request shape for one file', fakeAsync(() => {
     component.onPathsSelected(['/tmp/doc.md']);
     flushMicrotasks();

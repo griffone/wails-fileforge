@@ -49,6 +49,7 @@ type PreviewService struct {
 	imageProc JobProcessor
 	pdfProc   JobProcessor
 	videoProc JobProcessor
+	docProc   JobProcessor
 }
 
 // NewPreviewService constructs a PreviewService with provided config.
@@ -75,6 +76,7 @@ func NewPreviewService(cfg Config) *PreviewService {
 	svc.imageProc = NewBimgProcessor()
 	svc.pdfProc = NewPDFProcessor(runner)
 	svc.videoProc = NewVideoProcessor(runner)
+	svc.docProc = NewDocumentProcessor(runner)
 	// start worker pool with handler bound to this service
 	svc.wp.Start(func(job *previewJob) {
 		// ensure we don't block the worker forever
@@ -296,6 +298,12 @@ func (s *PreviewService) handleJob(job *previewJob) error {
 	}
 	data, ct, perr := proc.Process(ctx, job.Req)
 	if perr != nil {
+		// A document without a usable preview is an expected outcome, not a
+		// transient failure. Record it once and let the card hide the preview.
+		if errors.Is(perr, ErrNoPreview) {
+			s.markJobFailed(job, perr)
+			return nil
+		}
 		// retry once on non-validation errors
 		var vErr *ValidationError
 		if !errors.As(perr, &vErr) && ctx.Err() == nil {
@@ -340,6 +348,8 @@ func (s *PreviewService) processorFor(path string) JobProcessor {
 	switch {
 	case ext == ".pdf":
 		return s.pdfProc
+	case isDocumentPreviewExtension(ext):
+		return s.docProc
 	case isVideoPreviewExtension(ext):
 		return s.videoProc
 	default:

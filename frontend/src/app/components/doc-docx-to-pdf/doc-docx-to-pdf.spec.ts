@@ -290,6 +290,23 @@ describe('DocDocxToPdf', () => {
     ]);
   }));
 
+  it('loads the document first-page thumbnail into the queue', fakeAsync(() => {
+    wailsSpy.getThumbnail.and.resolveTo('data:image/jpeg;base64,abc');
+
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.getThumbnail).toHaveBeenCalledWith('/tmp/a.docx', 160);
+    expect(component.fileItems()[0].thumbnailUrl).toBe(
+      'data:image/jpeg;base64,abc',
+    );
+    const image = fixture.nativeElement.querySelector(
+      '.file-queue-image',
+    ) as HTMLImageElement;
+    expect(image?.getAttribute('src')).toBe('data:image/jpeg;base64,abc');
+  }));
+
   it('rejects non-DOCX files and ignores duplicates with a notice', fakeAsync(() => {
     component.onPathsSelected([
       '/tmp/notes.txt',

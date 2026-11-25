@@ -21,12 +21,18 @@ type stubExecRunner struct {
 	stdout []byte
 	stderr []byte
 	err    error
+	// onRun observes a command while the processor still owns its temporary
+	// inputs (for example the rendered PDF a document preview feeds pdftoppm).
+	onRun func(name string, args []string)
 }
 
 func (r *stubExecRunner) Run(_ context.Context, name string, args []string, stdin []byte) ([]byte, []byte, error) {
 	r.name = name
 	r.args = append([]string(nil), args...)
 	r.stdin = stdin
+	if r.onRun != nil {
+		r.onRun(name, r.args)
+	}
 	return r.stdout, r.stderr, r.err
 }
 

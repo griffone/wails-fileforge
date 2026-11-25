@@ -50,6 +50,7 @@ import { resumeToolJob } from '../../utils/resume-task';
 const MD_TO_PDF_TOOL_ID = 'tool.doc.md_to_pdf';
 const BAND_PLAN_DEBOUNCE_MS = 250;
 const PAGE_SETUP_DEBOUNCE_MS = 200;
+const THUMBNAIL_SIZE = 160;
 
 /** Mirrors the backend defaults: A4 portrait with 20/15/18/15 mm margins. */
 const PAGE_SETUP_DEFAULTS = {
@@ -926,6 +927,32 @@ export class DocMdToPdf implements OnDestroy, OnInit {
     } catch {
       // Inspection is optional: the queue keeps the file name and path.
     }
+
+    if (generation !== this.fileItemsGeneration) {
+      return;
+    }
+
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
+  }
+
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the document icon.
+      });
   }
 
   private describeFileInfo(info: FileInfo): string {

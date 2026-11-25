@@ -46,6 +46,7 @@ import { createToolOptions } from '../../utils/tool-options';
 const DOCX_TO_PDF_TOOL_ID = 'tool.doc.docx_to_pdf';
 const PLAN_DEBOUNCE_MS = 250;
 const OPTIONS_SCHEMA_VERSION = 1;
+const THUMBNAIL_SIZE = 160;
 
 const TERMINAL_STATUSES = new Set<string>([
   'success',
@@ -840,6 +841,32 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     } catch {
       // Inspection is optional: the queue keeps the file name and path.
     }
+
+    if (generation !== this.fileItemsGeneration) {
+      return;
+    }
+
+    for (const path of paths) {
+      this.loadThumbnail(path, generation);
+    }
+  }
+
+  private loadThumbnail(path: string, generation: number): void {
+    void this.wailsService
+      .getThumbnail(path, THUMBNAIL_SIZE)
+      .then((thumbnailUrl) => {
+        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
+          return;
+        }
+        this.fileItems.update((items) =>
+          items.map((item) =>
+            item.path === path ? { ...item, thumbnailUrl } : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // Thumbnails are optional; keep the document icon.
+      });
   }
 
   private describeFileInfo(info: FileInfo): string {
