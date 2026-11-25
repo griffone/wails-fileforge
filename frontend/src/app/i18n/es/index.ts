@@ -26,6 +26,7 @@ import { pdfFromImagesEs } from './pdf-from-images';
 import { pdfMergeEs } from './pdf-merge';
 import { pdfOcrEs } from './pdf-ocr';
 import { pdfOptimizeEs } from './pdf-optimize';
+import { pdfRendererEs } from './pdf-renderer';
 import { pdfSplitEs } from './pdf-split';
 import { pdfToDocxEs } from './pdf-to-docx';
 import { recipeRunEs } from './recipe-run';
@@ -85,4 +86,5 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...videoTrimEs,
   ...videoMergeEs,
   ...videoTranscribeEs,
+  ...pdfRendererEs,
 };

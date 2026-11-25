@@ -23,6 +23,7 @@ import { pdfFromImagesEn } from './pdf-from-images';
 import { pdfMergeEn } from './pdf-merge';
 import { pdfOcrEn } from './pdf-ocr';
 import { pdfOptimizeEn } from './pdf-optimize';
+import { pdfRendererEn } from './pdf-renderer';
 import { pdfSplitEn } from './pdf-split';
 import { pdfToDocxEn } from './pdf-to-docx';
 import { recipeRunEn } from './recipe-run';
@@ -82,6 +83,7 @@ export const en = {
   ...videoTrimEn,
   ...videoMergeEn,
   ...videoTranscribeEn,
+  ...pdfRendererEn,
 } as const;
 
 export type TranslationKey = keyof typeof en;

@@ -25,7 +25,11 @@ import { findRecipeFallback } from '../../config/recipes';
 import type { TranslationKey } from '../../i18n';
 import { ActivityService } from '../../services/activity.service';
 import { I18nService } from '../../services/i18n.service';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import {
   FileInfo,
   JobError,
@@ -512,14 +516,20 @@ export class RecipeRun implements OnDestroy, OnInit {
   readonly runErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.actionError() ?? this.terminalResult()?.error;
     if (error) {
-      return describeToolError(error, this.i18n.t('recipeRun.error.finish'));
+      return localizeToolError(
+        (key) => this.i18n.t(key),
+        describeToolError(error, this.i18n.t('recipeRun.error.finish')),
+      );
     }
 
     const result = this.terminalResult();
     if (result?.status === 'failed' && result.message.trim()) {
-      return describeToolError(
-        { code: 'EXEC_IO_TRANSIENT', message: result.message },
-        this.i18n.t('recipeRun.error.finish'),
+      return localizeToolError(
+        (key) => this.i18n.t(key),
+        describeToolError(
+          { code: 'EXEC_IO_TRANSIENT', message: result.message },
+          this.i18n.t('recipeRun.error.finish'),
+        ),
       );
     }
 

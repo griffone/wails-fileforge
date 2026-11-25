@@ -1,5 +1,6 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 
+import { I18nService } from './i18n.service';
 import { Wails } from './wails';
 
 const PDF_WORKER_PUBLIC_URL = 'assets/pdfjs/pdf.worker.min.mjs';
@@ -15,6 +16,7 @@ const BACKEND_PREVIEW_POLL_DELAY_MS = 100;
 
 @Injectable({ providedIn: 'root' })
 export class PdfRendererService {
+  private readonly i18n = inject(I18nService);
   private pdfjs: any = null;
   private loadingTask: any = null;
   private workerSrcSet = false;
@@ -194,7 +196,6 @@ export class PdfRendererService {
 
   private async waitForPreviewResult(jobID: string): Promise<any> {
     let terminalStatus: string | null = null;
-    let terminalMessage = '';
 
     for (let attempt = 0; attempt < BACKEND_PREVIEW_POLL_ATTEMPTS; attempt++) {
       const status = await this.wails.GetPreviewStatus(jobID);
@@ -205,7 +206,6 @@ export class PdfRendererService {
         status?.status === 'timedout'
       ) {
         terminalStatus = status.status;
-        terminalMessage = status?.message || '';
         break;
       }
 
@@ -217,14 +217,14 @@ export class PdfRendererService {
     if (!terminalStatus) {
       return {
         success: false,
-        message: 'Backend preview timed out while waiting for job completion.',
+        message: this.i18n.t('pdfRenderer.timeout'),
       };
     }
 
     if (terminalStatus !== 'succeeded') {
       return {
         success: false,
-        message: terminalMessage || `Backend preview ${terminalStatus}.`,
+        message: this.i18n.t('pdfRenderer.status', { status: terminalStatus }),
       };
     }
 
