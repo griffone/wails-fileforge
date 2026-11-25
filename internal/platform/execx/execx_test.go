@@ -21,6 +21,7 @@ const (
 	helperStderrEnv = "EXECX_HELPER_STDERR"
 	helperLinesEnv  = "EXECX_HELPER_LINES"
 	helperValueEnv  = "EXECX_HELPER_VALUE"
+	helperChildEnv  = "EXECX_HELPER_CHILD"
 )
 
 // TestHelperProcess is not a real test: it is the body of the child processes
@@ -71,6 +72,25 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(0)
 	case "env":
 		fmt.Println(os.Getenv(helperValueEnv))
+		os.Exit(0)
+	case "spawn-grandchild":
+		// The Windows job-object test needs a process that spawns a long-lived
+		// grandchild and then keeps running. The parent arms the job immediately
+		// after CreateProcess; the short delay keeps that assignment strictly
+		// earlier than the spawn so the test cannot race it.
+		time.Sleep(250 * time.Millisecond)
+		fields := strings.Fields(os.Getenv(helperChildEnv))
+		if len(fields) == 0 {
+			fmt.Fprintln(os.Stderr, "missing helper child command")
+			os.Exit(3)
+		}
+		child := exec.Command(fields[0], fields[1:]...)
+		if err := child.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(3)
+		}
+		fmt.Printf("grandchild=%d\n", child.Process.Pid)
+		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
 

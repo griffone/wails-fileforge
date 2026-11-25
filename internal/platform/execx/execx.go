@@ -1,6 +1,7 @@
 // Package execx runs external commands with bounded output, per-command
 // timeouts, and reliable cancellation. On Unix it kills the whole process
-// group so child engines (ffmpeg, Ghostscript, tesseract) cannot outlive a
+// group; on Windows it holds every process in a Job Object. Either way the
+// child engines a tool spawns (ffmpeg, Ghostscript, tesseract) cannot outlive a
 // cancelled job.
 package execx
 
@@ -129,8 +130,13 @@ func Run(ctx context.Context, cmd Command) (Result, error) {
 	if cmd.Env != nil {
 		process.Env = cmd.Env
 	}
-	configureCommand(process)
 	process.WaitDelay = commandWaitDelay
+
+	// tree owns the platform-specific process-tree control: a process group on
+	// Unix, a Job Object on Windows. It must be configured before the process
+	// starts and armed as soon as it exists.
+	tree := newProcessTree()
+	tree.configure(process)
 
 	stdout := newLineWriter(cmd.ScanMaxToken, cmd.Stdout)
 	if cmd.Stdout != nil {
@@ -152,6 +158,13 @@ func Run(ctx context.Context, cmd Command) (Result, error) {
 			Err:      cause,
 		}
 	}
+
+	// Arm the process tree as soon as the pid exists — the earliest point the
+	// platform lets us claim it — so children spawned from here on belong to
+	// the tree. Best effort: when the platform refuses the claim the run
+	// continues with the direct-child kill.
+	tree.arm(process)
+	defer tree.close()
 
 	waitErr := process.Wait()
 	stdout.Flush()
