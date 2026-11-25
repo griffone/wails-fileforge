@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">DOCUMENTS</p>
-        <h1 class="page-title">DOCX → <em>PDF</em></h1>
+        <p class="eyebrow">{{ i18n.t('docDocxToPdf.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('docDocxToPdf.page.titleLead') }}
+          <em>{{ i18n.t('docDocxToPdf.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Convert one DOCX file or a whole batch into PDF. Everything runs on this machine.
+          {{ i18n.t('docDocxToPdf.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('docDocxToPdf.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -21,8 +24,8 @@
       <section class="panel intake-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">DOCX files</h2>
-            <p class="panel-sub">One file converts alone; drop more to run them as a batch.</p>
+            <h2 class="panel-title">{{ i18n.t('docDocxToPdf.intake.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('docDocxToPdf.intake.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
@@ -30,18 +33,18 @@
         <div class="panel-body">
           <app-file-drop
             accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            title="Drop DOCX files here"
-            hint="DOCX only"
-            ariaLabel="Drop or choose DOCX files to convert"
+            [title]="i18n.t('docDocxToPdf.intake.dropTitle')"
+            [hint]="i18n.t('docDocxToPdf.intake.dropHint')"
+            [ariaLabel]="i18n.t('docDocxToPdf.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
           ></app-file-drop>
 
-          <div class="toolbar" role="group" aria-label="DOCX selection actions">
+          <div class="toolbar" role="group" [attr.aria-label]="i18n.t('docDocxToPdf.intake.actionsAria')">
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose files
+              {{ i18n.t('docDocxToPdf.intake.choose') }}
             </button>
             <button
               type="button"
@@ -50,7 +53,7 @@
               (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
+              {{ i18n.t('docDocxToPdf.intake.clear') }}
             </button>
           </div>
 
@@ -75,7 +78,7 @@
 
           <div class="banner banner-info error-banner">
             <lucide-icon [img]="infoIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            <span>Standard fidelity. Complex layouts may shift, but the conversion runs locally.</span>
+            <span>{{ i18n.t('docDocxToPdf.intake.fidelity') }}</span>
           </div>
         </div>
       </section>
@@ -83,8 +86,8 @@
       <section class="panel outcome-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Output</h2>
-            <p class="panel-sub">Check the exact file names and where they will be saved.</p>
+            <h2 class="panel-title">{{ i18n.t('docDocxToPdf.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('docDocxToPdf.output.sub') }}</p>
           </div>
         </div>
 
@@ -100,20 +103,20 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
-                Use each DOCX file's folder
+                {{ i18n.t('docDocxToPdf.destination.useFolder') }}
               </button>
             </div>
           }
 
           <details class="advanced">
             <summary class="advanced-summary">
-              <span class="advanced-title">Advanced</span>
-              <span class="advanced-hint">Page range and archival export</span>
+              <span class="advanced-title">{{ i18n.t('docDocxToPdf.advanced.title') }}</span>
+              <span class="advanced-hint">{{ i18n.t('docDocxToPdf.advanced.hint') }}</span>
             </summary>
 
             <div class="advanced-body">
               <div class="field">
-                <label class="label" for="docx-page-range">Pages</label>
+                <label class="label" for="docx-page-range">{{ i18n.t('docDocxToPdf.pages.label') }}</label>
                 <div class="range-control">
                   <input
                     id="docx-page-range"
@@ -121,22 +124,22 @@
                     type="text"
                     autocomplete="off"
                     spellcheck="false"
-                    placeholder="All pages"
+                    [placeholder]="i18n.t('docDocxToPdf.pages.placeholder')"
                     aria-describedby="docx-page-range-help"
                     [value]="pageSelection()"
                     (input)="onPageSelectionInput($event)"
                   />
                   @if (!pageSelection().trim()) {
-                    <span class="badge badge-neutral range-badge">All pages</span>
+                    <span class="badge badge-neutral range-badge">{{ i18n.t('docDocxToPdf.pages.badge') }}</span>
                   }
                 </div>
                 <p id="docx-page-range-help" class="field-help">
-                  Use page numbers and ranges, e.g. 1-3,5. Leave empty to convert all pages.
+                  {{ i18n.t('docDocxToPdf.pages.help') }}
                 </p>
               </div>
 
               <div class="field">
-                <span class="label">Archival PDF</span>
+                <span class="label">{{ i18n.t('docDocxToPdf.archival.title') }}</span>
                 <label class="check-row" for="docx-pdfa">
                   <input
                     id="docx-pdfa"
@@ -145,15 +148,15 @@
                     [checked]="pdfa()"
                     (change)="onPdfaToggle($event)"
                   />
-                  PDF/A (archival)
+                  {{ i18n.t('docDocxToPdf.archival.label') }}
                 </label>
                 <p id="docx-pdfa-help" class="field-help">
-                  Requires LibreOffice. If the primary engine is unavailable, the conversion fails instead of producing a non-archival PDF.
+                  {{ i18n.t('docDocxToPdf.archival.help') }}
                 </p>
                 @if (pdfa()) {
                   <p class="archival-note">
                     <lucide-icon [img]="infoIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                    <span>Page selection can reduce strict PDF/A compliance. The plan reports a warning when both are set.</span>
+                    <span>{{ i18n.t('docDocxToPdf.archival.note') }}</span>
                   </p>
                 }
               </div>
@@ -178,7 +181,7 @@
           }
 
           @if (selectedPaths().length === 0) {
-            <p class="action-helper">Add at least one DOCX file to convert.</p>
+            <p class="action-helper">{{ i18n.t('docDocxToPdf.helper.addOne') }}</p>
           }
 
           <div class="action-row">
@@ -192,7 +195,7 @@
             </button>
 
             @if (isPolling()) {
-              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('docDocxToPdf.action.cancel') }}</button>
             }
           </div>
         </div>
@@ -200,7 +203,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Conversion progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('docDocxToPdf.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

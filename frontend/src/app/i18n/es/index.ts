@@ -4,6 +4,8 @@ import type { DictionaryValue } from '../types';
 import { activityEs } from './activity';
 import { categoriesEs } from './categories';
 import { commonEs } from './common';
+import { docDocxToPdfEs } from './doc-docx-to-pdf';
+import { docMdToPdfEs } from './doc-md-to-pdf';
 import { fileDropEs } from './file-drop';
 import { fileQueueEs } from './file-queue';
 import { globalDropEs } from './global-drop';
@@ -36,6 +38,8 @@ import { toolsEs } from './tools';
 
 export const es: Record<TranslationKey, DictionaryValue> = {
   ...commonEs,
+  ...docDocxToPdfEs,
+  ...docMdToPdfEs,
   ...shellEs,
   ...settingsEs,
   ...categoriesEs,

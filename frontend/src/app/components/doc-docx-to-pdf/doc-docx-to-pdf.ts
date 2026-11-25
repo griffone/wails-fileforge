@@ -15,8 +15,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -32,7 +37,7 @@ import {
   RunJobResponse,
   Wails,
 } from '../../services/wails';
-import { fileExtension, fileName, formatBytes } from '../../utils/format';
+import { fileExtension, fileName, formatBytes, formatCount } from '../../utils/format';
 import { observeJob } from '../../utils/job-stream';
 import { resumeToolJob } from '../../utils/resume-task';
 
@@ -70,6 +75,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -114,17 +120,21 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Converting…';
+      return this.i18n.t('docDocxToPdf.action.converting');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Convert to PDF';
+      return this.i18n.t('docDocxToPdf.action.convert');
     }
-    return count === 1 ? 'Convert 1 document' : `Convert ${count} documents`;
+    return count === 1
+      ? this.i18n.t('docDocxToPdf.action.convertOne')
+      : this.i18n.t('docDocxToPdf.action.convertMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each DOCX',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('docDocxToPdf.destination.each'),
   );
 
   readonly isDefaultDestination = computed(
@@ -144,7 +154,10 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The conversion could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('docDocxToPdf.error.start')),
+        )
       : null;
   });
 
@@ -172,9 +185,13 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
   fileCountLabel(): string {
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'No files';
+      return this.i18n.t('docDocxToPdf.count.none');
     }
-    return count === 1 ? '1 DOCX' : `${count} DOCX files`;
+    return formatCount(
+      count,
+      this.i18n.t('common.docxOne'),
+      this.i18n.t('docDocxToPdf.count.many'),
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -314,13 +331,13 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The conversion could not start.',
+        message: this.i18n.t('docDocxToPdf.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The conversion could not start.',
+          message: this.i18n.t('docDocxToPdf.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -328,7 +345,8 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The conversion could not start.',
+          message:
+            response.message || this.i18n.t('docDocxToPdf.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -340,14 +358,14 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('docDocxToPdf.status.waiting'),
       toolId: DOCX_TO_PDF_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('docDocxToPdf.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -365,7 +383,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('docDocxToPdf.error.cancel'),
       );
     }
   }
@@ -373,7 +391,9 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('docDocxToPdf.error.openFile'),
     );
   }
 
@@ -382,7 +402,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('docDocxToPdf.error.openFolder'),
     );
   }
 
@@ -492,12 +512,12 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('docDocxToPdf.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('docDocxToPdf.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -515,7 +535,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('docDocxToPdf.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the error in
     // context, next to the destination it belongs to.
@@ -609,7 +629,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('docDocxToPdf.error.status'),
       },
     );
   }
@@ -651,7 +671,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('docDocxToPdf.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -740,16 +760,30 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
 
     if (rejected.length === 1) {
       parts.push(
-        `${fileName(rejected[0])} wasn't added because it isn't a DOCX file.`,
+        this.i18n.t('docDocxToPdf.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
       );
     } else if (rejected.length > 1) {
-      parts.push(`${rejected.length} files weren't added because they aren't DOCX files.`);
+      parts.push(
+        this.i18n.t('docDocxToPdf.notice.rejectedMany', {
+          count: rejected.length,
+        }),
+      );
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('docDocxToPdf.notice.duplicateOne', {
+          name: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} files are already in the queue.`);
+      parts.push(
+        this.i18n.t('docDocxToPdf.notice.duplicateMany', {
+          count: duplicates.length,
+        }),
+      );
     }
 
     return parts.length > 0

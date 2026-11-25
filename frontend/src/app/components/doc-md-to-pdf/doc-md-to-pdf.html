@@ -2,17 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">DOCUMENTS</p>
-        <h1 class="page-title">Markdown → <em>PDF</em></h1>
+        <p class="eyebrow">{{ i18n.t('docMdToPdf.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('docMdToPdf.page.titleLead') }}
+          <em>{{ i18n.t('docMdToPdf.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Turn one Markdown file or a whole batch into clean PDFs with optional page setup, header and footer bands.
-          Everything runs on this machine.
+          {{ i18n.t('docMdToPdf.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('docMdToPdf.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -22,8 +24,8 @@
       <section class="panel intake-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Markdown</h2>
-            <p class="panel-sub">One file converts alone; drop more to run them as a batch.</p>
+            <h2 class="panel-title">{{ i18n.t('docMdToPdf.intake.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('docMdToPdf.intake.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
@@ -31,19 +33,19 @@
         <div class="panel-body">
           <app-file-drop
             accept=".md,.markdown"
-            title="Drop Markdown files here"
-            hint="MD · MARKDOWN"
-            ariaLabel="Drop or choose Markdown files to convert"
+            [title]="i18n.t('docMdToPdf.intake.dropTitle')"
+            [hint]="i18n.t('docMdToPdf.intake.dropHint')"
+            [ariaLabel]="i18n.t('docMdToPdf.intake.dropAria')"
             [multiple]="true"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
           ></app-file-drop>
 
-          <div class="toolbar" role="group" aria-label="Markdown selection actions">
+          <div class="toolbar" role="group" [attr.aria-label]="i18n.t('docMdToPdf.intake.actionsAria')">
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose files
+              {{ i18n.t('docMdToPdf.intake.choose') }}
             </button>
             <button
               type="button"
@@ -52,7 +54,7 @@
               (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
+              {{ i18n.t('docMdToPdf.intake.clear') }}
             </button>
           </div>
 
@@ -80,8 +82,8 @@
       <section class="panel outcome-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Output</h2>
-            <p class="panel-sub">Check the exact file names and where they will be saved.</p>
+            <h2 class="panel-title">{{ i18n.t('docMdToPdf.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('docMdToPdf.output.sub') }}</p>
           </div>
         </div>
 
@@ -98,9 +100,9 @@
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useMarkdownFolder()">
                 @if (selectedPaths().length > 1) {
-                  Use each Markdown file's folder
+                  {{ i18n.t('docMdToPdf.destination.useFolderMany') }}
                 } @else {
-                  Use the Markdown file's folder
+                  {{ i18n.t('docMdToPdf.destination.useFolderOne') }}
                 }
               </button>
             </div>
@@ -108,14 +110,14 @@
 
           <details class="advanced">
             <summary class="advanced-summary">
-              <span class="advanced-title">Page setup</span>
+              <span class="advanced-title">{{ i18n.t('docMdToPdf.pageSetup.title') }}</span>
               <span class="advanced-hint">{{ pageSetupSummary() }}</span>
             </summary>
 
             <div class="advanced-body" [formGroup]="pageSetupForm">
               <div class="field-grid band-grid">
                 <div class="field">
-                  <label class="label" for="md-page-size">Page size</label>
+                  <label class="label" for="md-page-size">{{ i18n.t('docMdToPdf.pageSetup.pageSize') }}</label>
                   <select id="md-page-size" class="select" formControlName="pageSize">
                     <option value="A4">A4</option>
                     <option value="Letter">Letter</option>
@@ -124,20 +126,20 @@
                 </div>
 
                 <div class="field">
-                  <label class="label" for="md-orientation">Orientation</label>
+                  <label class="label" for="md-orientation">{{ i18n.t('docMdToPdf.pageSetup.orientation') }}</label>
                   <select id="md-orientation" class="select" formControlName="orientation">
-                    <option value="P">Portrait</option>
-                    <option value="L">Landscape</option>
+                    <option value="P">{{ i18n.t('docMdToPdf.pageSetup.portrait') }}</option>
+                    <option value="L">{{ i18n.t('docMdToPdf.pageSetup.landscape') }}</option>
                   </select>
                 </div>
               </div>
 
               <fieldset class="band page-margins">
-                <legend class="band-title">Margins (mm)</legend>
+                <legend class="band-title">{{ i18n.t('docMdToPdf.pageSetup.margins') }}</legend>
 
                 <div class="field-grid band-grid margins-grid">
                   <div class="field">
-                    <label class="label" for="md-margin-top">Top</label>
+                    <label class="label" for="md-margin-top">{{ i18n.t('docMdToPdf.pageSetup.top') }}</label>
                     <input
                       id="md-margin-top"
                       class="input"
@@ -150,7 +152,7 @@
                   </div>
 
                   <div class="field">
-                    <label class="label" for="md-margin-right">Right</label>
+                    <label class="label" for="md-margin-right">{{ i18n.t('docMdToPdf.pageSetup.right') }}</label>
                     <input
                       id="md-margin-right"
                       class="input"
@@ -163,7 +165,7 @@
                   </div>
 
                   <div class="field">
-                    <label class="label" for="md-margin-bottom">Bottom</label>
+                    <label class="label" for="md-margin-bottom">{{ i18n.t('docMdToPdf.pageSetup.bottom') }}</label>
                     <input
                       id="md-margin-bottom"
                       class="input"
@@ -176,7 +178,7 @@
                   </div>
 
                   <div class="field">
-                    <label class="label" for="md-margin-left">Left</label>
+                    <label class="label" for="md-margin-left">{{ i18n.t('docMdToPdf.pageSetup.left') }}</label>
                     <input
                       id="md-margin-left"
                       class="input"
@@ -189,12 +191,12 @@
                   </div>
                 </div>
 
-                <p class="field-help">0–100 mm per side. Larger margins leave less room for the content.</p>
+                <p class="field-help">{{ i18n.t('docMdToPdf.pageSetup.marginsHelp') }}</p>
               </fieldset>
 
               <div class="page-setup-actions">
                 <button type="button" class="btn btn-ghost btn-sm" (click)="resetPageSetup()">
-                  Reset page setup
+                  {{ i18n.t('docMdToPdf.pageSetup.reset') }}
                 </button>
               </div>
             </div>
@@ -202,44 +204,44 @@
 
           <details class="advanced">
             <summary class="advanced-summary">
-              <span class="advanced-title">Header &amp; footer</span>
-              <span class="advanced-hint">Optional page bands</span>
+              <span class="advanced-title">{{ i18n.t('docMdToPdf.bands.title') }}</span>
+              <span class="advanced-hint">{{ i18n.t('docMdToPdf.bands.hint') }}</span>
             </summary>
 
             <div class="advanced-body" [formGroup]="form">
               <div class="bands-grid">
                 <fieldset class="band" formGroupName="header">
-                  <legend class="band-title">Header</legend>
+                  <legend class="band-title">{{ i18n.t('docMdToPdf.band.header') }}</legend>
 
                   <label class="check-row" for="md-header-enabled">
                     <input id="md-header-enabled" type="checkbox" formControlName="enabled" />
-                    Enabled
+                    {{ i18n.t('docMdToPdf.band.enabled') }}
                   </label>
 
                   <div class="field">
-                    <label class="label" for="md-header-text">Text</label>
+                    <label class="label" for="md-header-text">{{ i18n.t('docMdToPdf.band.text') }}</label>
                     <input
                       id="md-header-text"
                       class="input"
                       type="text"
                       formControlName="text"
-                      placeholder="Header text with {page}"
+                      [placeholder]="i18n.t('docMdToPdf.band.headerPlaceholder')"
                       autocomplete="off"
                     />
                   </div>
 
                   <div class="field-grid band-grid">
                     <div class="field">
-                      <label class="label" for="md-header-align">Align</label>
+                      <label class="label" for="md-header-align">{{ i18n.t('docMdToPdf.band.align') }}</label>
                       <select id="md-header-align" class="select" formControlName="align">
-                        <option value="left">Left</option>
-                        <option value="center">Center</option>
-                        <option value="right">Right</option>
+                        <option value="left">{{ i18n.t('docMdToPdf.band.alignLeft') }}</option>
+                        <option value="center">{{ i18n.t('docMdToPdf.band.alignCenter') }}</option>
+                        <option value="right">{{ i18n.t('docMdToPdf.band.alignRight') }}</option>
                       </select>
                     </div>
 
                     <div class="field">
-                      <label class="label" for="md-header-font">Font</label>
+                      <label class="label" for="md-header-font">{{ i18n.t('docMdToPdf.band.font') }}</label>
                       <select id="md-header-font" class="select" formControlName="font">
                         <option value="helvetica">Helvetica</option>
                         <option value="times">Times</option>
@@ -248,7 +250,7 @@
                     </div>
 
                     <div class="field">
-                      <label class="label" for="md-header-margin-top">Top margin (px)</label>
+                      <label class="label" for="md-header-margin-top">{{ i18n.t('docMdToPdf.band.marginTop') }}</label>
                       <input
                         id="md-header-margin-top"
                         class="input"
@@ -259,7 +261,7 @@
                     </div>
 
                     <div class="field">
-                      <label class="label" for="md-header-margin-bottom">Bottom margin (px)</label>
+                      <label class="label" for="md-header-margin-bottom">{{ i18n.t('docMdToPdf.band.marginBottom') }}</label>
                       <input
                         id="md-header-margin-bottom"
                         class="input"
@@ -271,7 +273,7 @@
                   </div>
 
                   <div class="field">
-                    <label class="label" for="md-header-color">Color</label>
+                    <label class="label" for="md-header-color">{{ i18n.t('docMdToPdf.band.color') }}</label>
                     <input
                       id="md-header-color"
                       class="input"
@@ -282,42 +284,42 @@
                       spellcheck="false"
                       aria-describedby="md-header-color-help"
                     />
-                    <p id="md-header-color-help" class="field-help">Hex color in #RRGGBB form.</p>
+                    <p id="md-header-color-help" class="field-help">{{ i18n.t('docMdToPdf.band.colorHelp') }}</p>
                   </div>
                 </fieldset>
 
                 <fieldset class="band" formGroupName="footer">
-                  <legend class="band-title">Footer</legend>
+                  <legend class="band-title">{{ i18n.t('docMdToPdf.band.footer') }}</legend>
 
                   <label class="check-row" for="md-footer-enabled">
                     <input id="md-footer-enabled" type="checkbox" formControlName="enabled" />
-                    Enabled
+                    {{ i18n.t('docMdToPdf.band.enabled') }}
                   </label>
 
                   <div class="field">
-                    <label class="label" for="md-footer-text">Text</label>
+                    <label class="label" for="md-footer-text">{{ i18n.t('docMdToPdf.band.text') }}</label>
                     <input
                       id="md-footer-text"
                       class="input"
                       type="text"
                       formControlName="text"
-                      placeholder="Footer text with {totalPages}"
+                      [placeholder]="i18n.t('docMdToPdf.band.footerPlaceholder')"
                       autocomplete="off"
                     />
                   </div>
 
                   <div class="field-grid band-grid">
                     <div class="field">
-                      <label class="label" for="md-footer-align">Align</label>
+                      <label class="label" for="md-footer-align">{{ i18n.t('docMdToPdf.band.align') }}</label>
                       <select id="md-footer-align" class="select" formControlName="align">
-                        <option value="left">Left</option>
-                        <option value="center">Center</option>
-                        <option value="right">Right</option>
+                        <option value="left">{{ i18n.t('docMdToPdf.band.alignLeft') }}</option>
+                        <option value="center">{{ i18n.t('docMdToPdf.band.alignCenter') }}</option>
+                        <option value="right">{{ i18n.t('docMdToPdf.band.alignRight') }}</option>
                       </select>
                     </div>
 
                     <div class="field">
-                      <label class="label" for="md-footer-font">Font</label>
+                      <label class="label" for="md-footer-font">{{ i18n.t('docMdToPdf.band.font') }}</label>
                       <select id="md-footer-font" class="select" formControlName="font">
                         <option value="helvetica">Helvetica</option>
                         <option value="times">Times</option>
@@ -326,7 +328,7 @@
                     </div>
 
                     <div class="field">
-                      <label class="label" for="md-footer-margin-top">Top margin (px)</label>
+                      <label class="label" for="md-footer-margin-top">{{ i18n.t('docMdToPdf.band.marginTop') }}</label>
                       <input
                         id="md-footer-margin-top"
                         class="input"
@@ -337,7 +339,7 @@
                     </div>
 
                     <div class="field">
-                      <label class="label" for="md-footer-margin-bottom">Bottom margin (px)</label>
+                      <label class="label" for="md-footer-margin-bottom">{{ i18n.t('docMdToPdf.band.marginBottom') }}</label>
                       <input
                         id="md-footer-margin-bottom"
                         class="input"
@@ -349,7 +351,7 @@
                   </div>
 
                   <div class="field">
-                    <label class="label" for="md-footer-color">Color</label>
+                    <label class="label" for="md-footer-color">{{ i18n.t('docMdToPdf.band.color') }}</label>
                     <input
                       id="md-footer-color"
                       class="input"
@@ -360,25 +362,24 @@
                       spellcheck="false"
                       aria-describedby="md-footer-color-help"
                     />
-                    <p id="md-footer-color-help" class="field-help">Hex color in #RRGGBB form.</p>
+                    <p id="md-footer-color-help" class="field-help">{{ i18n.t('docMdToPdf.band.colorHelp') }}</p>
                   </div>
                 </fieldset>
               </div>
 
-              <div class="approx-sheet" [attr.aria-label]="'Approximate ' + pageSetupLabel() + ' header and footer preview'">
+              <div class="approx-sheet" [attr.aria-label]="i18n.t('docMdToPdf.preview.aria', { setup: pageSetupLabel() })">
                 <div
                   class="approx-band approx-header"
                   [class.is-off]="!previewEnabled('header')"
                   [style]="previewStyle('header')"
                 >
-                  {{ previewEnabled('header') ? previewText('header') : 'Header off' }}
+                  {{ previewEnabled('header') ? previewText('header') : i18n.t('docMdToPdf.preview.headerOff') }}
                 </div>
 
                 <div class="approx-body">
-                  <span class="approx-note">Approximate {{ pageSetupLabel() }} preview</span>
+                  <span class="approx-note">{{ i18n.t('docMdToPdf.preview.note', { setup: pageSetupLabel() }) }}</span>
                   <span class="approx-note approx-note-small">
-                    Placeholders: {{ '{page}' }}, {{ '{totalPages}' }}, {{ '{date}' }},
-                    {{ '{fileName}' }}
+                    {{ i18n.t('docMdToPdf.preview.placeholders') }}
                   </span>
                 </div>
 
@@ -387,7 +388,7 @@
                   [class.is-off]="!previewEnabled('footer')"
                   [style]="previewStyle('footer')"
                 >
-                  {{ previewEnabled('footer') ? previewText('footer') : 'Footer off' }}
+                  {{ previewEnabled('footer') ? previewText('footer') : i18n.t('docMdToPdf.preview.footerOff') }}
                 </div>
               </div>
             </div>
@@ -411,7 +412,7 @@
           }
 
           @if (selectedPaths().length === 0) {
-            <p class="action-helper">Drop Markdown files to get started.</p>
+            <p class="action-helper">{{ i18n.t('docMdToPdf.helper.dropToStart') }}</p>
           }
 
           <div class="action-row">
@@ -425,7 +426,7 @@
             </button>
 
             @if (isPolling()) {
-              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('docMdToPdf.action.cancel') }}</button>
             }
           </div>
         </div>
@@ -433,7 +434,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Conversion progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('docMdToPdf.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

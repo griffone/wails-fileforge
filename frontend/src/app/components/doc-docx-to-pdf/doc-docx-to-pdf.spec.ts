@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { DocDocxToPdf } from './doc-docx-to-pdf';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -213,6 +214,7 @@ describe('DocDocxToPdf', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(DocDocxToPdf);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -220,6 +222,8 @@ describe('DocDocxToPdf', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('plans single for one file and batch automatically for two', fakeAsync(() => {
@@ -636,5 +640,22 @@ describe('DocDocxToPdf', () => {
     void component.run();
     flushMicrotasks();
     expect(wailsSpy.runJob).not.toHaveBeenCalled();
+  }));
+
+  it('renders the page copy in Spanish', fakeAsync(() => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('DOCX');
+    expect(title).toContain('PDF');
+
+    expect(
+      element.querySelector('label[for="docx-pdfa"]')?.textContent,
+    ).toContain('PDF/A (archivístico)');
+    expect(
+      element.querySelector('.action-primary')?.textContent,
+    ).toContain('Convertir a PDF');
   }));
 });

@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { DocMdToPdf } from './doc-md-to-pdf';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -186,6 +187,7 @@ describe('DocMdToPdf', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(DocMdToPdf);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -193,6 +195,8 @@ describe('DocMdToPdf', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('plans a single Markdown conversion with the destination folder', fakeAsync(() => {
@@ -655,5 +659,22 @@ describe('DocMdToPdf', () => {
     const resetRequest = wailsSpy.planJob.calls.mostRecent()
       .args[0] as JobRequest;
     expect(resetRequest.outputDir).toBe('');
+  }));
+
+  it('renders the page copy in Spanish', fakeAsync(() => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Markdown');
+    expect(title).toContain('PDF');
+
+    expect(
+      element.querySelector('#md-orientation option[value="P"]')?.textContent,
+    ).toContain('Vertical');
+    expect(
+      element.querySelector('.action-primary')?.textContent,
+    ).toContain('Convertir a PDF');
   }));
 });

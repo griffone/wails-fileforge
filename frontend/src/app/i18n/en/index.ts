@@ -1,6 +1,8 @@
 import { activityEn } from './activity';
 import { categoriesEn } from './categories';
 import { commonEn } from './common';
+import { docDocxToPdfEn } from './doc-docx-to-pdf';
+import { docMdToPdfEn } from './doc-md-to-pdf';
 import { fileDropEn } from './file-drop';
 import { fileQueueEn } from './file-queue';
 import { globalDropEn } from './global-drop';
@@ -33,6 +35,8 @@ import { toolsEn } from './tools';
 
 export const en = {
   ...commonEn,
+  ...docDocxToPdfEn,
+  ...docMdToPdfEn,
   ...shellEn,
   ...settingsEn,
   ...categoriesEn,

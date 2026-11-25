@@ -1,0 +1,60 @@
+export const docDocxToPdfEn = {
+  'docDocxToPdf.page.eyebrow': 'DOCUMENTS',
+  'docDocxToPdf.page.titleLead': 'DOCX →',
+  'docDocxToPdf.page.titleTail': 'PDF',
+  'docDocxToPdf.page.sub':
+    'Convert one DOCX file or a whole batch into PDF. Everything runs on this machine.',
+  'docDocxToPdf.page.localBadge': 'Local only',
+  'docDocxToPdf.count.none': 'No files',
+  'docDocxToPdf.count.many': 'DOCX files',
+  'docDocxToPdf.intake.title': 'DOCX files',
+  'docDocxToPdf.intake.sub':
+    'One file converts alone; drop more to run them as a batch.',
+  'docDocxToPdf.intake.dropTitle': 'Drop DOCX files here',
+  'docDocxToPdf.intake.dropHint': 'DOCX only',
+  'docDocxToPdf.intake.dropAria': 'Drop or choose DOCX files to convert',
+  'docDocxToPdf.intake.actionsAria': 'DOCX selection actions',
+  'docDocxToPdf.intake.choose': 'Choose files',
+  'docDocxToPdf.intake.clear': 'Clear',
+  'docDocxToPdf.intake.fidelity':
+    'Standard fidelity. Complex layouts may shift, but the conversion runs locally.',
+  'docDocxToPdf.notice.rejectedOne':
+    "{name} wasn't added because it isn't a DOCX file.",
+  'docDocxToPdf.notice.rejectedMany':
+    "{count} files weren't added because they aren't DOCX files.",
+  'docDocxToPdf.notice.duplicateOne': '{name} is already in the queue.',
+  'docDocxToPdf.notice.duplicateMany': '{count} files are already in the queue.',
+  'docDocxToPdf.output.title': 'Output',
+  'docDocxToPdf.output.sub':
+    'Check the exact file names and where they will be saved.',
+  'docDocxToPdf.destination.each': 'Next to each DOCX',
+  'docDocxToPdf.destination.useFolder': "Use each DOCX file's folder",
+  'docDocxToPdf.advanced.title': 'Advanced',
+  'docDocxToPdf.advanced.hint': 'Page range and archival export',
+  'docDocxToPdf.pages.label': 'Pages',
+  'docDocxToPdf.pages.placeholder': 'All pages',
+  'docDocxToPdf.pages.badge': 'All pages',
+  'docDocxToPdf.pages.help':
+    'Use page numbers and ranges, e.g. 1-3,5. Leave empty to convert all pages.',
+  'docDocxToPdf.archival.title': 'Archival PDF',
+  'docDocxToPdf.archival.label': 'PDF/A (archival)',
+  'docDocxToPdf.archival.help':
+    'Requires LibreOffice. If the primary engine is unavailable, the conversion fails instead of producing a non-archival PDF.',
+  'docDocxToPdf.archival.note':
+    'Page selection can reduce strict PDF/A compliance. The plan reports a warning when both are set.',
+  'docDocxToPdf.helper.addOne': 'Add at least one DOCX file to convert.',
+  'docDocxToPdf.action.convert': 'Convert to PDF',
+  'docDocxToPdf.action.convertOne': 'Convert 1 document',
+  'docDocxToPdf.action.convertMany': 'Convert {count} documents',
+  'docDocxToPdf.action.converting': 'Converting…',
+  'docDocxToPdf.action.cancel': 'Cancel',
+  'docDocxToPdf.progress.aria': 'Conversion progress',
+  'docDocxToPdf.status.waiting': 'Waiting to start',
+  'docDocxToPdf.error.start': 'The conversion could not start.',
+  'docDocxToPdf.error.plan': 'The output could not be planned.',
+  'docDocxToPdf.error.cancel': 'The job could not be cancelled.',
+  'docDocxToPdf.error.openFile': 'The file could not be opened.',
+  'docDocxToPdf.error.openFolder': 'The folder could not be opened.',
+  'docDocxToPdf.error.status': 'The job status could not be read.',
+  'docDocxToPdf.error.inspect': 'File sizes could not be read.',
+} as const;
