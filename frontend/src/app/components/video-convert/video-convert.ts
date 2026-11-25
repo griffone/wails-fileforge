@@ -1,5 +1,4 @@
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { Subscription } from 'rxjs';
 import {
   FolderOpen,
   LucideAngularModule,
@@ -14,30 +13,12 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
-import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
-import {
-  describeToolError,
-  localizeToolError,
-  ToolErrorCopy,
-} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
-import {
-  FileInfo,
-  InspectFilesResponse,
-  JobError,
-  JobExecutionStatus,
-  JobProgressEvent,
-  JobRequest,
-  JobResult,
-  JobStatusResponse,
-  PlanJobResponse,
-  RunJobResponse,
-  Wails,
-} from '../../services/wails';
+import { FileInfo, JobRequest, Wails } from '../../services/wails';
 import {
   fileExtension,
   fileName,
@@ -45,13 +26,13 @@ import {
   formatCount,
   formatDuration,
 } from '../../utils/format';
-import { observeJob } from '../../utils/job-stream';
-import { resumeToolJob } from '../../utils/resume-task';
+import { createToolOptions } from '../../utils/tool-options';
+import { ToolRunController } from '../../utils/tool-run-controller';
 import type { TranslationKey } from '../../i18n';
 
 const VIDEO_CONVERT_TOOL_ID = 'tool.video.convert';
 const ADVANCED_PLAN_DEBOUNCE_MS = 200;
-const THUMBNAIL_SIZE = 160;
+const OPTIONS_SCHEMA_VERSION = 1;
 
 const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm']);
 
@@ -65,14 +46,6 @@ const FORMAT_LABELS: Record<VideoPreset['targetFormat'], string> = {
   webm: 'WebM',
 };
 
-const TERMINAL_STATUSES = new Set<string>([
-  'success',
-  'failed',
-  'partial_success',
-  'cancelled',
-  'interrupted',
-]);
-
 type TargetFormat = VideoPreset['targetFormat'];
 type QualityPreset = VideoPreset['qualityPreset'];
 
@@ -82,9 +55,83 @@ const QUALITY_KEYS: Record<QualityPreset, TranslationKey> = {
   low: 'videoConvert.quality.low',
 };
 
-interface Notice {
-  tone: 'warning' | 'danger';
-  text: string;
+const TARGET_FORMATS: readonly TargetFormat[] = ['mp4', 'webm'];
+const QUALITY_PRESETS: readonly QualityPreset[] = ['high', 'medium', 'low'];
+
+type VideoConvertOptions = {
+  selectedPresetId: string;
+  targetFormatOverride: TargetFormat | null;
+  qualityOverride: QualityPreset | null;
+  resolution: Resolution;
+  bitrateKbps: number | null;
+  removeAudio: boolean;
+};
+
+function defaultOptions(): VideoConvertOptions {
+  return {
+    selectedPresetId: VIDEO_PRESETS[0].id,
+    targetFormatOverride: null,
+    qualityOverride: null,
+    resolution: 'original',
+    bitrateKbps: null,
+    removeAudio: false,
+  };
+}
+
+function normalizeOptions(
+  stored: Record<string, unknown>,
+): Partial<VideoConvertOptions> {
+  const result: Partial<VideoConvertOptions> = {};
+
+  const presetId = stored['selectedPresetId'];
+  if (
+    typeof presetId === 'string' &&
+    VIDEO_PRESETS.some((preset) => preset.id === presetId)
+  ) {
+    result.selectedPresetId = presetId;
+  }
+
+  const targetFormat = stored['targetFormatOverride'];
+  if (
+    targetFormat === null ||
+    (typeof targetFormat === 'string' &&
+      TARGET_FORMATS.some((value) => value === targetFormat))
+  ) {
+    result.targetFormatOverride = targetFormat as TargetFormat | null;
+  }
+
+  const quality = stored['qualityOverride'];
+  if (
+    quality === null ||
+    (typeof quality === 'string' &&
+      QUALITY_PRESETS.some((value) => value === quality))
+  ) {
+    result.qualityOverride = quality as QualityPreset | null;
+  }
+
+  const resolution = stored['resolution'];
+  if (
+    typeof resolution === 'string' &&
+    RESOLUTIONS.some((value) => value === resolution)
+  ) {
+    result.resolution = resolution as Resolution;
+  }
+
+  const bitrate = stored['bitrateKbps'];
+  if (bitrate === null) {
+    result.bitrateKbps = null;
+  } else if (
+    typeof bitrate === 'number' &&
+    (BITRATE_OPTIONS_KBPS as readonly number[]).includes(bitrate)
+  ) {
+    result.bitrateKbps = bitrate;
+  }
+
+  if (typeof stored['removeAudio'] === 'boolean') {
+    result.removeAudio = stored['removeAudio'];
+  }
+
+  return result;
 }
 
 @Component({
@@ -104,8 +151,48 @@ interface Notice {
 export class VideoConvert implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
-  private readonly activity = inject(ActivityService);
   readonly i18n = inject(I18nService);
+  private readonly wailsService = inject(Wails);
+
+  private readonly settings = createToolOptions(this.preferences, {
+    toolId: VIDEO_CONVERT_TOOL_ID,
+    schemaVersion: OPTIONS_SCHEMA_VERSION,
+    defaults: defaultOptions,
+    normalize: normalizeOptions,
+  });
+
+  private readonly job: ToolRunController = new ToolRunController({
+    toolId: VIDEO_CONVERT_TOOL_ID,
+    wails: this.wailsService,
+    i18n: this.i18n,
+    activity: inject(ActivityService),
+    dropIntake: this.dropIntake,
+    initialOutputDir: this.preferences.defaultOutputDir(),
+    buildRequest: () => this.buildRequest(),
+    acceptsPath: (path) =>
+      SUPPORTED_VIDEO_EXTENSIONS.has(fileExtension(path).toLowerCase()),
+    canPlan: () => this.selectedPaths().length > 0,
+    canRun: () => this.canRun(),
+    alwaysRefreshPlanBeforeRun: false,
+    describeFileInfo: (info) => this.describeFileInfo(info),
+    noticeText: (rejected) =>
+      rejected.length > 0
+        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
+        : null,
+    messages: {
+      start: 'videoConvert.error.start',
+      planFailed: 'videoConvert.error.plan',
+      waiting: 'videoConvert.status.waiting',
+      inspectFailed: 'videoConvert.error.inspect',
+      statusMissing: 'videoConvert.error.status',
+      cancelFailed: 'videoConvert.error.cancel',
+      openFileFailed: 'videoConvert.error.openFile',
+      revealFailed: 'videoConvert.error.openFolder',
+    },
+    onRunAccepted: () => {
+      this.settings.save(this.currentOptions());
+    },
+  });
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -115,31 +202,37 @@ export class VideoConvert implements OnDestroy, OnInit {
 
   readonly presets = VIDEO_PRESETS;
 
-  readonly selectedPaths = signal<string[]>([]);
-  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly selectedPaths = this.job.selectedPaths;
+  readonly fileItems = this.job.fileItems;
   readonly selectedPresetId = signal(VIDEO_PRESETS[0].id);
   readonly targetFormatOverride = signal<TargetFormat | null>(null);
   readonly qualityOverride = signal<QualityPreset | null>(null);
   readonly resolution = signal<Resolution>('original');
   readonly bitrateKbps = signal<number | null>(null);
   readonly removeAudio = signal(false);
-  readonly outputDir = signal(this.preferences.defaultOutputDir());
+  readonly outputDir = this.job.outputDir;
   readonly advancedOpen = signal(false);
 
-  readonly plan = signal<PlanJobResponse | null>(null);
-  readonly planError = signal<JobError | null>(null);
-  readonly planLoading = signal(false);
+  readonly plan = this.job.plan;
+  readonly planError = this.job.planError;
+  readonly planLoading = this.job.planLoading;
 
-  readonly jobResult = signal<JobResult | null>(null);
-  readonly jobError = signal<JobError | null>(null);
-  readonly outputInfos = signal<Record<string, FileInfo>>({});
+  readonly jobResult = this.job.jobResult;
+  readonly jobError = this.job.jobError;
+  readonly outputInfos = this.job.outputInfos;
 
-  readonly isSubmitting = signal(false);
-  readonly isPolling = signal(false);
-  readonly activeJobId = signal('');
+  readonly isSubmitting = this.job.isSubmitting;
+  readonly isPolling = this.job.isPolling;
+  readonly activeJobId = this.job.activeJobId;
 
-  readonly notice = signal<Notice | null>(null);
-  readonly actionMessage = signal('');
+  readonly notice = this.job.notice;
+  readonly actionMessage = this.job.actionMessage;
+  readonly terminalJob = this.job.terminalJob;
+  readonly showProgress = this.job.showProgress;
+  readonly jobErrorCopy = this.job.jobErrorCopy;
+  readonly verification = this.job.verification;
+  readonly verificationLoading = this.job.verificationLoading;
+  readonly verificationUnavailable = this.job.verificationUnavailable;
 
   readonly selectedPreset = computed<VideoPreset>(
     () =>
@@ -232,44 +325,14 @@ export class VideoConvert implements OnDestroy, OnInit {
       : '',
   );
 
-  readonly terminalJob = computed<JobResult | null>(() => {
-    const job = this.jobResult();
-    return job && this.isTerminalStatus(job.status) ? job : null;
-  });
-
-  readonly showProgress = computed(() => {
-    const job = this.jobResult();
-    return !!job && !this.isTerminalStatus(job.status);
-  });
-
-  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
-    const error = this.jobError();
-    return error
-      ? localizeToolError(
-          (key) => this.i18n.t(key),
-          describeToolError(error, this.i18n.t('videoConvert.error.start')),
-        )
-      : null;
-  });
-
-  private jobSubscription: Subscription | null = null;
-  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private planToken = 0;
-  private fileItemsGeneration = 0;
-
-  constructor(private readonly wailsService: Wails) {}
-
-  ngOnDestroy(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
+  ngOnInit(): void {
+    this.restoreOptions();
+    this.job.takePendingDrop('/video-convert');
+    this.job.resume();
   }
 
-  ngOnInit(): void {
-    const pending = this.dropIntake.take('/video-convert');
-    if (pending.length > 0) {
-      this.onPathsSelected(pending);
-    }
-    this.resumeBackgroundJob();
+  ngOnDestroy(): void {
+    this.job.dispose();
   }
 
   fileCountLabel(): string {
@@ -281,75 +344,22 @@ export class VideoConvert implements OnDestroy, OnInit {
   }
 
   onPathsSelected(paths: string[]): void {
-    const incoming = (Array.isArray(paths) ? paths : [])
-      .map((path) => path.trim())
-      .filter((path) => path.length > 0);
-    if (incoming.length === 0) {
-      return;
-    }
-
-    const supported: string[] = [];
-    const rejected: string[] = [];
-    for (const path of incoming) {
-      if (SUPPORTED_VIDEO_EXTENSIONS.has(fileExtension(path).toLowerCase())) {
-        supported.push(path);
-      } else {
-        rejected.push(path);
-      }
-    }
-
-    const selected = new Set(this.selectedPaths());
-    const added: string[] = [];
-    for (const path of supported) {
-      if (selected.has(path)) {
-        continue;
-      }
-      selected.add(path);
-      added.push(path);
-    }
-
-    this.notice.set(
-      rejected.length > 0
-        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
-        : null,
-    );
-
-    if (added.length === 0) {
-      return;
-    }
-
-    this.actionMessage.set('');
-    this.selectedPaths.set([...this.selectedPaths(), ...added]);
-    this.syncFileItems();
-    void this.refreshPlan();
+    this.job.onPathsSelected(paths);
   }
 
   async chooseFiles(): Promise<void> {
     const paths = await this.wailsService.openMultipleFilesDialog();
     if (paths.length > 0) {
-      this.onPathsSelected(paths);
+      this.job.onPathsSelected(paths);
     }
   }
 
   clear(): void {
-    if (this.selectedPaths().length === 0) {
-      return;
-    }
-    this.selectedPaths.set([]);
-    this.notice.set(null);
-    this.actionMessage.set('');
-    this.syncFileItems();
-    void this.refreshPlan();
+    this.job.clear();
   }
 
   removeFile(path: string): void {
-    const next = this.selectedPaths().filter((candidate) => candidate !== path);
-    if (next.length === this.selectedPaths().length) {
-      return;
-    }
-    this.selectedPaths.set(next);
-    this.syncFileItems();
-    void this.refreshPlan();
+    this.job.removeFile(path);
   }
 
   selectPreset(presetId: string): void {
@@ -362,7 +372,7 @@ export class VideoConvert implements OnDestroy, OnInit {
     this.selectedPresetId.set(presetId);
     this.targetFormatOverride.set(null);
     this.qualityOverride.set(null);
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onTargetFormatChange(event: Event): void {
@@ -373,7 +383,7 @@ export class VideoConvert implements OnDestroy, OnInit {
     this.targetFormatOverride.set(
       value === this.selectedPreset().targetFormat ? null : value,
     );
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   onQualityChange(event: Event): void {
@@ -384,7 +394,7 @@ export class VideoConvert implements OnDestroy, OnInit {
     this.qualityOverride.set(
       value === this.selectedPreset().qualityPreset ? null : value,
     );
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   onResolutionChange(event: Event): void {
@@ -393,14 +403,14 @@ export class VideoConvert implements OnDestroy, OnInit {
       return;
     }
     this.resolution.set(value as Resolution);
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   onBitrateChange(event: Event): void {
     const value = this.readSelect(event);
     if (value === '') {
       this.bitrateKbps.set(null);
-      this.schedulePlanRefresh();
+      this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
       return;
     }
 
@@ -409,12 +419,12 @@ export class VideoConvert implements OnDestroy, OnInit {
       return;
     }
     this.bitrateKbps.set(kbps);
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   onRemoveAudioToggle(event: Event): void {
     this.removeAudio.set(this.readChecked(event));
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   resetAdvanced(): void {
@@ -423,7 +433,7 @@ export class VideoConvert implements OnDestroy, OnInit {
     this.resolution.set('original');
     this.bitrateKbps.set(null);
     this.removeAudio.set(false);
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   async chooseOutputFolder(): Promise<void> {
@@ -433,7 +443,7 @@ export class VideoConvert implements OnDestroy, OnInit {
     }
     this.outputDir.set(directory);
     this.actionMessage.set('');
-    await this.refreshPlan();
+    await this.job.refreshPlan();
   }
 
   useOriginalFolders(): void {
@@ -441,7 +451,7 @@ export class VideoConvert implements OnDestroy, OnInit {
       return;
     }
     this.outputDir.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onAdvancedToggle(event: Event): void {
@@ -450,102 +460,19 @@ export class VideoConvert implements OnDestroy, OnInit {
   }
 
   async run(): Promise<void> {
-    if (!this.canRun()) {
-      return;
-    }
-
-    this.clearPlanRefreshTimer();
-    this.actionMessage.set('');
-
-    if (this.planLoading() || !this.plan()?.success) {
-      const planned = await this.refreshPlan();
-      if (!planned) {
-        return;
-      }
-    }
-
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(true);
-
-    const response: RunJobResponse = await this.wailsService
-      .runJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('videoConvert.error.start'),
-        jobId: '',
-        status: 'failed' as const,
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message: this.i18n.t('videoConvert.error.start'),
-        },
-      }));
-    if (!response.success || !response.jobId) {
-      this.jobError.set(
-        response.error ?? {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message:
-            response.message || this.i18n.t('videoConvert.error.start'),
-        },
-      );
-      this.isSubmitting.set(false);
-      return;
-    }
-
-    const total = this.selectedPaths().length;
-    this.activeJobId.set(response.jobId);
-    this.jobResult.set({
-      jobId: response.jobId,
-      success: false,
-      message: this.i18n.t('videoConvert.status.waiting'),
-      toolId: VIDEO_CONVERT_TOOL_ID,
-      status: 'queued',
-      progress: {
-        current: 0,
-        total,
-        stage: 'queued',
-        message: this.i18n.t('videoConvert.status.waiting'),
-      },
-      items: [],
-      startedAt: Date.now(),
-    });
-    this.isSubmitting.set(false);
-    this.isPolling.set(true);
-    this.startObserving();
+    await this.job.run();
   }
 
   async cancel(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-    const response = await this.wailsService.cancelJob(jobId);
-    if (!response.success) {
-      this.actionMessage.set(
-        response.message || this.i18n.t('videoConvert.error.cancel'),
-      );
-    }
+    await this.job.cancel();
   }
 
   async onOpen(path: string): Promise<void> {
-    const response = await this.wailsService.openPath(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('videoConvert.error.openFile'),
-    );
+    await this.job.openPath(path);
   }
 
   async onReveal(path: string): Promise<void> {
-    const response = await this.wailsService.revealInFolder(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('videoConvert.error.openFolder'),
-    );
+    await this.job.revealPath(path);
   }
 
   async retryFailed(): Promise<void> {
@@ -558,35 +485,40 @@ export class VideoConvert implements OnDestroy, OnInit {
       return;
     }
 
-    this.selectedPaths.set([...new Set(failed)]);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.actionMessage.set('');
-    this.syncFileItems();
+    this.job.replacePaths([...new Set(failed)], { notify: false });
+    this.job.clearRunOutcome();
 
-    await this.refreshPlan();
-    await this.run();
+    const planned = await this.job.refreshPlan();
+    if (!planned) {
+      return;
+    }
+
+    await this.job.run();
   }
 
   reset(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
-    this.planToken += 1;
-    this.fileItemsGeneration += 1;
+    this.job.reset();
+  }
 
-    this.selectedPaths.set([]);
-    this.fileItems.set([]);
-    this.plan.set(null);
-    this.planError.set(null);
-    this.planLoading.set(false);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(false);
-    this.activeJobId.set('');
-    this.notice.set(null);
-    this.actionMessage.set('');
+  private currentOptions(): VideoConvertOptions {
+    return {
+      selectedPresetId: this.selectedPresetId(),
+      targetFormatOverride: this.targetFormatOverride(),
+      qualityOverride: this.qualityOverride(),
+      resolution: this.resolution(),
+      bitrateKbps: this.bitrateKbps(),
+      removeAudio: this.removeAudio(),
+    };
+  }
+
+  private restoreOptions(): void {
+    const options = this.settings.restore();
+    this.selectedPresetId.set(options.selectedPresetId);
+    this.targetFormatOverride.set(options.targetFormatOverride);
+    this.qualityOverride.set(options.qualityOverride);
+    this.resolution.set(options.resolution);
+    this.bitrateKbps.set(options.bitrateKbps);
+    this.removeAudio.set(options.removeAudio);
   }
 
   private buildRequest(): JobRequest {
@@ -613,301 +545,6 @@ export class VideoConvert implements OnDestroy, OnInit {
     };
   }
 
-  private async refreshPlan(): Promise<boolean> {
-    if (this.selectedPaths().length === 0) {
-      this.planToken += 1;
-      this.plan.set(null);
-      this.planError.set(null);
-      this.planLoading.set(false);
-      return false;
-    }
-
-    const token = (this.planToken += 1);
-    this.planLoading.set(true);
-    this.plan.set(null);
-    this.planError.set(null);
-
-    const response: PlanJobResponse = await this.wailsService
-      .planJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('videoConvert.error.plan'),
-        outputs: [],
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'PLAN_JOB_FAILED',
-          message: this.i18n.t('videoConvert.error.plan'),
-        },
-      }));
-    if (token !== this.planToken) {
-      return false;
-    }
-
-    this.planLoading.set(false);
-
-    if (response.success && !response.error) {
-      this.plan.set(response);
-      return true;
-    }
-
-    const error: JobError = response.error ?? {
-      code: 'VALIDATION_INVALID_INPUT',
-      detail_code: 'PLAN_JOB_FAILED',
-      message:
-        response.message || this.i18n.t('videoConvert.error.plan'),
-    };
-    // Keep the failed plan so the shared plan card can show the error in
-    // context, next to the destination it belongs to.
-    this.plan.set({ ...response, success: false, error });
-    this.planError.set(error);
-    return false;
-  }
-
-  private schedulePlanRefresh(): void {
-    this.clearPlanRefreshTimer();
-    this.planRefreshTimer = setTimeout(() => {
-      this.planRefreshTimer = null;
-      void this.refreshPlan();
-    }, ADVANCED_PLAN_DEBOUNCE_MS);
-  }
-
-  private clearPlanRefreshTimer(): void {
-    if (this.planRefreshTimer) {
-      clearTimeout(this.planRefreshTimer);
-      this.planRefreshTimer = null;
-    }
-  }
-
-  private resumeBackgroundJob(): void {
-    resumeToolJob({
-      activity: this.activity,
-      toolId: VIDEO_CONVERT_TOOL_ID,
-      activeJobId: this.activeJobId,
-      jobResult: this.jobResult,
-      jobError: this.jobError,
-      startObserving: () => this.startObserving(),
-    });
-  }
-
-  private startObserving(): void {
-    this.stopObserving();
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    this.isPolling.set(true);
-    this.jobSubscription = observeJob(this.wailsService, jobId, {
-      onProgress: (event) => this.applyJobProgress(event),
-      onState: (result) => this.applyJobStatus(result),
-      onMissing: (response) => this.handleMissingJob(response),
-    });
-  }
-
-  private stopObserving(): void {
-    if (this.jobSubscription) {
-      this.jobSubscription.unsubscribe();
-      this.jobSubscription = null;
-    }
-    this.isPolling.set(false);
-  }
-
-  private applyJobProgress(event: JobProgressEvent): void {
-    if (!event) {
-      return;
-    }
-
-    const current = this.jobResult();
-    if (!current) {
-      return;
-    }
-
-    this.jobResult.set({
-      ...current,
-      message: event.progress.message,
-      progress: event.progress,
-      // The terminal snapshot arrives on jobs/state; a progress event can
-      // overtake the complete result, so the current status is kept.
-      status: this.isTerminalStatus(event.status)
-        ? current.status
-        : (event.status as JobExecutionStatus),
-    });
-
-    if (this.isTerminalStatus(event.status)) {
-      void this.reconcileJobStatus();
-    }
-  }
-
-  private applyJobStatus(result: JobResult): void {
-    if (!result) {
-      return;
-    }
-
-    this.jobResult.set(result);
-    if (this.isTerminalStatus(result.status)) {
-      this.stopObserving();
-      this.activeJobId.set('');
-      void this.loadOutputInfos();
-    }
-  }
-
-  /** The backend no longer tracks the adopted job (restart or retention). */
-  private handleMissingJob(response: JobStatusResponse): void {
-    if (!this.activeJobId()) {
-      return;
-    }
-
-    this.stopObserving();
-    this.activeJobId.set('');
-    this.jobError.set(
-      response.error ?? {
-        code: 'EXEC_IO_TRANSIENT',
-        detail_code: 'JOB_STATUS_MISSING',
-        message:
-          response.message || this.i18n.t('videoConvert.error.status'),
-      },
-    );
-  }
-
-  /**
-   * One-shot recovery when a terminal progress event arrives before its
-   * jobs/state snapshot. This is never a timer, and it is a no-op once the
-   * page has already settled the job.
-   */
-  private async reconcileJobStatus(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    const response = await this.wailsService
-      .getJobStatus(jobId)
-      .catch(() => null);
-    if (!response || this.activeJobId() !== jobId) {
-      return;
-    }
-
-    if (!response.found || !response.result) {
-      this.handleMissingJob(response);
-      return;
-    }
-
-    this.applyJobStatus(response.result);
-  }
-
-  private async loadOutputInfos(): Promise<void> {
-    const paths = this.collectOutputPaths();
-    if (paths.length === 0) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const response: InspectFilesResponse = await this.wailsService
-      .inspectFiles(paths)
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('videoConvert.error.inspect'),
-        files: [],
-      }));
-    if (!response.success) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const infos: Record<string, FileInfo> = {};
-    for (const info of response.files) {
-      if (info.path) {
-        infos[info.path] = info;
-      }
-    }
-    this.outputInfos.set(infos);
-  }
-
-  private collectOutputPaths(): string[] {
-    const paths = new Set<string>();
-    for (const item of this.jobResult()?.items ?? []) {
-      if (!item.success) {
-        continue;
-      }
-      const outputs =
-        item.outputs && item.outputs.length > 0
-          ? item.outputs
-          : item.outputPath
-            ? [item.outputPath]
-            : [];
-      for (const output of outputs) {
-        if (output) {
-          paths.add(output);
-        }
-      }
-    }
-    return [...paths];
-  }
-
-  private syncFileItems(): void {
-    const paths = this.selectedPaths();
-    const generation = (this.fileItemsGeneration += 1);
-    const existing = new Map(this.fileItems().map((item) => [item.path, item]));
-    this.fileItems.set(
-      paths.map((path) => existing.get(path) ?? { path, name: fileName(path) }),
-    );
-
-    if (paths.length > 0) {
-      void this.enrichFileItems(paths, generation);
-    }
-  }
-
-  private async enrichFileItems(
-    paths: string[],
-    generation: number,
-  ): Promise<void> {
-    try {
-      const response = await this.wailsService.inspectFiles(paths);
-      if (generation === this.fileItemsGeneration && response.success) {
-        const infos = new Map<string, FileInfo>();
-        for (const info of response.files) {
-          infos.set(info.path, info);
-        }
-
-        this.fileItems.update((items) =>
-          items.map((item) => {
-            const info = infos.get(item.path);
-            const meta = info ? this.describeFileInfo(info) : '';
-            return meta ? { ...item, meta } : item;
-          }),
-        );
-      }
-    } catch {
-      // Inspection is optional: the queue keeps the file name and path.
-    }
-
-    if (generation !== this.fileItemsGeneration) {
-      return;
-    }
-
-    for (const path of paths) {
-      this.loadThumbnail(path, generation);
-    }
-  }
-
-  private loadThumbnail(path: string, generation: number): void {
-    void this.wailsService
-      .getThumbnail(path, THUMBNAIL_SIZE)
-      .then((thumbnailUrl) => {
-        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
-          return;
-        }
-        this.fileItems.update((items) =>
-          items.map((item) =>
-            item.path === path ? { ...item, thumbnailUrl } : item,
-          ),
-        );
-      })
-      .catch(() => {
-        // Thumbnails are optional; keep the video icon.
-      });
-  }
-
   private describeFileInfo(info: FileInfo): string {
     const parts: string[] = [];
     if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
@@ -922,7 +559,7 @@ export class VideoConvert implements OnDestroy, OnInit {
     return parts.join(' · ');
   }
 
-  private rejectionNotice(rejected: string[]): string {
+  private rejectionNotice(rejected: readonly string[]): string {
     const extensions = [
       ...new Set(
         rejected.map((path) => fileExtension(path).toUpperCase() || 'UNKNOWN'),
@@ -957,9 +594,5 @@ export class VideoConvert implements OnDestroy, OnInit {
 
   private readChecked(event: Event): boolean {
     return !!(event.target as HTMLInputElement | null)?.checked;
-  }
-
-  private isTerminalStatus(status: string): boolean {
-    return TERMINAL_STATUSES.has(status);
   }
 }

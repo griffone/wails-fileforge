@@ -9,6 +9,7 @@ import { Subject } from 'rxjs';
 
 import { DocMdToPdf } from './doc-md-to-pdf';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobProgressEvent,
@@ -122,6 +123,7 @@ describe('DocMdToPdf', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -197,6 +199,7 @@ describe('DocMdToPdf', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('plans a single Markdown conversion with the destination folder', fakeAsync(() => {

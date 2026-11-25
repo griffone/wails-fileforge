@@ -10,6 +10,7 @@ import {
 import { Observable, Subscription } from 'rxjs';
 
 import { RECIPES } from '../config/recipes';
+import { isTerminalJobStatus } from '../utils/job-status';
 import { I18nService } from './i18n.service';
 import { ToastService } from './toast.service';
 import { ToolRegistryService } from './tool-registry.service';
@@ -54,14 +55,6 @@ export interface ActivityTask {
   outputCount: number;
   errorMessage: string;
 }
-
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
-  'success',
-  'failed',
-  'partial_success',
-  'cancelled',
-  'interrupted',
-]);
 
 const REFRESH_LIMIT = 50;
 const RECENT_LIMIT = 25;
@@ -768,7 +761,7 @@ export class ActivityService implements OnDestroy {
 }
 
 function isTerminalStatus(status: string | null | undefined): boolean {
-  return typeof status === 'string' && TERMINAL_STATUSES.has(status);
+  return typeof status === 'string' && isTerminalJobStatus(status);
 }
 
 function compareTasks(a: ActivityTask, b: ActivityTask): number {

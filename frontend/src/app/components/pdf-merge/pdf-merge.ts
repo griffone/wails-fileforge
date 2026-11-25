@@ -110,6 +110,9 @@ export class PdfMerge implements OnDestroy, OnInit {
   readonly terminalJob = this.job.terminalJob;
   readonly showProgress = this.job.showProgress;
   readonly jobErrorCopy = this.job.jobErrorCopy;
+  readonly verification = this.job.verification;
+  readonly verificationLoading = this.job.verificationLoading;
+  readonly verificationUnavailable = this.job.verificationUnavailable;
 
   /** Page ranges keyed by input path so reordering keeps them attached. */
   readonly pageRanges = signal<Record<string, string>>({});

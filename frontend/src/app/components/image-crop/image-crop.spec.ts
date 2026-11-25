@@ -9,6 +9,7 @@ import { Subject } from 'rxjs';
 
 import { ImageCrop } from './image-crop';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobProgressEvent,
@@ -138,6 +139,7 @@ describe('ImageCrop', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -235,6 +237,7 @@ describe('ImageCrop', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('plans one image as single with the default crop options', fakeAsync(() => {

@@ -9,6 +9,7 @@ import { Subject } from 'rxjs';
 
 import { VideoConvert } from './video-convert';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobProgressEvent,
@@ -117,6 +118,7 @@ describe('VideoConvert', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -196,6 +198,7 @@ describe('VideoConvert', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('adds one video and plans with the default MP4 preset', fakeAsync(() => {

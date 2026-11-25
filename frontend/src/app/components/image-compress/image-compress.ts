@@ -6,7 +6,6 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { Subscription } from 'rxjs';
 import {
   FolderOpen,
   LucideAngularModule,
@@ -21,43 +20,23 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
-import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import {
-  describeToolError,
-  localizeToolError,
-  ToolErrorCopy,
-} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { LastRequestService } from '../../services/last-request.service';
 import { ActivityService } from '../../services/activity.service';
-import {
-  FileInfo,
-  InspectFilesResponse,
-  JobError,
-  JobExecutionStatus,
-  JobProgressEvent,
-  JobRequest,
-  JobResult,
-  JobStatusResponse,
-  PlanJobResponse,
-  RunJobResponse,
-  Wails,
-} from '../../services/wails';
+import { FileInfo, JobRequest, Wails } from '../../services/wails';
 import {
   fileExtension,
   fileName,
   formatBytes,
   formatCount,
 } from '../../utils/format';
-import { observeJob } from '../../utils/job-stream';
-import { resumeToolJob } from '../../utils/resume-task';
 import { createToolOptions } from '../../utils/tool-options';
+import { ToolRunController } from '../../utils/tool-run-controller';
 
 const IMAGE_TOOL_ID = 'tool.image.compress';
 const SETTINGS_PLAN_DEBOUNCE_MS = 200;
-const THUMBNAIL_SIZE = 160;
 const BYTES_PER_MB = 1024 * 1024;
 const MIN_QUALITY = 40;
 // The compressor's quality search ceiling is 95, so the UI must not advertise
@@ -80,14 +59,6 @@ const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'tif',
 ]);
 
-const TERMINAL_STATUSES = new Set<string>([
-  'success',
-  'failed',
-  'partial_success',
-  'cancelled',
-  'interrupted',
-]);
-
 type CompressFormat = 'auto' | 'jpeg' | 'webp' | 'png';
 
 interface SelectOption<T extends string> {
@@ -101,11 +72,6 @@ const FORMAT_OPTIONS: readonly SelectOption<CompressFormat>[] = [
   { value: 'webp', label: 'WebP' },
   { value: 'png', label: 'PNG' },
 ];
-
-interface Notice {
-  tone: 'warning' | 'danger';
-  text: string;
-}
 
 type ImageCompressOptions = {
   targetMb: number | null;
@@ -198,14 +164,55 @@ export class ImageCompress implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly lastRequests = inject(LastRequestService);
-  private readonly activity = inject(ActivityService);
   readonly i18n = inject(I18nService);
+  private readonly wailsService = inject(Wails);
 
   private readonly settings = createToolOptions(this.preferences, {
     toolId: IMAGE_TOOL_ID,
     schemaVersion: OPTIONS_SCHEMA_VERSION,
     defaults: defaultOptions,
     normalize: normalizeOptions,
+  });
+
+  private readonly job: ToolRunController = new ToolRunController({
+    toolId: IMAGE_TOOL_ID,
+    wails: this.wailsService,
+    i18n: this.i18n,
+    activity: inject(ActivityService),
+    dropIntake: this.dropIntake,
+    initialOutputDir: this.preferences.defaultOutputDir(),
+    buildRequest: () => this.buildRequest(),
+    acceptsPath: (path) =>
+      SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase()),
+    canPlan: () => this.selectedPaths().length > 0 && this.targetValid(),
+    canRun: () => this.canRun(),
+    describeFileInfo: (info) => this.describeFileInfo(info),
+    afterPathsChanged: (_previous, paths) => {
+      if (paths.length === 0) {
+        this.inputInfos.set({});
+      }
+      void this.job.refreshPlan();
+    },
+    onFilesInspected: (infos) => this.applyInputInfos(infos),
+    noticeText: (rejected) =>
+      rejected.length > 0
+        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
+        : null,
+    messages: {
+      start: 'imageCompress.error.start',
+      planFailed: 'imageCompress.error.plan',
+      waiting: 'imageCompress.status.waiting',
+      inspectFailed: 'imageCompress.error.inspect',
+      statusMissing: 'imageCompress.error.status',
+      cancelFailed: 'imageCompress.error.cancel',
+      openFileFailed: 'imageCompress.error.openFile',
+      revealFailed: 'imageCompress.error.openFolder',
+    },
+    onRunAccepted: (request) => {
+      this.settings.save(this.currentOptions());
+      this.lastRequests.save(request);
+      this.runTargetBytes.set(this.targetSizeBytes());
+    },
   });
 
   readonly shieldIcon = ShieldCheck;
@@ -216,8 +223,8 @@ export class ImageCompress implements OnDestroy, OnInit {
 
   readonly formatOptions = FORMAT_OPTIONS;
 
-  readonly selectedPaths = signal<string[]>([]);
-  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly selectedPaths = this.job.selectedPaths;
+  readonly fileItems = this.job.fileItems;
   readonly inputInfos = signal<Record<string, FileInfo>>({});
 
   readonly targetMb = signal<number | null>(1);
@@ -226,24 +233,30 @@ export class ImageCompress implements OnDestroy, OnInit {
   readonly maxDimension = signal<number | null>(null);
   readonly quality = signal<number | null>(null);
   readonly stripMetadata = signal(true);
-  readonly outputDir = signal(this.preferences.defaultOutputDir());
+  readonly outputDir = this.job.outputDir;
   readonly advancedOpen = signal(false);
 
-  readonly plan = signal<PlanJobResponse | null>(null);
-  readonly planLoading = signal(false);
+  readonly plan = this.job.plan;
+  readonly planLoading = this.job.planLoading;
 
-  readonly jobResult = signal<JobResult | null>(null);
-  readonly jobError = signal<JobError | null>(null);
-  readonly outputInfos = signal<Record<string, FileInfo>>({});
+  readonly jobResult = this.job.jobResult;
+  readonly jobError = this.job.jobError;
+  readonly outputInfos = this.job.outputInfos;
 
-  readonly isSubmitting = signal(false);
-  readonly isPolling = signal(false);
-  readonly activeJobId = signal('');
+  readonly isSubmitting = this.job.isSubmitting;
+  readonly isPolling = this.job.isPolling;
+  readonly activeJobId = this.job.activeJobId;
   /** Target captured when the running job started, used for its report. */
   readonly runTargetBytes = signal(0);
 
-  readonly notice = signal<Notice | null>(null);
-  readonly actionMessage = signal('');
+  readonly notice = this.job.notice;
+  readonly actionMessage = this.job.actionMessage;
+  readonly terminalJob = this.job.terminalJob;
+  readonly showProgress = this.job.showProgress;
+  readonly jobErrorCopy = this.job.jobErrorCopy;
+  readonly verification = this.job.verification;
+  readonly verificationLoading = this.job.verificationLoading;
+  readonly verificationUnavailable = this.job.verificationUnavailable;
 
   readonly targetSizeBytes = computed(() => {
     const target = this.targetMb();
@@ -436,48 +449,14 @@ export class ImageCompress implements OnDestroy, OnInit {
     return '';
   });
 
-  readonly terminalJob = computed<JobResult | null>(() => {
-    const job = this.jobResult();
-    return job && this.isTerminalStatus(job.status) ? job : null;
-  });
-
-  readonly showProgress = computed(() => {
-    const job = this.jobResult();
-    return !!job && !this.isTerminalStatus(job.status);
-  });
-
-  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
-    const error = this.jobError();
-    return error
-      ? localizeToolError(
-          (key) => this.i18n.t(key),
-          describeToolError(
-            error,
-            this.i18n.t('imageCompress.error.start'),
-          ),
-        )
-      : null;
-  });
-
-  private jobSubscription: Subscription | null = null;
-  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private planToken = 0;
-  private fileItemsGeneration = 0;
-
-  constructor(private readonly wailsService: Wails) {}
-
-  ngOnDestroy(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
-  }
-
   ngOnInit(): void {
     this.restoreOptions();
-    const pending = this.dropIntake.take('/image-compress');
-    if (pending.length > 0) {
-      this.onPathsSelected(pending);
-    }
-    this.resumeBackgroundJob();
+    this.job.takePendingDrop('/image-compress');
+    this.job.resume();
+  }
+
+  ngOnDestroy(): void {
+    this.job.dispose();
   }
 
   fileCountLabel(): string {
@@ -497,76 +476,22 @@ export class ImageCompress implements OnDestroy, OnInit {
   }
 
   onPathsSelected(paths: string[]): void {
-    const incoming = (Array.isArray(paths) ? paths : [])
-      .map((path) => path.trim())
-      .filter((path) => path.length > 0);
-    if (incoming.length === 0) {
-      return;
-    }
-
-    const supported: string[] = [];
-    const rejected: string[] = [];
-    for (const path of incoming) {
-      if (SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase())) {
-        supported.push(path);
-      } else {
-        rejected.push(path);
-      }
-    }
-
-    const selected = new Set(this.selectedPaths());
-    const added: string[] = [];
-    for (const path of supported) {
-      if (selected.has(path)) {
-        continue;
-      }
-      selected.add(path);
-      added.push(path);
-    }
-
-    this.notice.set(
-      rejected.length > 0
-        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
-        : null,
-    );
-
-    if (added.length === 0) {
-      return;
-    }
-
-    this.actionMessage.set('');
-    this.selectedPaths.set([...this.selectedPaths(), ...added]);
-    this.syncFileItems();
-    void this.refreshPlan();
+    this.job.onPathsSelected(paths);
   }
 
   async chooseFiles(): Promise<void> {
     const paths = await this.wailsService.openMultipleFilesDialog();
     if (paths.length > 0) {
-      this.onPathsSelected(paths);
+      this.job.onPathsSelected(paths);
     }
   }
 
   clear(): void {
-    if (this.selectedPaths().length === 0) {
-      return;
-    }
-    this.selectedPaths.set([]);
-    this.notice.set(null);
-    this.actionMessage.set('');
-    this.inputInfos.set({});
-    this.syncFileItems();
-    void this.refreshPlan();
+    this.job.clear();
   }
 
   removeFile(path: string): void {
-    const next = this.selectedPaths().filter((candidate) => candidate !== path);
-    if (next.length === this.selectedPaths().length) {
-      return;
-    }
-    this.selectedPaths.set(next);
-    this.syncFileItems();
-    void this.refreshPlan();
+    this.job.removeFile(path);
   }
 
   onTargetInput(event: Event): void {
@@ -574,7 +499,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     const value = Number.parseFloat(raw);
     this.targetMb.set(raw === '' || !Number.isFinite(value) ? null : value);
     this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.schedulePlan();
   }
 
   onFormatChange(event: Event): void {
@@ -587,18 +512,18 @@ export class ImageCompress implements OnDestroy, OnInit {
     }
     this.format.set(value);
     this.actionMessage.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onAllowDownscaleToggle(event: Event): void {
     this.allowDownscale.set(this.readChecked(event));
     this.actionMessage.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onMaxDimensionInput(event: Event): void {
     this.maxDimension.set(this.readPositiveInteger(event));
-    this.schedulePlanRefresh();
+    this.schedulePlan();
   }
 
   onQualityInput(event: Event): void {
@@ -608,13 +533,13 @@ export class ImageCompress implements OnDestroy, OnInit {
         ? null
         : Math.min(MAX_QUALITY, Math.max(MIN_QUALITY, Math.round(value))),
     );
-    this.schedulePlanRefresh();
+    this.schedulePlan();
   }
 
   onStripMetadataToggle(event: Event): void {
     this.stripMetadata.set(this.readChecked(event));
     this.actionMessage.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onAdvancedToggle(event: Event): void {
@@ -626,7 +551,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     this.maxDimension.set(null);
     this.quality.set(null);
     this.stripMetadata.set(true);
-    this.schedulePlanRefresh();
+    this.schedulePlan();
   }
 
   async chooseOutputFolder(): Promise<void> {
@@ -636,7 +561,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     }
     this.outputDir.set(directory);
     this.actionMessage.set('');
-    await this.refreshPlan();
+    await this.job.refreshPlan();
   }
 
   useOriginalFolders(): void {
@@ -644,111 +569,23 @@ export class ImageCompress implements OnDestroy, OnInit {
       return;
     }
     this.outputDir.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   async run(): Promise<void> {
-    if (!this.canRun()) {
-      return;
-    }
-
-    this.clearPlanRefreshTimer();
-    this.actionMessage.set('');
-
-    // The plan is refreshed right before running so the destination and the
-    // collision-safe names always match the current settings.
-    const planned = await this.refreshPlan();
-    if (!planned) {
-      return;
-    }
-
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(true);
-
-    const request = this.buildRequest();
-    const response: RunJobResponse = await this.wailsService
-      .runJob(request)
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageCompress.error.start'),
-        jobId: '',
-        status: 'failed' as const,
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message: this.i18n.t('imageCompress.error.start'),
-        },
-      }));
-    if (!response.success || !response.jobId) {
-      this.jobError.set(
-        response.error ?? {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message:
-            response.message || this.i18n.t('imageCompress.error.start'),
-        },
-      );
-      this.isSubmitting.set(false);
-      return;
-    }
-
-    this.settings.save(this.currentOptions());
-    this.lastRequests.save(request);
-
-    const total = this.selectedPaths().length;
-    this.activeJobId.set(response.jobId);
-    this.runTargetBytes.set(this.targetSizeBytes());
-    this.jobResult.set({
-      jobId: response.jobId,
-      success: false,
-      message: this.i18n.t('imageCompress.status.waiting'),
-      toolId: IMAGE_TOOL_ID,
-      status: 'queued',
-      progress: {
-        current: 0,
-        total,
-        stage: 'queued',
-        message: this.i18n.t('imageCompress.status.waiting'),
-      },
-      items: [],
-      startedAt: Date.now(),
-    });
-    this.isSubmitting.set(false);
-    this.isPolling.set(true);
-    this.startObserving();
+    await this.job.run();
   }
 
   async cancel(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-    const response = await this.wailsService.cancelJob(jobId);
-    if (!response.success) {
-      this.actionMessage.set(
-        response.message || this.i18n.t('imageCompress.error.cancel'),
-      );
-    }
+    await this.job.cancel();
   }
 
   async onOpen(path: string): Promise<void> {
-    const response = await this.wailsService.openPath(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('imageCompress.error.openFile'),
-    );
+    await this.job.openPath(path);
   }
 
   async onReveal(path: string): Promise<void> {
-    const response = await this.wailsService.revealInFolder(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('imageCompress.error.openFolder'),
-    );
+    await this.job.revealPath(path);
   }
 
   async retryFailed(): Promise<void> {
@@ -761,69 +598,27 @@ export class ImageCompress implements OnDestroy, OnInit {
       return;
     }
 
-    this.selectedPaths.set([...new Set(failed)]);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.actionMessage.set('');
-    this.syncFileItems();
+    this.job.replacePaths([...new Set(failed)], { notify: false });
+    this.job.clearRunOutcome();
 
-    await this.refreshPlan();
-    await this.run();
+    const planned = await this.job.refreshPlan();
+    if (!planned) {
+      return;
+    }
+
+    await this.job.run();
   }
 
   reset(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
-    this.planToken += 1;
-    this.fileItemsGeneration += 1;
-
-    this.selectedPaths.set([]);
-    this.fileItems.set([]);
-    this.restoreOptions();
-    this.plan.set(null);
-    this.planLoading.set(false);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
+    this.job.reset();
     this.inputInfos.set({});
-    this.isSubmitting.set(false);
-    this.activeJobId.set('');
     this.runTargetBytes.set(0);
-    this.notice.set(null);
-    this.actionMessage.set('');
+    this.restoreOptions();
   }
 
   /** Adopts a job the result card planned and started with the same request. */
   onRunAgainStarted(event: RunAgainStartedEvent): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.actionMessage.set('');
-    this.outputDir.set(event.request.outputDir);
-    this.selectedPaths.set([...event.request.inputPaths]);
-    this.syncFileItems();
-    this.isSubmitting.set(false);
-    this.activeJobId.set(event.jobId);
-    this.runTargetBytes.set(this.targetSizeBytes());
-    this.jobResult.set({
-      jobId: event.jobId,
-      success: false,
-      message: this.i18n.t('imageCompress.status.waiting'),
-      toolId: IMAGE_TOOL_ID,
-      status: 'queued',
-      progress: {
-        current: 0,
-        total: event.request.inputPaths.length,
-        stage: 'queued',
-        message: this.i18n.t('imageCompress.status.waiting'),
-      },
-      items: [],
-      startedAt: Date.now(),
-    });
-    this.isPolling.set(true);
-    this.startObserving();
+    this.job.adoptRunAgain(event);
   }
 
   private currentOptions(): ImageCompressOptions {
@@ -845,6 +640,28 @@ export class ImageCompress implements OnDestroy, OnInit {
     this.maxDimension.set(options.maxDimension);
     this.quality.set(options.quality);
     this.stripMetadata.set(options.stripMetadata);
+  }
+
+  private applyInputInfos(infos: FileInfo[]): void {
+    const inputInfos: Record<string, FileInfo> = {};
+    for (const info of infos) {
+      if (info.path) {
+        inputInfos[info.path] = info;
+      }
+    }
+    this.inputInfos.set(inputInfos);
+  }
+
+  /**
+   * Mirrors the old scheduler: an invalid target cannot be planned, so the
+   * stale plan is dropped at once instead of showing for one debounce tick.
+   */
+  private schedulePlan(): void {
+    if (this.selectedPaths().length === 0 || !this.targetValid()) {
+      this.job.clearPlan();
+      return;
+    }
+    this.job.schedulePlanRefresh(SETTINGS_PLAN_DEBOUNCE_MS);
   }
 
   private buildRequest(): JobRequest {
@@ -875,222 +692,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     };
   }
 
-  private async refreshPlan(): Promise<boolean> {
-    if (this.selectedPaths().length === 0 || !this.targetValid()) {
-      this.clearPlanState();
-      return false;
-    }
-
-    const token = (this.planToken += 1);
-    this.planLoading.set(true);
-    this.plan.set(null);
-
-    const response: PlanJobResponse = await this.wailsService
-      .planJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageCompress.error.plan'),
-        outputs: [],
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'PLAN_JOB_FAILED',
-          message: this.i18n.t('imageCompress.error.plan'),
-        },
-      }));
-    if (token !== this.planToken) {
-      return false;
-    }
-
-    this.planLoading.set(false);
-
-    if (response.success && !response.error) {
-      this.plan.set(response);
-      return true;
-    }
-
-    const error: JobError = response.error ?? {
-      code: 'VALIDATION_INVALID_INPUT',
-      detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || this.i18n.t('imageCompress.error.plan'),
-    };
-    // Keep the failed plan so the shared plan card can show the problem next
-    // to the destination it belongs to.
-    this.plan.set({ ...response, success: false, error });
-    return false;
-  }
-
-  private clearPlanState(): void {
-    this.planToken += 1;
-    this.plan.set(null);
-    this.planLoading.set(false);
-    this.clearPlanRefreshTimer();
-  }
-
-  private schedulePlanRefresh(): void {
-    this.clearPlanRefreshTimer();
-    if (this.selectedPaths().length === 0 || !this.targetValid()) {
-      this.clearPlanState();
-      return;
-    }
-    this.planRefreshTimer = setTimeout(() => {
-      this.planRefreshTimer = null;
-      void this.refreshPlan();
-    }, SETTINGS_PLAN_DEBOUNCE_MS);
-  }
-
-  private clearPlanRefreshTimer(): void {
-    if (this.planRefreshTimer) {
-      clearTimeout(this.planRefreshTimer);
-      this.planRefreshTimer = null;
-    }
-  }
-
-  private resumeBackgroundJob(): void {
-    resumeToolJob({
-      activity: this.activity,
-      toolId: IMAGE_TOOL_ID,
-      activeJobId: this.activeJobId,
-      jobResult: this.jobResult,
-      jobError: this.jobError,
-      startObserving: () => this.startObserving(),
-    });
-  }
-
-  private startObserving(): void {
-    this.stopObserving();
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    this.isPolling.set(true);
-    this.jobSubscription = observeJob(this.wailsService, jobId, {
-      onProgress: (event) => this.applyJobProgress(event),
-      onState: (result) => this.applyJobStatus(result),
-      onMissing: (response) => this.handleMissingJob(response),
-    });
-  }
-
-  private stopObserving(): void {
-    if (this.jobSubscription) {
-      this.jobSubscription.unsubscribe();
-      this.jobSubscription = null;
-    }
-    this.isPolling.set(false);
-  }
-
-  private applyJobProgress(event: JobProgressEvent): void {
-    if (!event) {
-      return;
-    }
-
-    const current = this.jobResult();
-    if (!current) {
-      return;
-    }
-
-    this.jobResult.set({
-      ...current,
-      message: event.progress.message,
-      progress: event.progress,
-      // The terminal snapshot arrives on jobs/state; a progress event can
-      // overtake the complete result, so the current status is kept.
-      status: this.isTerminalStatus(event.status)
-        ? current.status
-        : (event.status as JobExecutionStatus),
-    });
-
-    if (this.isTerminalStatus(event.status)) {
-      void this.reconcileJobStatus();
-    }
-  }
-
-  private applyJobStatus(result: JobResult): void {
-    if (!result) {
-      return;
-    }
-
-    this.jobResult.set(result);
-    if (this.isTerminalStatus(result.status)) {
-      this.stopObserving();
-      this.activeJobId.set('');
-      void this.loadOutputInfos();
-    }
-  }
-
-  /** The backend no longer tracks the adopted job (restart or retention). */
-  private handleMissingJob(response: JobStatusResponse): void {
-    if (!this.activeJobId()) {
-      return;
-    }
-
-    this.stopObserving();
-    this.activeJobId.set('');
-    this.jobError.set(
-      response.error ?? {
-        code: 'EXEC_IO_TRANSIENT',
-        detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || this.i18n.t('imageCompress.error.status'),
-      },
-    );
-  }
-
-  /**
-   * One-shot recovery when a terminal progress event arrives before its
-   * jobs/state snapshot. This is never a timer, and it is a no-op once the
-   * page has already settled the job.
-   */
-  private async reconcileJobStatus(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    const response = await this.wailsService
-      .getJobStatus(jobId)
-      .catch(() => null);
-    if (!response || this.activeJobId() !== jobId) {
-      return;
-    }
-
-    if (!response.found || !response.result) {
-      this.handleMissingJob(response);
-      return;
-    }
-
-    this.applyJobStatus(response.result);
-  }
-
-  private async loadOutputInfos(): Promise<void> {
-    const paths = this.collectOutputPaths();
-    if (paths.length === 0) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const response: InspectFilesResponse = await this.wailsService
-      .inspectFiles(paths)
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageCompress.error.inspect'),
-        files: [],
-      }));
-    if (!response.success) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const infos: Record<string, FileInfo> = {};
-    for (const info of response.files) {
-      if (info.path) {
-        infos[info.path] = info;
-      }
-    }
-    this.outputInfos.set(infos);
-  }
-
-  private collectOutputPaths(): string[] {
-    const paths = new Set<string>();
+  private collectOutputPaths(): string[] {    const paths = new Set<string>();
     for (const item of this.jobResult()?.items ?? []) {
       if (!item.success) {
         continue;
@@ -1110,72 +712,6 @@ export class ImageCompress implements OnDestroy, OnInit {
     return [...paths];
   }
 
-  private syncFileItems(): void {
-    const paths = this.selectedPaths();
-    const generation = (this.fileItemsGeneration += 1);
-    this.fileItems.set(paths.map((path) => ({ path, name: fileName(path) })));
-
-    if (paths.length > 0) {
-      void this.enrichFileItems(paths, generation);
-    }
-  }
-
-  private async enrichFileItems(
-    paths: string[],
-    generation: number,
-  ): Promise<void> {
-    try {
-      const response = await this.wailsService.inspectFiles(paths);
-      if (generation === this.fileItemsGeneration && response.success) {
-        const infos = new Map<string, FileInfo>();
-        const inputInfos: Record<string, FileInfo> = {};
-        for (const info of response.files) {
-          infos.set(info.path, info);
-          if (info.path) {
-            inputInfos[info.path] = info;
-          }
-        }
-        this.inputInfos.set(inputInfos);
-
-        this.fileItems.update((items) =>
-          items.map((item) => {
-            const info = infos.get(item.path);
-            const meta = info ? this.describeFileInfo(info) : '';
-            return meta ? { ...item, meta } : item;
-          }),
-        );
-      }
-    } catch {
-      // Inspection is optional: the queue keeps the file name and path.
-    }
-
-    if (generation !== this.fileItemsGeneration) {
-      return;
-    }
-
-    for (const path of paths) {
-      this.loadThumbnail(path, generation);
-    }
-  }
-
-  private loadThumbnail(path: string, generation: number): void {
-    void this.wailsService
-      .getThumbnail(path, THUMBNAIL_SIZE)
-      .then((thumbnailUrl) => {
-        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
-          return;
-        }
-        this.fileItems.update((items) =>
-          items.map((item) =>
-            item.path === path ? { ...item, thumbnailUrl } : item,
-          ),
-        );
-      })
-      .catch(() => {
-        // Thumbnails are optional; keep the placeholder icon.
-      });
-  }
-
   private describeFileInfo(info: FileInfo): string {
     const parts: string[] = [];
     if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
@@ -1187,7 +723,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     return parts.join(' · ');
   }
 
-  private rejectionNotice(rejected: string[]): string {
+  private rejectionNotice(rejected: readonly string[]): string {
     const extensions = [
       ...new Set(
         rejected.map((path) => fileExtension(path).toUpperCase() || 'UNKNOWN'),
@@ -1236,9 +772,5 @@ export class ImageCompress implements OnDestroy, OnInit {
 
   private readChecked(event: Event): boolean {
     return !!(event.target as HTMLInputElement | null)?.checked;
-  }
-
-  private isTerminalStatus(status: string): boolean {
-    return TERMINAL_STATUSES.has(status);
   }
 }

@@ -235,6 +235,9 @@
       <app-result-card
         [job]="job"
         [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
         toolLabel="DOCX"
         verbPast="converted"
         (open)="onOpen($event)"

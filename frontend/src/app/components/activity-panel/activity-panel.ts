@@ -25,14 +25,10 @@ import { ActivityService, type ActivityTask } from '../../services/activity.serv
 import { I18nService } from '../../services/i18n.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
 import { formatCount } from '../../utils/format';
-
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
-  'success',
-  'failed',
-  'partial_success',
-  'cancelled',
-  'interrupted',
-]);
+import {
+  isTerminalJobStatus,
+  jobStatusDefinition,
+} from '../../utils/job-status';
 
 type ActivityChipTone = 'success' | 'warning' | 'danger' | 'info';
 
@@ -188,41 +184,16 @@ export class ActivityPanel {
   }
 
   statusLabel(status: string): string {
-    switch (status) {
-      case 'success':
-        return this.i18n.t('activity.status.success');
-      case 'partial_success':
-        return this.i18n.t('activity.status.partial');
-      case 'failed':
-        return this.i18n.t('activity.status.failed');
-      case 'interrupted':
-        return this.i18n.t('activity.status.interrupted');
-      case 'cancelled':
-        return this.i18n.t('activity.status.cancelled');
-      case 'queued':
-        return this.i18n.t('activity.status.queued');
-      default:
-        return this.i18n.t('activity.status.running');
-    }
+    const key = jobStatusDefinition(status)?.labels.activity;
+    return key ? this.i18n.t(key) : this.i18n.t('activity.status.running');
   }
 
   statusTone(status: string): ActivityChipTone {
-    switch (status) {
-      case 'success':
-      case 'partial_success':
-        return 'success';
-      case 'failed':
-      case 'interrupted':
-        return 'danger';
-      case 'cancelled':
-        return 'warning';
-      default:
-        return 'info';
-    }
+    return jobStatusDefinition(status)?.tones.activity ?? 'info';
   }
 
   isTerminal(task: ActivityTask): boolean {
-    return TERMINAL_STATUSES.has(task.status);
+    return isTerminalJobStatus(task.status);
   }
 
   isIndeterminate(task: ActivityTask): boolean {

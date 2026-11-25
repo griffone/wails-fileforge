@@ -1,5 +1,4 @@
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { Subscription } from 'rxjs';
 import {
   ArrowDown,
   ArrowLeft,
@@ -18,33 +17,21 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
-import { describeToolError, localizeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
-import {
-  FileInfo,
-  InspectFilesResponse,
-  JobError,
-  JobExecutionStatus,
-  JobProgressEvent,
-  JobRequest,
-  JobResult,
-  JobStatusResponse,
-  PlanJobResponse,
-  RunJobResponse,
-  Wails,
-} from '../../services/wails';
+import { JobRequest, Wails } from '../../services/wails';
 import { fileExtension, fileName, formatCount } from '../../utils/format';
-import { observeJob } from '../../utils/job-stream';
-import { resumeToolJob } from '../../utils/resume-task';
+import { createToolOptions } from '../../utils/tool-options';
+import { ToolRunController } from '../../utils/tool-run-controller';
 
 const PDF_IMAGES_TOOL_ID = 'tool.pdf.images';
 const PLAN_DEBOUNCE_MS = 250;
 const THUMBNAIL_SIZE = 320;
 const IMAGE_DRAG_TYPE = 'application/x-fileforge-image';
 const GAP_MM = 4;
+const OPTIONS_SCHEMA_VERSION = 1;
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'jpg',
@@ -55,14 +42,6 @@ const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'bmp',
   'tiff',
   'tif',
-]);
-
-const TERMINAL_STATUSES = new Set<string>([
-  'success',
-  'failed',
-  'partial_success',
-  'cancelled',
-  'interrupted',
 ]);
 
 type PageSize = 'a4' | 'letter' | 'a5';
@@ -90,11 +69,6 @@ interface PageDimensions {
 interface SelectOption<T extends string | number> {
   value: T;
   label: string;
-}
-
-interface Notice {
-  tone: 'warning' | 'danger';
-  text: string;
 }
 
 const PAGE_SIZES_MM: Record<PageSize, PageDimensions> = {
@@ -127,6 +101,69 @@ const MARGIN_OPTIONS: readonly SelectOption<number>[] = [
 ];
 
 const PER_PAGE_OPTIONS: readonly PerPage[] = [1, 2, 4, 6, 9];
+
+type PdfFromImagesOptions = {
+  pageSize: PageSize;
+  orientation: Orientation;
+  perPage: PerPage;
+  fit: Fit;
+  marginMm: number;
+};
+
+function defaultOptions(): PdfFromImagesOptions {
+  return {
+    pageSize: 'a4',
+    orientation: 'portrait',
+    perPage: 4,
+    fit: 'contain',
+    marginMm: 10,
+  };
+}
+
+function normalizeOptions(
+  stored: Record<string, unknown>,
+): Partial<PdfFromImagesOptions> {
+  const result: Partial<PdfFromImagesOptions> = {};
+
+  const pageSize = stored['pageSize'];
+  if (
+    typeof pageSize === 'string' &&
+    PAGE_SIZE_OPTIONS.some((option) => option.value === pageSize)
+  ) {
+    result.pageSize = pageSize as PageSize;
+  }
+
+  const orientation = stored['orientation'];
+  if (
+    typeof orientation === 'string' &&
+    ORIENTATION_OPTIONS.some((option) => option.value === orientation)
+  ) {
+    result.orientation = orientation as Orientation;
+  }
+
+  const perPage = stored['perPage'];
+  if (
+    typeof perPage === 'number' &&
+    PER_PAGE_OPTIONS.some((option) => option === perPage)
+  ) {
+    result.perPage = perPage as PerPage;
+  }
+
+  const fit = stored['fit'];
+  if (typeof fit === 'string' && FIT_OPTIONS.some((option) => option.value === fit)) {
+    result.fit = fit as Fit;
+  }
+
+  const margin = stored['marginMm'];
+  if (
+    typeof margin === 'number' &&
+    MARGIN_OPTIONS.some((option) => option.value === margin)
+  ) {
+    result.marginMm = margin;
+  }
+
+  return result;
+}
 
 /** One grid shape per images-per-page count, rotated for landscape pages. */
 function gridShape(perPage: PerPage, orientation: Orientation): ImagesGrid {
@@ -164,8 +201,53 @@ function gridShape(perPage: PerPage, orientation: Orientation): ImagesGrid {
 export class PdfFromImages implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
-  private readonly activity = inject(ActivityService);
   readonly i18n = inject(I18nService);
+  private readonly wailsService = inject(Wails);
+
+  private readonly settings = createToolOptions(this.preferences, {
+    toolId: PDF_IMAGES_TOOL_ID,
+    schemaVersion: OPTIONS_SCHEMA_VERSION,
+    defaults: defaultOptions,
+    normalize: normalizeOptions,
+  });
+
+  private readonly job: ToolRunController = new ToolRunController({
+    toolId: PDF_IMAGES_TOOL_ID,
+    wails: this.wailsService,
+    i18n: this.i18n,
+    activity: inject(ActivityService),
+    dropIntake: this.dropIntake,
+    initialOutputDir: this.preferences.defaultOutputDir(),
+    buildRequest: () => this.buildRequest(),
+    acceptsPath: (path) =>
+      SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase()),
+    canPlan: () => this.selectedPaths().length > 0,
+    canRun: () => this.canRun(),
+    loadThumbnails: false,
+    alwaysRefreshPlanBeforeRun: false,
+    describeFileInfo: () => '',
+    afterPathsChanged: (previous, paths) => {
+      this.applyPlacements(previous, paths);
+      this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
+    },
+    noticeText: (rejected) =>
+      rejected.length > 0
+        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
+        : null,
+    messages: {
+      start: 'pdfFromImages.error.start',
+      planFailed: 'pdfFromImages.error.plan',
+      waiting: 'pdfFromImages.status.waiting',
+      inspectFailed: 'pdfFromImages.error.inspect',
+      statusMissing: 'pdfFromImages.error.status',
+      cancelFailed: 'pdfFromImages.error.cancel',
+      openFileFailed: 'pdfFromImages.error.openFile',
+      revealFailed: 'pdfFromImages.error.openFolder',
+    },
+    onRunAccepted: () => {
+      this.settings.save(this.currentOptions());
+    },
+  });
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -186,7 +268,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
   readonly gapMm = GAP_MM;
   readonly fileName = fileName;
 
-  readonly selectedPaths = signal<string[]>([]);
+  readonly selectedPaths = this.job.selectedPaths;
   /** Grid positions keyed by input path so order changes never detach them. */
   readonly placements = signal<Record<string, Placement>>({});
   readonly pageSize = signal<PageSize>('a4');
@@ -196,22 +278,28 @@ export class PdfFromImages implements OnDestroy, OnInit {
   readonly marginMm = signal<number>(10);
   readonly thumbnails = signal<Record<string, string>>({});
 
-  readonly outputDir = signal(this.preferences.defaultOutputDir());
+  readonly outputDir = this.job.outputDir;
 
-  readonly plan = signal<PlanJobResponse | null>(null);
-  readonly planError = signal<JobError | null>(null);
-  readonly planLoading = signal(false);
+  readonly plan = this.job.plan;
+  readonly planError = this.job.planError;
+  readonly planLoading = this.job.planLoading;
 
-  readonly jobResult = signal<JobResult | null>(null);
-  readonly jobError = signal<JobError | null>(null);
-  readonly outputInfos = signal<Record<string, FileInfo>>({});
+  readonly jobResult = this.job.jobResult;
+  readonly jobError = this.job.jobError;
+  readonly outputInfos = this.job.outputInfos;
 
-  readonly isSubmitting = signal(false);
-  readonly isPolling = signal(false);
-  readonly activeJobId = signal('');
+  readonly isSubmitting = this.job.isSubmitting;
+  readonly isPolling = this.job.isPolling;
+  readonly activeJobId = this.job.activeJobId;
 
-  readonly notice = signal<Notice | null>(null);
-  readonly actionMessage = signal('');
+  readonly notice = this.job.notice;
+  readonly actionMessage = this.job.actionMessage;
+  readonly terminalJob = this.job.terminalJob;
+  readonly showProgress = this.job.showProgress;
+  readonly jobErrorCopy = this.job.jobErrorCopy;
+  readonly verification = this.job.verification;
+  readonly verificationLoading = this.job.verificationLoading;
+  readonly verificationUnavailable = this.job.verificationUnavailable;
   readonly dragOverSlot = signal<string | null>(null);
   readonly dragOverTray = signal(false);
 
@@ -342,44 +430,14 @@ export class PdfFromImages implements OnDestroy, OnInit {
     return '';
   });
 
-  readonly terminalJob = computed<JobResult | null>(() => {
-    const job = this.jobResult();
-    return job && this.isTerminalStatus(job.status) ? job : null;
-  });
-
-  readonly showProgress = computed(() => {
-    const job = this.jobResult();
-    return !!job && !this.isTerminalStatus(job.status);
-  });
-
-  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
-    const error = this.jobError();
-    return error
-      ? localizeToolError(
-          (key) => this.i18n.t(key),
-          describeToolError(error, this.i18n.t('pdfFromImages.error.start')),
-        )
-      : null;
-  });
-
-  private jobSubscription: Subscription | null = null;
-  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private planToken = 0;
-  private planDirty = false;
-
-  constructor(private readonly wailsService: Wails) {}
-
-  ngOnDestroy(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
+  ngOnInit(): void {
+    this.restoreOptions();
+    this.job.takePendingDrop('/pdf-from-images');
+    this.job.resume();
   }
 
-  ngOnInit(): void {
-    const pending = this.dropIntake.take('/pdf-from-images');
-    if (pending.length > 0) {
-      this.onPathsSelected(pending);
-    }
-    this.resumeBackgroundJob();
+  ngOnDestroy(): void {
+    this.job.dispose();
   }
 
   fileCountLabel(): string {
@@ -443,79 +501,22 @@ export class PdfFromImages implements OnDestroy, OnInit {
   }
 
   onPathsSelected(paths: string[]): void {
-    const incoming = (Array.isArray(paths) ? paths : [])
-      .map((path) => path.trim())
-      .filter((path) => path.length > 0);
-    if (incoming.length === 0) {
-      return;
-    }
-
-    const known = new Set(this.selectedPaths());
-    const added: string[] = [];
-    const rejected: string[] = [];
-
-    for (const path of incoming) {
-      if (!SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase())) {
-        rejected.push(path);
-        continue;
-      }
-      if (known.has(path)) {
-        continue;
-      }
-      known.add(path);
-      added.push(path);
-    }
-
-    this.notice.set(
-      rejected.length > 0
-        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
-        : null,
-    );
-
-    if (added.length === 0) {
-      return;
-    }
-
-    this.actionMessage.set('');
-    this.selectedPaths.set([...this.selectedPaths(), ...added]);
-    this.placements.update((placements) =>
-      this.fillEmptyCells(placements, added),
-    );
-    this.loadThumbnails(added);
-    this.schedulePlanRefresh();
+    this.job.onPathsSelected(paths);
   }
 
   async chooseFiles(): Promise<void> {
     const paths = await this.wailsService.openMultipleFilesDialog();
     if (paths.length > 0) {
-      this.onPathsSelected(paths);
+      this.job.onPathsSelected(paths);
     }
   }
 
   clear(): void {
-    if (this.selectedPaths().length === 0) {
-      return;
-    }
-    this.selectedPaths.set([]);
-    this.placements.set({});
-    this.notice.set(null);
-    this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.job.clear();
   }
 
   removeImage(path: string): void {
-    const next = this.selectedPaths().filter((candidate) => candidate !== path);
-    if (next.length === this.selectedPaths().length) {
-      return;
-    }
-    this.selectedPaths.set(next);
-    this.placements.update((placements) => {
-      const updated = { ...placements };
-      delete updated[path];
-      return updated;
-    });
-    this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.job.removeFile(path);
   }
 
   unplace(path: string): void {
@@ -528,7 +529,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
       return updated;
     });
     this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   placeFromTray(path: string): void {
@@ -585,7 +586,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
 
     this.placements.set(next);
     this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   moveSlot(path: string, direction: MoveDirection): void {
@@ -622,7 +623,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     }
     this.fit.set(fit);
     this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   onPageSizeChange(event: Event): void {
@@ -635,7 +636,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     }
     this.pageSize.set(value);
     this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   onMarginChange(event: Event): void {
@@ -648,7 +649,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     }
     this.marginMm.set(value);
     this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   async chooseOutputFolder(): Promise<void> {
@@ -658,7 +659,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     }
     this.outputDir.set(directory);
     this.actionMessage.set('');
-    await this.refreshPlan();
+    await this.job.refreshPlan();
   }
 
   useFirstImageFolder(): void {
@@ -666,7 +667,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
       return;
     }
     this.outputDir.set('');
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   onDragStart(event: DragEvent, path: string | null): void {
@@ -759,99 +760,19 @@ export class PdfFromImages implements OnDestroy, OnInit {
   }
 
   async run(): Promise<void> {
-    if (!this.canRun()) {
-      return;
-    }
-
-    this.clearPlanRefreshTimer();
-    this.actionMessage.set('');
-
-    if (this.planLoading() || this.planDirty || !this.plan()?.success) {
-      const planned = await this.refreshPlan();
-      if (!planned) {
-        return;
-      }
-    }
-
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(true);
-
-    const response: RunJobResponse = await this.wailsService
-      .runJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('pdfFromImages.error.start'),
-        jobId: '',
-        status: 'failed' as const,
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message: this.i18n.t('pdfFromImages.error.start'),
-        },
-      }));
-    if (!response.success || !response.jobId) {
-      this.jobError.set(
-        response.error ?? {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message: response.message || this.i18n.t('pdfFromImages.error.start'),
-        },
-      );
-      this.isSubmitting.set(false);
-      return;
-    }
-
-    const total = this.selectedPaths().length;
-    this.activeJobId.set(response.jobId);
-    this.jobResult.set({
-      jobId: response.jobId,
-      success: false,
-      message: this.i18n.t('pdfFromImages.status.waiting'),
-      toolId: PDF_IMAGES_TOOL_ID,
-      status: 'queued',
-      progress: {
-        current: 0,
-        total,
-        stage: 'queued',
-        message: this.i18n.t('pdfFromImages.status.waiting'),
-      },
-      items: [],
-      startedAt: Date.now(),
-    });
-    this.isSubmitting.set(false);
-    this.isPolling.set(true);
-    this.startObserving();
+    await this.job.run();
   }
 
   async cancel(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-    const response = await this.wailsService.cancelJob(jobId);
-    if (!response.success) {
-      this.actionMessage.set(
-        response.message || this.i18n.t('pdfFromImages.error.cancel'),
-      );
-    }
+    await this.job.cancel();
   }
 
   async onOpen(path: string): Promise<void> {
-    const response = await this.wailsService.openPath(path);
-    this.actionMessage.set(
-      response.success ? '' : response.message || this.i18n.t('pdfFromImages.error.openFile'),
-    );
+    await this.job.openPath(path);
   }
 
   async onReveal(path: string): Promise<void> {
-    const response = await this.wailsService.revealInFolder(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('pdfFromImages.error.openFolder'),
-    );
+    await this.job.revealPath(path);
   }
 
   /** The tool always renders one PDF, so retry reruns every current input. */
@@ -860,40 +781,41 @@ export class PdfFromImages implements OnDestroy, OnInit {
       return;
     }
 
-    this.clearPlanRefreshTimer();
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.actionMessage.set('');
+    this.job.clearRunOutcome();
 
-    const planned = await this.refreshPlan();
+    const planned = await this.job.refreshPlan();
     if (!planned) {
       return;
     }
 
-    await this.run();
+    await this.job.run();
   }
 
   reset(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
-    this.planToken += 1;
-    this.planDirty = false;
-
-    this.selectedPaths.set([]);
+    this.job.reset();
     this.placements.set({});
     this.thumbnails.set({});
-    this.plan.set(null);
-    this.planError.set(null);
-    this.planLoading.set(false);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(false);
-    this.activeJobId.set('');
-    this.notice.set(null);
-    this.actionMessage.set('');
     this.dragOverSlot.set(null);
     this.dragOverTray.set(false);
+  }
+
+  private currentOptions(): PdfFromImagesOptions {
+    return {
+      pageSize: this.pageSize(),
+      orientation: this.orientation(),
+      perPage: this.perPage(),
+      fit: this.fit(),
+      marginMm: this.marginMm(),
+    };
+  }
+
+  private restoreOptions(): void {
+    const options = this.settings.restore();
+    this.pageSize.set(options.pageSize);
+    this.orientation.set(options.orientation);
+    this.perPage.set(options.perPage);
+    this.fit.set(options.fit);
+    this.marginMm.set(options.marginMm);
   }
 
   private buildRequest(): JobRequest {
@@ -936,10 +858,38 @@ export class PdfFromImages implements OnDestroy, OnInit {
     return slots;
   }
 
+  /**
+   * Keeps grid positions in sync with the queue: removed images lose their
+   * placement and newly added ones fill the empty cells in order.
+   */
+  private applyPlacements(
+    previousPaths: readonly string[],
+    paths: readonly string[],
+  ): void {
+    const previous = new Set(previousPaths);
+    const current = new Set(paths);
+    const added = paths.filter((path) => !previous.has(path));
+
+    const existing = this.placements();
+    const next: Record<string, Placement> = {};
+    for (const [path, placement] of Object.entries(existing)) {
+      if (current.has(path)) {
+        next[path] = placement;
+      }
+    }
+
+    this.placements.set(this.fillEmptyCells(next, [...added]));
+    this.loadThumbnails(added);
+  }
+
   private fillEmptyCells(
     placements: Record<string, Placement>,
-    paths: string[],
+    paths: readonly string[],
   ): Record<string, Placement> {
+    if (paths.length === 0) {
+      return placements;
+    }
+
     const next = { ...placements };
     const cells = this.grid().cells;
     const occupied = new Set(
@@ -1029,7 +979,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     this.actionMessage.set('');
 
     if (this.selectedPaths().length === 0) {
-      this.schedulePlanRefresh();
+      this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
       return;
     }
 
@@ -1067,245 +1017,10 @@ export class PdfFromImages implements OnDestroy, OnInit {
       tone: 'warning',
       text: this.i18n.t('pdfFromImages.notice.gridChanged'),
     });
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
-  private async refreshPlan(): Promise<boolean> {
-    this.clearPlanRefreshTimer();
-
-    if (this.selectedPaths().length === 0) {
-      this.planToken += 1;
-      this.planDirty = false;
-      this.plan.set(null);
-      this.planError.set(null);
-      this.planLoading.set(false);
-      return false;
-    }
-
-    const token = (this.planToken += 1);
-    this.planLoading.set(true);
-    this.plan.set(null);
-    this.planError.set(null);
-
-    const response: PlanJobResponse = await this.wailsService
-      .planJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('pdfFromImages.error.plan'),
-        outputs: [],
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'PLAN_JOB_FAILED',
-          message: this.i18n.t('pdfFromImages.error.plan'),
-        },
-      }));
-    if (token !== this.planToken) {
-      return false;
-    }
-
-    this.planLoading.set(false);
-    this.planDirty = false;
-
-    if (response.success && !response.error) {
-      this.plan.set(response);
-      return true;
-    }
-
-    const error: JobError = response.error ?? {
-      code: 'VALIDATION_INVALID_INPUT',
-      detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || this.i18n.t('pdfFromImages.error.plan'),
-    };
-    // Keep the failed plan so the shared plan card shows the error in context.
-    this.plan.set({ ...response, success: false, error });
-    this.planError.set(error);
-    return false;
-  }
-
-  private schedulePlanRefresh(): void {
-    this.planDirty = true;
-    // Invalidate an in-flight plan: it was built from the previous layout.
-    this.planToken += 1;
-    this.clearPlanRefreshTimer();
-    this.planRefreshTimer = setTimeout(() => {
-      this.planRefreshTimer = null;
-      void this.refreshPlan();
-    }, PLAN_DEBOUNCE_MS);
-  }
-
-  private clearPlanRefreshTimer(): void {
-    if (this.planRefreshTimer) {
-      clearTimeout(this.planRefreshTimer);
-      this.planRefreshTimer = null;
-    }
-  }
-
-  private resumeBackgroundJob(): void {
-    resumeToolJob({
-      activity: this.activity,
-      toolId: PDF_IMAGES_TOOL_ID,
-      activeJobId: this.activeJobId,
-      jobResult: this.jobResult,
-      jobError: this.jobError,
-      startObserving: () => this.startObserving(),
-    });
-  }
-
-  private startObserving(): void {
-    this.stopObserving();
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    this.isPolling.set(true);
-    this.jobSubscription = observeJob(this.wailsService, jobId, {
-      onProgress: (event) => this.applyJobProgress(event),
-      onState: (result) => this.applyJobStatus(result),
-      onMissing: (response) => this.handleMissingJob(response),
-    });
-  }
-
-  private stopObserving(): void {
-    if (this.jobSubscription) {
-      this.jobSubscription.unsubscribe();
-      this.jobSubscription = null;
-    }
-    this.isPolling.set(false);
-  }
-
-  private applyJobProgress(event: JobProgressEvent): void {
-    if (!event) {
-      return;
-    }
-
-    const current = this.jobResult();
-    if (!current) {
-      return;
-    }
-
-    this.jobResult.set({
-      ...current,
-      message: event.progress.message,
-      progress: event.progress,
-      // The terminal snapshot arrives on jobs/state; a progress event can
-      // overtake the complete result, so the current status is kept.
-      status: this.isTerminalStatus(event.status)
-        ? current.status
-        : (event.status as JobExecutionStatus),
-    });
-
-    if (this.isTerminalStatus(event.status)) {
-      void this.reconcileJobStatus();
-    }
-  }
-
-  private applyJobStatus(result: JobResult): void {
-    if (!result) {
-      return;
-    }
-
-    this.jobResult.set(result);
-    if (this.isTerminalStatus(result.status)) {
-      this.stopObserving();
-      this.activeJobId.set('');
-      void this.loadOutputInfos();
-    }
-  }
-
-  /** The backend no longer tracks the adopted job (restart or retention). */
-  private handleMissingJob(response: JobStatusResponse): void {
-    if (!this.activeJobId()) {
-      return;
-    }
-
-    this.stopObserving();
-    this.activeJobId.set('');
-    this.jobError.set(
-      response.error ?? {
-        code: 'EXEC_IO_TRANSIENT',
-        detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || this.i18n.t('pdfFromImages.error.status'),
-      },
-    );
-  }
-
-  /**
-   * One-shot recovery when a terminal progress event arrives before its
-   * jobs/state snapshot. This is never a timer, and it is a no-op once the
-   * page has already settled the job.
-   */
-  private async reconcileJobStatus(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    const response = await this.wailsService
-      .getJobStatus(jobId)
-      .catch(() => null);
-    if (!response || this.activeJobId() !== jobId) {
-      return;
-    }
-
-    if (!response.found || !response.result) {
-      this.handleMissingJob(response);
-      return;
-    }
-
-    this.applyJobStatus(response.result);
-  }
-
-  private async loadOutputInfos(): Promise<void> {
-    const paths = this.collectOutputPaths();
-    if (paths.length === 0) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const response: InspectFilesResponse = await this.wailsService
-      .inspectFiles(paths)
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('pdfFromImages.error.inspect'),
-        files: [],
-      }));
-    if (!response.success) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const infos: Record<string, FileInfo> = {};
-    for (const info of response.files) {
-      if (info.path) {
-        infos[info.path] = info;
-      }
-    }
-    this.outputInfos.set(infos);
-  }
-
-  private collectOutputPaths(): string[] {
-    const paths = new Set<string>();
-    for (const item of this.jobResult()?.items ?? []) {
-      if (!item.success) {
-        continue;
-      }
-      const outputs =
-        item.outputs && item.outputs.length > 0
-          ? item.outputs
-          : item.outputPath
-            ? [item.outputPath]
-            : [];
-      for (const output of outputs) {
-        if (output) {
-          paths.add(output);
-        }
-      }
-    }
-    return [...paths];
-  }
-
-  private loadThumbnails(paths: string[]): void {
+  private loadThumbnails(paths: readonly string[]): void {
     for (const path of paths) {
       if (this.thumbnails()[path]) {
         continue;
@@ -1352,7 +1067,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     }
   }
 
-  private rejectionNotice(rejected: string[]): string {
+  private rejectionNotice(rejected: readonly string[]): string {
     const extensions = [
       ...new Set(
         rejected.map(
@@ -1385,9 +1100,5 @@ export class PdfFromImages implements OnDestroy, OnInit {
 
   private readValue(event: Event): string {
     return (event.target as HTMLInputElement | null)?.value ?? '';
-  }
-
-  private isTerminalStatus(status: string): boolean {
-    return TERMINAL_STATUSES.has(status);
   }
 }

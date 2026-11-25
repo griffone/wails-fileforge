@@ -39,6 +39,7 @@ import {
   fileName,
   formatRelativeTime,
 } from '../../utils/format';
+import { jobStatusDefinition } from '../../utils/job-status';
 
 type CategoryFilter = 'all' | ToolCategory;
 
@@ -246,34 +247,12 @@ export class Home implements OnInit {
   }
 
   statusLabel(status: string): string {
-    switch (status) {
-      case 'success':
-        return this.i18n.t('home.status.success');
-      case 'partial_success':
-        return this.i18n.t('home.status.partial');
-      case 'failed':
-        return this.i18n.t('home.status.failed');
-      case 'cancelled':
-        return this.i18n.t('home.status.cancelled');
-      case 'interrupted':
-        return this.i18n.t('home.status.interrupted');
-      default:
-        return status;
-    }
+    const key = jobStatusDefinition(status)?.labels.home;
+    return key ? this.i18n.t(key) : status;
   }
 
   statusClass(status: string): string {
-    switch (status) {
-      case 'success':
-        return 'badge-success';
-      case 'partial_success':
-      case 'interrupted':
-        return 'badge-warning';
-      case 'failed':
-        return 'badge-danger';
-      default:
-        return 'badge-neutral';
-    }
+    return jobStatusDefinition(status)?.tones.home ?? 'badge-neutral';
   }
 
   firstOutput(entry: RecentConversion): string {

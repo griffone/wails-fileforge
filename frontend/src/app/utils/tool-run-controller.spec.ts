@@ -397,6 +397,58 @@ describe('ToolRunController', () => {
     expect(controller.verificationUnavailable()).toBeTrue();
   });
 
+  it('verifies a settled job so the result card can render the report', fakeAsync(() => {
+    controller.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    void controller.run();
+    flushMicrotasks();
+
+    jobState.next(jobResult('success'));
+    flushMicrotasks();
+
+    expect(verifyJob).toHaveBeenCalledOnceWith('job-1');
+    expect(controller.verification()?.outputs.length).toBe(1);
+    expect(controller.verificationLoading()).toBeFalse();
+  }));
+
+  it('lets a page override the intake copy and read inspected files', fakeAsync(() => {
+    const inspected: FileInfo[][] = [];
+    const custom = create({
+      noticeText: (rejected) =>
+        rejected.length > 0
+          ? { tone: 'warning', text: `custom:${rejected.length}` }
+          : null,
+      onFilesInspected: (infos) => inspected.push(infos),
+    });
+
+    custom.onPathsSelected(['/tmp/notes.txt', '/tmp/a.pdf']);
+    flushMicrotasks();
+
+    expect(custom.notice()?.text).toBe('custom:1');
+    expect(inspected.length).toBe(1);
+    expect(inspected[0][0].path).toBe('/tmp/a.pdf');
+  }));
+
+  it('lets a page skip output paths it renders as a folder summary', fakeAsync(() => {
+    const grouped = create({
+      collectOutputPaths: () => [],
+    });
+
+    grouped.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    inspectFiles.calls.reset();
+    void grouped.run();
+    flushMicrotasks();
+
+    jobState.next(jobResult('success'));
+    flushMicrotasks();
+
+    expect(inspectFiles).not.toHaveBeenCalled();
+    expect(grouped.outputInfos()).toEqual({});
+  }));
+
   it('undoes a job and swaps the action to restore', async () => {
     controller.jobResult.set(jobResult('success'));
 

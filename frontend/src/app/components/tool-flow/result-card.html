@@ -124,9 +124,9 @@
           [attr.aria-label]="i18n.t('resultCard.verificationAria')"
           aria-live="polite"
         >
-          @if (verifyLoading) {
+          @if (verifyStateLoading()) {
             <p class="verify-state">{{ i18n.t('resultCard.checking') }}</p>
-          } @else if (verifyUnavailable) {
+          } @else if (verifyStateUnavailable()) {
             <p class="verify-state">{{ i18n.t('resultCard.verifyUnavailable') }}</p>
           } @else if (verifyReport) {
             <div class="verify-head">

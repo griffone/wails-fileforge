@@ -214,6 +214,9 @@ export class PdfOptimize implements OnDestroy, OnInit {
   readonly terminalJob = this.job.terminalJob;
   readonly showProgress = this.job.showProgress;
   readonly jobErrorCopy = this.job.jobErrorCopy;
+  readonly verification = this.job.verification;
+  readonly verificationLoading = this.job.verificationLoading;
+  readonly verificationUnavailable = this.job.verificationUnavailable;
 
   readonly compress = signal(true);
   readonly metadata = signal<MetadataValues>(emptyMetadata());

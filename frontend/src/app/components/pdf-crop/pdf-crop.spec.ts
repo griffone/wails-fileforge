@@ -9,6 +9,7 @@ import { Subject } from 'rxjs';
 
 import { PdfCrop } from './pdf-crop';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobProgressEvent,
@@ -122,6 +123,7 @@ describe('PdfCrop', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -195,6 +197,7 @@ describe('PdfCrop', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('plans one PDF as single with the default Small preset', fakeAsync(() => {

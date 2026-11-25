@@ -29,6 +29,7 @@ import type { TranslationKey } from '../i18n';
 import type { RunAgainStartedEvent } from '../components/tool-flow/result-card';
 import { FileQueueItem } from '../components/tool-flow/tool-flow.types';
 import { fileName } from './format';
+import { isTerminalJobStatus } from './job-status';
 import { observeJob } from './job-stream';
 import { resumeToolJob } from './resume-task';
 
@@ -83,6 +84,11 @@ export interface ToolRunControllerConfig {
   extraBlocked?: () => boolean;
   /** Page-specific metadata line for a queue item. */
   describeFileInfo: (info: FileInfo) => string;
+  /**
+   * Output paths to inspect for sizes after a terminal job. Defaults to every
+   * successful output; a page may skip results it renders as a folder summary.
+   */
+  collectOutputPaths?: () => string[];
   initialOutputDir?: string;
   /** Defaults to true; transcription emits no thumbnails. */
   loadThumbnails?: boolean;
@@ -92,7 +98,25 @@ export interface ToolRunControllerConfig {
    */
   alwaysRefreshPlanBeforeRun?: boolean;
   messages: ToolRunMessageKeys;
-  notice: ToolRunNoticeKeys;
+  /**
+   * Copy for the shared intake notice. A page whose intake never goes through
+   * `onPathsSelected` (single-file tools) omits it.
+   */
+  notice?: ToolRunNoticeKeys;
+  /**
+   * Page-specific intake copy (for example "2 files skipped: .txt"), used
+   * instead of the built-in rejected/duplicate sentences. It returns null when
+   * the page wants no notice at all.
+   */
+  noticeText?: (
+    rejected: readonly string[],
+    duplicates: readonly string[],
+  ) => { tone: 'warning' | 'danger'; text: string } | null;
+  /**
+   * Receives every successful inspection of the queue, for pages that derive
+   * extra UI from it (input totals, preview page size).
+   */
+  onFilesInspected?: (infos: FileInfo[]) => void;
   /**
    * Runs after the queue changed. Defaults to an immediate plan refresh; the
    * page may debounce it or refresh a preview as well.
@@ -106,14 +130,6 @@ export interface ToolRunControllerConfig {
   /** Applies a request's options before a run-again job is adopted. */
   onRunAgainAdopted?: (request: JobRequest) => void;
 }
-
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
-  'success',
-  'failed',
-  'partial_success',
-  'cancelled',
-  'interrupted',
-]);
 
 const DEFAULT_PLAN_DEBOUNCE_MS = 250;
 const THUMBNAIL_SIZE = 160;
@@ -176,6 +192,7 @@ export class ToolRunController {
   private planToken = 0;
   private planDirty = false;
   private fileItemsGeneration = 0;
+  private readonly autoVerifiedJobIds = new Set<string>();
 
   constructor(private readonly config: ToolRunControllerConfig) {
     this.outputDir = signal(config.initialOutputDir ?? '');
@@ -527,6 +544,7 @@ export class ToolRunController {
     this.actionMessage.set('');
     this.clearVerification();
     this.resetUndoState();
+    this.autoVerifiedJobIds.clear();
   }
 
   /** Full read-back for the current terminal job, if any. */
@@ -692,7 +710,20 @@ export class ToolRunController {
       this.stopObserving();
       this.activeJobId.set('');
       void this.loadOutputInfos();
+      this.autoVerify(result.jobId);
     }
+  }
+
+  /**
+   * Read-back for a job that just settled. The result card renders whatever
+   * this produces, so the page and the card never verify the same job twice.
+   */
+  private autoVerify(jobId: string): void {
+    if (!jobId || this.autoVerifiedJobIds.has(jobId)) {
+      return;
+    }
+    this.autoVerifiedJobIds.add(jobId);
+    void this.verifyOutputs(jobId);
   }
 
   /** The backend no longer tracks the adopted job (restart or retention). */
@@ -741,7 +772,8 @@ export class ToolRunController {
   }
 
   private async loadOutputInfos(): Promise<void> {
-    const paths = this.collectOutputPaths();
+    const paths =
+      this.config.collectOutputPaths?.() ?? this.collectOutputPaths();
     if (paths.length === 0) {
       this.outputInfos.set({});
       return;
@@ -806,6 +838,7 @@ export class ToolRunController {
             return meta ? { ...item, meta } : item;
           }),
         );
+        this.config.onFilesInspected?.(response.files);
       }
     } catch {
       // Inspection is optional: the queue keeps the file name and path.
@@ -849,8 +882,15 @@ export class ToolRunController {
     rejected: string[],
     duplicates: string[],
   ): { tone: 'warning' | 'danger'; text: string } | null {
+    if (this.config.noticeText) {
+      return this.config.noticeText(rejected, duplicates);
+    }
+
     const parts: string[] = [];
     const keys = this.config.notice;
+    if (!keys) {
+      return null;
+    }
 
     if (rejected.length === 1) {
       parts.push(
@@ -965,7 +1005,7 @@ export class ToolRunController {
   }
 
   private isTerminalStatus(status: string): boolean {
-    return TERMINAL_STATUSES.has(status);
+    return isTerminalJobStatus(status);
   }
 
   private planFailure(): PlanJobResponse {

@@ -9,6 +9,7 @@ import { Subject } from 'rxjs';
 
 import { VideoMerge } from './video-merge';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobProgressEvent,
@@ -125,6 +126,7 @@ describe('VideoMerge', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -204,6 +206,7 @@ describe('VideoMerge', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('requires at least two videos', fakeAsync(() => {

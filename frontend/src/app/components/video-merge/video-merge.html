@@ -246,6 +246,9 @@
       <app-result-card
         [job]="job"
         [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
         toolLabel="video"
         (open)="onOpen($event)"
         (reveal)="onReveal($event)"

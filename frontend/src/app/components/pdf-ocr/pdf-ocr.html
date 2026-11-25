@@ -247,6 +247,9 @@
       <app-result-card
         [job]="job"
         [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
         toolLabel="PDF"
         verbPast="made searchable"
         (open)="onOpen($event)"

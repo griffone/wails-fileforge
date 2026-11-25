@@ -39,7 +39,6 @@ import {
 } from '../../services/tool-error';
 import {
   RecentConversionsService,
-  isTerminalJobStatus,
 } from '../../services/recent-conversions.service';
 import {
   LastRequestService,
@@ -48,6 +47,10 @@ import {
 import { I18nService } from '../../services/i18n.service';
 import type { TranslationKey } from '../../i18n';
 import { fileDir, fileName, formatBytes, formatCount } from '../../utils/format';
+import {
+  isTerminalJobStatus,
+  jobStatusDefinition,
+} from '../../utils/job-status';
 
 const GROUP_OUTPUT_LIMIT = 4;
 
@@ -127,8 +130,16 @@ export class ResultCard implements DoCheck {
   private readonly verificationRequestedJobIds = new Set<string>();
 
   verifyReport: VerificationReport | null = null;
-  verifyLoading = false;
-  verifyUnavailable = false;
+  private verifyLoadingInternal = false;
+  private verifyUnavailableInternal = false;
+
+  /**
+   * Supplied by pages that read the job through the shared run controller.
+   * When a report is supplied the card renders that state instead of fetching
+   * its own, so the page and the card never verify the same job twice.
+   */
+  @Input() verificationLoading = false;
+  @Input() verificationUnavailable = false;
 
   undoBusy = false;
   undoMessage = '';
@@ -176,7 +187,7 @@ export class ResultCard implements DoCheck {
     this.verifyReport = value;
     this.pendingVerify = false;
     this.cancelVerificationRequest();
-    this.verifyUnavailable = false;
+    this.verifyUnavailableInternal = false;
   }
 
   get verification(): VerificationReport | null {
@@ -258,12 +269,12 @@ export class ResultCard implements DoCheck {
 
   private cancelVerificationRequest(): void {
     this.verificationGeneration += 1;
-    this.verifyLoading = false;
+    this.verifyLoadingInternal = false;
   }
 
   private resetAutoVerification(): void {
     this.cancelVerificationRequest();
-    this.verifyUnavailable = false;
+    this.verifyUnavailableInternal = false;
     if (!this.verificationInputProvided) {
       this.verifyReport = null;
     }
@@ -285,8 +296,8 @@ export class ResultCard implements DoCheck {
     this.verificationRequestedJobIds.add(job.jobId);
     const generation = ++this.verificationGeneration;
     this.verifyReport = null;
-    this.verifyUnavailable = false;
-    this.verifyLoading = true;
+    this.verifyUnavailableInternal = false;
+    this.verifyLoadingInternal = true;
 
     let report: VerificationReport | null = null;
     try {
@@ -302,32 +313,49 @@ export class ResultCard implements DoCheck {
       return;
     }
 
-    this.verifyLoading = false;
+    this.verifyLoadingInternal = false;
     if (
       !report ||
       !Array.isArray(report.outputs) ||
       report.outputs.length === 0
     ) {
       this.verifyReport = null;
-      this.verifyUnavailable = true;
+      this.verifyUnavailableInternal = true;
       return;
     }
 
     this.verifyReport = report;
-    this.verifyUnavailable = false;
+    this.verifyUnavailableInternal = false;
+  }
+
+  /** Supplied page state wins; otherwise the card reports its own fetch. */
+  verifyStateLoading(): boolean {
+    return this.verificationInputProvided
+      ? this.verificationLoading
+      : this.verifyLoadingInternal;
+  }
+
+  verifyStateUnavailable(): boolean {
+    return this.verificationInputProvided
+      ? this.verificationUnavailable
+      : this.verifyUnavailableInternal;
   }
 
   showVerifyBlock(): boolean {
     return (
       this.outputRows().length > 0 &&
-      (this.verifyLoading ||
-        this.verifyUnavailable ||
+      (this.verifyStateLoading() ||
+        this.verifyStateUnavailable() ||
         this.verifyReport !== null)
     );
   }
 
   verifyTone(): SummaryTone {
-    if (this.verifyLoading || this.verifyUnavailable || !this.verifyReport) {
+    if (
+      this.verifyStateLoading() ||
+      this.verifyStateUnavailable() ||
+      !this.verifyReport
+    ) {
       return 'neutral';
     }
     return this.verificationPassed(this.verifyReport) ? 'success' : 'warning';
@@ -385,7 +413,11 @@ export class ResultCard implements DoCheck {
 
   verifyOutputs(): ResultVerifyOutputRow[] {
     const report = this.verifyReport;
-    if (!report || this.verifyLoading || this.verifyUnavailable) {
+    if (
+      !report ||
+      this.verifyStateLoading() ||
+      this.verifyStateUnavailable()
+    ) {
       return [];
     }
 
@@ -810,43 +842,22 @@ export class ResultCard implements DoCheck {
   }
 
   statusLabel(job: JobResult): string {
-    switch (job.status) {
-      case 'success':
-        return this.i18n.t('home.status.success');
-      case 'partial_success':
-        return this.i18n.t('home.status.partial');
-      case 'failed':
-        return this.i18n.t('home.status.failed');
-      case 'cancelled':
-        return this.i18n.t('home.status.cancelled');
-      case 'interrupted':
-        return this.i18n.t('home.status.interrupted');
-      default:
-        return job.status;
-    }
+    const key = jobStatusDefinition(job.status)?.labels.resultCard;
+    return key ? this.i18n.t(key) : job.status;
   }
 
   summaryTone(job: JobResult | null): SummaryTone {
-    switch (job?.status) {
-      case 'success':
-        return 'success';
-      case 'partial_success':
-      case 'interrupted':
-        return 'warning';
-      case 'failed':
-        return 'danger';
-      default:
-        return 'neutral';
-    }
+    return (
+      (job && jobStatusDefinition(job.status)?.tones.resultCard) || 'neutral'
+    );
   }
 
   summaryIcon(job: JobResult | null) {
-    switch (job?.status) {
+    switch (this.summaryTone(job)) {
       case 'success':
         return this.checkIcon;
-      case 'failed':
-      case 'partial_success':
-      case 'interrupted':
+      case 'danger':
+      case 'warning':
         return this.alertIcon;
       default:
         return this.cancelIcon;

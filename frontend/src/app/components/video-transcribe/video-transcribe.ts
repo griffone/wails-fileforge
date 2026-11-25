@@ -238,6 +238,9 @@ export class VideoTranscribe implements OnDestroy, OnInit {
   readonly terminalJob = this.job.terminalJob;
   readonly showProgress = this.job.showProgress;
   readonly jobErrorCopy = this.job.jobErrorCopy;
+  readonly verification = this.job.verification;
+  readonly verificationLoading = this.job.verificationLoading;
+  readonly verificationUnavailable = this.job.verificationUnavailable;
 
   /** `auto` lets the backend detect the spoken language. */
   readonly language = signal('auto');
