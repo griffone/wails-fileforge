@@ -759,6 +759,140 @@ describe('ImageAnnotate', () => {
     editable.remove();
   });
 
+  it('opens an accessible text dialog and adds the annotation on Enter', fakeAsync(() => {
+    fixture.detectChanges();
+
+    const trigger = fixture.nativeElement.querySelector(
+      '[data-tool="text"]',
+    ) as HTMLButtonElement;
+    trigger.focus();
+
+    component.openTextDialog(12, 34);
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const dialog = element.querySelector(
+      '[role="dialog"]',
+    ) as HTMLElement | null;
+    expect(dialog).toBeTruthy();
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    expect(dialog?.textContent).toContain('Add annotation text');
+
+    const input = dialog?.querySelector('input') as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    const label = dialog?.querySelector('label') as HTMLLabelElement;
+    expect(label?.getAttribute('for')).toBe(input.id);
+
+    input.value = 'Ship it';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    pressKey('Enter', {}, input);
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    expect(component.textDialogOpen()).toBeFalse();
+    expect(element.querySelector('[role="dialog"]')).toBeNull();
+    expect(component.operations().length).toBe(1);
+    expect(component.operations()[0].type).toBe('text');
+    expect(component.operations()[0].text).toBe('Ship it');
+    expect(component.operations()[0].x).toBe(12);
+    expect(component.operations()[0].y).toBe(34);
+    expect(document.activeElement).toBe(trigger);
+
+    tick(250);
+    flushMicrotasks();
+  }));
+
+  it('cancels the text dialog without adding an annotation', fakeAsync(() => {
+    fixture.detectChanges();
+
+    const trigger = fixture.nativeElement.querySelector(
+      '[data-tool="text"]',
+    ) as HTMLButtonElement;
+    trigger.focus();
+
+    component.openTextDialog(5, 6);
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const input = element.querySelector(
+      '[role="dialog"] input',
+    ) as HTMLInputElement;
+    input.value = 'Discard me';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const cancel = element.querySelector(
+      '[role="dialog"] .btn-secondary',
+    ) as HTMLButtonElement;
+    cancel.click();
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    expect(component.textDialogOpen()).toBeFalse();
+    expect(component.operations().length).toBe(0);
+    expect(element.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  }));
+
+  it('closes the text dialog on Escape and restores focus', fakeAsync(() => {
+    fixture.detectChanges();
+
+    const trigger = fixture.nativeElement.querySelector(
+      '[data-tool="rect"]',
+    ) as HTMLButtonElement;
+    trigger.focus();
+
+    component.openTextDialog(7, 8);
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const input = element.querySelector(
+      '[role="dialog"] input',
+    ) as HTMLInputElement;
+
+    const escape = pressKey('Escape', {}, input);
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    expect(escape.defaultPrevented).toBeTrue();
+    expect(component.textDialogOpen()).toBeFalse();
+    expect(component.operations().length).toBe(0);
+    expect(element.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  }));
+
+  it('suppresses page shortcuts while the text dialog is open', fakeAsync(() => {
+    addDefaultOperation();
+    expect(component.operations().length).toBe(1);
+
+    component.openTextDialog(1, 2);
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const cancel = element.querySelector(
+      '[role="dialog"] .btn-secondary',
+    ) as HTMLButtonElement;
+    cancel.focus();
+
+    pressKey('Delete', {}, cancel);
+    fixture.detectChanges();
+
+    expect(component.operations().length).toBe(1);
+
+    component.cancelTextDialog();
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    tick(250);
+    flushMicrotasks();
+  }));
+
   it('refreshes the plan after undo and redo', fakeAsync(() => {
     component.onPathsSelected(['/tmp/photo.png']);
     flushMicrotasks();

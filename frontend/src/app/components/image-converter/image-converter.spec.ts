@@ -650,4 +650,27 @@ describe('ImageConverter', () => {
       element.querySelector('.toolbar .btn-secondary')?.textContent,
     ).toContain('Elegir archivos');
   });
+
+  it('round-trips the advanced disclosure state', () => {
+    const element = fixture.nativeElement as HTMLElement;
+    const details = element.querySelector(
+      'details.advanced',
+    ) as HTMLDetailsElement;
+    expect(details).toBeTruthy();
+    expect(details.open).toBeFalse();
+    expect(component.advancedOpen()).toBeFalse();
+
+    details.open = true;
+    details.dispatchEvent(new Event('toggle'));
+    fixture.detectChanges();
+    expect(component.advancedOpen()).toBeTrue();
+
+    component.advancedOpen.set(false);
+    fixture.detectChanges();
+    expect(details.open).toBeFalse();
+
+    component.advancedOpen.set(true);
+    fixture.detectChanges();
+    expect(details.open).toBeTrue();
+  });
 });

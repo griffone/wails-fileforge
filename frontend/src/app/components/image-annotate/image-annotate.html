@@ -699,3 +699,54 @@
     }
   </div>
 </div>
+
+@if (textDialogOpen()) {
+  <div class="text-dialog-backdrop" aria-hidden="true"></div>
+  <div
+    #textDialog
+    class="text-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="annot-text-dialog-title"
+    aria-describedby="annot-text-dialog-body"
+    (keydown)="onTextDialogKeydown($event)"
+  >
+    <h2 id="annot-text-dialog-title" class="text-dialog-title">
+      {{ i18n.t('imageAnnotate.textDialog.title') }}
+    </h2>
+    <p id="annot-text-dialog-body" class="text-dialog-body">
+      {{ i18n.t('imageAnnotate.textDialog.body') }}
+    </p>
+    <div class="field">
+      <label class="label" for="annot-text-dialog-input">
+        {{ i18n.t('imageAnnotate.textDialog.label') }}
+      </label>
+      <input
+        #textInput
+        id="annot-text-dialog-input"
+        class="input"
+        type="text"
+        autocomplete="off"
+        [value]="textDialogValue()"
+        (input)="onTextDialogInput($event)"
+      />
+    </div>
+    <div class="text-dialog-actions">
+      <button
+        type="button"
+        class="btn btn-secondary btn-sm"
+        (click)="cancelTextDialog()"
+      >
+        {{ i18n.t('imageAnnotate.textDialog.cancel') }}
+      </button>
+      <button
+        type="button"
+        class="btn btn-primary btn-sm"
+        [disabled]="textDialogValue().trim().length === 0"
+        (click)="confirmTextDialog()"
+      >
+        {{ i18n.t('imageAnnotate.textDialog.confirm') }}
+      </button>
+    </div>
+  </div>
+}

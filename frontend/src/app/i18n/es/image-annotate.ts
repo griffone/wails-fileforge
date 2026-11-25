@@ -133,7 +133,12 @@ export const imageAnnotateEs = {
     'Dibuja sobre la imagen o añade una anotación para ejecutar.',
   'imageAnnotate.error.textRequired':
     'Introduce el texto de la anotación de texto.',
-  'imageAnnotate.error.promptText': 'Introduce el texto de la anotación',
+  'imageAnnotate.textDialog.title': 'Añadir texto de anotación',
+  'imageAnnotate.textDialog.body':
+    'Escribe el texto de esta anotación. Enter lo añade, Escape cancela.',
+  'imageAnnotate.textDialog.label': 'Texto de la anotación',
+  'imageAnnotate.textDialog.confirm': 'Añadir texto',
+  'imageAnnotate.textDialog.cancel': 'Cancelar',
   'imageAnnotate.progress.aria': 'Progreso de la anotación',
   'imageAnnotate.destination.original': 'Junto a cada imagen',
   'imageAnnotate.status.waiting': 'Esperando para empezar',

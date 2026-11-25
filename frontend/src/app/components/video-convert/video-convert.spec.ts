@@ -450,6 +450,31 @@ describe('VideoConvert', () => {
     expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 
+  it('round-trips the advanced disclosure state', () => {
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const details = element.querySelector(
+      'details.advanced',
+    ) as HTMLDetailsElement;
+    expect(details).toBeTruthy();
+    expect(details.open).toBeFalse();
+    expect(component.advancedOpen()).toBeFalse();
+
+    details.open = true;
+    details.dispatchEvent(new Event('toggle'));
+    fixture.detectChanges();
+    expect(component.advancedOpen()).toBeTrue();
+
+    component.advancedOpen.set(false);
+    fixture.detectChanges();
+    expect(details.open).toBeFalse();
+
+    component.advancedOpen.set(true);
+    fixture.detectChanges();
+    expect(details.open).toBeTrue();
+  });
+
   it('renders the page copy in Spanish', () => {
     TestBed.inject(I18nService).setLocale('es');
     fixture.detectChanges();

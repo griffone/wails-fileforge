@@ -1,4 +1,5 @@
 import {
+  ChangeDetectorRef,
   Component,
   ElementRef,
   HostListener,
@@ -186,7 +187,10 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   private readonly preferences = inject(PreferencesService);
   readonly i18n = inject(I18nService);
   private readonly wailsService = inject(Wails);
+  private readonly changeDetector = inject(ChangeDetectorRef);
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
+  @ViewChild('textDialog') private textDialog?: ElementRef<HTMLElement>;
+  @ViewChild('textInput') private textInput?: ElementRef<HTMLInputElement>;
 
   private readonly job: ToolRunController = new ToolRunController({
     toolId: IMAGE_ANNOTATE_TOOL_ID,
@@ -287,6 +291,8 @@ export class ImageAnnotate implements OnDestroy, OnInit {
 
   readonly outputFormat = signal('');
   readonly advancedOpen = signal(false);
+  readonly textDialogOpen = signal(false);
+  readonly textDialogValue = signal('');
 
   readonly previewLoading = signal(false);
   readonly previewError = signal('');
@@ -374,6 +380,9 @@ export class ImageAnnotate implements OnDestroy, OnInit {
    */
   private readonly undoStack: ImageAnnotateOperation[][] = [];
   private readonly redoStack: ImageAnnotateOperation[][] = [];
+  /** Where the inline text dialog should place the annotation it creates. */
+  private pendingTextPoint: OverlayPoint | null = null;
+  private textDialogFocusOrigin: HTMLElement | null = null;
 
   ngOnInit(): void {
     this.job.takePendingDrop('/image-annotate');
@@ -455,6 +464,10 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
     if (event.defaultPrevented || event.isComposing) {
+      return;
+    }
+    // The annotation text dialog owns the keyboard while it is open.
+    if (this.textDialogOpen()) {
       return;
     }
     // Never hijack editing keys while the user is typing in a field.
@@ -726,6 +739,72 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   onAdvancedToggle(event: Event): void {
     const target = event.target as HTMLDetailsElement | null;
     this.advancedOpen.set(!!target?.open);
+  }
+
+  /**
+   * Opens the inline text editor for a text annotation. The point is kept
+   * until the dialog is confirmed or cancelled.
+   */
+  openTextDialog(x: number, y: number): void {
+    const active = document.activeElement;
+    this.pendingTextPoint = { x, y };
+    this.textDialogFocusOrigin =
+      active instanceof HTMLElement ? active : null;
+    this.textDialogValue.set('');
+    this.textDialogOpen.set(true);
+    // Render the dialog first so the input exists before focusing it.
+    this.changeDetector.detectChanges();
+    this.textInput?.nativeElement.focus();
+  }
+
+  onTextDialogInput(event: Event): void {
+    this.textDialogValue.set(
+      (event.target as HTMLInputElement | null)?.value ?? '',
+    );
+  }
+
+  onTextDialogKeydown(event: KeyboardEvent): void {
+    if (event.isComposing) {
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelTextDialog();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      this.trapTextDialogFocus(event);
+      return;
+    }
+
+    // Enter confirms from the text field; on the dialog buttons the browser's
+    // native activation already does the right thing.
+    if (
+      event.key === 'Enter' &&
+      event.target instanceof HTMLInputElement
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.confirmTextDialog();
+    }
+  }
+
+  confirmTextDialog(): void {
+    const point = this.pendingTextPoint;
+    const text = this.textDialogValue().trim();
+    if (!point || !text) {
+      return;
+    }
+
+    this.closeTextDialog();
+    this.commitTextOperation(point.x, point.y, text);
+  }
+
+  cancelTextDialog(): void {
+    this.closeTextDialog();
   }
 
   async chooseOutputFolder(): Promise<void> {
@@ -1374,18 +1453,18 @@ export class ImageAnnotate implements OnDestroy, OnInit {
 
   private createTextOperation(x: number, y: number): void {
     const form = this.operationForm();
-    let text = form.text.trim();
+    const text = form.text.trim();
 
-    if (!text && typeof window !== 'undefined') {
-      text =
-        window
-          .prompt(this.i18n.t('imageAnnotate.error.promptText'), '')
-          ?.trim() ?? '';
-    }
-
-    if (!text) {
+    if (text) {
+      this.commitTextOperation(x, y, text);
       return;
     }
+
+    this.openTextDialog(x, y);
+  }
+
+  private commitTextOperation(x: number, y: number, text: string): void {
+    const form = this.operationForm();
 
     const operation: ImageAnnotateOperation = {
       type: 'text',
@@ -1407,6 +1486,52 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     this.commitOperations([...operations, operation], {
       selection: operations.length,
     });
+  }
+
+  private closeTextDialog(): void {
+    if (!this.textDialogOpen()) {
+      return;
+    }
+
+    this.textDialogOpen.set(false);
+    this.textDialogValue.set('');
+    this.pendingTextPoint = null;
+
+    const origin = this.textDialogFocusOrigin;
+    this.textDialogFocusOrigin = null;
+    // Remove the dialog before handing focus back to the element that opened it.
+    this.changeDetector.detectChanges();
+    origin?.focus();
+  }
+
+  /** Keeps Tab inside the text dialog, matching the app's other dialogs. */
+  private trapTextDialogFocus(event: KeyboardEvent): void {
+    const dialog = this.textDialog?.nativeElement;
+    if (!dialog) {
+      return;
+    }
+
+    const focusable = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => element.offsetParent !== null);
+    if (focusable.length === 0) {
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+      return;
+    }
+    if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   private normalizeRect(

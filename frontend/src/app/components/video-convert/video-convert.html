@@ -119,7 +119,7 @@
             </div>
           }
 
-          <details class="advanced" (toggle)="onAdvancedToggle($event)">
+          <details class="advanced" [open]="advancedOpen()" (toggle)="onAdvancedToggle($event)">
             <summary class="advanced-summary">
               <span class="advanced-title">{{ i18n.t('videoConvert.advanced.title') }}</span>
               <span class="advanced-hint">{{ i18n.t('videoConvert.advanced.hint') }}</span>
