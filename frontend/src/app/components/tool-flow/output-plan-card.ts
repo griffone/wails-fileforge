@@ -30,8 +30,16 @@ export class OutputPlanCard {
   @Input() isDefaultDestination = true;
   /** How many planned outputs stay listed before the `+ N more` row. */
   @Input() visibleLimit = VISIBLE_OUTPUT_LIMIT;
+  /**
+   * Base name derived from document metadata. Empty hides the row: pages
+   * without a name field never pass it, and pages that do pass it only until
+   * the user makes a choice.
+   */
+  @Input() suggestedName = '';
 
   @Output() changeDestination = new EventEmitter<void>();
+  /** Emitted when the user accepts the suggested base name. */
+  @Output() applySuggestedName = new EventEmitter<string>();
 
   readonly i18n = inject(I18nService);
 
@@ -77,6 +85,14 @@ export class OutputPlanCard {
 
   isDirectory(output: PlannedOutput): boolean {
     return output.outputKind === 'directory';
+  }
+
+  /** Emits the suggestion only when it has content; empty means "hidden". */
+  applySuggestion(): void {
+    const name = this.suggestedName.trim();
+    if (name) {
+      this.applySuggestedName.emit(name);
+    }
   }
 
   outputName(output: PlannedOutput): string {

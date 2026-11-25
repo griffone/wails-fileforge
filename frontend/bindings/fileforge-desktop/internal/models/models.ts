@@ -414,6 +414,27 @@ export interface OCRCapabilitiesResponse {
     "recommendedLanguage": string;
 }
 
+/**
+ * OutputNameSuggestionResponse carries a base name derived from document
+ * metadata. SuggestedName has no extension: the tool decides that. Found=false
+ * is a normal answer, not an error, and Reason explains why nothing was
+ * suggested. The user still confirms it; nothing is renamed automatically.
+ */
+export interface OutputNameSuggestionResponse {
+    "success": boolean;
+    "message": string;
+    "found": boolean;
+    "suggestedName"?: string;
+
+    /**
+     * Source is one of pdf-title, docx-title, docx-heading, md-heading or
+     * input-name.
+     */
+    "source"?: string;
+    "reason"?: string;
+    "error"?: JobError | null;
+}
+
 export interface PDFPreviewSourceResponse {
     "success": boolean;
     "message": string;

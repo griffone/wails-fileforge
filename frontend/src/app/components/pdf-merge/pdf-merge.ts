@@ -69,6 +69,7 @@ export class PdfMerge implements OnDestroy, OnInit {
     describeFileInfo: (info) => this.describeFileInfo(info),
     afterPathsChanged: () => {
       this.syncPageRanges();
+      void this.refreshSuggestion();
       void this.job.refreshPlan();
     },
     messages: {
@@ -119,7 +120,11 @@ export class PdfMerge implements OnDestroy, OnInit {
   /** Page ranges keyed by input path so reordering keeps them attached. */
   readonly pageRanges = signal<Record<string, string>>({});
   readonly customName = signal('');
+  readonly suggestedName = signal('');
   readonly advancedOpen = signal(false);
+
+  /** Guards against an older suggestion landing after the inputs changed. */
+  private suggestionToken = 0;
 
   readonly fileName = fileName;
 
@@ -166,6 +171,14 @@ export class PdfMerge implements OnDestroy, OnInit {
     const first = this.selectedPaths()[0];
     return first ? `${fileStem(first)}_merged.pdf` : '';
   });
+
+  /**
+   * A suggestion is only offered while the name field is empty: once the user
+   * types a name or accepts the suggestion, the choice is theirs.
+   */
+  readonly pendingSuggestedName = computed(() =>
+    this.customName().trim() ? '' : this.suggestedName(),
+  );
 
   readonly fileNameHelp = computed(() => {
     const name = this.automaticName();
@@ -263,6 +276,18 @@ export class PdfMerge implements OnDestroy, OnInit {
     this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
+  /** Applies the metadata suggestion; the plan rebuilds before any run. */
+  useSuggestedName(name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return;
+    }
+    this.customName.set(trimmed);
+    this.suggestedName.set('');
+    this.actionMessage.set('');
+    void this.job.refreshPlan();
+  }
+
   onPageRangeInput(path: string, event: Event): void {
     const value = (event.target as HTMLInputElement | null)?.value ?? '';
     this.pageRanges.update((ranges) => ({ ...ranges, [path]: value }));
@@ -311,6 +336,8 @@ export class PdfMerge implements OnDestroy, OnInit {
     this.job.reset();
     this.pageRanges.set({});
     this.customName.set('');
+    this.suggestedName.set('');
+    this.suggestionToken += 1;
   }
 
   private buildRequest(): JobRequest {
@@ -369,6 +396,36 @@ export class PdfMerge implements OnDestroy, OnInit {
       next[path] = current[path] ?? '';
     }
     this.pageRanges.set(next);
+  }
+
+  /**
+   * Asks the backend for a metadata-derived name for the first input. The
+   * suggestion is informational: it only reaches the name field through
+   * useSuggestedName, and a failed lookup simply leaves it hidden.
+   */
+  private async refreshSuggestion(): Promise<void> {
+    const first = this.selectedPaths()[0] ?? '';
+    const token = ++this.suggestionToken;
+
+    if (!first) {
+      this.suggestedName.set('');
+      return;
+    }
+
+    const response = await this.wailsService.suggestOutputName(
+      PDF_MERGE_TOOL_ID,
+      first,
+    );
+    if (token !== this.suggestionToken) {
+      return;
+    }
+
+    if (response.success && response.found && response.suggestedName?.trim()) {
+      this.suggestedName.set(response.suggestedName.trim());
+      return;
+    }
+
+    this.suggestedName.set('');
   }
 
   private describeFileInfo(info: FileInfo): string {

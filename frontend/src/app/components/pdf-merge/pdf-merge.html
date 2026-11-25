@@ -102,7 +102,9 @@
             [loading]="planLoading()"
             [destinationLabel]="destinationLabel()"
             [isDefaultDestination]="isDefaultDestination()"
+            [suggestedName]="pendingSuggestedName()"
             (changeDestination)="chooseOutputFolder()"
+            (applySuggestedName)="useSuggestedName($event)"
           ></app-output-plan-card>
 
           @if (!isDefaultDestination()) {

@@ -360,6 +360,14 @@ func TestCanonicalErrorCodeKeepsDOCRules(t *testing.T) {
 	})
 }
 
+func TestCanonicalErrorCodeClassifiesOutputNameCodes(t *testing.T) {
+	assertCanonicalCodes(t, map[string]string{
+		"OUTPUT_NAME_SUGGESTION_INVALID_PATH":  ErrorCodeValidationInvalidInput,
+		"OUTPUT_NAME_SUGGESTION_READ_FAILED":   ErrorCodeExecIOTransient,
+		"OUTPUT_NAME_SUGGESTION_DECODE_FAILED": ErrorCodeExecIOTransient,
+	})
+}
+
 func TestCanonicalErrorCodeFallbackIsConservative(t *testing.T) {
 	tests := []struct {
 		name       string

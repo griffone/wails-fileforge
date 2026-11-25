@@ -330,6 +330,19 @@ var canonicalPDFCodes = canonicalCodeFamilies{
 	},
 }
 
+// canonicalOutputNameCodes classifies the failures of the output-name
+// suggestion endpoint. An invalid path is user-fixable input; read and decode
+// failures mean the file itself could not be inspected.
+var canonicalOutputNameCodes = canonicalCodeFamilies{
+	validation: []string{
+		"OUTPUT_NAME_SUGGESTION_INVALID_PATH",
+	},
+	execution: []string{
+		"OUTPUT_NAME_SUGGESTION_DECODE_FAILED",
+		"OUTPUT_NAME_SUGGESTION_READ_FAILED",
+	},
+}
+
 var canonicalVideoCodes = canonicalCodeFamilies{
 	validation: []string{
 		"VIDEO_CONVERT_OUTPUT_COLLIDES_INPUT",
@@ -418,6 +431,7 @@ var canonicalSystemCodes = canonicalCodeFamilies{
 
 var canonicalCodeTable = buildCanonicalCodeTable(
 	canonicalImageCodes,
+	canonicalOutputNameCodes,
 	canonicalPDFCodes,
 	canonicalVideoCodes,
 	canonicalSystemCodes,

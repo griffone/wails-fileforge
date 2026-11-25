@@ -152,6 +152,22 @@ type ImageCropSuggestionResponse struct {
 	Error      *JobError `json:"error,omitempty"`
 }
 
+// OutputNameSuggestionResponse carries a base name derived from document
+// metadata. SuggestedName has no extension: the tool decides that. Found=false
+// is a normal answer, not an error, and Reason explains why nothing was
+// suggested. The user still confirms it; nothing is renamed automatically.
+type OutputNameSuggestionResponse struct {
+	Success       bool   `json:"success"`
+	Message       string `json:"message"`
+	Found         bool   `json:"found"`
+	SuggestedName string `json:"suggestedName,omitempty"`
+	// Source is one of pdf-title, docx-title, docx-heading, md-heading or
+	// input-name.
+	Source string    `json:"source,omitempty"`
+	Reason string    `json:"reason,omitempty"`
+	Error  *JobError `json:"error,omitempty"`
+}
+
 type ImageAnnotateOperation struct {
 	Type          string  `json:"type"`
 	X             int     `json:"x,omitempty"`

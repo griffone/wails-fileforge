@@ -254,4 +254,41 @@ describe('OutputPlanCard', () => {
 
     expect(spy).toHaveBeenCalledTimes(1);
   });
+
+  it('shows a metadata suggestion and emits it when used', () => {
+    const spy = jasmine.createSpy('applySuggestedName');
+    component.applySuggestedName.subscribe(spy);
+    component.suggestedName = 'Quarterly Report';
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Suggested name');
+    expect(text).toContain('Quarterly Report');
+    expect(text).toContain('Use');
+
+    const button = fixture.nativeElement.querySelector(
+      '.output-plan-suggestion-use',
+    ) as HTMLButtonElement;
+    button.click();
+
+    expect(spy).toHaveBeenCalledOnceWith('Quarterly Report');
+  });
+
+  it('hides the suggestion row without a suggested name', () => {
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-suggestion'),
+    ).toBeNull();
+  });
+
+  it('renders the suggestion copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    component.suggestedName = 'Informe trimestral';
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Nombre sugerido');
+    expect(text).toContain('Usar');
+  });
 });

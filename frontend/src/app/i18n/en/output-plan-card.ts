@@ -13,4 +13,6 @@ export const outputPlanEn = {
   'outputPlan.adjustedNote':
     'Existing names will be adjusted to avoid overwriting.',
   'outputPlan.nextToOriginal': 'Next to the original',
+  'outputPlan.suggestion': 'Suggested name',
+  'outputPlan.suggestionUse': 'Use',
 } as const;

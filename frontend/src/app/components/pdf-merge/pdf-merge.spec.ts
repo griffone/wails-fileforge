@@ -163,6 +163,7 @@ describe('PdfMerge', () => {
       'openDirectoryDialog',
       'isRuntimeAvailable',
       'listTools',
+      'suggestOutputName',
     ]);
 
     jobProgressSubject = new Subject<JobProgressEvent>();
@@ -209,6 +210,11 @@ describe('PdfMerge', () => {
       success: true,
       message: 'ok',
       tools: [],
+    });
+    wailsSpy.suggestOutputName.and.resolveTo({
+      success: true,
+      message: 'no title',
+      found: false,
     });
 
     await TestBed.configureTestingModule({
@@ -258,6 +264,77 @@ describe('PdfMerge', () => {
     expect(component.canRun()).toBeTrue();
     expect(component.primaryLabel()).toBe('Merge 2 PDFs');
     expect(primary.disabled).toBeFalse();
+  }));
+
+  it('shows a metadata suggestion and applies it when used', fakeAsync(() => {
+    wailsSpy.suggestOutputName.and.resolveTo({
+      success: true,
+      message: 'pdf title',
+      found: true,
+      suggestedName: 'Quarterly Report',
+      source: 'pdf-title',
+    });
+
+    component.onPathsSelected(['/tmp/one.pdf', '/tmp/two.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.suggestOutputName).toHaveBeenCalledOnceWith(
+      'tool.pdf.merge',
+      '/tmp/one.pdf',
+    );
+    const row = fixture.nativeElement.querySelector(
+      '.output-plan-suggestion',
+    ) as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row.textContent).toContain('Quarterly Report');
+
+    const planCalls = wailsSpy.planJob.calls.count();
+    (row.querySelector('.output-plan-suggestion-use') as HTMLButtonElement).click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.customName()).toBe('Quarterly Report');
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls + 1);
+    expect(lastPlanRequest().options['outputPath']).toBe(
+      '/tmp/Quarterly Report.pdf',
+    );
+    expect(component.plan()?.outputs[0].outputPath).toBe(
+      '/tmp/Quarterly Report.pdf',
+    );
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-suggestion'),
+    ).toBeNull();
+  }));
+
+  it('leaves the plan unchanged when the suggestion is ignored', fakeAsync(() => {
+    wailsSpy.suggestOutputName.and.resolveTo({
+      success: true,
+      message: 'pdf title',
+      found: true,
+      suggestedName: 'Quarterly Report',
+      source: 'pdf-title',
+    });
+
+    component.onPathsSelected(['/tmp/one.pdf', '/tmp/two.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.customName()).toBe('');
+    expect(lastPlanRequest().options['outputPath']).toBeUndefined();
+    expect(component.plan()?.outputs[0].outputPath).toBe('/tmp/one_merged.pdf');
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-suggestion'),
+    ).not.toBeNull();
+
+    component.clear();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.suggestedName()).toBe('');
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-suggestion'),
+    ).toBeNull();
   }));
 
   it('rejects non-PDFs and duplicates with a notice', fakeAsync(() => {

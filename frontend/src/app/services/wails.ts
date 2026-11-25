@@ -104,6 +104,12 @@ export interface ImageCropSuggestionResponse
   error?: JobError;
 }
 
+/** A base name derived from document metadata; the page applies it on confirm. */
+export interface OutputNameSuggestionResponse
+  extends Models.OutputNameSuggestionResponse {
+  error?: JobError;
+}
+
 export type ImageAnnotateOperationType =
   | 'text'
   | 'arrow'
@@ -878,6 +884,27 @@ export class Wails {
         error: this.defaultError(
           'EXEC_IO_TRANSIENT',
           'IMAGE_CROP_SUGGESTION_READ_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async suggestOutputName(
+    toolId: string,
+    inputPath: string,
+  ): Promise<OutputNameSuggestionResponse> {
+    try {
+      const response = await this.ipc.suggestOutputName(toolId, inputPath);
+      return { ...response, error: this.optionalError(response.error) };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Suggest output name failed', error),
+        found: false,
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'OUTPUT_NAME_SUGGESTION_READ_FAILED',
           error,
         ),
       };

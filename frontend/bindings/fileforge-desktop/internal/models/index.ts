@@ -36,6 +36,7 @@ export type {
     LocalCapability,
     MediaSourceResponse,
     OCRCapabilitiesResponse,
+    OutputNameSuggestionResponse,
     PDFPreviewSourceResponse,
     PathActionResponse,
     PlanJobResponse,

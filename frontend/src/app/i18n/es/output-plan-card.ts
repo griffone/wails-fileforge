@@ -14,4 +14,6 @@ export const outputPlanEs = {
   'outputPlan.adjustedNote':
     'Los nombres existentes se ajustarán para no sobrescribir.',
   'outputPlan.nextToOriginal': 'Junto al original',
+  'outputPlan.suggestion': 'Nombre sugerido',
+  'outputPlan.suggestionUse': 'Usar',
 } as const;

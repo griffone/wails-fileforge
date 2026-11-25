@@ -98,6 +98,20 @@
       <p class="output-plan-status">{{ i18n.t('outputPlan.empty') }}</p>
     }
 
+    @if (suggestedName) {
+      <div class="output-plan-suggestion">
+        <span class="output-plan-label">{{ i18n.t('outputPlan.suggestion') }}</span>
+        <span class="output-plan-suggestion-name" [title]="suggestedName">{{ suggestedName }}</span>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm output-plan-suggestion-use"
+          (click)="applySuggestion()"
+        >
+          {{ i18n.t('outputPlan.suggestionUse') }}
+        </button>
+      </div>
+    }
+
     @if (hasAdjusted()) {
       <p class="output-plan-note">{{ i18n.t('outputPlan.adjustedNote') }}</p>
     }
