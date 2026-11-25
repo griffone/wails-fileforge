@@ -35,6 +35,14 @@ export function GetImageCropPreview(req: models$0.ImageCropPreviewRequest): $Can
     return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImageCropPreview", req);
 }
 
+/**
+ * GetImageCropSuggestion returns a suggested crop rectangle for a uniform
+ * border. The user still accepts or adjusts it; nothing is cropped here.
+ */
+export function GetImageCropSuggestion(inputPath: string): $CancellablePromise<models$0.ImageCropSuggestionResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImageCropSuggestion", inputPath);
+}
+
 export function GetImagePreviewSource(inputPath: string): $CancellablePromise<models$0.ImagePreviewSourceResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImagePreviewSource", inputPath);
 }

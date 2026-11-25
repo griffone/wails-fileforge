@@ -38,6 +38,12 @@ export const imageCropEs = {
   'imageCrop.editor.loadingBody': 'Leyendo la primera imagen del disco.',
   'imageCrop.editor.emptyBody':
     'Añade una imagen arriba para ver la selección de recorte.',
+  'imageCrop.suggestion.action': 'Detectar bordes',
+  'imageCrop.suggestion.loading': 'Detectando…',
+  'imageCrop.suggestion.none':
+    'No se encontró un borde uniforme. Ajusta el recorte manualmente.',
+  'imageCrop.suggestion.error':
+    'No se pudieron detectar los bordes. Ajusta el recorte manualmente.',
   'imageCrop.output.title': 'Recorte',
   'imageCrop.output.sub':
     'Elige una proporción y comprueba dónde irán los archivos.',

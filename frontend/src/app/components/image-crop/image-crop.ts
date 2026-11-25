@@ -14,6 +14,7 @@ import {
   FolderOpen,
   LucideAngularModule,
   RotateCcw,
+  ScanLine,
   ShieldCheck,
   TriangleAlert,
   X,
@@ -292,6 +293,7 @@ export class ImageCrop implements OnDestroy, OnInit {
   readonly alertIcon = TriangleAlert;
   readonly cropIcon = Crop;
   readonly resetIcon = RotateCcw;
+  readonly scanIcon = ScanLine;
 
   readonly ratioPresets = RATIO_PRESETS;
   readonly formatOptions = FORMAT_OPTIONS;
@@ -338,6 +340,8 @@ export class ImageCrop implements OnDestroy, OnInit {
   readonly previewError = signal('');
   readonly cropPreviewUrl = signal('');
   readonly isCropPreviewLoading = signal(false);
+  readonly suggestionLoading = signal(false);
+  readonly suggestionNotice = signal('');
 
   readonly selectionRectPx = signal<CropRect>({ ...EMPTY_RECT });
 
@@ -486,6 +490,10 @@ export class ImageCrop implements OnDestroy, OnInit {
       !this.isPolling(),
   );
 
+  readonly canDetectBorders = computed(
+    () => this.hasPreview() && !this.suggestionLoading(),
+  );
+
   readonly actionHelper = computed(() => {
     if (!this.hasSelection()) {
       return this.i18n.t('imageCrop.helper.addImage');
@@ -589,6 +597,7 @@ export class ImageCrop implements OnDestroy, OnInit {
     const value = this.readEventValue(event);
     this.bounds.update((bounds) => ({ ...bounds, [axis]: value }));
     this.actionMessage.set('');
+    this.suggestionNotice.set('');
     this.syncSelectionRectFromCrop();
     this.job.schedulePlanRefresh(BOUNDS_PLAN_DEBOUNCE_MS);
     this.scheduleCropPreviewRefresh();
@@ -786,6 +795,59 @@ export class ImageCrop implements OnDestroy, OnInit {
     await this.job.run();
   }
 
+  /**
+   * Asks the backend for a crop rectangle that removes a uniform border, fills
+   * the four bounds fields with it and refreshes the preview. Nothing is
+   * cropped: the user still accepts or adjusts the suggestion.
+   */
+  async detectBorders(): Promise<void> {
+    const path = this.previewSourcePath();
+    if (!path || this.suggestionLoading()) {
+      return;
+    }
+
+    this.suggestionLoading.set(true);
+    this.suggestionNotice.set('');
+    this.actionMessage.set('');
+
+    const response = await this.wailsService
+      .getImageCropSuggestion(path)
+      .catch(() => null);
+
+    this.suggestionLoading.set(false);
+
+    if (!response || !response.success) {
+      this.suggestionNotice.set(this.i18n.t('imageCrop.suggestion.error'));
+      return;
+    }
+
+    if (!response.found) {
+      this.suggestionNotice.set(this.i18n.t('imageCrop.suggestion.none'));
+      return;
+    }
+
+    // A detected border is free-form. If the active ratio preset cannot
+    // represent it, drop to free so the suggestion is usable as-is.
+    const preset = this.ratioDefinition();
+    const ratioMatches =
+      this.ratioPreset() === 'free' ||
+      response.width * preset.heightStep ===
+        response.height * preset.widthStep;
+    if (!ratioMatches) {
+      this.ratioPreset.set('free');
+    }
+
+    this.bounds.set({
+      x: `${response.x}`,
+      y: `${response.y}`,
+      width: `${response.width}`,
+      height: `${response.height}`,
+    });
+    this.syncSelectionRectFromCrop();
+    await this.refreshCropPreview();
+    await this.job.refreshPlan();
+  }
+
   /** Adopts a job the result card planned and started with the same request. */
   onRunAgainStarted(event: RunAgainStartedEvent): void {
     this.job.adoptRunAgain(event);
@@ -846,6 +908,8 @@ export class ImageCrop implements OnDestroy, OnInit {
     this.previewError.set('');
     this.cropPreviewUrl.set('');
     this.isCropPreviewLoading.set(false);
+    this.suggestionLoading.set(false);
+    this.suggestionNotice.set('');
   }
 
   private currentOptions(): ImageCropOptions {
@@ -929,6 +993,7 @@ export class ImageCrop implements OnDestroy, OnInit {
     this.isCropPreviewLoading.set(false);
     this.previewError.set('');
     this.actionMessage.set('');
+    this.suggestionNotice.set('');
 
     if (!path) {
       this.previewLoading.set(false);

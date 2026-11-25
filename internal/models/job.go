@@ -135,6 +135,23 @@ type ImageCropPreviewResponse struct {
 	Error      *JobError `json:"error,omitempty"`
 }
 
+// ImageCropSuggestionResponse carries the suggested crop rectangle detected
+// from a uniform image border. Coordinates are original-image pixels with the
+// origin at the top-left. Found=false is a normal answer, not an error: it
+// means no border was trustworthy enough to suggest.
+type ImageCropSuggestionResponse struct {
+	Success    bool      `json:"success"`
+	Message    string    `json:"message"`
+	Found      bool      `json:"found"`
+	X          int       `json:"x"`
+	Y          int       `json:"y"`
+	Width      int       `json:"width"`
+	Height     int       `json:"height"`
+	Reason     string    `json:"reason,omitempty"`
+	Confidence string    `json:"confidence,omitempty"`
+	Error      *JobError `json:"error,omitempty"`
+}
+
 type ImageAnnotateOperation struct {
 	Type          string  `json:"type"`
 	X             int     `json:"x,omitempty"`

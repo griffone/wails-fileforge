@@ -57,6 +57,14 @@
   margin-left: auto;
 }
 
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .error-banner {
   align-items: flex-start;
 }

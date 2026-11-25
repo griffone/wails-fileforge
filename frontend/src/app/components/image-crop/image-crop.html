@@ -90,11 +90,29 @@
               <p class="panel-sub">{{ i18n.t('imageCrop.editor.sub') }}</p>
             </div>
             @if (hasPreview()) {
-              <span class="badge badge-neutral">{{ cropSizeLabel() }}</span>
+              <div class="editor-actions">
+                <span class="badge badge-neutral">{{ cropSizeLabel() }}</span>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm suggestion-action"
+                  [disabled]="!canDetectBorders()"
+                  (click)="detectBorders()"
+                >
+                  <lucide-icon [img]="scanIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                  {{ suggestionLoading() ? i18n.t('imageCrop.suggestion.loading') : i18n.t('imageCrop.suggestion.action') }}
+                </button>
+              </div>
             }
           </div>
 
           <div class="panel-body">
+            @if (suggestionNotice(); as note) {
+              <div class="banner error-banner suggestion-notice" role="status">
+                <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+                <span>{{ note }}</span>
+              </div>
+            }
+
             @if (previewUrl()) {
               <div class="editor-grid">
                 <figure class="preview-block">

@@ -15,6 +15,7 @@ export type {
     ImageAnnotatePreviewResponse,
     ImageCropPreviewRequest,
     ImageCropPreviewResponse,
+    ImageCropSuggestionResponse,
     ImagePreviewSourceResponse,
     InspectFilesResponse,
     JobError,

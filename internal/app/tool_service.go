@@ -110,6 +110,21 @@ func (s *ToolService) GetImageCropPreview(req models.ImageCropPreviewRequest) mo
 	return tool.GetImageCropPreview(req)
 }
 
+// GetImageCropSuggestion returns a suggested crop rectangle for a uniform
+// border. The user still accepts or adjusts it; nothing is cropped here.
+func (s *ToolService) GetImageCropSuggestion(inputPath string) models.ImageCropSuggestionResponse {
+	tool, ok := s.imageCropTool()
+	if !ok {
+		return models.ImageCropSuggestionResponse{
+			Success: false,
+			Message: "Image crop tool is unavailable.",
+			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", "tool.image.crop is not registered", nil),
+		}
+	}
+
+	return tool.GetImageCropSuggestion(strings.TrimSpace(inputPath))
+}
+
 func (s *ToolService) GetImageAnnotatePreview(req models.ImageAnnotatePreviewRequest) models.ImageAnnotatePreviewResponse {
 	tool, ok := s.imageAnnotateTool()
 	if !ok {

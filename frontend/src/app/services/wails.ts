@@ -99,6 +99,11 @@ export interface ImageCropPreviewResponse
   error?: JobError;
 }
 
+export interface ImageCropSuggestionResponse
+  extends Models.ImageCropSuggestionResponse {
+  error?: JobError;
+}
+
 export type ImageAnnotateOperationType =
   | 'text'
   | 'arrow'
@@ -849,6 +854,30 @@ export class Wails {
         error: this.defaultError(
           'EXEC_IO_TRANSIENT',
           'IMAGE_CROP_PREVIEW_EXECUTION',
+          error,
+        ),
+      };
+    }
+  }
+
+  async getImageCropSuggestion(
+    inputPath: string,
+  ): Promise<ImageCropSuggestionResponse> {
+    try {
+      const response = await this.ipc.getImageCropSuggestion(inputPath);
+      return { ...response, error: this.optionalError(response.error) };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get image crop suggestion failed', error),
+        found: false,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IMAGE_CROP_SUGGESTION_READ_FAILED',
           error,
         ),
       };

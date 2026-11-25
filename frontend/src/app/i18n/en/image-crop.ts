@@ -37,6 +37,12 @@ export const imageCropEn = {
   'imageCrop.editor.loadingBody': 'Reading the first image from disk.',
   'imageCrop.editor.emptyBody':
     'Add an image above to see the crop selection.',
+  'imageCrop.suggestion.action': 'Auto-detect borders',
+  'imageCrop.suggestion.loading': 'Detecting…',
+  'imageCrop.suggestion.none':
+    'No uniform border was found. Adjust the crop manually.',
+  'imageCrop.suggestion.error':
+    'Borders could not be detected. Adjust the crop manually.',
   'imageCrop.output.title': 'Crop',
   'imageCrop.output.sub':
     'Pick a ratio, then check where the files will go.',

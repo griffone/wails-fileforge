@@ -246,6 +246,12 @@ export class WailsIpc {
     return ToolService.GetImageCropPreview(request);
   }
 
+  getImageCropSuggestion(
+    inputPath: string,
+  ): Promise<Models.ImageCropSuggestionResponse> {
+    return ToolService.GetImageCropSuggestion(inputPath);
+  }
+
   getImageAnnotatePreview(
     request: Models.ImageAnnotatePreviewRequest,
   ): Promise<Models.ImageAnnotatePreviewResponse> {

@@ -188,6 +188,25 @@ export interface ImageCropPreviewResponse {
     "error"?: JobError | null;
 }
 
+/**
+ * ImageCropSuggestionResponse carries the suggested crop rectangle detected
+ * from a uniform image border. Coordinates are original-image pixels with the
+ * origin at the top-left. Found=false is a normal answer, not an error: it
+ * means no border was trustworthy enough to suggest.
+ */
+export interface ImageCropSuggestionResponse {
+    "success": boolean;
+    "message": string;
+    "found": boolean;
+    "x": number;
+    "y": number;
+    "width": number;
+    "height": number;
+    "reason"?: string;
+    "confidence"?: string;
+    "error"?: JobError | null;
+}
+
 export interface ImagePreviewSourceResponse {
     "success": boolean;
     "message": string;
