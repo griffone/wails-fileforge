@@ -16,6 +16,7 @@ import { Router, RouterLink } from '@angular/router';
 import {
   ArrowUpRight,
   Copy,
+  Download,
   ExternalLink,
   FolderOpen,
   LucideAngularModule,
@@ -25,6 +26,7 @@ import {
   SearchX,
   ShieldCheck,
   Trash2,
+  Upload,
   Workflow,
   X,
 } from 'lucide-angular';
@@ -40,6 +42,7 @@ import { RecentToolsService } from '../../services/recent-tools.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
 import {
   AutomationStatusResponse,
+  ImportUserRecipesResponse,
   PathActionResponse,
   Recipe,
   RecipeOptionChoice,
@@ -97,6 +100,8 @@ export class Home implements OnInit {
   readonly editIcon = Pencil;
   readonly runIcon = Play;
   readonly deleteIcon = Trash2;
+  readonly exportIcon = Download;
+  readonly importIcon = Upload;
 
   readonly query = signal('');
   readonly activeCategory = signal<CategoryFilter>('all');
@@ -119,6 +124,13 @@ export class Home implements OnInit {
   readonly recipeDialogErrors = signal<Record<string, string>>({});
   readonly recipeDialogMessage = signal('');
   readonly recipeDialogSaving = signal(false);
+
+  // Preset sharing: export the whole catalog or import a shared file.
+  readonly recipeImportOverwrite = signal(false);
+  readonly recipeTransferBusy = signal(false);
+  readonly recipeImportSummary = signal<ImportUserRecipesResponse | null>(
+    null,
+  );
 
   // Deletion is permanent, so it goes through a blocking confirmation.
   readonly recipeDeleteConfirmOpen = signal(false);
@@ -500,6 +512,87 @@ export class Home implements OnInit {
 
     this.recipeMessage.set(this.i18n.t('home.myRecipes.deleted'));
     await this.loadRecipes();
+  }
+
+  /**
+   * Exports every user recipe. A cancelled save dialog is a no-op: it never
+   * reaches the backend and never shows an error.
+   */
+  async exportUserRecipes(): Promise<void> {
+    if (this.recipeTransferBusy()) {
+      return;
+    }
+
+    const recipes = this.userRecipes();
+    if (recipes.length === 0) {
+      this.recipeMessage.set(this.i18n.t('home.myRecipes.exportEmpty'));
+      return;
+    }
+
+    const path = await this.wailsService.saveFileDialog(
+      'fileforge-recipes.json',
+    );
+    if (!path) {
+      return;
+    }
+
+    this.recipeTransferBusy.set(true);
+    const response = await this.wailsService.exportUserRecipes(
+      path,
+      recipes.map((recipe) => recipe.id),
+    );
+    this.recipeTransferBusy.set(false);
+
+    if (!response.success) {
+      this.recipeMessage.set(
+        response.message || this.i18n.t('home.myRecipes.exportError'),
+      );
+      return;
+    }
+
+    this.recipeMessage.set(
+      this.i18n.t('home.myRecipes.exported', { count: response.exported }),
+    );
+  }
+
+  /**
+   * Imports a shared recipe file and keeps the typed summary on screen. A
+   * cancelled file dialog is a no-op with no message.
+   */
+  async importUserRecipes(): Promise<void> {
+    if (this.recipeTransferBusy()) {
+      return;
+    }
+
+    const path = await this.wailsService.openImportFileDialog();
+    if (!path) {
+      return;
+    }
+
+    this.recipeTransferBusy.set(true);
+    const response = await this.wailsService.importUserRecipes(
+      path,
+      this.recipeImportOverwrite(),
+    );
+    this.recipeTransferBusy.set(false);
+    this.recipeImportSummary.set(response);
+
+    if (!response.success) {
+      this.recipeMessage.set(
+        response.message || this.i18n.t('home.myRecipes.importError'),
+      );
+      return;
+    }
+
+    this.recipeMessage.set('');
+    await this.loadRecipes();
+  }
+
+  setRecipeImportOverwrite(event: Event): void {
+    const target = event.target;
+    if (target instanceof HTMLInputElement) {
+      this.recipeImportOverwrite.set(target.checked);
+    }
   }
 
   onRecipeDeleteDialogKeydown(event: KeyboardEvent): void {

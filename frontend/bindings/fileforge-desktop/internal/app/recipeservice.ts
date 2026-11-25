@@ -30,10 +30,25 @@ export function DeleteUserRecipe(id: string): $CancellablePromise<models$0.UserR
 }
 
 /**
+ * ExportUserRecipes writes the selected user recipes to one shareable file.
+ */
+export function ExportUserRecipes(path: string, ids: string[] | null): $CancellablePromise<models$0.ExportUserRecipesResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.ExportUserRecipes", path, ids);
+}
+
+/**
  * GetRecipeStatus returns the per-step snapshot of a recipe run.
  */
 export function GetRecipeStatus(jobID: string): $CancellablePromise<models$0.RecipeStatusResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.RecipeService.GetRecipeStatus", jobID);
+}
+
+/**
+ * ImportUserRecipes validates and applies a shared recipe file, reporting
+ * imported, skipped and invalid entries without partially applying a bad one.
+ */
+export function ImportUserRecipes(path: string, overwrite: boolean): $CancellablePromise<models$0.ImportUserRecipesResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.RecipeService.ImportUserRecipes", path, overwrite);
 }
 
 /**

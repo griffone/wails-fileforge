@@ -91,6 +91,35 @@ type UserRecipeResponse struct {
 	Error   *JobError `json:"error,omitempty"`
 }
 
+// ExportUserRecipesResponse reports where the preset file was written and how
+// many recipes it contains.
+type ExportUserRecipesResponse struct {
+	Success  bool      `json:"success"`
+	Message  string    `json:"message"`
+	Path     string    `json:"path,omitempty"`
+	Exported int       `json:"exported"`
+	Error    *JobError `json:"error,omitempty"`
+}
+
+// ImportUserRecipeIssue names one recipe entry that could not be imported and
+// why. Invalid entries are reported, never silently skipped.
+type ImportUserRecipeIssue struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// ImportUserRecipesResponse is the typed import summary: how many recipes were
+// applied, how many were skipped because their name already existed, and every
+// entry that failed validation.
+type ImportUserRecipesResponse struct {
+	Success  bool                    `json:"success"`
+	Message  string                  `json:"message"`
+	Imported int                     `json:"imported"`
+	Skipped  int                     `json:"skipped"`
+	Invalid  []ImportUserRecipeIssue `json:"invalid"`
+	Error    *JobError               `json:"error,omitempty"`
+}
+
 // RecipeRequest is the plan/run payload for a recipe. Options carries recipe
 // specific knobs; Email PDF reads targetSizeBytes.
 type RecipeRequest struct {

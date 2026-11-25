@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 	"fileforge-desktop/internal/platform/jsonstore"
 )
 
@@ -20,6 +21,11 @@ const (
 	// userRecipesFileName is the persisted user recipe catalog written next to
 	// the run snapshot.
 	userRecipesFileName = "user_recipes.json"
+
+	// userRecipeExportFormatVersion versions the shared preset file. A reader
+	// that sees another value reports every entry as invalid instead of guessing
+	// at an unknown shape.
+	userRecipeExportFormatVersion = 1
 
 	// userRecipesVersion versions the on-disk payload so a future shape change
 	// can migrate instead of guessing.
@@ -294,6 +300,338 @@ func (s *Service) DeleteUserRecipe(id string) models.UserRecipeResponse {
 	return models.UserRecipeResponse{
 		Success: true,
 		Message: "user recipe deleted",
+	}
+}
+
+// exportedUserRecipe is one shareable entry. The generated id and creation
+// time stay local: import always creates fresh identities.
+type exportedUserRecipe struct {
+	Name         string         `json:"name"`
+	BaseRecipeID string         `json:"baseRecipeId"`
+	Options      map[string]any `json:"options"`
+}
+
+// userRecipeExportFile is the versioned preset payload written by export and
+// read by import.
+type userRecipeExportFile struct {
+	FormatVersion int                  `json:"formatVersion"`
+	ExportedAt    string               `json:"exportedAt"`
+	Recipes       []exportedUserRecipe `json:"recipes"`
+}
+
+// ExportUserRecipes writes the given user recipes to one versioned JSON file.
+// Every id must exist: a partial export would silently drop the missing recipe,
+// so an unknown id fails the whole call before anything is written.
+func (s *Service) ExportUserRecipes(path string, ids []string) models.ExportUserRecipesResponse {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return exportRecipesFailure(
+			"RECIPE_EXPORT_PATH_REQUIRED",
+			"Choose where to save the recipe export.",
+		)
+	}
+
+	seen := make(map[string]struct{}, len(ids))
+	recipes := make([]userRecipe, 0, len(ids))
+	for _, rawID := range ids {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+
+		recipe, found := s.userRecipeByID(id)
+		if !found {
+			return exportRecipesFailure(
+				"RECIPE_USER_NOT_FOUND",
+				fmt.Sprintf("User recipe '%s' was not found.", id),
+			)
+		}
+		recipes = append(recipes, recipe)
+	}
+
+	if len(recipes) == 0 {
+		return exportRecipesFailure(
+			"RECIPE_EXPORT_EMPTY",
+			"Select at least one user recipe to export.",
+		)
+	}
+
+	// Stable order keeps the file diff-friendly and makes an internal name
+	// collision deterministic.
+	sort.SliceStable(recipes, func(i, j int) bool {
+		left := strings.ToLower(recipes[i].Name)
+		right := strings.ToLower(recipes[j].Name)
+		if left != right {
+			return left < right
+		}
+		return recipes[i].ID < recipes[j].ID
+	})
+
+	payload := userRecipeExportFile{
+		FormatVersion: userRecipeExportFormatVersion,
+		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
+		Recipes:       make([]exportedUserRecipe, 0, len(recipes)),
+	}
+	for _, recipe := range recipes {
+		payload.Recipes = append(payload.Recipes, exportedUserRecipe{
+			Name:         recipe.Name,
+			BaseRecipeID: recipe.BaseRecipeID,
+			Options:      cloneOptions(recipe.Options),
+		})
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return exportRecipesFailure(
+			"RECIPE_EXPORT_FAILED",
+			fmt.Sprintf("Could not encode the recipe export: %v", err),
+		)
+	}
+
+	if err := fsx.WriteAtomic(trimmedPath, data, 0o644); err != nil {
+		return exportRecipesFailure(
+			"RECIPE_EXPORT_FAILED",
+			fmt.Sprintf("Could not write the recipe export: %v", err),
+		)
+	}
+
+	return models.ExportUserRecipesResponse{
+		Success:  true,
+		Message:  fmt.Sprintf("Exported %d user recipes.", len(payload.Recipes)),
+		Path:     trimmedPath,
+		Exported: len(payload.Recipes),
+	}
+}
+
+// ImportUserRecipes reads a preset file, validates every entry and applies the
+// valid ones. Conflicts are decided by name, case-insensitively: an existing
+// name is skipped unless overwrite is true, in which case the stored recipe is
+// replaced in place. Every invalid entry is reported; valid entries are still
+// imported. The catalog is written once, so a failed write leaves it untouched.
+func (s *Service) ImportUserRecipes(path string, overwrite bool) models.ImportUserRecipesResponse {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return importRecipesFailure(
+			"RECIPE_IMPORT_PATH_REQUIRED",
+			"Choose a recipe file to import.",
+			nil,
+		)
+	}
+
+	data, err := os.ReadFile(trimmedPath)
+	if err != nil {
+		return importRecipesFailure(
+			"RECIPE_IMPORT_READ_FAILED",
+			fmt.Sprintf("Could not read the recipe file: %v", err),
+			nil,
+		)
+	}
+
+	var payload userRecipeExportFile
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return importRecipesFailure(
+			"RECIPE_IMPORT_INVALID_FILE",
+			"The recipe file is not valid JSON.",
+			nil,
+		)
+	}
+
+	invalid := make([]models.ImportUserRecipeIssue, 0)
+	if payload.FormatVersion != userRecipeExportFormatVersion {
+		reason := fmt.Sprintf(
+			"Unsupported recipe file version %d; this app reads version %d.",
+			payload.FormatVersion,
+			userRecipeExportFormatVersion,
+		)
+		for _, entry := range payload.Recipes {
+			invalid = append(invalid, models.ImportUserRecipeIssue{
+				Name:   entryNameOrFallback(entry.Name),
+				Reason: reason,
+			})
+		}
+
+		return models.ImportUserRecipesResponse{
+			Success: true,
+			Message: fmt.Sprintf("Imported 0, skipped 0, %d invalid.", len(invalid)),
+			Invalid: invalid,
+		}
+	}
+
+	valid := make([]validatedUserRecipeImport, 0, len(payload.Recipes))
+	for _, entry := range payload.Recipes {
+		validated, reason := s.validateImportedUserRecipe(entry)
+		if reason != "" {
+			invalid = append(invalid, models.ImportUserRecipeIssue{
+				Name:   entryNameOrFallback(entry.Name),
+				Reason: reason,
+			})
+			continue
+		}
+		valid = append(valid, validated)
+	}
+
+	imported, skipped, applyErr := s.applyImportedUserRecipes(valid, overwrite)
+	if applyErr != nil {
+		return importRecipesFailure(
+			"RECIPE_IMPORT_SAVE_FAILED",
+			fmt.Sprintf("Could not save the imported recipes: %v", applyErr),
+			invalid,
+		)
+	}
+
+	return models.ImportUserRecipesResponse{
+		Success:  true,
+		Message:  fmt.Sprintf("Imported %d, skipped %d, %d invalid.", imported, skipped, len(invalid)),
+		Imported: imported,
+		Skipped:  skipped,
+		Invalid:  invalid,
+	}
+}
+
+// validatedUserRecipeImport is one entry that passed name, base recipe and
+// option schema validation.
+type validatedUserRecipeImport struct {
+	name    string
+	baseID  string
+	options map[string]any
+}
+
+// validateImportedUserRecipe checks one entry against the current catalog. An
+// empty reason means the entry can be applied.
+func (s *Service) validateImportedUserRecipe(entry exportedUserRecipe) (validatedUserRecipeImport, string) {
+	name, nameErr := validateUserRecipeName(entry.Name)
+	if nameErr != nil {
+		return validatedUserRecipeImport{}, nameErr.Message
+	}
+
+	baseID := strings.TrimSpace(entry.BaseRecipeID)
+	if baseID == "" {
+		return validatedUserRecipeImport{}, "The recipe has no base recipe."
+	}
+	base := recipeByID(baseID)
+	if base == nil {
+		return validatedUserRecipeImport{}, fmt.Sprintf("Base recipe '%s' was not found.", baseID)
+	}
+
+	options := entry.Options
+	if options == nil {
+		options = map[string]any{}
+	}
+	normalized, optionsErr := validateRecipeOptions(base, options)
+	if optionsErr != nil {
+		return validatedUserRecipeImport{}, optionsErr.Message
+	}
+
+	return validatedUserRecipeImport{name: name, baseID: base.ID, options: normalized}, ""
+}
+
+// applyImportedUserRecipes merges valid entries into the catalog under one
+// lock and persists once. Counts describe applied and skipped entries; a write
+// failure restores the previous catalog and reports zero applied.
+func (s *Service) applyImportedUserRecipes(entries []validatedUserRecipeImport, overwrite bool) (int, int, error) {
+	if len(entries) == 0 {
+		return 0, 0, nil
+	}
+
+	s.userMu.Lock()
+	defer s.userMu.Unlock()
+
+	previous := append([]userRecipe(nil), s.userRecipes...)
+	next := make([]userRecipe, 0, len(s.userRecipes)+len(entries))
+	byName := make(map[string]int, len(s.userRecipes)+len(entries))
+	usedIDs := make(map[string]struct{}, len(s.userRecipes)+len(entries))
+	for _, recipe := range s.userRecipes {
+		cloned := cloneUserRecipe(recipe)
+		byName[strings.ToLower(cloned.Name)] = len(next)
+		usedIDs[cloned.ID] = struct{}{}
+		next = append(next, cloned)
+	}
+
+	imported, skipped := 0, 0
+	now := time.Now().UnixMilli()
+	for offset, entry := range entries {
+		key := strings.ToLower(entry.name)
+		if index, exists := byName[key]; exists {
+			if !overwrite {
+				skipped++
+				continue
+			}
+			replacement := &next[index]
+			replacement.Name = entry.name
+			replacement.BaseRecipeID = entry.baseID
+			replacement.Options = cloneOptions(entry.options)
+			imported++
+			continue
+		}
+
+		recipe := userRecipe{
+			ID:           nextUserRecipeID(usedIDs),
+			Name:         entry.name,
+			BaseRecipeID: entry.baseID,
+			Options:      cloneOptions(entry.options),
+			CreatedAt:    now + int64(offset),
+		}
+		byName[key] = len(next)
+		next = append(next, recipe)
+		imported++
+	}
+
+	if imported == 0 {
+		return 0, skipped, nil
+	}
+
+	s.userRecipes = next
+	if err := s.writeUserRecipesLocked(); err != nil {
+		s.userRecipes = previous
+		return 0, 0, err
+	}
+
+	return imported, skipped, nil
+}
+
+// nextUserRecipeID returns an id that is unique inside used and records it.
+func nextUserRecipeID(used map[string]struct{}) string {
+	base := time.Now().UnixNano()
+	for offset := int64(0); ; offset++ {
+		id := fmt.Sprintf("%s%d", userRecipeIDPrefix, base+offset)
+		if _, exists := used[id]; exists {
+			continue
+		}
+		used[id] = struct{}{}
+		return id
+	}
+}
+
+func entryNameOrFallback(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return "(unnamed recipe)"
+	}
+	return trimmed
+}
+
+func exportRecipesFailure(code, message string) models.ExportUserRecipesResponse {
+	return models.ExportUserRecipesResponse{
+		Success: false,
+		Message: message,
+		Error:   newRecipeError(code, message, nil),
+	}
+}
+
+func importRecipesFailure(code, message string, invalid []models.ImportUserRecipeIssue) models.ImportUserRecipesResponse {
+	if invalid == nil {
+		invalid = []models.ImportUserRecipeIssue{}
+	}
+
+	return models.ImportUserRecipesResponse{
+		Success: false,
+		Message: message,
+		Invalid: invalid,
+		Error:   newRecipeError(code, message, nil),
 	}
 }
 

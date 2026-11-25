@@ -165,6 +165,36 @@ func (s *SystemService) OpenDirectoryDialog() (string, error) {
 	return dialog.PromptForSingleSelection()
 }
 
+// OpenImportFileDialog opens a native file dialog filtered to JSON so the user
+// can pick a shared recipe file. It returns an empty path when they cancel.
+func (s *SystemService) OpenImportFileDialog() (string, error) {
+	app := application.Get()
+
+	dialog := app.Dialog.OpenFile()
+	dialog.SetTitle("Select a recipes file")
+	dialog.AddFilter("JSON files", "*.json")
+
+	return dialog.PromptForSingleSelection()
+}
+
+// SaveFileDialog opens a native save dialog for a shareable recipe file. It
+// returns the chosen path, or an empty string when the user cancels.
+func (s *SystemService) SaveFileDialog(defaultFilename string) (string, error) {
+	app := application.Get()
+
+	dialog := app.Dialog.SaveFile()
+	dialog.SetOptions(&application.SaveFileDialogOptions{
+		Title:                "Save recipes file",
+		Filename:             strings.TrimSpace(defaultFilename),
+		CanCreateDirectories: true,
+		Filters: []application.FileFilter{
+			{DisplayName: "JSON files", Pattern: "*.json"},
+		},
+	})
+
+	return dialog.PromptForSingleSelection()
+}
+
 func (s *SystemService) GetPDFPreviewSource(inputPath string) models.PDFPreviewSourceResponse {
 	path := strings.TrimSpace(inputPath)
 	if path == "" {

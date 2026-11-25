@@ -182,17 +182,66 @@
     </section>
   }
 
-  @if (userRecipes().length > 0) {
+  @if (showRecipes()) {
     <section class="home-recipes home-user-recipes" aria-labelledby="home-user-recipes-title">
       <div class="section-head">
         <div>
           <h2 id="home-user-recipes-title" class="section-title">{{ i18n.t('home.myRecipes.title') }}</h2>
           <p class="home-recipes-sub">{{ i18n.t('home.myRecipes.subtitle') }}</p>
         </div>
+        <div class="home-recipe-transfer">
+          <label class="home-recipe-overwrite">
+            <input
+              type="checkbox"
+              class="recipe-import-overwrite"
+              [checked]="recipeImportOverwrite()"
+              (change)="setRecipeImportOverwrite($event)"
+            />
+            {{ i18n.t('home.myRecipes.overwrite') }}
+          </label>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm recipe-export"
+            [disabled]="recipeTransferBusy()"
+            (click)="exportUserRecipes()"
+          >
+            <lucide-icon [img]="exportIcon" [size]="13" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            {{ i18n.t('home.myRecipes.export') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm recipe-import"
+            [disabled]="recipeTransferBusy()"
+            (click)="importUserRecipes()"
+          >
+            <lucide-icon [img]="importIcon" [size]="13" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+            {{ i18n.t('home.myRecipes.import') }}
+          </button>
+        </div>
       </div>
 
       @if (recipeMessage(); as message) {
         <p class="home-recipes-message" role="status">{{ message }}</p>
+      }
+
+      @if (recipeImportSummary(); as summary) {
+        <div class="home-import-summary" role="status">
+          <p class="home-import-summary-title">{{ i18n.t('home.myRecipes.importSummary') }}</p>
+          <p>{{ i18n.t('home.myRecipes.importedCount', { count: summary.imported }) }}</p>
+          <p>{{ i18n.t('home.myRecipes.skippedCount', { count: summary.skipped }) }}</p>
+          @if (summary.invalid.length > 0) {
+            <p>{{ i18n.t('home.myRecipes.invalidCount', { count: summary.invalid.length }) }}</p>
+            <ul class="home-import-invalid">
+              @for (issue of summary.invalid; track $index) {
+                <li>{{ i18n.t('home.myRecipes.invalidEntry', { name: issue.name, reason: issue.reason }) }}</li>
+              }
+            </ul>
+          }
+        </div>
+      }
+
+      @if (userRecipes().length === 0) {
+        <p class="home-recipes-empty">{{ i18n.t('home.myRecipes.empty') }}</p>
       }
 
       <div class="home-recipe-list">

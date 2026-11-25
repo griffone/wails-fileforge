@@ -68,3 +68,14 @@ func (s *RecipeService) RenameUserRecipe(id, name string) models.UserRecipeRespo
 func (s *RecipeService) DeleteUserRecipe(id string) models.UserRecipeResponse {
 	return s.service.DeleteUserRecipe(id)
 }
+
+// ExportUserRecipes writes the selected user recipes to one shareable file.
+func (s *RecipeService) ExportUserRecipes(path string, ids []string) models.ExportUserRecipesResponse {
+	return s.service.ExportUserRecipes(path, ids)
+}
+
+// ImportUserRecipes validates and applies a shared recipe file, reporting
+// imported, skipped and invalid entries without partially applying a bad one.
+func (s *RecipeService) ImportUserRecipes(path string, overwrite bool) models.ImportUserRecipesResponse {
+	return s.service.ImportUserRecipes(path, overwrite)
+}

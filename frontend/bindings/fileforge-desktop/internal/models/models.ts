@@ -110,6 +110,18 @@ export interface CancelJobResponse {
     "error"?: JobError | null;
 }
 
+/**
+ * ExportUserRecipesResponse reports where the preset file was written and how
+ * many recipes it contains.
+ */
+export interface ExportUserRecipesResponse {
+    "success": boolean;
+    "message": string;
+    "path"?: string;
+    "exported": number;
+    "error"?: JobError | null;
+}
+
 export interface FileInfo {
     "path": string;
     "name": string;
@@ -214,6 +226,29 @@ export interface ImagePreviewSourceResponse {
     "mimeType"?: string;
     "width"?: number;
     "height"?: number;
+    "error"?: JobError | null;
+}
+
+/**
+ * ImportUserRecipeIssue names one recipe entry that could not be imported and
+ * why. Invalid entries are reported, never silently skipped.
+ */
+export interface ImportUserRecipeIssue {
+    "name": string;
+    "reason": string;
+}
+
+/**
+ * ImportUserRecipesResponse is the typed import summary: how many recipes were
+ * applied, how many were skipped because their name already existed, and every
+ * entry that failed validation.
+ */
+export interface ImportUserRecipesResponse {
+    "success": boolean;
+    "message": string;
+    "imported": number;
+    "skipped": number;
+    "invalid": ImportUserRecipeIssue[] | null;
     "error"?: JobError | null;
 }
 

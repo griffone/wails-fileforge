@@ -218,6 +218,16 @@ export interface UserRecipeResponse extends Models.UserRecipeResponse {
   error?: JobError;
 }
 
+export type ExportUserRecipesResponse = Models.ExportUserRecipesResponse;
+
+export type ImportUserRecipeIssue = Models.ImportUserRecipeIssue;
+
+export interface ImportUserRecipesResponse
+  extends Models.ImportUserRecipesResponse {
+  invalid: ImportUserRecipeIssue[];
+  error?: JobError;
+}
+
 export interface RecipeRequest extends Models.RecipeRequest {
   inputPaths: string[];
   options: Record<string, unknown>;
@@ -1277,6 +1287,55 @@ export class Wails {
     }
   }
 
+  async exportUserRecipes(
+    path: string,
+    ids: string[],
+  ): Promise<ExportUserRecipesResponse> {
+    try {
+      const response = await this.ipc.exportUserRecipes(path, ids);
+      return { ...response, error: this.optionalError(response.error) };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Export user recipes failed', error),
+        path: '',
+        exported: 0,
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'RECIPE_EXPORT_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async importUserRecipes(
+    path: string,
+    overwrite: boolean,
+  ): Promise<ImportUserRecipesResponse> {
+    try {
+      const response = await this.ipc.importUserRecipes(path, overwrite);
+      return {
+        ...response,
+        invalid: response.invalid ?? [],
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Import user recipes failed', error),
+        imported: 0,
+        skipped: 0,
+        invalid: [],
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'RECIPE_IMPORT_READ_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
   async listAutomationRules(): Promise<ListAutomationRulesResponse> {
     try {
       const response = await this.ipc.listAutomationRules();
@@ -1560,6 +1619,22 @@ export class Wails {
   async openDirectoryDialog(): Promise<string> {
     try {
       return (await this.ipc.openDirectoryDialog()) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  async openImportFileDialog(): Promise<string> {
+    try {
+      return (await this.ipc.openImportFileDialog()) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  async saveFileDialog(defaultFilename: string): Promise<string> {
+    try {
+      return (await this.ipc.saveFileDialog(defaultFilename)) ?? '';
     } catch {
       return '';
     }

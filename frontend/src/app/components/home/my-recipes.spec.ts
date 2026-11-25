@@ -170,6 +170,10 @@ describe('Home (My recipes)', () => {
       'saveUserRecipe',
       'renameUserRecipe',
       'deleteUserRecipe',
+      'saveFileDialog',
+      'openImportFileDialog',
+      'exportUserRecipes',
+      'importUserRecipes',
     ]);
 
     wailsSpy.listTools.and.resolveTo({
@@ -211,6 +215,21 @@ describe('Home (My recipes)', () => {
     wailsSpy.deleteUserRecipe.and.resolveTo({
       success: true,
       message: 'user recipe deleted',
+    });
+    wailsSpy.saveFileDialog.and.resolveTo('');
+    wailsSpy.openImportFileDialog.and.resolveTo('');
+    wailsSpy.exportUserRecipes.and.resolveTo({
+      success: true,
+      message: 'exported',
+      path: '/tmp/recipes.json',
+      exported: 1,
+    });
+    wailsSpy.importUserRecipes.and.resolveTo({
+      success: true,
+      message: 'imported',
+      imported: 1,
+      skipped: 0,
+      invalid: [],
     });
 
     await TestBed.configureTestingModule({
@@ -469,5 +488,111 @@ describe('Home (My recipes)', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).toContain('Duplicar receta');
+  });
+
+  it('treats a cancelled export dialog as a no-op', async () => {
+    await loadUserRecipe();
+    wailsSpy.saveFileDialog.and.resolveTo('');
+
+    const exported = query<HTMLButtonElement>(
+      '.recipe-export',
+    ) as HTMLButtonElement;
+    exported.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(wailsSpy.saveFileDialog).toHaveBeenCalled();
+    expect(wailsSpy.exportUserRecipes).not.toHaveBeenCalled();
+    expect(component.recipeMessage()).toBe('');
+  });
+
+  it('passes every user recipe id to the export call', async () => {
+    await loadUserRecipe();
+    wailsSpy.saveFileDialog.and.resolveTo('/tmp/recipes.json');
+
+    const exported = query<HTMLButtonElement>(
+      '.recipe-export',
+    ) as HTMLButtonElement;
+    exported.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(wailsSpy.exportUserRecipes).toHaveBeenCalledWith(
+      '/tmp/recipes.json',
+      [USER_RECIPE_ID],
+    );
+    expect(component.recipeMessage()).toContain('Exported 1 recipes');
+  });
+
+  it('renders imported, skipped and invalid entries after import', async () => {
+    wailsSpy.openImportFileDialog.and.resolveTo('/tmp/shared.json');
+    wailsSpy.importUserRecipes.and.resolveTo({
+      success: true,
+      message: 'imported',
+      imported: 2,
+      skipped: 1,
+      invalid: [
+        { name: 'Broken recipe', reason: 'Base recipe was not found.' },
+      ],
+    });
+
+    const imported = query<HTMLButtonElement>(
+      '.recipe-import',
+    ) as HTMLButtonElement;
+    imported.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const summary = query('.home-import-summary');
+    expect(summary).not.toBeNull();
+    expect(summary?.textContent).toContain('2 imported');
+    expect(summary?.textContent).toContain('1 skipped');
+    expect(summary?.textContent).toContain('1 invalid');
+    expect(summary?.textContent).toContain(
+      'Broken recipe: Base recipe was not found.',
+    );
+  });
+
+  it('passes the overwrite toggle to the import call', async () => {
+    wailsSpy.openImportFileDialog.and.resolveTo('/tmp/shared.json');
+
+    const toggle = query<HTMLInputElement>(
+      '.recipe-import-overwrite',
+    ) as HTMLInputElement;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    const imported = query<HTMLButtonElement>(
+      '.recipe-import',
+    ) as HTMLButtonElement;
+    imported.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(wailsSpy.importUserRecipes).toHaveBeenCalledWith(
+      '/tmp/shared.json',
+      true,
+    );
+  });
+
+  it('treats a cancelled import dialog as a no-op', async () => {
+    wailsSpy.openImportFileDialog.and.resolveTo('');
+
+    const imported = query<HTMLButtonElement>(
+      '.recipe-import',
+    ) as HTMLButtonElement;
+    imported.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(wailsSpy.importUserRecipes).not.toHaveBeenCalled();
+    expect(component.recipeMessage()).toBe('');
+    expect(component.recipeImportSummary()).toBeNull();
   });
 });

@@ -121,6 +121,20 @@ export class WailsIpc {
     return RecipeService.DeleteUserRecipe(id);
   }
 
+  exportUserRecipes(
+    path: string,
+    ids: string[],
+  ): Promise<Models.ExportUserRecipesResponse> {
+    return RecipeService.ExportUserRecipes(path, ids);
+  }
+
+  importUserRecipes(
+    path: string,
+    overwrite: boolean,
+  ): Promise<Models.ImportUserRecipesResponse> {
+    return RecipeService.ImportUserRecipes(path, overwrite);
+  }
+
   // Automation.
   listAutomationRules(): Promise<Models.ListAutomationRulesResponse> {
     return AutomationService.ListAutomationRules();
@@ -220,6 +234,14 @@ export class WailsIpc {
 
   openDirectoryDialog(): Promise<string> {
     return SystemService.OpenDirectoryDialog();
+  }
+
+  openImportFileDialog(): Promise<string> {
+    return SystemService.OpenImportFileDialog();
+  }
+
+  saveFileDialog(defaultFilename: string): Promise<string> {
+    return SystemService.SaveFileDialog(defaultFilename);
   }
 
   // Preview and media.

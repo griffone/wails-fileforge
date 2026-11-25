@@ -2079,6 +2079,53 @@
   color: var(--muted);
 }
 
+.home-recipes-empty {
+  margin: 0 0 10px;
+  font-size: 0.78125rem;
+  color: var(--muted);
+}
+
+.home-recipe-transfer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-recipe-overwrite {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.71875rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.home-import-summary {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.78125rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.home-import-summary p {
+  margin: 0;
+}
+
+.home-import-summary-title {
+  margin-bottom: 4px !important;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.home-import-invalid {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
 .recipe-delete-body {
   margin: 0;
   font-size: 0.8125rem;
