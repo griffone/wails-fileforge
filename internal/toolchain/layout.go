@@ -363,6 +363,13 @@ func ManagedRembgRuntimeState(dataDir string) (bool, string) {
 	return false, strings.Replace(reason, "Run Install / repair.", "Open Settings and run Install / repair.", 1)
 }
 
+// ManagedRembgModelState reports whether the pinned background removal model is
+// installed and complete, reusing the exact-size check from the toolchain
+// status. The reason is user-facing.
+func ManagedRembgModelState(dataDir string) (bool, string) {
+	return rembgModelState(ToolchainDir(dataDir))
+}
+
 // rembgModelState verifies the pinned model by its exact size. The checksum is
 // only verified during install because hashing ~179 MB on every status poll
 // would be wasteful.
