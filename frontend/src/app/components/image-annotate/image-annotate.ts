@@ -9,7 +9,6 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { Subscription } from 'rxjs';
 import {
   ArrowDown,
   ArrowUp,
@@ -31,11 +30,9 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
-import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import {
   describeToolError,
   localizeToolError,
-  ToolErrorCopy,
 } from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
@@ -48,30 +45,19 @@ import {
   ImageAnnotatePreviewRequest,
   ImageAnnotatePreviewResponse,
   ImagePreviewSourceResponse,
-  InspectFilesResponse,
-  JobError,
-  JobExecutionStatus,
-  JobProgressEvent,
   JobRequest,
-  JobResult,
-  JobStatusResponse,
-  PlanJobResponse,
-  RunJobResponse,
   Wails,
 } from '../../services/wails';
 import {
   fileExtension,
-  fileName,
   formatBytes,
   formatCount,
 } from '../../utils/format';
-import { observeJob } from '../../utils/job-stream';
-import { resumeToolJob } from '../../utils/resume-task';
+import { ToolRunController } from '../../utils/tool-run-controller';
 
 const IMAGE_ANNOTATE_TOOL_ID = 'tool.image.annotate';
 const OPERATION_PLAN_DEBOUNCE_MS = 250;
 const ANNOTATE_PREVIEW_DEBOUNCE_MS = 200;
-const THUMBNAIL_SIZE = 160;
 const HISTORY_LIMIT = 50;
 const DUPLICATE_OFFSET_PX = 10;
 
@@ -92,14 +78,6 @@ const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'bmp',
   'tiff',
   'tif',
-]);
-
-const TERMINAL_STATUSES = new Set<string>([
-  'success',
-  'failed',
-  'partial_success',
-  'cancelled',
-  'interrupted',
 ]);
 
 type AnnotateTool = 'select' | 'rect' | 'blur' | 'redact' | 'arrow' | 'text';
@@ -184,11 +162,6 @@ interface DrawDraft {
   endY: number;
 }
 
-interface Notice {
-  tone: 'warning' | 'danger';
-  text: string;
-}
-
 interface CommitOptions {
   /** Operation to select after the change; -1 clears the selection. */
   selection?: number;
@@ -211,9 +184,45 @@ interface CommitOptions {
 export class ImageAnnotate implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
-  private readonly activity = inject(ActivityService);
   readonly i18n = inject(I18nService);
+  private readonly wailsService = inject(Wails);
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
+
+  private readonly job: ToolRunController = new ToolRunController({
+    toolId: IMAGE_ANNOTATE_TOOL_ID,
+    wails: this.wailsService,
+    i18n: this.i18n,
+    activity: inject(ActivityService),
+    dropIntake: this.dropIntake,
+    initialOutputDir: this.preferences.defaultOutputDir(),
+    buildRequest: () => this.buildRequest(),
+    acceptsPath: (path) =>
+      SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase()),
+    canPlan: () =>
+      this.selectedPaths().length > 0 && this.hasOperations(),
+    canRun: () => this.canRun(),
+    extraBlocked: () => this.plan()?.success === false,
+    describeFileInfo: (info) => this.describeFileInfo(info),
+    afterPathsChanged: (previousPaths, paths) =>
+      this.onQueueChanged(previousPaths, paths),
+    messages: {
+      start: 'imageAnnotate.error.start',
+      planFailed: 'imageAnnotate.error.plan',
+      waiting: 'imageAnnotate.status.waiting',
+      inspectFailed: 'imageAnnotate.error.inspect',
+      statusMissing: 'imageAnnotate.error.status',
+      cancelFailed: 'imageAnnotate.error.cancel',
+      openFileFailed: 'imageAnnotate.error.openFile',
+      revealFailed: 'imageAnnotate.error.openFolder',
+    },
+    notice: {
+      rejectedOne: 'imageAnnotate.notice.rejectedOne',
+      rejectedMany: 'imageAnnotate.notice.rejectedMany',
+      duplicateOne: 'imageAnnotate.notice.duplicateOne',
+      duplicateMany: 'imageAnnotate.notice.duplicateMany',
+      rejectedManyFormat: 'count',
+    },
+  });
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -239,8 +248,24 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     { id: 'redact', label: 'Redact' },
   ];
 
-  readonly selectedPaths = signal<string[]>([]);
-  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly selectedPaths = this.job.selectedPaths;
+  readonly fileItems = this.job.fileItems;
+  readonly outputDir = this.job.outputDir;
+  readonly plan = this.job.plan;
+  readonly planError = this.job.planError;
+  readonly planLoading = this.job.planLoading;
+  readonly jobResult = this.job.jobResult;
+  readonly jobError = this.job.jobError;
+  readonly outputInfos = this.job.outputInfos;
+  readonly isSubmitting = this.job.isSubmitting;
+  readonly isPolling = this.job.isPolling;
+  readonly activeJobId = this.job.activeJobId;
+  readonly notice = this.job.notice;
+  readonly actionMessage = this.job.actionMessage;
+  readonly terminalJob = this.job.terminalJob;
+  readonly showProgress = this.job.showProgress;
+  readonly jobErrorCopy = this.job.jobErrorCopy;
+
   readonly previewUrl = signal('');
   readonly imageWidth = signal(0);
   readonly imageHeight = signal(0);
@@ -258,23 +283,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   readonly canRedo = signal(false);
 
   readonly outputFormat = signal('');
-  readonly outputDir = signal(this.preferences.defaultOutputDir());
   readonly advancedOpen = signal(false);
-
-  readonly plan = signal<PlanJobResponse | null>(null);
-  readonly planError = signal<JobError | null>(null);
-  readonly planLoading = signal(false);
-
-  readonly jobResult = signal<JobResult | null>(null);
-  readonly jobError = signal<JobError | null>(null);
-  readonly outputInfos = signal<Record<string, FileInfo>>({});
-
-  readonly isSubmitting = signal(false);
-  readonly isPolling = signal(false);
-  readonly activeJobId = signal('');
-
-  readonly notice = signal<Notice | null>(null);
-  readonly actionMessage = signal('');
 
   readonly previewLoading = signal(false);
   readonly previewError = signal('');
@@ -353,32 +362,8 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       : this.i18n.t('imageAnnotate.operations.newTitle');
   });
 
-  readonly terminalJob = computed<JobResult | null>(() => {
-    const job = this.jobResult();
-    return job && this.isTerminalStatus(job.status) ? job : null;
-  });
-
-  readonly showProgress = computed(() => {
-    const job = this.jobResult();
-    return !!job && !this.isTerminalStatus(job.status);
-  });
-
-  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
-    const error = this.jobError();
-    return error
-      ? localizeToolError(
-          (key) => this.i18n.t(key),
-          describeToolError(error, this.i18n.t('imageAnnotate.error.start')),
-        )
-      : null;
-  });
-
-  private jobSubscription: Subscription | null = null;
-  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private annotatePreviewTimer: ReturnType<typeof setTimeout> | null = null;
-  private planToken = 0;
   private annotatePreviewToken = 0;
-  private fileItemsGeneration = 0;
   private previewGeneration = 0;
   /**
    * Snapshots are deep copies so later mutations of the live operations
@@ -387,20 +372,14 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   private readonly undoStack: ImageAnnotateOperation[][] = [];
   private readonly redoStack: ImageAnnotateOperation[][] = [];
 
-  constructor(private readonly wailsService: Wails) {}
-
-  ngOnDestroy(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
-    this.clearAnnotatePreviewTimer();
+  ngOnInit(): void {
+    this.job.takePendingDrop('/image-annotate');
+    this.job.resume();
   }
 
-  ngOnInit(): void {
-    const pending = this.dropIntake.take('/image-annotate');
-    if (pending.length > 0) {
-      this.onPathsSelected(pending);
-    }
-    this.resumeBackgroundJob();
+  ngOnDestroy(): void {
+    this.job.dispose();
+    this.clearAnnotatePreviewTimer();
   }
 
   fileCountLabel(): string {
@@ -427,93 +406,22 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   }
 
   onPathsSelected(paths: string[]): void {
-    const incoming = (Array.isArray(paths) ? paths : [])
-      .map((path) => path.trim())
-      .filter((path) => path.length > 0);
-    if (incoming.length === 0) {
-      return;
-    }
-
-    const previousFirst = this.selectedPaths()[0] ?? '';
-    const rejected: string[] = [];
-    const duplicates: string[] = [];
-    const added: string[] = [];
-    const known = new Set(
-      this.selectedPaths().map((path) => this.pathKey(path)),
-    );
-
-    for (const path of incoming) {
-      if (
-        !SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase())
-      ) {
-        rejected.push(path);
-        continue;
-      }
-
-      const key = this.pathKey(path);
-      if (known.has(key)) {
-        duplicates.push(path);
-        continue;
-      }
-
-      known.add(key);
-      added.push(path);
-    }
-
-    this.notice.set(this.intakeNotice(rejected, duplicates));
-
-    if (added.length === 0) {
-      return;
-    }
-
-    this.actionMessage.set('');
-    this.selectedPaths.set([...this.selectedPaths(), ...added]);
-    this.syncFileItems();
-
-    const firstChanged = previousFirst !== this.selectedPaths()[0];
-    if (firstChanged) {
-      void this.reloadPreviewAndPlan();
-    } else {
-      void this.refreshPlan();
-    }
+    this.job.onPathsSelected(paths);
   }
 
   async chooseFiles(): Promise<void> {
     const paths = await this.wailsService.openMultipleFilesDialog();
     if (paths.length > 0) {
-      this.onPathsSelected(paths);
+      this.job.onPathsSelected(paths);
     }
   }
 
   clear(): void {
-    if (this.selectedPaths().length === 0) {
-      return;
-    }
-
-    this.selectedPaths.set([]);
-    this.notice.set(null);
-    this.actionMessage.set('');
-    this.syncFileItems();
-    void this.reloadPreviewAndPlan();
+    this.job.clear();
   }
 
   removeFile(path: string): void {
-    const previousFirst = this.selectedPaths()[0] ?? '';
-    const next = this.selectedPaths().filter(
-      (candidate) => candidate !== path,
-    );
-    if (next.length === this.selectedPaths().length) {
-      return;
-    }
-
-    this.selectedPaths.set(next);
-    this.syncFileItems();
-
-    if ((next[0] ?? '') === previousFirst) {
-      void this.refreshPlan();
-    } else {
-      void this.reloadPreviewAndPlan();
-    }
+    this.job.removeFile(path);
   }
 
   setActiveTool(tool: AnnotateTool): void {
@@ -809,7 +717,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     this.outputFormat.set(value);
     this.actionMessage.set('');
     this.scheduleAnnotatePreviewRefresh();
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onAdvancedToggle(event: Event): void {
@@ -825,7 +733,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
 
     this.outputDir.set(directory);
     this.actionMessage.set('');
-    await this.refreshPlan();
+    await this.job.refreshPlan();
   }
 
   useOriginalFolders(): void {
@@ -834,7 +742,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     }
 
     this.outputDir.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onPreviewImageLoaded(): void {
@@ -910,103 +818,19 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   }
 
   async run(): Promise<void> {
-    if (!this.canRun()) {
-      return;
-    }
-
-    this.clearPlanRefreshTimer();
-    this.actionMessage.set('');
-
-    // The plan is the source of truth for destinations and collision-safe
-    // names, so it is refreshed with the current annotations before starting.
-    const planned = await this.refreshPlan();
-    if (!planned) {
-      return;
-    }
-
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(true);
-
-    const response: RunJobResponse = await this.wailsService
-      .runJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageAnnotate.error.start'),
-        jobId: '',
-        status: 'failed' as const,
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message: this.i18n.t('imageAnnotate.error.start'),
-        },
-      }));
-    if (!response.success || !response.jobId) {
-      this.jobError.set(
-        response.error ?? {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message:
-            response.message || this.i18n.t('imageAnnotate.error.start'),
-        },
-      );
-      this.isSubmitting.set(false);
-      return;
-    }
-
-    const total = this.selectedPaths().length;
-    this.activeJobId.set(response.jobId);
-    this.jobResult.set({
-      jobId: response.jobId,
-      success: false,
-      message: this.i18n.t('imageAnnotate.status.waiting'),
-      toolId: IMAGE_ANNOTATE_TOOL_ID,
-      status: 'queued',
-      progress: {
-        current: 0,
-        total,
-        stage: 'queued',
-        message: this.i18n.t('imageAnnotate.status.waiting'),
-      },
-      items: [],
-      startedAt: Date.now(),
-    });
-    this.isSubmitting.set(false);
-    this.isPolling.set(true);
-    this.startObserving();
+    await this.job.run();
   }
 
   async cancel(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    const response = await this.wailsService.cancelJob(jobId);
-    if (!response.success) {
-      this.actionMessage.set(
-        response.message || this.i18n.t('imageAnnotate.error.cancel'),
-      );
-    }
+    await this.job.cancel();
   }
 
   async onOpen(path: string): Promise<void> {
-    const response = await this.wailsService.openPath(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('imageAnnotate.error.openFile'),
-    );
+    await this.job.openPath(path);
   }
 
   async onReveal(path: string): Promise<void> {
-    const response = await this.wailsService.revealInFolder(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('imageAnnotate.error.openFolder'),
-    );
+    await this.job.revealPath(path);
   }
 
   /** Retries only the failed inputs with the same annotations and folder. */
@@ -1021,31 +845,26 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     }
 
     const previousFirst = this.selectedPaths()[0] ?? '';
-    this.selectedPaths.set([...new Set(failed)]);
+    this.job.replacePaths([...new Set(failed)], { notify: false });
     this.jobResult.set(null);
     this.jobError.set(null);
     this.outputInfos.set({});
     this.actionMessage.set('');
-    this.syncFileItems();
 
     if ((this.selectedPaths()[0] ?? '') !== previousFirst) {
       await this.refreshPreviewSource();
     }
 
-    await this.run();
+    await this.job.run();
   }
 
   reset(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
-    this.clearAnnotatePreviewTimer();
-    this.planToken += 1;
-    this.annotatePreviewToken += 1;
-    this.fileItemsGeneration += 1;
-    this.previewGeneration += 1;
+    this.job.reset();
 
-    this.selectedPaths.set([]);
-    this.fileItems.set([]);
+    this.previewGeneration += 1;
+    this.annotatePreviewToken += 1;
+    this.clearAnnotatePreviewTimer();
+
     this.previewUrl.set('');
     this.imageWidth.set(0);
     this.imageHeight.set(0);
@@ -1060,16 +879,6 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     this.drawDraft.set(null);
     this.annotatePreviewUrl.set('');
     this.isAnnotatePreviewLoading.set(false);
-    this.plan.set(null);
-    this.planError.set(null);
-    this.planLoading.set(false);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(false);
-    this.activeJobId.set('');
-    this.notice.set(null);
-    this.actionMessage.set('');
   }
 
   operationTypeLabel(operation: ImageAnnotateOperation): string {
@@ -1246,66 +1055,22 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     };
   }
 
-  private async refreshPlan(): Promise<boolean> {
-    if (this.selectedPaths().length === 0 || !this.hasOperations()) {
-      this.clearPlanState();
-      return false;
+  private onQueueChanged(
+    previousPaths: readonly string[],
+    paths: readonly string[],
+  ): void {
+    if ((previousPaths[0] ?? '') !== (paths[0] ?? '')) {
+      void this.reloadPreviewAndPlan();
+    } else {
+      void this.job.refreshPlan();
     }
-
-    const token = (this.planToken += 1);
-    this.planLoading.set(true);
-    this.plan.set(null);
-    this.planError.set(null);
-
-    const response: PlanJobResponse = await this.wailsService
-      .planJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageAnnotate.error.plan'),
-        outputs: [],
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'PLAN_JOB_FAILED',
-          message: this.i18n.t('imageAnnotate.error.plan'),
-        },
-      }));
-    if (token !== this.planToken) {
-      return false;
-    }
-
-    this.planLoading.set(false);
-
-    if (response.success && !response.error) {
-      this.plan.set(response);
-      return true;
-    }
-
-    const error: JobError = response.error ?? {
-      code: 'VALIDATION_INVALID_INPUT',
-      detail_code: 'PLAN_JOB_FAILED',
-      message:
-        response.message || this.i18n.t('imageAnnotate.error.plan'),
-    };
-    // Keep the failed plan so the shared plan card can show the destination
-    // or annotation problem next to the destination it belongs to.
-    this.plan.set({ ...response, success: false, error });
-    this.planError.set(error);
-    return false;
-  }
-
-  private clearPlanState(): void {
-    this.planToken += 1;
-    this.plan.set(null);
-    this.planError.set(null);
-    this.planLoading.set(false);
-    this.clearPlanRefreshTimer();
   }
 
   private scheduleOperationRefresh(): void {
     if (!this.hasOperations()) {
-      this.clearPlanState();
+      this.job.clearPlan();
     } else {
-      this.schedulePlanRefresh();
+      this.job.schedulePlanRefresh(OPERATION_PLAN_DEBOUNCE_MS);
     }
     this.scheduleAnnotatePreviewRefresh();
   }
@@ -1369,29 +1134,9 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     );
   }
 
-  private schedulePlanRefresh(): void {
-    this.clearPlanRefreshTimer();
-    if (this.selectedPaths().length === 0) {
-      this.clearPlanState();
-      return;
-    }
-
-    this.planRefreshTimer = setTimeout(() => {
-      this.planRefreshTimer = null;
-      void this.refreshPlan();
-    }, OPERATION_PLAN_DEBOUNCE_MS);
-  }
-
-  private clearPlanRefreshTimer(): void {
-    if (this.planRefreshTimer) {
-      clearTimeout(this.planRefreshTimer);
-      this.planRefreshTimer = null;
-    }
-  }
-
   private async reloadPreviewAndPlan(): Promise<void> {
     await this.refreshPreviewSource();
-    await this.refreshPlan();
+    await this.job.refreshPlan();
   }
 
   private async refreshPreviewSource(): Promise<void> {
@@ -1723,238 +1468,6 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     return rect;
   }
 
-  private resumeBackgroundJob(): void {
-    resumeToolJob({
-      activity: this.activity,
-      toolId: IMAGE_ANNOTATE_TOOL_ID,
-      activeJobId: this.activeJobId,
-      jobResult: this.jobResult,
-      jobError: this.jobError,
-      startObserving: () => this.startObserving(),
-    });
-  }
-
-  private startObserving(): void {
-    this.stopObserving();
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    this.isPolling.set(true);
-    this.jobSubscription = observeJob(this.wailsService, jobId, {
-      onProgress: (event) => this.applyJobProgress(event),
-      onState: (result) => this.applyJobStatus(result),
-      onMissing: (response) => this.handleMissingJob(response),
-    });
-  }
-
-  private stopObserving(): void {
-    if (this.jobSubscription) {
-      this.jobSubscription.unsubscribe();
-      this.jobSubscription = null;
-    }
-    this.isPolling.set(false);
-  }
-
-  private applyJobProgress(event: JobProgressEvent): void {
-    if (!event) {
-      return;
-    }
-
-    const current = this.jobResult();
-    if (!current) {
-      return;
-    }
-
-    this.jobResult.set({
-      ...current,
-      message: event.progress.message,
-      progress: event.progress,
-      // The terminal snapshot arrives on jobs/state; a progress event can
-      // overtake the complete result, so the current status is kept.
-      status: this.isTerminalStatus(event.status)
-        ? current.status
-        : (event.status as JobExecutionStatus),
-    });
-
-    if (this.isTerminalStatus(event.status)) {
-      void this.reconcileJobStatus();
-    }
-  }
-
-  private applyJobStatus(result: JobResult): void {
-    if (!result) {
-      return;
-    }
-
-    this.jobResult.set(result);
-    if (this.isTerminalStatus(result.status)) {
-      this.stopObserving();
-      this.activeJobId.set('');
-      void this.loadOutputInfos();
-    }
-  }
-
-  /** The backend no longer tracks the adopted job (restart or retention). */
-  private handleMissingJob(response: JobStatusResponse): void {
-    if (!this.activeJobId()) {
-      return;
-    }
-
-    this.stopObserving();
-    this.activeJobId.set('');
-    this.jobError.set(
-      response.error ?? {
-        code: 'EXEC_IO_TRANSIENT',
-        detail_code: 'JOB_STATUS_MISSING',
-        message:
-          response.message || this.i18n.t('imageAnnotate.error.status'),
-      },
-    );
-  }
-
-  /**
-   * One-shot recovery when a terminal progress event arrives before its
-   * jobs/state snapshot. This is never a timer, and it is a no-op once the
-   * page has already settled the job.
-   */
-  private async reconcileJobStatus(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    const response = await this.wailsService
-      .getJobStatus(jobId)
-      .catch(() => null);
-    if (!response || this.activeJobId() !== jobId) {
-      return;
-    }
-
-    if (!response.found || !response.result) {
-      this.handleMissingJob(response);
-      return;
-    }
-
-    this.applyJobStatus(response.result);
-  }
-
-  private async loadOutputInfos(): Promise<void> {
-    const paths = this.collectOutputPaths();
-    if (paths.length === 0) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const response: InspectFilesResponse = await this.wailsService
-      .inspectFiles(paths)
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageAnnotate.error.inspect'),
-        files: [],
-      }));
-    if (!response.success) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const infos: Record<string, FileInfo> = {};
-    for (const info of response.files) {
-      if (info.path) {
-        infos[info.path] = info;
-      }
-    }
-    this.outputInfos.set(infos);
-  }
-
-  private collectOutputPaths(): string[] {
-    const paths = new Set<string>();
-    for (const item of this.jobResult()?.items ?? []) {
-      if (!item.success) {
-        continue;
-      }
-
-      const outputs = (item.outputs ?? []).filter((path) => !!path);
-      if (outputs.length > 0) {
-        for (const output of outputs) {
-          paths.add(output);
-        }
-      } else if (item.outputPath) {
-        paths.add(item.outputPath);
-      }
-    }
-    return [...paths];
-  }
-
-  private syncFileItems(): void {
-    const paths = this.selectedPaths();
-    const generation = (this.fileItemsGeneration += 1);
-    const existing = new Map(
-      this.fileItems().map((item) => [item.path, item]),
-    );
-    this.fileItems.set(
-      paths.map(
-        (path) => existing.get(path) ?? { path, name: fileName(path) },
-      ),
-    );
-
-    if (paths.length > 0) {
-      void this.enrichFileItems(paths, generation);
-    }
-  }
-
-  private async enrichFileItems(
-    paths: string[],
-    generation: number,
-  ): Promise<void> {
-    try {
-      const response = await this.wailsService.inspectFiles(paths);
-      if (generation === this.fileItemsGeneration && response.success) {
-        const infos = new Map<string, FileInfo>();
-        for (const info of response.files) {
-          infos.set(info.path, info);
-        }
-
-        this.fileItems.update((items) =>
-          items.map((item) => {
-            const info = infos.get(item.path);
-            const meta = info ? this.describeFileInfo(info) : '';
-            return meta ? { ...item, meta } : item;
-          }),
-        );
-      }
-    } catch {
-      // Inspection is optional: the queue keeps the file name and path.
-    }
-
-    if (generation !== this.fileItemsGeneration) {
-      return;
-    }
-
-    for (const path of paths) {
-      this.loadThumbnail(path, generation);
-    }
-  }
-
-  private loadThumbnail(path: string, generation: number): void {
-    void this.wailsService
-      .getThumbnail(path, THUMBNAIL_SIZE)
-      .then((thumbnailUrl) => {
-        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
-          return;
-        }
-        this.fileItems.update((items) =>
-          items.map((item) =>
-            item.path === path ? { ...item, thumbnailUrl } : item,
-          ),
-        );
-      })
-      .catch(() => {
-        // Thumbnails are optional; keep the placeholder icon.
-      });
-  }
-
   private describeFileInfo(info: FileInfo): string {
     const parts: string[] = [];
     if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
@@ -1966,61 +1479,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     return parts.join(' · ');
   }
 
-  private intakeNotice(
-    rejected: string[],
-    duplicates: string[],
-  ): Notice | null {
-    const parts: string[] = [];
-
-    if (rejected.length === 1) {
-      parts.push(
-        this.i18n.t('imageAnnotate.notice.rejectedOne', {
-          name: fileName(rejected[0]),
-        }),
-      );
-    } else if (rejected.length > 1) {
-      parts.push(
-        this.i18n.t('imageAnnotate.notice.rejectedMany', {
-          count: rejected.length,
-        }),
-      );
-    }
-
-    if (duplicates.length === 1) {
-      parts.push(
-        this.i18n.t('imageAnnotate.notice.duplicateOne', {
-          name: fileName(duplicates[0]),
-        }),
-      );
-    } else if (duplicates.length > 1) {
-      parts.push(
-        this.i18n.t('imageAnnotate.notice.duplicateMany', {
-          count: duplicates.length,
-        }),
-      );
-    }
-
-    return parts.length > 0
-      ? { tone: 'warning', text: parts.join(' ') }
-      : null;
-  }
-
-  /**
-   * Windows and UNC paths are case-insensitive, so the same file dropped with
-   * different casing is still a duplicate there.
-   */
-  private pathKey(path: string): string {
-    const normalized = path.trim().replace(/\\/g, '/');
-    return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//')
-      ? normalized.toLowerCase()
-      : normalized;
-  }
-
   private readEventValue(event: Event): string {
     return (event.target as HTMLInputElement | null)?.value ?? '';
-  }
-
-  private isTerminalStatus(status: string): boolean {
-    return TERMINAL_STATUSES.has(status);
   }
 }
