@@ -1,10 +1,16 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import {
+  JobRequest,
   JobResult,
+  PlanJobResponse,
   VerificationReport,
   Wails,
 } from '../../services/wails';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
+import {
+  LAST_REQUEST_STORAGE_PREFIX,
+  LastRequestService,
+} from '../../services/last-request.service';
 import { I18nService } from '../../services/i18n.service';
 import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { ResultCard } from './result-card';
@@ -15,7 +21,25 @@ describe('ResultCard', () => {
   let recentSpy: jasmine.SpyObj<RecentConversionsService>;
   let wailsSpy: jasmine.SpyObj<Wails>;
 
+  function clearLastRequests(): void {
+    try {
+      const keys: string[] = [];
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key?.startsWith(LAST_REQUEST_STORAGE_PREFIX)) {
+          keys.push(key);
+        }
+      }
+      for (const key of keys) {
+        localStorage.removeItem(key);
+      }
+    } catch {
+      // Storage is available in Karma; guard keeps the spec resilient.
+    }
+  }
+
   beforeEach(async () => {
+    clearLastRequests();
     localStorage.setItem(
       PREFERENCES_STORAGE_KEY,
       JSON.stringify({ language: 'en' }),
@@ -35,6 +59,8 @@ describe('ResultCard', () => {
       'runRecipe',
       'getRecipeStatus',
       'cancelRecipe',
+      'planJob',
+      'runJob',
     ]);
 
     wailsSpy.verifyJob.and.resolveTo({
@@ -69,6 +95,7 @@ describe('ResultCard', () => {
   afterEach(() => {
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem(PREFERENCES_STORAGE_KEY);
+    clearLastRequests();
   });
 
   function job(overrides: Partial<JobResult>): JobResult {
@@ -99,6 +126,40 @@ describe('ResultCard', () => {
       ],
       ...overrides,
     });
+  }
+
+  function lastRequest(
+    overrides: Partial<JobRequest> = {},
+  ): JobRequest {
+    return {
+      toolId: 'tool.pdf.optimize',
+      mode: 'single',
+      inputPaths: ['/tmp/source.pdf'],
+      outputDir: '/tmp/out',
+      options: { compress: false, metadata: { title: 'Draft' } },
+      ...overrides,
+    };
+  }
+
+  function planFor(request: JobRequest): PlanJobResponse {
+    return {
+      success: true,
+      message: 'ok',
+      outputs: request.inputPaths.map((inputPath, index) => ({
+        inputPath,
+        outputPath: `/tmp/out/a_${index + 1}_optimized.pdf`,
+        outputKind: 'file',
+        exists: false,
+        adjusted: false,
+      })),
+      warnings: [],
+    };
+  }
+
+  function savedRequest(): JobRequest {
+    const request = lastRequest();
+    TestBed.inject(LastRequestService).save(request);
+    return request;
   }
 
   function verificationReport(
@@ -820,5 +881,153 @@ describe('ResultCard', () => {
       'FileForge no lo sobrescribirá. Elige otro nombre o carpeta.',
     );
     expect(text).not.toContain("FileForge won't overwrite it");
+  });
+
+  it('hides run again when no request was stored for the tool', () => {
+    component.job = pdfJob({ jobId: 'job-no-request' });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.result-run-again')).toBeNull();
+  });
+
+  it('hides run again when the stored request has no inputs', () => {
+    localStorage.setItem(
+      `${LAST_REQUEST_STORAGE_PREFIX}tool.pdf.optimize`,
+      JSON.stringify({
+        schemaVersion: 1,
+        toolId: 'tool.pdf.optimize',
+        submittedAt: 1,
+        request: lastRequest({ inputPaths: [] }),
+      }),
+    );
+    component.job = pdfJob({ jobId: 'job-empty-inputs' });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.result-run-again')).toBeNull();
+  });
+
+  it('shows the confirmation with the tool, input count and destinations', async () => {
+    const request = savedRequest();
+    wailsSpy.planJob.and.resolveTo(planFor(request));
+    component.toolLabel = 'PDF';
+    component.job = pdfJob({ jobId: 'job-confirm' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector(
+      '.result-run-again',
+    ) as HTMLButtonElement;
+    expect(button).not.toBeNull();
+    button.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planJob).toHaveBeenCalledOnceWith(request);
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
+
+    const block = fixture.nativeElement.querySelector(
+      '.run-again-block',
+    ) as HTMLElement;
+    expect(block.textContent).toContain('Run again with the same settings?');
+    expect(block.textContent).toContain('PDF Optimize');
+    expect(block.textContent).toContain('1 PDF');
+    expect(block.textContent).toContain('/tmp/out/a_1_optimized.pdf');
+  });
+
+  it('shows a plan failure inline and never runs the job', async () => {
+    const request = savedRequest();
+    wailsSpy.planJob.and.resolveTo({
+      success: false,
+      message: 'options.compress is invalid',
+      outputs: [],
+      error: {
+        code: 'VALIDATION_INVALID_INPUT',
+        detail_code: 'PDF_OPTIMIZE_OPTIONS_INVALID',
+        message: 'options.compress is invalid',
+      },
+    });
+    component.job = pdfJob({ jobId: 'job-plan-failure' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector(
+      '.result-run-again',
+    ) as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('.run-again-block')).not.toBeNull();
+    const error = fixture.nativeElement.querySelector(
+      '.run-again-error',
+    ) as HTMLElement;
+    expect(error.textContent).toContain('options.compress is invalid');
+    expect(fixture.nativeElement.querySelector('.run-again-block')).not.toBeNull();
+  });
+
+  it('runs once on confirm with the stored options and inputs', async () => {
+    const request = savedRequest();
+    wailsSpy.planJob.and.resolveTo(planFor(request));
+    wailsSpy.runJob.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-again-9',
+      status: 'queued',
+    });
+    const startedSpy = jasmine.createSpy('runAgainStarted');
+    component.runAgainStarted.subscribe(startedSpy);
+    component.job = pdfJob({ jobId: 'job-confirm-run' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector(
+      '.result-run-again',
+    ) as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector(
+      '.result-run-again-confirm',
+    ) as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.runJob).toHaveBeenCalledOnceWith(request);
+    expect(startedSpy).toHaveBeenCalledOnceWith(
+      jasmine.objectContaining({
+        jobId: 'job-again-9',
+        request,
+      }),
+    );
+    expect(fixture.nativeElement.querySelector('.run-again-block')).toBeNull();
+  });
+
+  it('localizes the run again confirmation in Spanish', async () => {
+    TestBed.inject(I18nService).setLocale('es');
+    const request = savedRequest();
+    wailsSpy.planJob.and.resolveTo(planFor(request));
+    component.job = pdfJob({ jobId: 'job-again-es' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector(
+      '.result-run-again',
+    ) as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const block = fixture.nativeElement.querySelector(
+      '.run-again-block',
+    ) as HTMLElement;
+    expect(block.textContent).toContain(
+      '¿Ejecutar de nuevo con la misma configuración?',
+    );
+    expect(block.textContent).toContain('Destino planificado');
+    expect(block.textContent).toContain('Ejecutar de nuevo');
   });
 });

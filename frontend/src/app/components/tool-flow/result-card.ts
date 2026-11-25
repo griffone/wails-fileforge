@@ -22,18 +22,29 @@ import {
 import {
   FileInfo,
   JobError,
+  JobRequest,
   JobResult,
+  PlanJobResponse,
+  RunJobResponse,
   UndoResult,
   UndoSkipped,
   VerificationCheck,
   VerificationReport,
   Wails,
 } from '../../services/wails';
-import { describeToolError, localizeToolError } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import {
   RecentConversionsService,
   isTerminalJobStatus,
 } from '../../services/recent-conversions.service';
+import {
+  LastRequestService,
+  LastSubmittedRequest,
+} from '../../services/last-request.service';
 import { I18nService } from '../../services/i18n.service';
 import type { TranslationKey } from '../../i18n';
 import { fileDir, fileName, formatBytes, formatCount } from '../../utils/format';
@@ -88,8 +99,16 @@ export interface ResultUndoSkippedRow {
   reason: string;
 }
 
+/** Emitted after the card planned and started a repeated job. */
+export interface RunAgainStartedEvent {
+  jobId: string;
+  request: JobRequest;
+  plan: PlanJobResponse;
+}
+
 type SummaryTone = 'success' | 'warning' | 'danger' | 'neutral';
 type UndoMode = 'undo' | 'restore';
+const RUN_AGAIN_DESTINATION_LIMIT = 3;
 
 @Component({
   selector: 'app-result-card',
@@ -118,6 +137,15 @@ export class ResultCard implements DoCheck {
   undoMode: UndoMode = 'undo';
   showAllOutputs = false;
 
+  runAgainBusy = false;
+  runAgainPending: PlanJobResponse | null = null;
+  runAgainError: JobError | null = null;
+  private runAgainRequestValue: JobRequest | null = null;
+  private runAgainLookup: {
+    jobId: string;
+    stored: LastSubmittedRequest | null;
+  } | null = null;
+
   @Input()
   set job(value: JobResult | null) {
     const previousJobId = this.jobValue?.jobId ?? '';
@@ -126,6 +154,7 @@ export class ResultCard implements DoCheck {
     if (previousJobId !== (value?.jobId ?? '')) {
       this.resetAutoVerification();
       this.resetUndoState();
+      this.resetRunAgainState();
       this.showAllOutputs = false;
     }
 
@@ -178,8 +207,10 @@ export class ResultCard implements DoCheck {
   @Output() reveal = new EventEmitter<string>();
   @Output() retryFailed = new EventEmitter<void>();
   @Output() reset = new EventEmitter<void>();
+  @Output() runAgainStarted = new EventEmitter<RunAgainStartedEvent>();
 
   private readonly recentConversions = inject(RecentConversionsService);
+  private readonly lastRequests = inject(LastRequestService);
   private readonly wailsService = inject(Wails);
   readonly i18n = inject(I18nService);
   private readonly recordedJobIds = new Set<string>();
@@ -501,6 +532,212 @@ export class ResultCard implements DoCheck {
     this.undoMessage = '';
     this.undoSkipped = [];
     this.undoTone = 'success';
+  }
+
+  /** The stored request for the visible terminal job, when it has inputs. */
+  private currentRunAgainRequest(): LastSubmittedRequest | null {
+    const job = this.jobValue;
+    if (
+      !job ||
+      !job.jobId ||
+      !isTerminalJobStatus(job.status) ||
+      job.toolId.startsWith('recipe.')
+    ) {
+      return null;
+    }
+
+    if (!this.runAgainLookup || this.runAgainLookup.jobId !== job.jobId) {
+      this.runAgainLookup = {
+        jobId: job.jobId,
+        stored: this.lastRequests.get(job.toolId),
+      };
+    }
+
+    const stored = this.runAgainLookup.stored;
+    return stored && stored.request.inputPaths.length > 0 ? stored : null;
+  }
+
+  /** True when the card can offer to repeat the finished job. */
+  canRunAgain(): boolean {
+    return (
+      !this.runAgainBusy &&
+      !this.runAgainPending &&
+      this.currentRunAgainRequest() !== null
+    );
+  }
+
+  /** False while a confirmation is open; drives the inline form. */
+  showRunAgainConfirmation(): boolean {
+    return this.runAgainPending !== null;
+  }
+
+  runAgainToolName(): string {
+    const toolId = this.jobValue?.toolId ?? '';
+    return this.i18n.tOr(`tools.${toolId}.name`, toolId);
+  }
+
+  runAgainInputCount(): number {
+    const stored = this.currentRunAgainRequest();
+    return stored?.request.inputPaths.length ?? 0;
+  }
+
+  runAgainMeta(): string {
+    const nouns = this.nounPair(this.toolLabel);
+    return this.i18n.t('resultCard.runAgain.meta', {
+      tool: this.runAgainToolName(),
+      counted: formatCount(this.runAgainInputCount(), nouns.one, nouns.many),
+    });
+  }
+
+  /** Unique planned destinations, capped for the compact confirmation. */
+  runAgainDestinations(): string[] {
+    const seen = new Set<string>();
+    const destinations: string[] = [];
+    for (const output of this.runAgainPending?.outputs ?? []) {
+      const path = output.outputPath?.trim() ?? '';
+      if (!path || seen.has(path)) {
+        continue;
+      }
+      seen.add(path);
+      destinations.push(path);
+    }
+    return destinations.slice(0, RUN_AGAIN_DESTINATION_LIMIT);
+  }
+
+  runAgainDestinationOverflow(): number {
+    const all = new Set(
+      (this.runAgainPending?.outputs ?? [])
+        .map((output) => output.outputPath?.trim() ?? '')
+        .filter((path) => path.length > 0),
+    );
+    return Math.max(0, all.size - RUN_AGAIN_DESTINATION_LIMIT);
+  }
+
+  runAgainErrorCopy(): ToolErrorCopy | null {
+    return this.runAgainError
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            this.runAgainError,
+            this.i18n.t('resultCard.runAgain.failed'),
+          ),
+        )
+      : null;
+  }
+
+  /** Plans the remembered request; the card never runs an unchecked request. */
+  async startRunAgain(): Promise<void> {
+    if (this.runAgainBusy) {
+      return;
+    }
+
+    const stored = this.currentRunAgainRequest();
+    if (!stored) {
+      return;
+    }
+
+    this.runAgainBusy = true;
+    this.runAgainError = null;
+    this.runAgainPending = null;
+    this.runAgainRequestValue = stored.request;
+
+    let plan: PlanJobResponse;
+    try {
+      plan = await this.wailsService.planJob(stored.request);
+    } catch {
+      plan = {
+        success: false,
+        message: this.i18n.t('resultCard.runAgain.failed'),
+        outputs: [],
+      };
+    }
+
+    this.runAgainBusy = false;
+
+    if (
+      !plan.success ||
+      plan.error ||
+      (plan.outputs ?? []).length === 0
+    ) {
+      this.runAgainPending = null;
+      this.runAgainError = plan.error ?? {
+        code: 'VALIDATION_INVALID_INPUT',
+        detail_code: 'PLAN_JOB_FAILED',
+        message: plan.message || this.i18n.t('resultCard.runAgain.failed'),
+      };
+      return;
+    }
+
+    this.runAgainPending = plan;
+  }
+
+  cancelRunAgain(): void {
+    if (this.runAgainBusy) {
+      return;
+    }
+    this.runAgainPending = null;
+    this.runAgainError = null;
+    this.runAgainRequestValue = null;
+  }
+
+  /** Starts the job once the user confirms the planned destinations. */
+  async confirmRunAgain(): Promise<void> {
+    const request = this.runAgainRequestValue;
+    const plan = this.runAgainPending;
+    if (this.runAgainBusy || !request || !plan) {
+      return;
+    }
+
+    this.runAgainBusy = true;
+    this.runAgainError = null;
+
+    let response: RunJobResponse;
+    try {
+      response = await this.wailsService.runJob(request);
+    } catch {
+      response = {
+        success: false,
+        message: this.i18n.t('resultCard.runAgain.startFailed'),
+        jobId: '',
+        status: 'failed',
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: this.i18n.t('resultCard.runAgain.startFailed'),
+        },
+      };
+    }
+
+    this.runAgainBusy = false;
+
+    if (!response.success || !response.jobId) {
+      this.runAgainError = response.error ?? {
+        code: 'EXEC_IO_TRANSIENT',
+        detail_code: 'RUN_JOB_FAILED',
+        message:
+          response.message || this.i18n.t('resultCard.runAgain.startFailed'),
+      };
+      return;
+    }
+
+    // A fresh submission refreshes the remembered timestamp for the tool.
+    this.lastRequests.save(request);
+    this.runAgainPending = null;
+    this.runAgainRequestValue = null;
+    this.runAgainLookup = null;
+    this.runAgainStarted.emit({
+      jobId: response.jobId,
+      request,
+      plan,
+    });
+  }
+
+  private resetRunAgainState(): void {
+    this.runAgainBusy = false;
+    this.runAgainPending = null;
+    this.runAgainError = null;
+    this.runAgainRequestValue = null;
+    this.runAgainLookup = null;
   }
 
   private nounPair(label: string): { one: string; many: string } {

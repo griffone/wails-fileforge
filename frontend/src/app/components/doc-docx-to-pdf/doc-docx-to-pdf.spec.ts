@@ -10,6 +10,11 @@ import { Subject } from 'rxjs';
 import { DocDocxToPdf } from './doc-docx-to-pdf';
 import { I18nService } from '../../services/i18n.service';
 import {
+  TOOL_OPTIONS_STORAGE_PREFIX,
+  toolOptionsStorageKey,
+} from '../../services/preferences.service';
+import { LAST_REQUEST_STORAGE_PREFIX } from '../../services/last-request.service';
+import {
   FileInfo,
   JobProgressEvent,
   JobRequest,
@@ -124,6 +129,38 @@ describe('DocDocxToPdf', () => {
     return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
+  function clearToolStorage(): void {
+    const prefixes = [
+      TOOL_OPTIONS_STORAGE_PREFIX,
+      LAST_REQUEST_STORAGE_PREFIX,
+    ];
+    const keys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && prefixes.some((prefix) => key.startsWith(prefix))) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) {
+      localStorage.removeItem(key);
+    }
+  }
+
+  function seedOptions(values: Record<string, unknown>): void {
+    localStorage.setItem(
+      toolOptionsStorageKey('tool.doc.docx_to_pdf'),
+      JSON.stringify({ schemaVersion: 1, values }),
+    );
+  }
+
+  function storedOptions(): Record<string, unknown> {
+    return JSON.parse(
+      localStorage.getItem(
+        toolOptionsStorageKey('tool.doc.docx_to_pdf'),
+      ) ?? '{}',
+    );
+  }
+
   function partialStatus(jobId: string): JobStatusResponse {
     return result(jobId, 'partial_success', [
       {
@@ -149,6 +186,7 @@ describe('DocDocxToPdf', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -224,6 +262,7 @@ describe('DocDocxToPdf', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('plans single for one file and batch automatically for two', fakeAsync(() => {
@@ -657,5 +696,73 @@ describe('DocDocxToPdf', () => {
     expect(
       element.querySelector('.action-primary')?.textContent,
     ).toContain('Convertir a PDF');
+  }));
+
+  it('restores the remembered options on init', fakeAsync(() => {
+    seedOptions({ pageSelection: '1-2', pdfa: true });
+
+    const recreated = TestBed.createComponent(DocDocxToPdf);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    expect(page.pageSelection()).toBe('1-2');
+    expect(page.pdfa()).toBeTrue();
+
+    recreated.destroy();
+  }));
+
+  it('saves the options and the submitted request after a successful run', fakeAsync(() => {
+    component.onPageSelectionInput(inputEvent('1-2'));
+    component.onPdfaToggle({ target: { checked: true } } as unknown as Event);
+    tick(250);
+    flushMicrotasks();
+
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(storedOptions()).toEqual({
+      schemaVersion: 1,
+      values: { pageSelection: '1-2', pdfa: true },
+    });
+
+    const request = JSON.parse(
+      localStorage.getItem(
+        `${LAST_REQUEST_STORAGE_PREFIX}tool.doc.docx_to_pdf`,
+      ) ?? '{}',
+    );
+    expect(request.request.inputPaths).toEqual(['/tmp/a.docx']);
+    expect(request.request.options).toEqual({
+      pageSelection: '1-2',
+      pdfa: true,
+    });
+  }));
+
+  it('keeps the remembered options when reset clears the form', fakeAsync(() => {
+    seedOptions({ pageSelection: '1-2', pdfa: true });
+
+    const recreated = TestBed.createComponent(DocDocxToPdf);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    page.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    void page.run();
+    flushMicrotasks();
+
+    page.reset();
+    flushMicrotasks();
+
+    expect(page.selectedPaths()).toEqual([]);
+    expect(page.jobResult()).toBeNull();
+    expect(page.pageSelection()).toBe('1-2');
+    expect(page.pdfa()).toBeTrue();
+    expect(storedOptions()['schemaVersion']).toBe(1);
+
+    recreated.destroy();
   }));
 });

@@ -20,7 +20,7 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
-import { ResultCard } from '../tool-flow/result-card';
+import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import {
   describeToolError,
@@ -30,6 +30,7 @@ import {
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { LastRequestService } from '../../services/last-request.service';
 import { ActivityService } from '../../services/activity.service';
 import {
   FileInfo,
@@ -54,11 +55,13 @@ import {
 } from '../../utils/format';
 import { observeJob } from '../../utils/job-stream';
 import { resumeToolJob } from '../../utils/resume-task';
+import { createToolOptions } from '../../utils/tool-options';
 import type { TranslationKey } from '../../i18n';
 
 const TRANSCRIBE_TOOL_ID = 'tool.video.transcribe';
 const TRANSCRIBE_ROUTE = '/video-transcribe';
 const PLAN_DEBOUNCE_MS = 250;
+const OPTIONS_SCHEMA_VERSION = 1;
 
 /** Every format the backend can publish; the UI order is part of the plan. */
 const FORMAT_IDS = ['srt', 'vtt', 'txt'] as const;
@@ -101,6 +104,38 @@ interface Notice {
   text: string;
 }
 
+type TranscribeOptions = {
+  language: string;
+  formats: string[];
+};
+
+const LANGUAGE_VALUES = new Set(LANGUAGE_OPTIONS.map((option) => option.value));
+
+function defaultOptions(): TranscribeOptions {
+  return { language: 'auto', formats: [...DEFAULT_FORMATS] };
+}
+
+function normalizeOptions(
+  stored: Record<string, unknown>,
+): Partial<TranscribeOptions> {
+  const result: Partial<TranscribeOptions> = {};
+
+  const language = stored['language'];
+  if (typeof language === 'string' && LANGUAGE_VALUES.has(language)) {
+    result.language = language;
+  }
+
+  const rawFormats = stored['formats'];
+  if (Array.isArray(rawFormats)) {
+    const chosen = FORMAT_IDS.filter((id) => rawFormats.includes(id));
+    if (chosen.length > 0) {
+      result.formats = [...chosen];
+    }
+  }
+
+  return result;
+}
+
 export interface CapabilityBanner {
   title: string;
   detail: string;
@@ -140,8 +175,16 @@ function joinWords(values: readonly string[], conjunction: string): string {
 export class VideoTranscribe implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
+  private readonly lastRequests = inject(LastRequestService);
   private readonly activity = inject(ActivityService);
   readonly i18n = inject(I18nService);
+
+  private readonly settings = createToolOptions(this.preferences, {
+    toolId: TRANSCRIBE_TOOL_ID,
+    schemaVersion: OPTIONS_SCHEMA_VERSION,
+    defaults: defaultOptions,
+    normalize: normalizeOptions,
+  });
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -379,6 +422,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
   constructor(private readonly wailsService: Wails) {}
 
   ngOnInit(): void {
+    this.restoreOptions();
     void this.loadCapabilities();
 
     const pending = this.dropIntake.take(TRANSCRIBE_ROUTE);
@@ -537,8 +581,9 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     this.outputInfos.set({});
     this.isSubmitting.set(true);
 
+    const request = this.buildRequest();
     const response: RunJobResponse = await this.wailsService
-      .runJob(this.buildRequest())
+      .runJob(request)
       .catch(() => ({
         success: false,
         message: this.i18n.t('videoTranscribe.error.start'),
@@ -563,6 +608,9 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       this.isSubmitting.set(false);
       return;
     }
+
+    this.settings.save(this.currentOptions());
+    this.lastRequests.save(request);
 
     const total = this.selectedPaths().length;
     this.activeJobId.set(response.jobId);
@@ -625,6 +673,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
 
     this.selectedPaths.set([]);
     this.fileItems.set([]);
+    this.restoreOptions();
     this.plan.set(null);
     this.planLoading.set(false);
     this.jobResult.set(null);
@@ -634,6 +683,58 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     this.activeJobId.set('');
     this.notice.set(null);
     this.actionMessage.set('');
+  }
+
+  /** Adopts a job the result card planned and started with the same request. */
+  onRunAgainStarted(event: RunAgainStartedEvent): void {
+    this.stopObserving();
+    this.clearPlanRefreshTimer();
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+    this.outputDir.set(event.request.outputDir);
+    this.selectedPaths.set([...event.request.inputPaths]);
+    this.applyRequestOptions(event.request.options);
+    this.syncFileItems();
+    this.isSubmitting.set(false);
+    this.activeJobId.set(event.jobId);
+    this.jobResult.set({
+      jobId: event.jobId,
+      success: false,
+      message: this.i18n.t('videoTranscribe.status.waiting'),
+      toolId: TRANSCRIBE_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total: event.request.inputPaths.length,
+        stage: 'queued',
+        message: this.i18n.t('videoTranscribe.status.waiting'),
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isPolling.set(true);
+    this.startObserving();
+  }
+
+  private currentOptions(): TranscribeOptions {
+    return { language: this.language(), formats: [...this.formats()] };
+  }
+
+  private restoreOptions(): void {
+    const options = this.settings.restore();
+    this.language.set(options.language);
+    this.formats.set([...options.formats]);
+  }
+
+  private applyRequestOptions(options: Record<string, unknown>): void {
+    const stored = normalizeOptions(options);
+    if (stored.language) {
+      this.language.set(stored.language);
+    }
+    if (stored.formats) {
+      this.formats.set([...stored.formats]);
+    }
   }
 
   private async loadCapabilities(): Promise<void> {
@@ -652,7 +753,11 @@ export class VideoTranscribe implements OnDestroy, OnInit {
           (option) => option.value,
         );
         const defaultLanguage = response.defaultLanguage?.trim() ?? '';
-        if (defaultLanguage && offered.includes(defaultLanguage)) {
+        if (
+          this.language() === 'auto' &&
+          defaultLanguage &&
+          offered.includes(defaultLanguage)
+        ) {
           this.language.set(defaultLanguage);
         }
       }

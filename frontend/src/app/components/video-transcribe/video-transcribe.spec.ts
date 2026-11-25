@@ -10,7 +10,12 @@ import { EMPTY, Subject } from 'rxjs';
 
 import { VideoTranscribe } from './video-transcribe';
 import { I18nService } from '../../services/i18n.service';
-import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
+import {
+  PREFERENCES_STORAGE_KEY,
+  TOOL_OPTIONS_STORAGE_PREFIX,
+  toolOptionsStorageKey,
+} from '../../services/preferences.service';
+import { LAST_REQUEST_STORAGE_PREFIX } from '../../services/last-request.service';
 import {
   FileInfo,
   JobProgress,
@@ -142,9 +147,41 @@ describe('VideoTranscribe', () => {
     fixture.detectChanges();
   }
 
+  function clearToolStorage(): void {
+    const prefixes = [
+      TOOL_OPTIONS_STORAGE_PREFIX,
+      LAST_REQUEST_STORAGE_PREFIX,
+    ];
+    const keys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && prefixes.some((prefix) => key.startsWith(prefix))) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) {
+      localStorage.removeItem(key);
+    }
+  }
+
+  function seedOptions(values: Record<string, unknown>): void {
+    localStorage.setItem(
+      toolOptionsStorageKey('tool.video.transcribe'),
+      JSON.stringify({ schemaVersion: 1, values }),
+    );
+  }
+
+  function storedOptions(): Record<string, unknown> {
+    return JSON.parse(
+      localStorage.getItem(
+        toolOptionsStorageKey('tool.video.transcribe'),
+      ) ?? '{}',
+    );
+  }
+
   beforeEach(async () => {
     localStorage.removeItem(PREFERENCES_STORAGE_KEY);
-
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'getTranscriptionCapabilities',
       'inspectFiles',
@@ -202,6 +239,7 @@ describe('VideoTranscribe', () => {
     fixture?.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem(PREFERENCES_STORAGE_KEY);
+    clearToolStorage();
   });
 
   it('loads capabilities, applies the default language and renders the page', fakeAsync(() => {
@@ -609,5 +647,70 @@ describe('VideoTranscribe', () => {
     expect(
       element.querySelector('.toolbar .btn-secondary')?.textContent,
     ).toContain('Elegir archivos');
+  }));
+
+  it('restores the remembered options on init', fakeAsync(() => {
+    seedOptions({ language: 'es', formats: ['txt'] });
+
+    create();
+    flushMicrotasks();
+
+    expect(component.language()).toBe('es');
+    expect(component.formats()).toEqual(['txt']);
+  }));
+
+  it('saves the options and the submitted request after a successful run', fakeAsync(() => {
+    create();
+    flushMicrotasks();
+
+    component.onLanguageChange({ target: { value: 'es' } } as unknown as Event);
+    component.onFormatToggle('vtt', {
+      target: { checked: false },
+    } as unknown as Event);
+    component.onFormatToggle('txt', {
+      target: { checked: false },
+    } as unknown as Event);
+    component.onPathsSelected(['/tmp/in/talk.mp4']);
+    tick(250);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(storedOptions()).toEqual({
+      schemaVersion: 1,
+      values: { language: 'es', formats: ['srt'] },
+    });
+
+    const request = JSON.parse(
+      localStorage.getItem(
+        `${LAST_REQUEST_STORAGE_PREFIX}tool.video.transcribe`,
+      ) ?? '{}',
+    );
+    expect(request.request.inputPaths).toEqual(['/tmp/in/talk.mp4']);
+    expect(request.request.options['language']).toBe('es');
+    expect(request.request.options['formats']).toEqual(['srt']);
+  }));
+
+  it('keeps the remembered options when reset clears the form', fakeAsync(() => {
+    seedOptions({ language: 'es', formats: ['txt'] });
+
+    create();
+    flushMicrotasks();
+
+    component.onPathsSelected(['/tmp/in/talk.mp4']);
+    tick(250);
+    flushMicrotasks();
+    void component.run();
+    flushMicrotasks();
+
+    component.reset();
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual([]);
+    expect(component.jobResult()).toBeNull();
+    expect(component.language()).toBe('es');
+    expect(component.formats()).toEqual(['txt']);
+    expect(storedOptions()['schemaVersion']).toBe(1);
   }));
 });

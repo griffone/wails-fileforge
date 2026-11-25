@@ -59,4 +59,17 @@ export const resultCardEs = {
   'resultCard.verb.created': 'creados',
   'resultCard.verb.madeSearchable': 'hechos buscables',
   'resultCard.verb.prepared': 'preparados',
+  'resultCard.runAgain': 'Ejecutar de nuevo',
+  'resultCard.runAgain.aria':
+    'Ejecutar este trabajo otra vez con las mismas entradas y opciones',
+  'resultCard.runAgain.title': '¿Ejecutar de nuevo con la misma configuración?',
+  'resultCard.runAgain.meta': '{tool} · {counted}',
+  'resultCard.runAgain.destinations': 'Destino planificado',
+  'resultCard.runAgain.more': '+{count} más',
+  'resultCard.runAgain.confirm': 'Ejecutar de nuevo',
+  'resultCard.runAgain.starting': 'Iniciando…',
+  'resultCard.runAgain.cancel': 'Cancelar',
+  'resultCard.runAgain.dismiss': 'Descartar',
+  'resultCard.runAgain.failed': 'No se pudo planificar este trabajo otra vez.',
+  'resultCard.runAgain.startFailed': 'No se pudo iniciar el trabajo otra vez.',
 } as const;

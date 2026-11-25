@@ -20,7 +20,7 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
-import { ResultCard } from '../tool-flow/result-card';
+import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import {
   describeToolError,
@@ -30,6 +30,7 @@ import {
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { LastRequestService } from '../../services/last-request.service';
 import { ActivityService } from '../../services/activity.service';
 import {
   FileInfo,
@@ -52,6 +53,7 @@ import {
 } from '../../utils/format';
 import { observeJob } from '../../utils/job-stream';
 import { resumeToolJob } from '../../utils/resume-task';
+import { createToolOptions } from '../../utils/tool-options';
 
 const IMAGE_TOOL_ID = 'tool.image.compress';
 const SETTINGS_PLAN_DEBOUNCE_MS = 200;
@@ -65,6 +67,7 @@ const MAX_QUALITY = 95;
 // target and would only produce an unusable request.
 const MAX_TARGET_MB = 1_000_000;
 const MAX_TARGET_MB_LABEL = '1,000,000';
+const OPTIONS_SCHEMA_VERSION = 1;
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'jpg',
@@ -104,6 +107,79 @@ interface Notice {
   text: string;
 }
 
+type ImageCompressOptions = {
+  targetMb: number | null;
+  format: CompressFormat;
+  allowDownscale: boolean;
+  maxDimension: number | null;
+  quality: number | null;
+  stripMetadata: boolean;
+};
+
+function defaultOptions(): ImageCompressOptions {
+  return {
+    targetMb: 1,
+    format: 'auto',
+    allowDownscale: true,
+    maxDimension: null,
+    quality: null,
+    stripMetadata: true,
+  };
+}
+
+function isFormats(value: unknown): value is CompressFormat {
+  return FORMAT_OPTIONS.some((option) => option.value === value);
+}
+
+/** Drops values that no longer fit the option ranges, keeping the rest. */
+function normalizeOptions(
+  stored: Record<string, unknown>,
+): Partial<ImageCompressOptions> {
+  const result: Partial<ImageCompressOptions> = {};
+
+  const targetMb = stored['targetMb'];
+  if (
+    typeof targetMb === 'number' &&
+    Number.isFinite(targetMb) &&
+    targetMb > 0 &&
+    targetMb <= MAX_TARGET_MB
+  ) {
+    result.targetMb = targetMb;
+  }
+
+  if (isFormats(stored['format'])) {
+    result.format = stored['format'];
+  }
+
+  if (typeof stored['allowDownscale'] === 'boolean') {
+    result.allowDownscale = stored['allowDownscale'];
+  }
+  if (typeof stored['stripMetadata'] === 'boolean') {
+    result.stripMetadata = stored['stripMetadata'];
+  }
+
+  const maxDimension = stored['maxDimension'];
+  if (
+    typeof maxDimension === 'number' &&
+    Number.isFinite(maxDimension) &&
+    maxDimension > 0
+  ) {
+    result.maxDimension = Math.round(maxDimension);
+  }
+
+  const quality = stored['quality'];
+  if (
+    typeof quality === 'number' &&
+    Number.isInteger(quality) &&
+    quality >= MIN_QUALITY &&
+    quality <= MAX_QUALITY
+  ) {
+    result.quality = quality;
+  }
+
+  return result;
+}
+
 @Component({
   selector: 'app-image-compress',
   standalone: true,
@@ -121,8 +197,16 @@ interface Notice {
 export class ImageCompress implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
+  private readonly lastRequests = inject(LastRequestService);
   private readonly activity = inject(ActivityService);
   readonly i18n = inject(I18nService);
+
+  private readonly settings = createToolOptions(this.preferences, {
+    toolId: IMAGE_TOOL_ID,
+    schemaVersion: OPTIONS_SCHEMA_VERSION,
+    defaults: defaultOptions,
+    normalize: normalizeOptions,
+  });
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -388,6 +472,7 @@ export class ImageCompress implements OnDestroy, OnInit {
   }
 
   ngOnInit(): void {
+    this.restoreOptions();
     const pending = this.dropIntake.take('/image-compress');
     if (pending.length > 0) {
       this.onPathsSelected(pending);
@@ -582,8 +667,9 @@ export class ImageCompress implements OnDestroy, OnInit {
     this.outputInfos.set({});
     this.isSubmitting.set(true);
 
+    const request = this.buildRequest();
     const response: RunJobResponse = await this.wailsService
-      .runJob(this.buildRequest())
+      .runJob(request)
       .catch(() => ({
         success: false,
         message: this.i18n.t('imageCompress.error.start'),
@@ -607,6 +693,9 @@ export class ImageCompress implements OnDestroy, OnInit {
       this.isSubmitting.set(false);
       return;
     }
+
+    this.settings.save(this.currentOptions());
+    this.lastRequests.save(request);
 
     const total = this.selectedPaths().length;
     this.activeJobId.set(response.jobId);
@@ -691,6 +780,7 @@ export class ImageCompress implements OnDestroy, OnInit {
 
     this.selectedPaths.set([]);
     this.fileItems.set([]);
+    this.restoreOptions();
     this.plan.set(null);
     this.planLoading.set(false);
     this.jobResult.set(null);
@@ -702,6 +792,59 @@ export class ImageCompress implements OnDestroy, OnInit {
     this.runTargetBytes.set(0);
     this.notice.set(null);
     this.actionMessage.set('');
+  }
+
+  /** Adopts a job the result card planned and started with the same request. */
+  onRunAgainStarted(event: RunAgainStartedEvent): void {
+    this.stopObserving();
+    this.clearPlanRefreshTimer();
+    this.jobError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+    this.outputDir.set(event.request.outputDir);
+    this.selectedPaths.set([...event.request.inputPaths]);
+    this.syncFileItems();
+    this.isSubmitting.set(false);
+    this.activeJobId.set(event.jobId);
+    this.runTargetBytes.set(this.targetSizeBytes());
+    this.jobResult.set({
+      jobId: event.jobId,
+      success: false,
+      message: this.i18n.t('imageCompress.status.waiting'),
+      toolId: IMAGE_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total: event.request.inputPaths.length,
+        stage: 'queued',
+        message: this.i18n.t('imageCompress.status.waiting'),
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isPolling.set(true);
+    this.startObserving();
+  }
+
+  private currentOptions(): ImageCompressOptions {
+    return {
+      targetMb: this.targetMb(),
+      format: this.format(),
+      allowDownscale: this.allowDownscale(),
+      maxDimension: this.maxDimension(),
+      quality: this.quality(),
+      stripMetadata: this.stripMetadata(),
+    };
+  }
+
+  private restoreOptions(): void {
+    const options = this.settings.restore();
+    this.targetMb.set(options.targetMb);
+    this.format.set(options.format);
+    this.allowDownscale.set(options.allowDownscale);
+    this.maxDimension.set(options.maxDimension);
+    this.quality.set(options.quality);
+    this.stripMetadata.set(options.stripMetadata);
   }
 
   private buildRequest(): JobRequest {

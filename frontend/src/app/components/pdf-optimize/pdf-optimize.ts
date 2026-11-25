@@ -12,7 +12,7 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
-import { ResultCard } from '../tool-flow/result-card';
+import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import {
   describeToolError,
@@ -22,6 +22,7 @@ import {
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { LastRequestService } from '../../services/last-request.service';
 import { ActivityService } from '../../services/activity.service';
 import {
   FileInfo,
@@ -44,11 +45,13 @@ import {
 } from '../../utils/format';
 import { observeJob } from '../../utils/job-stream';
 import { resumeToolJob } from '../../utils/resume-task';
+import { createToolOptions } from '../../utils/tool-options';
 
 const PDF_OPTIMIZE_TOOL_ID = 'tool.pdf.optimize';
 const PLAN_DEBOUNCE_MS = 250;
 const THUMBNAIL_SIZE = 160;
 const METADATA_MAX_LENGTH = 512;
+const OPTIONS_SCHEMA_VERSION = 1;
 
 const TERMINAL_STATUSES = new Set<string>([
   'success',
@@ -117,6 +120,41 @@ function emptyMetadata(): MetadataValues {
   };
 }
 
+type PdfOptimizeOptions = {
+  compress: boolean;
+  metadata: MetadataValues;
+};
+
+function defaultOptions(): PdfOptimizeOptions {
+  return { compress: true, metadata: emptyMetadata() };
+}
+
+/** Only known fields with valid shapes survive a stale or corrupt payload. */
+function normalizeOptions(
+  stored: Record<string, unknown>,
+): Partial<PdfOptimizeOptions> {
+  const result: Partial<PdfOptimizeOptions> = {};
+
+  if (typeof stored['compress'] === 'boolean') {
+    result.compress = stored['compress'];
+  }
+
+  const rawMetadata = stored['metadata'];
+  if (typeof rawMetadata === 'object' && rawMetadata !== null) {
+    const metadata = emptyMetadata();
+    const record = rawMetadata as Record<string, unknown>;
+    for (const field of METADATA_FIELDS) {
+      const value = record[field.key];
+      if (typeof value === 'string' && characterCount(value) <= METADATA_MAX_LENGTH) {
+        metadata[field.key] = value;
+      }
+    }
+    result.metadata = metadata;
+  }
+
+  return result;
+}
+
 /** Counts code points so the limit matches the backend's rune count. */
 function characterCount(value: string): number {
   return [...value].length;
@@ -139,8 +177,16 @@ function characterCount(value: string): number {
 export class PdfOptimize implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
+  private readonly lastRequests = inject(LastRequestService);
   private readonly activity = inject(ActivityService);
   readonly i18n = inject(I18nService);
+
+  private readonly settings = createToolOptions(this.preferences, {
+    toolId: PDF_OPTIMIZE_TOOL_ID,
+    schemaVersion: OPTIONS_SCHEMA_VERSION,
+    defaults: defaultOptions,
+    normalize: normalizeOptions,
+  });
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -270,6 +316,7 @@ export class PdfOptimize implements OnDestroy, OnInit {
   }
 
   ngOnInit(): void {
+    this.restoreOptions();
     const pending = this.dropIntake.take('/pdf-optimize');
     if (pending.length > 0) {
       this.onPathsSelected(pending);
@@ -436,8 +483,9 @@ export class PdfOptimize implements OnDestroy, OnInit {
     this.outputInfos.set({});
     this.isSubmitting.set(true);
 
+    const request = this.buildRequest();
     const response: RunJobResponse = await this.wailsService
-      .runJob(this.buildRequest())
+      .runJob(request)
       .catch(() => ({
         success: false,
         message: this.i18n.t('pdfOptimize.error.start'),
@@ -461,6 +509,9 @@ export class PdfOptimize implements OnDestroy, OnInit {
       this.isSubmitting.set(false);
       return;
     }
+
+    this.settings.save(this.currentOptions());
+    this.lastRequests.save(request);
 
     const total = this.selectedPaths().length;
     this.activeJobId.set(response.jobId);
@@ -544,8 +595,7 @@ export class PdfOptimize implements OnDestroy, OnInit {
 
     this.selectedPaths.set([]);
     this.fileItems.set([]);
-    this.compress.set(true);
-    this.metadata.set(emptyMetadata());
+    this.restoreOptions();
     this.plan.set(null);
     this.planError.set(null);
     this.planLoading.set(false);
@@ -556,6 +606,49 @@ export class PdfOptimize implements OnDestroy, OnInit {
     this.activeJobId.set('');
     this.notice.set(null);
     this.actionMessage.set('');
+  }
+
+  /** Adopts a job the result card planned and started with the same request. */
+  onRunAgainStarted(event: RunAgainStartedEvent): void {
+    this.stopObserving();
+    this.clearPlanRefreshTimer();
+    this.jobError.set(null);
+    this.planError.set(null);
+    this.outputInfos.set({});
+    this.actionMessage.set('');
+    this.plan.set(event.plan);
+    this.outputDir.set(event.request.outputDir);
+    this.selectedPaths.set([...event.request.inputPaths]);
+    this.syncFileItems();
+    this.isSubmitting.set(false);
+    this.activeJobId.set(event.jobId);
+    this.jobResult.set({
+      jobId: event.jobId,
+      success: false,
+      message: this.i18n.t('pdfOptimize.status.waiting'),
+      toolId: PDF_OPTIMIZE_TOOL_ID,
+      status: 'queued',
+      progress: {
+        current: 0,
+        total: event.request.inputPaths.length,
+        stage: 'queued',
+        message: this.i18n.t('pdfOptimize.status.waiting'),
+      },
+      items: [],
+      startedAt: Date.now(),
+    });
+    this.isPolling.set(true);
+    this.startObserving();
+  }
+
+  private currentOptions(): PdfOptimizeOptions {
+    return { compress: this.compress(), metadata: { ...this.metadata() } };
+  }
+
+  private restoreOptions(): void {
+    const options = this.settings.restore();
+    this.compress.set(options.compress);
+    this.metadata.set({ ...options.metadata });
   }
 
   private buildRequest(): JobRequest {

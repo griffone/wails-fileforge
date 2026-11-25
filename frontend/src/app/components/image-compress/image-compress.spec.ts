@@ -11,6 +11,11 @@ import { ImageCompress } from './image-compress';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import {
+  TOOL_OPTIONS_STORAGE_PREFIX,
+  toolOptionsStorageKey,
+} from '../../services/preferences.service';
+import { LAST_REQUEST_STORAGE_PREFIX } from '../../services/last-request.service';
+import {
   FileInfo,
   JobProgressEvent,
   JobRequest,
@@ -101,8 +106,41 @@ describe('ImageCompress', () => {
     return { success: true, message: 'done', found: true, result };
   }
 
+  function clearToolStorage(): void {
+    const prefixes = [
+      TOOL_OPTIONS_STORAGE_PREFIX,
+      LAST_REQUEST_STORAGE_PREFIX,
+    ];
+    const keys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && prefixes.some((prefix) => key.startsWith(prefix))) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) {
+      localStorage.removeItem(key);
+    }
+  }
+
+  function seedOptions(values: Record<string, unknown>): void {
+    localStorage.setItem(
+      toolOptionsStorageKey('tool.image.compress'),
+      JSON.stringify({ schemaVersion: 1, values }),
+    );
+  }
+
+  function storedOptions(): Record<string, unknown> {
+    return JSON.parse(
+      localStorage.getItem(
+        toolOptionsStorageKey('tool.image.compress'),
+      ) ?? '{}',
+    );
+  }
+
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -191,6 +229,7 @@ describe('ImageCompress', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('plans with the default 1 MB target and full option set', fakeAsync(() => {
@@ -534,4 +573,104 @@ describe('ImageCompress', () => {
       element.querySelector('.action-primary')?.textContent,
     ).toContain('Comprimir');
   });
+
+  it('restores the remembered options on init', fakeAsync(() => {
+    seedOptions({
+      targetMb: 2,
+      format: 'webp',
+      allowDownscale: false,
+      maxDimension: 1600,
+      quality: 80,
+      stripMetadata: false,
+    });
+
+    const recreated = TestBed.createComponent(ImageCompress);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    expect(page.targetMb()).toBe(2);
+    expect(page.format()).toBe('webp');
+    expect(page.allowDownscale()).toBeFalse();
+    expect(page.maxDimension()).toBe(1600);
+    expect(page.quality()).toBe(80);
+    expect(page.stripMetadata()).toBeFalse();
+
+    recreated.destroy();
+  }));
+
+  it('saves the options and the submitted request after a successful run', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    component.onTargetInput(inputEvent('2'));
+    component.onFormatChange(inputEvent('webp'));
+    component.onAllowDownscaleToggle(checkedEvent(false));
+    component.onMaxDimensionInput(inputEvent('1600'));
+    component.onQualityInput(inputEvent('80'));
+    component.onStripMetadataToggle(checkedEvent(false));
+    tick(200);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(storedOptions()).toEqual({
+      schemaVersion: 1,
+      values: {
+        targetMb: 2,
+        format: 'webp',
+        allowDownscale: false,
+        maxDimension: 1600,
+        quality: 80,
+        stripMetadata: false,
+      },
+    });
+
+    const request = JSON.parse(
+      localStorage.getItem(
+        `${LAST_REQUEST_STORAGE_PREFIX}tool.image.compress`,
+      ) ?? '{}',
+    );
+    expect(request.request.inputPaths).toEqual(['/tmp/photo.png']);
+    expect(request.request.outputDir).toBe('');
+    expect(request.request.options['format']).toBe('webp');
+    expect(request.request.options['quality']).toBe(80);
+  }));
+
+  it('keeps the remembered options when reset clears the form', fakeAsync(() => {
+    seedOptions({
+      targetMb: 2,
+      format: 'webp',
+      allowDownscale: false,
+      maxDimension: null,
+      quality: null,
+      stripMetadata: false,
+    });
+
+    const recreated = TestBed.createComponent(ImageCompress);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    page.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    void page.run();
+    flushMicrotasks();
+
+    page.reset();
+    flushMicrotasks();
+
+    expect(page.selectedPaths()).toEqual([]);
+    expect(page.jobResult()).toBeNull();
+    expect(page.targetMb()).toBe(2);
+    expect(page.format()).toBe('webp');
+    expect(page.stripMetadata()).toBeFalse();
+    expect(storedOptions()['schemaVersion']).toBe(1);
+    expect((storedOptions()['values'] as Record<string, unknown>)['format']).toBe(
+      'webp',
+    );
+
+    recreated.destroy();
+  }));
 });

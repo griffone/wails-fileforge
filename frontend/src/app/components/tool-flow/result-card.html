@@ -229,6 +229,73 @@
         </section>
       }
 
+      @if (showRunAgainConfirmation()) {
+        <section
+          class="run-again-block"
+          [attr.aria-label]="i18n.t('resultCard.runAgain.aria')"
+        >
+          <p class="run-again-title">{{ i18n.t('resultCard.runAgain.title') }}</p>
+          <p class="run-again-meta">{{ runAgainMeta() }}</p>
+          <div class="run-again-destinations">
+            <span class="run-again-label">{{ i18n.t('resultCard.runAgain.destinations') }}</span>
+            <ul class="run-again-list mono">
+              @for (destination of runAgainDestinations(); track destination) {
+                <li>{{ destination }}</li>
+              }
+              @if (runAgainDestinationOverflow() > 0) {
+                <li class="run-again-more">
+                  {{ i18n.t('resultCard.runAgain.more', { count: runAgainDestinationOverflow() }) }}
+                </li>
+              }
+            </ul>
+          </div>
+          <div class="actions run-again-actions">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm result-run-again-confirm"
+              [disabled]="runAgainBusy"
+              [attr.aria-busy]="runAgainBusy"
+              (click)="confirmRunAgain()"
+            >
+              {{ runAgainBusy ? i18n.t('resultCard.runAgain.starting') : i18n.t('resultCard.runAgain.confirm') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm result-run-again-cancel"
+              [disabled]="runAgainBusy"
+              (click)="cancelRunAgain()"
+            >
+              {{ i18n.t('resultCard.runAgain.cancel') }}
+            </button>
+          </div>
+        </section>
+      } @else if (runAgainErrorCopy(); as error) {
+        <section
+          class="run-again-block"
+          [attr.aria-label]="i18n.t('resultCard.runAgain.aria')"
+        >
+          <div class="banner banner-danger run-again-error" role="alert">
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <div class="banner-copy">
+              <strong>{{ error.title }}</strong>
+              <span>{{ error.description }}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm result-run-again-dismiss"
+            (click)="cancelRunAgain()"
+          >
+            {{ i18n.t('resultCard.runAgain.dismiss') }}
+          </button>
+        </section>
+      }
+
       <div class="actions result-footer">
         @if (hasFailedRows()) {
           <button
@@ -243,6 +310,22 @@
               aria-hidden="true"
             ></lucide-icon>
             {{ i18n.t('resultCard.retryFailed') }}
+          </button>
+        }
+        @if (canRunAgain()) {
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm result-run-again"
+            [attr.aria-label]="i18n.t('resultCard.runAgain.aria')"
+            (click)="startRunAgain()"
+          >
+            <lucide-icon
+              [img]="retryIcon"
+              [size]="14"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            {{ i18n.t('resultCard.runAgain') }}
           </button>
         }
         @if (canUndoAction()) {
