@@ -19,5 +19,8 @@ export const toolErrorEn = {
   'toolError.noBookmarks.title': 'This PDF has no bookmarks.',
   'toolError.noBookmarks.description':
     'Choose Every page, Page ranges, Selected pages or Pages per file instead.',
+  'toolError.unclassified.title': 'This error was not classified.',
+  'toolError.unclassified.description':
+    'Open Details for the technical cause. FileForge will not retry it automatically.',
   'toolError.generic.title': 'Something went wrong.',
 } as const;

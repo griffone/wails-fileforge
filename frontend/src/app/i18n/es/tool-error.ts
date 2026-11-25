@@ -19,5 +19,8 @@ export const toolErrorEs = {
   'toolError.noBookmarks.title': 'Este PDF no tiene marcadores.',
   'toolError.noBookmarks.description':
     'Elige Todas las páginas, Rangos de páginas, Páginas seleccionadas o Páginas por archivo.',
+  'toolError.unclassified.title': 'Este error no se pudo clasificar.',
+  'toolError.unclassified.description':
+    'Abre Detalles para ver la causa técnica. FileForge no lo reintentará automáticamente.',
   'toolError.generic.title': 'Algo salió mal.',
 } as const;

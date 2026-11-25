@@ -2043,3 +2043,82 @@ func assertNoExtraCompletion(t *testing.T, completions <-chan models.JobResult, 
 	case <-time.After(window):
 	}
 }
+
+func TestEngineRetriesNewlyAllowlistedToolAtMostThreeAttempts(t *testing.T) {
+	var attempts atomic.Int32
+	tool := &engineFakeTool{
+		id: "tool.image.compress",
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
+			attempts.Add(1)
+			jobErr := models.NewCanonicalJobError("IMAGE_COMPRESS_EXECUTION", "transient failure", nil)
+			return models.JobResultItem{
+				InputPath: firstEngineInput(req),
+				Success:   false,
+				Message:   jobErr.Message,
+				Error:     jobErr,
+			}, jobErr
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	response := submitTestJob(t, engine, models.JobRequest{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{engineInput("compress")},
+	})
+
+	result := awaitEngineJob(t, engine, response.JobID)
+	if result.Status != StatusFailed {
+		t.Fatalf("job status = %s, want failed", result.Status)
+	}
+	if attempts.Load() != 3 {
+		t.Fatalf("execute calls = %d, want 3", attempts.Load())
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(result.Items))
+	}
+	if result.Items[0].Attempts != 3 || result.Items[0].RetryCount != 2 {
+		t.Fatalf("item attempts = %d retryCount = %d, want 3/2", result.Items[0].Attempts, result.Items[0].RetryCount)
+	}
+	if result.Error == nil || result.Error.Details["lastDetailCode"] != "IMAGE_COMPRESS_EXECUTION" {
+		t.Fatalf("retry metadata = %+v, want lastDetailCode preserved", result.Error)
+	}
+}
+
+func TestEngineDoesNotRetryNewlyAllowlistedToolValidationError(t *testing.T) {
+	var attempts atomic.Int32
+	tool := &engineFakeTool{
+		id: "tool.image.compress",
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
+			attempts.Add(1)
+			jobErr := models.NewCanonicalJobError("IMAGE_COMPRESS_TARGET_INVALID", "target size is invalid", nil)
+			return models.JobResultItem{
+				InputPath: firstEngineInput(req),
+				Success:   false,
+				Message:   jobErr.Message,
+				Error:     jobErr,
+			}, jobErr
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	response := submitTestJob(t, engine, models.JobRequest{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{engineInput("compress")},
+	})
+
+	result := awaitEngineJob(t, engine, response.JobID)
+	if result.Status != StatusFailed {
+		t.Fatalf("job status = %s, want failed", result.Status)
+	}
+	if attempts.Load() != 1 {
+		t.Fatalf("execute calls = %d, want 1 for a deterministic failure", attempts.Load())
+	}
+}
