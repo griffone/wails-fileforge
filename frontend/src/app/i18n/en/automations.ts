@@ -23,12 +23,19 @@ export const automationsEn = {
   'automations.form.chooseFolder': 'Choose folder',
   'automations.form.watchFolderHelp':
     'New files in this folder are processed automatically.',
+  'automations.form.recursive': 'Include subfolders',
+  'automations.form.recursiveHelp':
+    'Also watch the subfolders of this folder, including ones created later. Without this, only files placed directly in the folder are processed.',
   'automations.form.recipe': 'Recipe',
   'automations.form.chooseRecipe': 'Choose a recipe',
   'automations.form.accepts': 'Accepts {extensions}.',
   'automations.form.extensions': 'Extensions',
   'automations.form.extensionsHelp':
     "Comma-separated. Leave empty to use the recipe's accepted types.",
+  'automations.form.patterns': 'File name patterns',
+  'automations.form.patternsPlaceholder': 'invoice-*.pdf, report-*.xlsx',
+  'automations.form.patternsHelp':
+    'Optional, comma-separated. Shell-style globs matched against the file name only, for example invoice-*.pdf. Subfolders come from the toggle above, never from the pattern. When extensions are also set, both must match.',
   'automations.form.outputFolder': 'Output folder',
   'automations.form.nextToSource': 'Next to the source',
   'automations.form.useSourceFolder': 'Use the source folder',
@@ -45,6 +52,10 @@ export const automationsEn = {
   'automations.validation.name': 'Give the rule a name.',
   'automations.validation.watchFolder': 'Choose a folder to watch.',
   'automations.validation.recipe': 'Choose a recipe to run.',
+  'automations.validation.patternsScope':
+    'Patterns match the file name only. Remove folder separators and use the subfolder toggle instead.',
+  'automations.validation.patternInvalid':
+    'The pattern “{pattern}” is not valid. Use shell-style globs such as invoice-*.pdf.',
   'automations.empty.title': 'No folder rules yet',
   'automations.empty.body':
     'Watch a folder and FileForge runs the recipe whenever a file lands in it. Nothing leaves this machine.',
@@ -56,6 +67,7 @@ export const automationsEn = {
   'automations.rule.editAria': 'Edit {name}',
   'automations.rule.deleteAria': 'Delete {name}',
   'automations.rule.recipeDefaults': 'Recipe defaults',
+  'automations.rule.subfoldersIncluded': 'Included',
   'automations.rule.never': 'Never',
   'automations.rule.lastOutputs': 'Last outputs',
   'automations.runtime.watching': 'Watching',

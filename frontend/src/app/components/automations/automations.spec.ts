@@ -324,6 +324,93 @@ describe('Automations', () => {
     );
   }));
 
+  it('saves recursion and patterns and renders them when set', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/watch');
+    wailsSpy.listAutomationRules.and.resolveTo({
+      success: true,
+      message: 'ok',
+      rules: [
+        sampleRule({
+          id: 'rule_2',
+          recursive: true,
+          patterns: ['invoice-*.pdf'],
+        }),
+      ],
+    });
+
+    click('.automation-new-rule');
+    fixture.detectChanges();
+
+    setInput('#automation-name', 'Inbox PDFs');
+    click('.automation-watch-folder');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    click('#automation-recursive');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    setInput('#automation-patterns', ' invoice-*.pdf, report-*.pdf ');
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const payload = wailsSpy.saveAutomationRule.calls.mostRecent()
+      .args[0] as AutomationRule;
+    expect(payload.recursive).toBeTrue();
+    expect(payload.patterns).toEqual(['invoice-*.pdf', 'report-*.pdf']);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Include subfolders');
+    expect(text).toContain('Included');
+    expect(text).toContain('File name patterns');
+    expect(text).toContain('invoice-*.pdf');
+  }));
+
+  it('shows inline feedback and blocks folder-scoped patterns', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/watch');
+
+    click('.automation-new-rule');
+    fixture.detectChanges();
+
+    setInput('#automation-name', 'Inbox PDFs');
+    click('.automation-watch-folder');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    setInput('#automation-patterns', 'nested/*.pdf');
+    fixture.detectChanges();
+
+    expect(query('.automation-patterns-error')?.textContent).toContain(
+      'file name only',
+    );
+
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.saveAutomationRule).not.toHaveBeenCalled();
+
+    setInput('#automation-patterns', 'invoice-[12.pdf');
+    fixture.detectChanges();
+
+    expect(query('.automation-patterns-error')?.textContent).toContain(
+      'is not valid',
+    );
+    expect(query('#automation-patterns')?.getAttribute('aria-invalid')).toBe(
+      'true',
+    );
+  }));
+
+  it('renders existing rules without recursion or pattern rows', () => {
+    const text = fixture.nativeElement.textContent as string;
+
+    expect(text).not.toContain('Include subfolders');
+    expect(text).not.toContain('File name patterns');
+    expect(fixture.nativeElement.querySelectorAll('.automation-meta-row').length)
+      .toBe(4);
+  });
+
   it('preserves id, createdAt, options and last-run fields when editing', fakeAsync(() => {
     click('.automation-edit');
     fixture.detectChanges();
@@ -513,6 +600,10 @@ describe('Automations', () => {
 
     click('.automation-new-rule');
     fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Incluir subcarpetas');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Patrones de nombre de archivo',
+    );
     click('.automation-save');
     flushMicrotasks();
     fixture.detectChanges();

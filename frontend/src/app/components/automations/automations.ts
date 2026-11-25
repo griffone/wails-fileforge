@@ -105,6 +105,8 @@ export class Automations implements OnInit, OnDestroy {
   readonly formWatchDir = signal('');
   readonly formRecipeId = signal('');
   readonly formExtensionsText = signal('');
+  readonly formRecursive = signal(false);
+  readonly formPatternsText = signal('');
   readonly formOutputDir = signal('');
   readonly formDeleteSource = signal(false);
   readonly formEnabled = signal(true);
@@ -138,6 +140,32 @@ export class Automations implements OnInit, OnDestroy {
 
   readonly recipeInvalid = computed(
     () => this.formAttempted() && this.formRecipeId().trim().length === 0,
+  );
+
+  /**
+   * Patterns are matched against the file name only, so a folder separator or
+   * a "**" can never work. The backend is the source of truth; this catches the
+   * obvious cases before a round trip and keeps the message next to the field.
+   */
+  readonly patternsError = computed(() => {
+    for (const pattern of this.parsePatterns(this.formPatternsText())) {
+      if (/[\\/]/.test(pattern) || pattern.includes('**')) {
+        return this.i18n.t('automations.validation.patternsScope');
+      }
+      if (this.unclosedCharacterClass(pattern)) {
+        return this.i18n.t('automations.validation.patternInvalid', {
+          pattern,
+        });
+      }
+    }
+
+    return '';
+  });
+
+  readonly patternsInvalid = computed(
+    () =>
+      this.patternsError().length > 0 &&
+      (this.formAttempted() || this.formPatternsText().trim().length > 0),
   );
 
   readonly totalRuleCount = computed(
@@ -261,6 +289,10 @@ export class Automations implements OnInit, OnDestroy {
       : this.i18n.t('automations.rule.recipeDefaults');
   }
 
+  patternsLabel(rule: AutomationRule): string {
+    return (rule.patterns ?? []).join(' · ');
+  }
+
   outputFolderLabel(rule: AutomationRule): string {
     return (
       rule.outputDir?.trim() || this.i18n.t('automations.form.nextToSource')
@@ -374,6 +406,8 @@ export class Automations implements OnInit, OnDestroy {
     this.formWatchDir.set('');
     this.formRecipeId.set(this.recipes()[0]?.id ?? '');
     this.formExtensionsText.set('');
+    this.formRecursive.set(false);
+    this.formPatternsText.set('');
     this.formOutputDir.set('');
     this.formDeleteSource.set(false);
     this.formEnabled.set(true);
@@ -389,6 +423,8 @@ export class Automations implements OnInit, OnDestroy {
     this.formWatchDir.set(rule.watchDir);
     this.formRecipeId.set(rule.recipeId);
     this.formExtensionsText.set((rule.extensions ?? []).join(', '));
+    this.formRecursive.set(rule.recursive === true);
+    this.formPatternsText.set((rule.patterns ?? []).join(', '));
     this.formOutputDir.set(rule.outputDir ?? '');
     this.formDeleteSource.set(rule.deleteSource === true);
     this.formEnabled.set(rule.enabled);
@@ -411,6 +447,18 @@ export class Automations implements OnInit, OnDestroy {
 
   onExtensionsInput(event: Event): void {
     this.formExtensionsText.set(
+      (event.target as HTMLInputElement | null)?.value ?? '',
+    );
+  }
+
+  onRecursiveToggle(event: Event): void {
+    this.formRecursive.set(
+      (event.target as HTMLInputElement | null)?.checked ?? false,
+    );
+  }
+
+  onPatternsInput(event: Event): void {
+    this.formPatternsText.set(
       (event.target as HTMLInputElement | null)?.value ?? '',
     );
   }
@@ -472,6 +520,11 @@ export class Automations implements OnInit, OnDestroy {
     }
     if (this.formRecipeId().trim().length === 0) {
       this.formError.set(this.i18n.t('automations.validation.recipe'));
+      return;
+    }
+    const patternsError = this.patternsError();
+    if (patternsError.length > 0) {
+      this.formError.set(patternsError);
       return;
     }
 
@@ -616,6 +669,8 @@ export class Automations implements OnInit, OnDestroy {
       watchDir: this.formWatchDir().trim(),
       recipeId: this.formRecipeId().trim(),
       extensions: this.parseExtensions(this.formExtensionsText()),
+      recursive: this.formRecursive(),
+      patterns: this.parsePatterns(this.formPatternsText()),
       outputDir: this.formOutputDir().trim(),
       deleteSource: this.formDeleteSource(),
     };
@@ -628,6 +683,33 @@ export class Automations implements OnInit, OnDestroy {
       .filter((part) => part.length > 0);
 
     return Array.from(new Set(parsed));
+  }
+
+  /**
+   * Patterns are comma-separated because a file name may contain spaces, and
+   * the values are matched literally against the base name.
+   */
+  private parsePatterns(value: string): string[] {
+    const parsed = value
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+
+    return Array.from(new Set(parsed));
+  }
+
+  /** A '[' with no closing ']' can never match, so flag it inline. */
+  private unclosedCharacterClass(pattern: string): boolean {
+    let open = false;
+    for (const character of pattern) {
+      if (character === '[' && !open) {
+        open = true;
+      } else if (character === ']' && open) {
+        open = false;
+      }
+    }
+
+    return open;
   }
 
   private async refreshRules(): Promise<void> {

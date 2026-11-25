@@ -339,6 +339,7 @@ func (s *Store) findIndexLocked(id string) int {
 func cloneRule(rule models.AutomationRule) models.AutomationRule {
 	cloned := rule
 	cloned.Extensions = append([]string{}, rule.Extensions...)
+	cloned.Patterns = append([]string{}, rule.Patterns...)
 	cloned.LastOutputs = append([]string{}, rule.LastOutputs...)
 	if rule.Options != nil {
 		cloned.Options = make(map[string]any, len(rule.Options))

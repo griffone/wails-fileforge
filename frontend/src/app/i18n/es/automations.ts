@@ -25,12 +25,19 @@ export const automationsEs = {
   'automations.form.chooseFolder': 'Elegir carpeta',
   'automations.form.watchFolderHelp':
     'Los archivos nuevos de esta carpeta se procesan automáticamente.',
+  'automations.form.recursive': 'Incluir subcarpetas',
+  'automations.form.recursiveHelp':
+    'También vigila las subcarpetas de esta carpeta, incluidas las que se creen después. Sin esta opción, solo se procesan los archivos colocados directamente en la carpeta.',
   'automations.form.recipe': 'Receta',
   'automations.form.chooseRecipe': 'Elige una receta',
   'automations.form.accepts': 'Acepta {extensions}.',
   'automations.form.extensions': 'Extensiones',
   'automations.form.extensionsHelp':
     'Separadas por comas. Déjalo vacío para usar los tipos aceptados por la receta.',
+  'automations.form.patterns': 'Patrones de nombre de archivo',
+  'automations.form.patternsPlaceholder': 'factura-*.pdf, informe-*.xlsx',
+  'automations.form.patternsHelp':
+    'Opcional, separados por comas. Comodines de estilo shell que se comparan solo con el nombre del archivo, por ejemplo factura-*.pdf. Las subcarpetas dependen de la opción anterior, nunca del patrón. Si también defines extensiones, se deben cumplir ambas condiciones.',
   'automations.form.outputFolder': 'Carpeta de salida',
   'automations.form.nextToSource': 'Junto al origen',
   'automations.form.useSourceFolder': 'Usar la carpeta de origen',
@@ -47,6 +54,10 @@ export const automationsEs = {
   'automations.validation.name': 'Dale un nombre a la regla.',
   'automations.validation.watchFolder': 'Elige una carpeta para vigilar.',
   'automations.validation.recipe': 'Elige una receta para ejecutar.',
+  'automations.validation.patternsScope':
+    'Los patrones solo coinciden con el nombre del archivo. Quita los separadores de carpeta y usa la opción de subcarpetas.',
+  'automations.validation.patternInvalid':
+    'El patrón «{pattern}» no es válido. Usa comodines de estilo shell, por ejemplo factura-*.pdf.',
   'automations.empty.title': 'Aún no hay reglas de carpeta',
   'automations.empty.body':
     'Vigila una carpeta y FileForge ejecutará la receta cada vez que llegue un archivo. Nada sale de este equipo.',
@@ -58,6 +69,7 @@ export const automationsEs = {
   'automations.rule.editAria': 'Editar {name}',
   'automations.rule.deleteAria': 'Eliminar {name}',
   'automations.rule.recipeDefaults': 'Valores de la receta',
+  'automations.rule.subfoldersIncluded': 'Incluidas',
   'automations.rule.never': 'Nunca',
   'automations.rule.lastOutputs': 'Últimos resultados',
   'automations.runtime.watching': 'Vigilando',

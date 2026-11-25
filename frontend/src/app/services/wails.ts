@@ -239,6 +239,7 @@ export type RecipeProgressEvent = Models.RecipeProgressEvent;
  */
 export interface AutomationRule extends Models.AutomationRule {
   extensions?: string[];
+  patterns?: string[];
   options?: Record<string, unknown>;
   lastOutputs?: string[];
 }
@@ -1992,6 +1993,7 @@ export class Wails {
     return {
       ...rule,
       extensions: rule.extensions ?? undefined,
+      patterns: rule.patterns ?? undefined,
       options: rule.options ?? undefined,
       lastOutputs: rule.lastOutputs ?? undefined,
     };

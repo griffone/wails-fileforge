@@ -5,6 +5,12 @@
  * AutomationRule is one watch-folder rule: a folder, an accepted input kind
  * and the recipe that runs for every arriving file. RuntimeStatus and
  * RuntimeReason are response-only dynamic state and are never persisted.
+ * 
+ * Recursive and Patterns are optional filters added after the first release:
+ * an older persisted rule has neither key, so it loads with recursion off and
+ * no patterns and keeps matching exactly the direct children of its folder.
+ * Patterns match the file base name with filepath.Match semantics; recursion
+ * comes from Recursive, never from the pattern.
  */
 export interface AutomationRule {
     "id": string;
@@ -13,6 +19,8 @@ export interface AutomationRule {
     "watchDir": string;
     "recipeId": string;
     "extensions"?: string[] | null;
+    "recursive"?: boolean;
+    "patterns"?: string[] | null;
     "outputDir"?: string;
     "options"?: { [_ in string]?: any } | null;
     "deleteSource"?: boolean;

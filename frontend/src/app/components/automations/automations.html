@@ -214,6 +214,21 @@
           </div>
 
           <div class="field">
+            <label class="check-row" for="automation-recursive">
+              <input
+                id="automation-recursive"
+                type="checkbox"
+                [checked]="formRecursive()"
+                (change)="onRecursiveToggle($event)"
+              />
+              {{ i18n.t('automations.form.recursive') }}
+            </label>
+            <p class="field-help">
+              {{ i18n.t('automations.form.recursiveHelp') }}
+            </p>
+          </div>
+
+          <div class="field">
             <label class="label" for="automation-recipe">{{
               i18n.t('automations.form.recipe')
             }}</label>
@@ -264,6 +279,32 @@
             <p id="automation-extensions-help" class="field-help">
               {{ i18n.t('automations.form.extensionsHelp') }}
             </p>
+          </div>
+
+          <div class="field">
+            <label class="label" for="automation-patterns">{{
+              i18n.t('automations.form.patterns')
+            }}</label>
+            <input
+              id="automation-patterns"
+              class="input mono"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              [placeholder]="i18n.t('automations.form.patternsPlaceholder')"
+              [value]="formPatternsText()"
+              [attr.aria-invalid]="patternsInvalid() ? 'true' : null"
+              aria-describedby="automation-patterns-help"
+              (input)="onPatternsInput($event)"
+            />
+            <p id="automation-patterns-help" class="field-help">
+              {{ i18n.t('automations.form.patternsHelp') }}
+            </p>
+            @if (patternsInvalid()) {
+              <p class="field-help field-error automation-patterns-error">
+                {{ patternsError() }}
+              </p>
+            }
           </div>
 
           <div class="field">
@@ -499,6 +540,18 @@
               <dt>{{ i18n.t('automations.form.extensions') }}</dt>
               <dd class="mono">{{ extensionsLabel(rule) }}</dd>
             </div>
+            @if (rule.recursive) {
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.recursive') }}</dt>
+                <dd>{{ i18n.t('automations.rule.subfoldersIncluded') }}</dd>
+              </div>
+            }
+            @if (rule.patterns?.length) {
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.patterns') }}</dt>
+                <dd class="mono">{{ patternsLabel(rule) }}</dd>
+              </div>
+            }
           </dl>
 
           <div class="automation-last">

@@ -494,6 +494,12 @@ func (s *Service) validateRule(rule models.AutomationRule) (models.AutomationRul
 		normalized.Extensions = requested
 	}
 
+	patterns, patternErr := normalizePatterns(normalized.Patterns)
+	if patternErr != nil {
+		return normalized, patternErr
+	}
+	normalized.Patterns = patterns
+
 	if strings.TrimSpace(normalized.OutputDir) != "" {
 		outputDir, dirErr := resolveExistingDirectory(normalized.OutputDir, "output folder")
 		if dirErr != nil {
@@ -790,6 +796,49 @@ func normalizeExtensions(values []string) []string {
 	}
 
 	return normalized
+}
+
+// normalizePatterns trims and deduplicates base-name globs and rejects a
+// pattern the watcher could never honour. Matching is filepath.Match against
+// the file name, so folder separators and "**" are errors instead of silently
+// dead filters; recursion is the Recursive flag's job.
+func normalizePatterns(values []string) ([]string, *models.JobError) {
+	normalized := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		pattern := strings.TrimSpace(value)
+		if pattern == "" {
+			continue
+		}
+		if _, exists := seen[pattern]; exists {
+			continue
+		}
+
+		if strings.ContainsAny(pattern, `/\`) || strings.Contains(pattern, "**") {
+			return nil, automationError(
+				"AUTOMATION_RULE_PATTERN_INVALID",
+				fmt.Sprintf(
+					"The pattern '%s' uses a folder separator or '**'. Patterns match the file name only; enable 'Include subfolders' to watch nested folders.",
+					pattern,
+				),
+			)
+		}
+		if _, err := filepath.Match(pattern, ""); err != nil {
+			return nil, automationError(
+				"AUTOMATION_RULE_PATTERN_INVALID",
+				fmt.Sprintf(
+					"The pattern '%s' is not valid: %v. Use shell-style globs such as invoice-*.pdf.",
+					pattern,
+					err,
+				),
+			)
+		}
+
+		seen[pattern] = struct{}{}
+		normalized = append(normalized, pattern)
+	}
+
+	return normalized, nil
 }
 
 func normalizeExtension(value string) string {

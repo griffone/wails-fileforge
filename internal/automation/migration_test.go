@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"fileforge-desktop/internal/models"
@@ -119,6 +120,67 @@ func TestNewRunStoreWithoutAnyRunsFileIsNoOp(t *testing.T) {
 	}
 	if _, err := os.Stat(currentPath); !os.IsNotExist(err) {
 		t.Fatalf("expected no runs file to be created, got err=%v", err)
+	}
+}
+
+// TestStoreLoadsRulesWrittenBeforeRecursivePatterns proves the new rule fields
+// migrate by absence: a file written by the previous version loads with
+// recursion off and no patterns, and saving it back keeps the old shape.
+func TestStoreLoadsRulesWrittenBeforeRecursivePatterns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, rulesFileName)
+	legacy := `[
+  {
+    "id": "rule_legacy",
+    "name": "Legacy",
+    "enabled": true,
+    "watchDir": "/tmp/watch",
+    "recipeId": "recipe.email_pdf",
+    "extensions": ["pdf"],
+    "createdAt": 1
+  }
+]`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy rules: %v", err)
+	}
+
+	store := NewStore(path)
+	rule, found := store.Get("rule_legacy")
+	if !found {
+		t.Fatal("legacy rule was not loaded")
+	}
+	if rule.Recursive {
+		t.Fatalf("a legacy rule must load with recursion off: %+v", rule)
+	}
+	if len(rule.Patterns) != 0 {
+		t.Fatalf("a legacy rule must load with no patterns: %+v", rule.Patterns)
+	}
+	if len(rule.Extensions) != 1 || rule.Extensions[0] != "pdf" {
+		t.Fatalf("legacy extensions changed: %+v", rule.Extensions)
+	}
+
+	// Saving the untouched rule must not introduce the new keys, so the file
+	// stays readable (and unchanged in meaning) by the previous version.
+	if _, err := store.Save(rule); err != nil {
+		t.Fatalf("save legacy rule: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read rules: %v", err)
+	}
+	if strings.Contains(string(content), "recursive") || strings.Contains(string(content), "patterns") {
+		t.Fatalf("empty new fields must stay omitted: %s", content)
+	}
+
+	// A recursive rule with patterns round-trips.
+	rule.Recursive = true
+	rule.Patterns = []string{"invoice-*.pdf"}
+	if _, err := store.Save(rule); err != nil {
+		t.Fatalf("save recursive rule: %v", err)
+	}
+	reloaded, found := NewStore(path).Get("rule_legacy")
+	if !found || !reloaded.Recursive || len(reloaded.Patterns) != 1 || reloaded.Patterns[0] != "invoice-*.pdf" {
+		t.Fatalf("recursive rule did not persist: %+v", reloaded)
 	}
 }
 
