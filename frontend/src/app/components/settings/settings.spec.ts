@@ -274,10 +274,23 @@ describe('Settings', () => {
       'openPath',
       'getLocalCapabilities',
       'getTranscriptionCapabilities',
+      'listJobHistory',
+      'trashInfo',
     ]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.openFileDialog.and.resolveTo('');
     wailsSpy.openPath.and.resolveTo({ success: true, message: 'opened' });
+    wailsSpy.listJobHistory.and.resolveTo({
+      success: true,
+      message: '',
+      entries: [],
+    });
+    wailsSpy.trashInfo.and.resolveTo({
+      success: true,
+      message: '',
+      files: 0,
+      bytes: 0,
+    });
     wailsSpy.getLocalCapabilities.and.resolveTo(CAPABILITIES);
     wailsSpy.getTranscriptionCapabilities.and.resolveTo(TRANSCRIPTION);
 

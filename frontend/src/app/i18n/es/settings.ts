@@ -83,7 +83,7 @@ export const settingsEs = {
   'settings.capabilities.ocrLanguagesRecommended':
     'Idiomas de OCR: {installed} · recomendados {recommended}',
   'settings.capabilities.noOcrData': 'No hay datos de idioma OCR instalados',
-  'settings.history.title': 'Historial',
+  'settings.history.title': 'Conversiones recientes e introducción',
   'settings.history.recent': 'Conversiones recientes',
   'settings.history.clear': 'Borrar conversiones recientes',
   'settings.history.onboarding': 'Introducción de Inicio',
@@ -93,6 +93,55 @@ export const settingsEs = {
   'settings.history.none': 'Aún no hay conversiones finalizadas.',
   'settings.history.one': '1 conversión finalizada',
   'settings.history.many': '{count} conversiones finalizadas',
+  'settings.trashHistory.title': 'Papelera e historial',
+  'settings.trashHistory.subtitle':
+    'Deshacer mueve las salidas a la papelera de la aplicación. Restáuralas aquí o recupera el espacio.',
+  'settings.trashHistory.refreshAria': 'Actualizar papelera e historial',
+  'settings.trashHistory.loading': 'Cargando papelera e historial…',
+  'settings.trashHistory.historyUnavailable':
+    'No se pudo cargar el historial de trabajos.',
+  'settings.trashHistory.trashUnavailable':
+    'No se pudo leer el contenido de la papelera.',
+  'settings.trash.title': 'Papelera de la aplicación',
+  'settings.trash.aria': 'Tamaño y limpieza de la papelera',
+  'settings.trash.empty': 'La papelera está vacía.',
+  'settings.trash.summary': '{files} · {size}',
+  'settings.trash.derived':
+    'Medido directamente en la carpeta de la papelera.',
+  'settings.trash.emptyAction': 'Vaciar papelera',
+  'settings.trash.confirmTitle': '¿Vaciar la papelera?',
+  'settings.trash.confirmBody':
+    'Se eliminarán de forma permanente {files} ({size}). Esta acción no se puede deshacer.',
+  'settings.trash.confirmAction': 'Eliminar permanentemente',
+  'settings.trash.cancel': 'Cancelar',
+  'settings.trash.emptied': 'Papelera vaciada.',
+  'settings.trash.emptyFailed': 'No se pudo vaciar la papelera.',
+  'settings.jobHistory.title': 'Historial de trabajos',
+  'settings.jobHistory.listAria': 'Trabajos recientes',
+  'settings.jobHistory.empty': 'Aún no hay trabajos finalizados.',
+  'settings.jobHistory.emptyHint':
+    'Los trabajos finalizados aparecen aquí para mostrar, deshacer o restaurar sus salidas.',
+  'settings.jobHistory.unknownTool': 'Herramienta desconocida',
+  'settings.jobHistory.state.done': 'Finalizado',
+  'settings.jobHistory.state.undone': 'Deshecho',
+  'settings.jobHistory.state.trashed': 'En la papelera',
+  'settings.jobHistory.state.emptied': 'Papelera vaciada',
+  'settings.jobHistory.reveal': 'Mostrar',
+  'settings.jobHistory.revealAria': 'Mostrar una salida de {name}',
+  'settings.jobHistory.undo': 'Deshacer',
+  'settings.jobHistory.undoAria': 'Deshacer las salidas de {name}',
+  'settings.jobHistory.restore': 'Restaurar',
+  'settings.jobHistory.restoreAria': 'Restaurar las salidas de {name}',
+  'settings.jobHistory.undoDone':
+    'Las salidas se movieron a la papelera de la aplicación.',
+  'settings.jobHistory.undoSkipped':
+    'Las salidas se movieron a la papelera; se omitieron {count} archivos.',
+  'settings.jobHistory.restoreDone': 'Salidas restauradas.',
+  'settings.jobHistory.restoreSkipped':
+    'Salidas restauradas; se omitieron {count} archivos.',
+  'settings.jobHistory.undoFailed': 'No se pudo completar la acción de deshacer.',
+  'settings.jobHistory.restoreFailed':
+    'No se pudo completar la acción de restaurar.',
   'settings.action.historyCleared': 'Conversiones recientes borradas.',
   'settings.action.onboardingReset':
     'La introducción volverá a mostrarse en Inicio.',

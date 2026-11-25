@@ -34,6 +34,7 @@ import {
   Wails,
 } from '../../services/wails';
 import { formatBytes } from '../../utils/format';
+import { TrashHistory } from './trash-history/trash-history';
 
 /** Shared with the Home onboarding strip. */
 const ONBOARDING_STORAGE_KEY = 'ff-onboarding-dismissed';
@@ -47,7 +48,7 @@ const DEFAULT_OCR_LANGUAGES = ['eng', 'spa'];
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, TrashHistory],
   templateUrl: './settings.html',
   styleUrl: './settings.css',
 })

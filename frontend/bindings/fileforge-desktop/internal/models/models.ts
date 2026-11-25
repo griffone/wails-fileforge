@@ -550,8 +550,9 @@ export interface RunJobResponse {
 }
 
 /**
- * RunRecipeResponse acknowledges a recipe submission. Recipe jobs live in
- * memory only for now, so a restart loses in-flight recipe runs.
+ * RunRecipeResponse acknowledges a recipe submission. Run snapshots are
+ * persisted when the service is configured with a store path, so a restart
+ * keeps finished runs and reports in-flight runs as interrupted.
  */
 export interface RunRecipeResponse {
     "success": boolean;
@@ -688,6 +689,15 @@ export interface TranscriptionCapabilitiesResponse {
     "modelSizeBytes"?: number;
     "languages": string[] | null;
     "defaultLanguage"?: string;
+}
+
+/**
+ * TrashInfo reports the real contents of the app trash directory. It is not
+ * derived from history: files whose history entry was pruned are still counted.
+ */
+export interface TrashInfo {
+    "files": number;
+    "bytes": number;
 }
 
 /**

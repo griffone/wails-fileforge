@@ -116,6 +116,7 @@ export class ResultCard implements DoCheck {
   undoTone: 'success' | 'warning' = 'success';
   undoSkipped: UndoSkipped[] = [];
   undoMode: UndoMode = 'undo';
+  showAllOutputs = false;
 
   @Input()
   set job(value: JobResult | null) {
@@ -125,6 +126,7 @@ export class ResultCard implements DoCheck {
     if (previousJobId !== (value?.jobId ?? '')) {
       this.resetAutoVerification();
       this.resetUndoState();
+      this.showAllOutputs = false;
     }
 
     this.pendingRecord = true;
@@ -629,7 +631,7 @@ export class ResultCard implements DoCheck {
       );
       const outputCount = Math.max(item.outputCount ?? 0, outputs.length);
 
-      if (outputCount > GROUP_OUTPUT_LIMIT) {
+      if (outputCount > GROUP_OUTPUT_LIMIT && !this.showAllOutputs) {
         const directory = item.outputPath || fileDir(outputs[0] ?? '');
         if (!directory || seen.has(directory)) {
           continue;
@@ -675,6 +677,32 @@ export class ResultCard implements DoCheck {
     }
 
     return rows;
+  }
+
+  /** Total output count used by the "show all" toggle label. */
+  totalOutputCount(): number {
+    return (this.job?.items ?? []).reduce((total, item) => {
+      if (!item.success) {
+        return total;
+      }
+      const outputs = (item.outputs ?? []).filter((path) => !!path);
+      return total + Math.max(item.outputCount ?? 0, outputs.length);
+    }, 0);
+  }
+
+  /** True when at least one successful item collapses more than four outputs. */
+  showAllToggleVisible(): boolean {
+    return (this.job?.items ?? []).some((item) => {
+      if (!item.success) {
+        return false;
+      }
+      const outputs = (item.outputs ?? []).filter((path) => !!path);
+      return Math.max(item.outputCount ?? 0, outputs.length) > GROUP_OUTPUT_LIMIT;
+    });
+  }
+
+  toggleAllOutputs(): void {
+    this.showAllOutputs = !this.showAllOutputs;
   }
 
   failedRows(): ResultFailedRow[] {

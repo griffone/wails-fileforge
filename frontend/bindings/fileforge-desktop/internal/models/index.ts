@@ -57,6 +57,7 @@ export type {
     ToolchainInstallOptions,
     ToolchainStatus,
     TranscriptionCapabilitiesResponse,
+    TrashInfo,
     UndoResult,
     UndoSkipped,
     ValidateJobResponse,

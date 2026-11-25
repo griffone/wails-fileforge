@@ -22,6 +22,13 @@ type JobHistoryEntry struct {
 	Outputs      []JobOutputRecord `json:"outputs"`
 }
 
+// TrashInfo reports the real contents of the app trash directory. It is not
+// derived from history: files whose history entry was pruned are still counted.
+type TrashInfo struct {
+	Files int   `json:"files"`
+	Bytes int64 `json:"bytes"`
+}
+
 // UndoSkipped reports one output that undo or restore refused to touch.
 type UndoSkipped struct {
 	Path   string `json:"path"`

@@ -901,3 +901,47 @@ func TestNewStorePrunesExpiredTrashOnLoad(t *testing.T) {
 		t.Fatalf("expected load-time retention to update history, got %+v", stored)
 	}
 }
+
+func TestTrashStatsCountsNestedRegularFiles(t *testing.T) {
+	store, dir := newTestStore(t)
+	trashRoot := filepath.Join(dir, "fileforge", trashDirName)
+
+	writeTestFile(t, filepath.Join(trashRoot, "job_1", "0-a.pdf"), "alpha")
+	writeTestFile(t, filepath.Join(trashRoot, "job_1", "nested", "1-b.pdf"), "beta-bytes")
+	writeTestFile(t, filepath.Join(trashRoot, "stray.txt"), "plain")
+
+	files, bytes, err := store.TrashStats()
+	if err != nil {
+		t.Fatalf("TrashStats: %v", err)
+	}
+	if files != 3 {
+		t.Fatalf("expected 3 trash files, got %d", files)
+	}
+	wantBytes := int64(len("alpha") + len("beta-bytes") + len("plain"))
+	if bytes != wantBytes {
+		t.Fatalf("expected %d trash bytes, got %d", wantBytes, bytes)
+	}
+}
+
+func TestTrashStatsTreatsMissingOrEmptyTrashAsZero(t *testing.T) {
+	store, dir := newTestStore(t)
+
+	files, bytes, err := store.TrashStats()
+	if err != nil {
+		t.Fatalf("missing trash: %v", err)
+	}
+	if files != 0 || bytes != 0 {
+		t.Fatalf("missing trash: expected 0/0, got %d/%d", files, bytes)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "fileforge", trashDirName), 0o755); err != nil {
+		t.Fatalf("create empty trash: %v", err)
+	}
+	files, bytes, err = store.TrashStats()
+	if err != nil {
+		t.Fatalf("empty trash: %v", err)
+	}
+	if files != 0 || bytes != 0 {
+		t.Fatalf("empty trash: expected 0/0, got %d/%d", files, bytes)
+	}
+}

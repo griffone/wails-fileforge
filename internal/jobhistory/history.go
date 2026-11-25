@@ -568,6 +568,55 @@ func (s *Store) EmptyTrash() error {
 	return nil
 }
 
+// TrashStats counts the regular files currently in the app trash and sums
+// their sizes. It walks the trash root instead of reading history, so files
+// whose history entry was pruned are still counted. A missing trash directory
+// is an empty trash, not an error.
+func (s *Store) TrashStats() (int, int64, error) {
+	root := strings.TrimSpace(s.trashRoot)
+	if root == "" {
+		return 0, 0, nil
+	}
+
+	files := 0
+	var bytes int64
+	err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if errors.Is(walkErr, os.ErrNotExist) {
+				return nil
+			}
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			if errors.Is(infoErr, os.ErrNotExist) {
+				return nil
+			}
+			return infoErr
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+
+		files++
+		bytes += info.Size()
+
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("count trash files: %w", err)
+	}
+
+	return files, bytes, nil
+}
+
 func (s *Store) load() {
 	if !s.configured() {
 		s.entries = []models.JobHistoryEntry{}

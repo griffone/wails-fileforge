@@ -82,6 +82,23 @@
         </ul>
       }
 
+      @if (showAllToggleVisible()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm result-toggle-outputs"
+          [attr.aria-expanded]="showAllOutputs"
+          (click)="toggleAllOutputs()"
+        >
+          {{
+            showAllOutputs
+              ? i18n.t('resultCard.showFewerOutputs')
+              : i18n.t('resultCard.showAllOutputs', {
+                  count: totalOutputCount(),
+                })
+          }}
+        </button>
+      }
+
       @if (failedRows().length > 0) {
         <ul class="result-list result-failures" [attr.aria-label]="i18n.t('resultCard.failedAria')">
           @for (row of failedRows(); track row.path) {

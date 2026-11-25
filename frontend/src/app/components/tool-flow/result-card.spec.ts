@@ -362,6 +362,52 @@ describe('ResultCard', () => {
     expect(openSpy).not.toHaveBeenCalled();
   });
 
+  it('expands every output through the show-all toggle', () => {
+    component.toolLabel = 'PDF';
+    component.verbPast = 'split';
+    const outputs = Array.from(
+      { length: 6 },
+      (_, index) => `/tmp/out/a_pages/page_${index + 1}.pdf`,
+    );
+    component.job = job({
+      items: [
+        {
+          inputPath: '/tmp/a.pdf',
+          outputPath: '/tmp/out/a_pages',
+          outputs,
+          outputCount: 6,
+          success: true,
+          message: 'ok',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const toggle = fixture.nativeElement.querySelector(
+      '.result-toggle-outputs',
+    ) as HTMLButtonElement;
+    expect(toggle.textContent).toContain('Show all 6 outputs');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(fixture.nativeElement.querySelectorAll('.result-row').length).toBe(1);
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(toggle.textContent).toContain('Show fewer outputs');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(fixture.nativeElement.querySelectorAll('.result-row').length).toBe(6);
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('page_1.pdf');
+    expect(text).toContain('page_6.pdf');
+    expect(text).not.toContain('6 files in a_pages');
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelectorAll('.result-row').length).toBe(1);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('keeps individual rows for four or fewer outputs', () => {
     component.toolLabel = 'PDF';
     component.verbPast = 'split';

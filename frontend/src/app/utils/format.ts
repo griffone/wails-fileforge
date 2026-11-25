@@ -1,3 +1,5 @@
+import type { Locale, TranslationKey, TranslationParams } from '../i18n';
+
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
 
 /** Human-readable binary size, e.g. `1.2 MB`, `840 KB`, `0 B`. */
@@ -92,6 +94,57 @@ export function formatDuration(seconds: number): string {
   return hours > 0
     ? `${hours}:${padTwo(minutes)}:${padTwo(rest)}`
     : `${minutes}:${padTwo(rest)}`;
+}
+
+/** Translator signature accepted by the shared relative-time helper. */
+export type TranslateFn = (
+  key: TranslationKey,
+  params?: TranslationParams,
+) => string;
+
+/**
+ * Relative timestamp shared by every history surface: `Just now`, `5 min ago`,
+ * `2 h ago`, `Yesterday`, then a short localized date. Invalid or non-positive
+ * timestamps return an empty string.
+ */
+export function formatRelativeTime(
+  timestamp: number,
+  locale: Locale,
+  t: TranslateFn,
+): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return '';
+  }
+
+  const now = Date.now();
+  const diff = Math.max(0, now - timestamp);
+
+  if (diff < 60_000) {
+    return t('home.time.justNow');
+  }
+
+  if (diff < 3_600_000) {
+    return t('home.time.minutesAgo', {
+      count: Math.max(1, Math.floor(diff / 60_000)),
+    });
+  }
+
+  if (diff < 86_400_000) {
+    return t('home.time.hoursAgo', {
+      count: Math.max(1, Math.floor(diff / 3_600_000)),
+    });
+  }
+
+  const date = new Date(timestamp);
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  return date.toDateString() === yesterday.toDateString()
+    ? t('home.time.yesterday')
+    : date.toLocaleDateString(locale, {
+        month: 'short',
+        day: 'numeric',
+      });
 }
 
 const SECONDS_PART = /^\d+(?:\.\d+)?$/;

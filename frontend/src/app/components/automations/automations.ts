@@ -31,7 +31,11 @@ import {
 } from '../../services/wails';
 import { I18nService } from '../../services/i18n.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
-import { fileName, formatCount } from '../../utils/format';
+import {
+  fileName,
+  formatCount,
+  formatRelativeTime,
+} from '../../utils/format';
 
 type ActionTone = 'success' | 'warning' | 'danger';
 
@@ -357,39 +361,11 @@ export class Automations implements OnInit, OnDestroy {
   }
 
   relativeTime(timestamp: number | undefined): string {
-    if (!timestamp || !Number.isFinite(timestamp) || timestamp <= 0) {
-      return '';
-    }
-
-    const now = Date.now();
-    const diff = Math.max(0, now - timestamp);
-
-    if (diff < 60_000) {
-      return this.i18n.t('home.time.justNow');
-    }
-
-    if (diff < 3_600_000) {
-      return this.i18n.t('home.time.minutesAgo', {
-        count: Math.max(1, Math.floor(diff / 60_000)),
-      });
-    }
-
-    if (diff < 86_400_000) {
-      return this.i18n.t('home.time.hoursAgo', {
-        count: Math.max(1, Math.floor(diff / 3_600_000)),
-      });
-    }
-
-    const date = new Date(timestamp);
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    return date.toDateString() === yesterday.toDateString()
-      ? this.i18n.t('home.time.yesterday')
-      : date.toLocaleDateString(this.i18n.locale(), {
-          month: 'short',
-          day: 'numeric',
-        });
+    return formatRelativeTime(
+      timestamp ?? 0,
+      this.i18n.locale(),
+      (key, params) => this.i18n.t(key, params),
+    );
   }
 
   openCreateForm(): void {

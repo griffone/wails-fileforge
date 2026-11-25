@@ -80,6 +80,14 @@ export function RunJob(req: models$0.JobRequest): $CancellablePromise<models$0.R
 }
 
 /**
+ * TrashInfo reports the real file count and total size of the app trash so the
+ * empty confirmation can state the exact numbers that will be deleted.
+ */
+export function TrashInfo(): $CancellablePromise<models$0.TrashInfo> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.TrashInfo");
+}
+
+/**
  * UndoJob moves the untouched outputs of a recorded job to the app trash.
  * Modified or missing outputs are skipped and reported per file.
  */

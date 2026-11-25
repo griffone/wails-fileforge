@@ -44,6 +44,8 @@ export const resultCardEs = {
   'resultCard.detail.interrupted':
     'La aplicación se detuvo antes de que terminara el trabajo.',
   'resultCard.folderSummary': '{count} en {folder}',
+  'resultCard.showAllOutputs': 'Mostrar las {count} salidas',
+  'resultCard.showFewerOutputs': 'Mostrar menos salidas',
   'resultCard.verb.converted': 'convertidos',
   'resultCard.verb.recognized': 'reconocidos',
   'resultCard.verb.annotated': 'anotados',

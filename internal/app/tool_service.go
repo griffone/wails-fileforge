@@ -78,6 +78,12 @@ func (s *ToolService) EmptyTrash() models.PathActionResponse {
 	return s.tooling.EmptyTrash()
 }
 
+// TrashInfo reports the real file count and total size of the app trash so the
+// empty confirmation can state the exact numbers that will be deleted.
+func (s *ToolService) TrashInfo() (models.TrashInfo, error) {
+	return s.tooling.TrashInfo()
+}
+
 func (s *ToolService) GetImagePreviewSource(inputPath string) models.ImagePreviewSourceResponse {
 	tool, ok := s.imageCropTool()
 	if !ok {

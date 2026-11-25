@@ -526,3 +526,16 @@ func (s *ToolingService) EmptyTrash() models.PathActionResponse {
 		Message: "trash emptied",
 	}
 }
+
+// TrashInfo reports the real file count and total size of the app trash. The
+// confirmation dialog uses it so destructive copy matches what will be deleted,
+// including files whose history entry is no longer retained.
+func (s *ToolingService) TrashInfo() (models.TrashInfo, error) {
+	files, bytes, err := s.history.TrashStats()
+	if err != nil {
+		log.Printf("tooling.trash.info_failed err=%v", err)
+		return models.TrashInfo{}, err
+	}
+
+	return models.TrashInfo{Files: files, Bytes: bytes}, nil
+}

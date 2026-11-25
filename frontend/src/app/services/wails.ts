@@ -156,6 +156,24 @@ export interface JobHistoryEntry extends Models.JobHistoryEntry {
   outputs: JobOutputRecord[];
 }
 
+/**
+ * History load result. A failed IPC call must stay distinguishable from an
+ * empty history so the UI can show an error state instead of "no jobs".
+ */
+export interface ListJobHistoryResponse {
+  success: boolean;
+  message: string;
+  entries: JobHistoryEntry[];
+}
+
+export type TrashInfo = Models.TrashInfo;
+
+/** Trash stats plus the transport outcome; `files`/`bytes` are real files. */
+export interface TrashInfoResponse extends TrashInfo {
+  success: boolean;
+  message: string;
+}
+
 export type UndoSkipped = Models.UndoSkipped;
 
 export interface UndoResult extends Models.UndoResult {
@@ -627,15 +645,42 @@ export class Wails {
     }
   }
 
-  async listJobHistory(): Promise<JobHistoryEntry[]> {
+  async listJobHistory(): Promise<ListJobHistoryResponse> {
     try {
       const entries = await this.ipc.listJobHistory();
-      return entries.map((entry) => ({
-        ...entry,
-        outputs: entry.outputs ?? [],
-      }));
-    } catch {
-      return [];
+      return {
+        success: true,
+        message: '',
+        entries: entries.map((entry) => ({
+          ...entry,
+          outputs: entry.outputs ?? [],
+        })),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('List job history failed', error),
+        entries: [],
+      };
+    }
+  }
+
+  async trashInfo(): Promise<TrashInfoResponse> {
+    try {
+      const info = await this.ipc.trashInfo();
+      return {
+        success: true,
+        message: '',
+        files: info?.files ?? 0,
+        bytes: info?.bytes ?? 0,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Read trash info failed', error),
+        files: 0,
+        bytes: 0,
+      };
     }
   }
 

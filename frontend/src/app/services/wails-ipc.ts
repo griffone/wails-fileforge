@@ -71,6 +71,10 @@ export class WailsIpc {
     return ToolService.EmptyTrash();
   }
 
+  trashInfo(): Promise<Models.TrashInfo> {
+    return ToolService.TrashInfo();
+  }
+
   // Recipes.
   listRecipes(): Promise<Models.ListRecipesResponse> {
     return RecipeService.ListRecipes();
