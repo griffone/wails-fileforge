@@ -651,6 +651,66 @@ describe('ImageConverter', () => {
     ).toContain('Elegir archivos');
   });
 
+  it('offers run again after a run and repeats the same request once confirmed', fakeAsync(() => {
+    const inputPath = '/tmp/in/photo.png';
+    const outputPath = '/tmp/in/photo.webp';
+    let runs = 0;
+
+    wailsSpy.runJob.and.callFake(() => {
+      runs += 1;
+      return Promise.resolve({
+        success: true,
+        message: 'queued',
+        jobId: runs === 1 ? 'job-first' : 'job-again',
+        status: 'queued',
+      });
+    });
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
+      Promise.resolve(
+        jobId === 'job-first'
+          ? terminalStatus('job-first', inputPath, outputPath)
+          : runningStatus(jobId),
+      ),
+    );
+
+    component.onPathsSelected([inputPath]);
+    flushMicrotasks();
+    const planned = lastPlanRequest();
+
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('.result-run-again'),
+    ).toBeNull();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const runAgain = fixture.nativeElement.querySelector(
+      '.result-run-again',
+    ) as HTMLButtonElement;
+    expect(runAgain).not.toBeNull();
+
+    runAgain.click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planJob).toHaveBeenCalledWith(planned);
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+
+    (fixture.nativeElement.querySelector(
+      '.result-run-again-confirm',
+    ) as HTMLButtonElement).click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.runJob.calls.mostRecent().args[0]).toEqual(planned);
+    expect(component.activeJobId()).toBe('job-again');
+    expect(component.isPolling()).toBeTrue();
+    expect(component.selectedPaths()).toEqual([inputPath]);
+  }));
+
   it('round-trips the advanced disclosure state', () => {
     const element = fixture.nativeElement as HTMLElement;
     const details = element.querySelector(

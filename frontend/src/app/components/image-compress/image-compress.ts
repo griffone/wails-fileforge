@@ -180,6 +180,7 @@ export class ImageCompress implements OnDestroy, OnInit {
     i18n: this.i18n,
     activity: inject(ActivityService),
     dropIntake: this.dropIntake,
+    lastRequests: this.lastRequests,
     initialOutputDir: this.preferences.defaultOutputDir(),
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) =>
@@ -208,9 +209,8 @@ export class ImageCompress implements OnDestroy, OnInit {
       openFileFailed: 'imageCompress.error.openFile',
       revealFailed: 'imageCompress.error.openFolder',
     },
-    onRunAccepted: (request) => {
+    onRunAccepted: () => {
       this.settings.save(this.currentOptions());
-      this.lastRequests.save(request);
       this.runTargetBytes.set(this.targetSizeBytes());
     },
   });

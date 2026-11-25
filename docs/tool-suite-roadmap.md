@@ -292,7 +292,7 @@ Completar anotación base de imagen para casos de documentación y privacidad.
 **Detalles implementados (Etapa 2):**
 - Tool backend nuevo: `tool.image.annotate` con operaciones `text`, `arrow`, `rect`, `blur`, `redact`.
 - Orden de operaciones: ejecución secuencial determinística en backend (v1), independiente del orden de input del usuario.
-- `redact` v1: irreversible, con rectángulo sólido de color configurable.
+- `redact` v1: irreversible, con rectángulo sólido de color configurable; la ejecución exige una confirmación bloqueante.
 - `blur`: intensidad configurable por operación en rango `0..100`.
 - `text`: fuente única v1 (sans-serif), tamaño y color configurables, soporte multilinea (`\n`).
 - `arrow` y `rect`: solo `stroke`, con opacidad configurable en `0..1`.
@@ -300,7 +300,8 @@ Completar anotación base de imagen para casos de documentación y privacidad.
 - TODO explícito agregado en backend para futura variante por-archivo en batch.
 - Preview annotate: backend pixel-perfect, usa exactamente el mismo pipeline que la ejecución final.
 - UX v2 annotate: flujo principal de dibujo directo sobre imagen (overlay interactivo con selección de herramienta y cursor crosshair), conservando formularios como “Ajustes avanzados” para edición fina.
-- UX redact: aviso visible “Blur vs redact” con la explicación de irreversibilidad. **No hay confirmación bloqueante** antes de ejecutar; es una brecha de seguridad conocida (`image-annotate.ts`, sin diálogo de confirmación para redact).
+- UX redact: aviso visible “Blur vs redact” con la explicación de irreversibilidad y confirmación bloqueante antes de ejecutar cuando la solicitud incluye al menos una operación `redact` (diálogo accesible con foco en Cancelar, Tab atrapado, Escape cancela y atajos de la página suspendidos).
+- “Run again”: el request aceptado se guarda en un único punto (`ToolRunController`) para las 20 herramientas, y cada página adopta el re-run con `adoptRunAgain`.
 - Export no destructivo: autogenera `*_annotated` y resuelve colisiones con sufijos `-2`, `-3`, ...
 - Restricción vigente: no se agregó framework E2E nuevo; smoke E2E transversal queda pendiente.
 
@@ -308,7 +309,7 @@ Completar anotación base de imagen para casos de documentación y privacidad.
 1. Seleccionar imagen (single) o lote (batch).
 2. Agregar operaciones en el orden exacto de ejecución final.
 3. Configurar opciones por operación (color, grosor, opacidad, intensidad blur, texto multilinea).
-4. En caso de `redact`, leer el aviso de irreversibilidad antes de ejecutar; la UI actual no pide una confirmación bloqueante.
+4. En caso de `redact`, leer el aviso de irreversibilidad y confirmar el diálogo bloqueante antes de ejecutar.
 5. Validar y ejecutar job V1.
 6. Revisar preview backend y outputs `*_annotated`.
 

@@ -87,6 +87,7 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
     i18n: this.i18n,
     activity: inject(ActivityService),
     dropIntake: this.dropIntake,
+    lastRequests: this.lastRequests,
     initialOutputDir: this.preferences.defaultOutputDir(),
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) => fileExtension(path).toLowerCase() === 'docx',
@@ -118,9 +119,8 @@ export class DocDocxToPdf implements OnDestroy, OnInit {
       duplicateMany: 'docDocxToPdf.notice.duplicateMany',
       rejectedManyFormat: 'count',
     },
-    onRunAccepted: (request) => {
+    onRunAccepted: () => {
       this.settings.save(this.currentOptions());
-      this.lastRequests.save(request);
     },
     onRunAgainAdopted: (request) => {
       this.applyRequestOptions(request.options);

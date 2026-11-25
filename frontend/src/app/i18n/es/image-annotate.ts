@@ -139,6 +139,11 @@ export const imageAnnotateEs = {
   'imageAnnotate.textDialog.label': 'Texto de la anotación',
   'imageAnnotate.textDialog.confirm': 'Añadir texto',
   'imageAnnotate.textDialog.cancel': 'Cancelar',
+  'imageAnnotate.redactDialog.title': 'La censura es permanente',
+  'imageAnnotate.redactDialog.body':
+    'Esta solicitud incluye al menos una censura. La censura reemplaza de forma permanente el área cubierta en la imagen de salida y no se puede deshacer. ¿Continuar?',
+  'imageAnnotate.redactDialog.confirm': 'Censurar y continuar',
+  'imageAnnotate.redactDialog.cancel': 'Cancelar',
   'imageAnnotate.progress.aria': 'Progreso de la anotación',
   'imageAnnotate.destination.original': 'Junto a cada imagen',
   'imageAnnotate.status.waiting': 'Esperando para empezar',

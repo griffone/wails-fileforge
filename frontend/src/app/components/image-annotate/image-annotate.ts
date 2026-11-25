@@ -30,7 +30,7 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
-import { ResultCard } from '../tool-flow/result-card';
+import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
 import {
   describeToolError,
   localizeToolError,
@@ -38,6 +38,7 @@ import {
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { LastRequestService } from '../../services/last-request.service';
 import { ActivityService } from '../../services/activity.service';
 import {
   FileInfo,
@@ -191,6 +192,9 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   @ViewChild('previewImage') previewImage?: ElementRef<HTMLImageElement>;
   @ViewChild('textDialog') private textDialog?: ElementRef<HTMLElement>;
   @ViewChild('textInput') private textInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('redactDialog') private redactDialog?: ElementRef<HTMLElement>;
+  @ViewChild('redactCancelButton')
+  private redactCancelButton?: ElementRef<HTMLButtonElement>;
 
   private readonly job: ToolRunController = new ToolRunController({
     toolId: IMAGE_ANNOTATE_TOOL_ID,
@@ -198,6 +202,7 @@ export class ImageAnnotate implements OnDestroy, OnInit {
     i18n: this.i18n,
     activity: inject(ActivityService),
     dropIntake: this.dropIntake,
+    lastRequests: inject(LastRequestService),
     initialOutputDir: this.preferences.defaultOutputDir(),
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) =>
@@ -293,6 +298,8 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   readonly advancedOpen = signal(false);
   readonly textDialogOpen = signal(false);
   readonly textDialogValue = signal('');
+  /** Blocking consent shown before a request that contains a redaction. */
+  readonly redactConfirmOpen = signal(false);
 
   readonly previewLoading = signal(false);
   readonly previewError = signal('');
@@ -307,6 +314,13 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       this.imageHeight() > 0,
   );
   readonly hasOperations = computed(() => this.operations().length > 0);
+  /**
+   * Redaction is irreversible, so the page asks for an explicit confirmation
+   * before submitting a request that contains at least one `redact` operation.
+   */
+  readonly hasRedactOperation = computed(() =>
+    this.operations().some((operation) => operation.type === 'redact'),
+  );
   readonly isBatch = computed(() => this.selectedPaths().length > 1);
 
   readonly drawingCursor = computed(
@@ -383,6 +397,9 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   /** Where the inline text dialog should place the annotation it creates. */
   private pendingTextPoint: OverlayPoint | null = null;
   private textDialogFocusOrigin: HTMLElement | null = null;
+  private redactConfirmFocusOrigin: HTMLElement | null = null;
+  /** Submission held back until the redaction warning is confirmed. */
+  private pendingRedactRun: (() => Promise<void>) | null = null;
 
   ngOnInit(): void {
     this.job.takePendingDrop('/image-annotate');
@@ -464,6 +481,19 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
     if (event.defaultPrevented || event.isComposing) {
+      return;
+    }
+    // A blocking dialog owns the keyboard while it is open.
+    if (this.redactConfirmOpen()) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.cancelRedactConfirm();
+        return;
+      }
+      if (event.key === 'Tab') {
+        this.trapDialogFocus(event, this.redactDialog?.nativeElement);
+      }
       return;
     }
     // The annotation text dialog owns the keyboard while it is open.
@@ -900,7 +930,80 @@ export class ImageAnnotate implements OnDestroy, OnInit {
   }
 
   async run(): Promise<void> {
-    await this.job.run();
+    // Redaction permanently overwrites pixels, so it requires consent before
+    // the request reaches the backend.
+    await this.requestIrreversibleRun(() => this.job.run());
+  }
+
+  /** Opens the blocking redaction warning, focusing the safe choice. */
+  private openRedactConfirm(submit: () => Promise<void>): void {
+    if (this.redactConfirmOpen()) {
+      return;
+    }
+
+    const active = document.activeElement;
+    this.redactConfirmFocusOrigin =
+      active instanceof HTMLElement ? active : null;
+    this.pendingRedactRun = submit;
+    this.redactConfirmOpen.set(true);
+    // Render the dialog first so the cancel button exists before focusing it.
+    this.changeDetector.detectChanges();
+    this.redactCancelButton?.nativeElement.focus();
+  }
+
+  /** Dismisses the warning without touching the operations or the queue. */
+  cancelRedactConfirm(): void {
+    this.closeRedactConfirm();
+  }
+
+  /** Submits the pending request exactly once, after explicit consent. */
+  async confirmRedactConfirm(): Promise<void> {
+    if (!this.redactConfirmOpen()) {
+      return;
+    }
+
+    const submit = this.pendingRedactRun;
+    this.closeRedactConfirm();
+    if (submit) {
+      await submit();
+    }
+  }
+
+  /**
+   * Runs the submission directly, or asks for consent first when the request
+   * carries a redaction. Every path that submits a job goes through here.
+   */
+  private async requestIrreversibleRun(
+    submit: () => Promise<void>,
+  ): Promise<void> {
+    if (this.hasRedactOperation()) {
+      this.openRedactConfirm(submit);
+      return;
+    }
+
+    await submit();
+  }
+
+  onRedactDialogKeydown(event: KeyboardEvent): void {
+    if (event.isComposing) {
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelRedactConfirm();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      this.trapDialogFocus(event, this.redactDialog?.nativeElement);
+    }
+  }
+
+  /** Adopts a job the result card planned and started with the same request. */
+  onRunAgainStarted(event: RunAgainStartedEvent): void {
+    this.job.adoptRunAgain(event);
   }
 
   async cancel(): Promise<void> {
@@ -926,6 +1029,11 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       return;
     }
 
+    // A retry keeps the same annotations, so a redaction still needs consent.
+    await this.requestIrreversibleRun(() => this.submitFailedRetry(failed));
+  }
+
+  private async submitFailedRetry(failed: string[]): Promise<void> {
     const previousFirst = this.selectedPaths()[0] ?? '';
     this.job.replacePaths([...new Set(failed)], { notify: false });
     this.jobResult.set(null);
@@ -1506,7 +1614,13 @@ export class ImageAnnotate implements OnDestroy, OnInit {
 
   /** Keeps Tab inside the text dialog, matching the app's other dialogs. */
   private trapTextDialogFocus(event: KeyboardEvent): void {
-    const dialog = this.textDialog?.nativeElement;
+    this.trapDialogFocus(event, this.textDialog?.nativeElement);
+  }
+
+  private trapDialogFocus(
+    event: KeyboardEvent,
+    dialog: HTMLElement | undefined,
+  ): void {
     if (!dialog) {
       return;
     }
@@ -1532,6 +1646,20 @@ export class ImageAnnotate implements OnDestroy, OnInit {
       event.preventDefault();
       first.focus();
     }
+  }
+
+  private closeRedactConfirm(): void {
+    if (!this.redactConfirmOpen()) {
+      return;
+    }
+
+    this.redactConfirmOpen.set(false);
+    this.pendingRedactRun = null;
+    const origin = this.redactConfirmFocusOrigin;
+    this.redactConfirmFocusOrigin = null;
+    // Remove the dialog before handing focus back to the element that opened it.
+    this.changeDetector.detectChanges();
+    origin?.focus();
   }
 
   private normalizeRect(

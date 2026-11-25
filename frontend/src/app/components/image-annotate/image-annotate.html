@@ -695,6 +695,7 @@
         (reveal)="onReveal($event)"
         (retryFailed)="retryFailed()"
         (reset)="reset()"
+        (runAgainStarted)="onRunAgainStarted($event)"
       ></app-result-card>
     }
   </div>
@@ -746,6 +747,43 @@
         (click)="confirmTextDialog()"
       >
         {{ i18n.t('imageAnnotate.textDialog.confirm') }}
+      </button>
+    </div>
+  </div>
+}
+
+@if (redactConfirmOpen()) {
+  <div class="text-dialog-backdrop" aria-hidden="true"></div>
+  <div
+    #redactDialog
+    class="text-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="annot-redact-dialog-title"
+    aria-describedby="annot-redact-dialog-body"
+    (keydown)="onRedactDialogKeydown($event)"
+  >
+    <h2 id="annot-redact-dialog-title" class="text-dialog-title">
+      {{ i18n.t('imageAnnotate.redactDialog.title') }}
+    </h2>
+    <p id="annot-redact-dialog-body" class="text-dialog-body">
+      {{ i18n.t('imageAnnotate.redactDialog.body') }}
+    </p>
+    <div class="text-dialog-actions">
+      <button
+        #redactCancelButton
+        type="button"
+        class="btn btn-secondary btn-sm"
+        (click)="cancelRedactConfirm()"
+      >
+        {{ i18n.t('imageAnnotate.redactDialog.cancel') }}
+      </button>
+      <button
+        type="button"
+        class="btn btn-danger btn-sm"
+        (click)="confirmRedactConfirm()"
+      >
+        {{ i18n.t('imageAnnotate.redactDialog.confirm') }}
       </button>
     </div>
   </div>

@@ -160,6 +160,7 @@ export class PdfOptimize implements OnDestroy, OnInit {
     i18n: this.i18n,
     activity: inject(ActivityService),
     dropIntake: this.dropIntake,
+    lastRequests: this.lastRequests,
     initialOutputDir: this.preferences.defaultOutputDir(),
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) => fileExtension(path).toLowerCase() === 'pdf',
@@ -184,9 +185,8 @@ export class PdfOptimize implements OnDestroy, OnInit {
       duplicateMany: 'pdfOptimize.notice.duplicateMany',
       rejectedManyFormat: 'names',
     },
-    onRunAccepted: (request) => {
+    onRunAccepted: () => {
       this.settings.save(this.currentOptions());
-      this.lastRequests.save(request);
     },
   });
 

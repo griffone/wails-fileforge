@@ -163,6 +163,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     i18n: this.i18n,
     activity: inject(ActivityService),
     dropIntake: this.dropIntake,
+    lastRequests: this.lastRequests,
     initialOutputDir: this.preferences.defaultOutputDir().trim(),
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) =>
@@ -193,9 +194,8 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       duplicateMany: 'videoTranscribe.notice.duplicateMany',
       rejectedManyFormat: 'names',
     },
-    onRunAccepted: (request) => {
+    onRunAccepted: () => {
       this.settings.save(this.currentOptions());
-      this.lastRequests.save(request);
     },
     onRunAgainAdopted: (request) => this.applyRequestOptions(request.options),
   });

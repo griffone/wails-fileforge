@@ -11,7 +11,7 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
-import { ResultCard } from '../tool-flow/result-card';
+import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
 import {
   PdfSplitPreview,
   groupConsecutivePages,
@@ -21,6 +21,7 @@ import {
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { LastRequestService } from '../../services/last-request.service';
 import { ActivityService } from '../../services/activity.service';
 import { FileInfo, JobRequest, Wails } from '../../services/wails';
 import {
@@ -159,6 +160,7 @@ export class PdfSplit implements OnDestroy, OnInit {
     i18n: this.i18n,
     activity: inject(ActivityService),
     dropIntake: this.dropIntake,
+    lastRequests: inject(LastRequestService),
     initialOutputDir: this.preferences.defaultOutputDir(),
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) => fileExtension(path).toLowerCase() === 'pdf',
@@ -497,6 +499,11 @@ export class PdfSplit implements OnDestroy, OnInit {
 
   async run(): Promise<void> {
     await this.job.run();
+  }
+
+  /** Adopts a job the result card planned and started with the same request. */
+  onRunAgainStarted(event: RunAgainStartedEvent): void {
+    this.job.adoptRunAgain(event);
   }
 
   async cancel(): Promise<void> {

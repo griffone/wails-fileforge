@@ -4,6 +4,7 @@ import { Subscription } from 'rxjs';
 import { ActivityService } from '../services/activity.service';
 import { DropIntakeService } from '../services/drop-intake.service';
 import { I18nService } from '../services/i18n.service';
+import { LastRequestService } from '../services/last-request.service';
 import {
   describeToolError,
   localizeToolError,
@@ -74,6 +75,11 @@ export interface ToolRunControllerConfig {
   dropIntake: DropIntakeService;
   /** Builds the current request from the page model. */
   buildRequest: () => JobRequest;
+  /**
+   * Stores the accepted request, so the result card can offer "run again".
+   * Every page that runs through this controller gets the behaviour for free.
+   */
+  lastRequests: LastRequestService;
   /** Whether an intake path belongs to this tool. */
   acceptsPath: (path: string) => boolean;
   /** False clears the plan instead of calling `planJob`. */
@@ -643,6 +649,9 @@ export class ToolRunController {
     }
 
     this.config.onRunAccepted?.(request, this.plan());
+    // Stored at the single point where a submission is accepted, so a page
+    // cannot forget to remember the request its result card can repeat.
+    this.config.lastRequests.save(request);
     this.startJob(response.jobId, request.inputPaths.length);
   }
 

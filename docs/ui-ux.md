@@ -65,7 +65,7 @@ Every tool follows the same user task, not the backend job contract:
 - Outcome: presets first (WebP/JPEG/PNG, MP4/WebM, crop size, page strategy); exact settings live under `Advanced`.
 - Output: `OutputPlanCard` shows the resolved destination and collision-safe name before running. Default is next to the original; never overwrite.
 - Run: one primary action (`Convert 3 images`, `Merge 2 PDFs`). There is no separate Validate button.
-- Result: `ResultCard` with open, show in folder, retry failed, "do another" and, where the tool stores a last request, "Run again with the same settings"; technical job ids/codes live in a Details disclosure.
+- Result: `ResultCard` with open, show in folder, retry failed, "do another" and "Run again with the same settings" for every tool whose last request is stored; technical job ids/codes live in a Details disclosure.
 - Backend: `PlanJob` is the source of truth. The same resolver is used by planning and execution; explicit existing outputs are conflicts, auto-derived names get `-2`, `-3`.
 - Native desktop: `EnableFileDrop` + `data-file-drop-target` + `common:WindowFilesDropped`; `OpenPath` / `RevealInFolder` for results.
 
@@ -96,8 +96,9 @@ delegates the run pipeline to `ToolRunController` (`frontend/src/app/utils/tool-
 - **Option memory:** `createToolOptions` (`utils/tool-options.ts`) restores the
   last used values per tool and validates the stored shape on read. A page's
   `reset()` calls `restore()` again instead of hard-coded defaults.
-- **Last request:** `LastRequestService` stores the last submitted request for
-  the tools that expose "Run again"; `ResultCard` reads it by `toolId`.
+- **Last request:** every accepted run stores its request through
+  `ToolRunController` (`LastRequestService`), so `ResultCard` can offer "Run
+  again" on every tool by `toolId` and plans the stored request before starting.
 - **Thumbnails:** document inputs (DOCX/MD) convert in process, then the shared
   PDF preview pipeline rasterizes the first page (`pdftoppm`); a document that
   cannot render is a typed "no preview", not an error card.

@@ -945,6 +945,54 @@ describe('PdfMerge', () => {
     expect(details.open).toBeTrue();
   });
 
+  it('offers run again after a merge and repeats the same request once confirmed', fakeAsync(() => {
+    let runs = 0;
+    wailsSpy.runJob.and.callFake(() => {
+      runs += 1;
+      return Promise.resolve({
+        success: true,
+        message: 'queued',
+        jobId: runs === 1 ? 'job-first' : 'job-again',
+        status: 'queued',
+      });
+    });
+
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+    const planned = lastPlanRequest();
+
+    void component.run();
+    flushMicrotasks();
+
+    jobStateSubject.next(successStatus('job-first', '/tmp/a_merged.pdf').result!);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const runAgain = fixture.nativeElement.querySelector(
+      '.result-run-again',
+    ) as HTMLButtonElement;
+    expect(runAgain).not.toBeNull();
+
+    runAgain.click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planJob).toHaveBeenCalledWith(planned);
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+
+    (fixture.nativeElement.querySelector(
+      '.result-run-again-confirm',
+    ) as HTMLButtonElement).click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.runJob.calls.mostRecent().args[0]).toEqual(planned);
+    expect(component.activeJobId()).toBe('job-again');
+    expect(component.isPolling()).toBeTrue();
+    expect(component.selectedPaths()).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+  }));
+
   it('renders the page copy in Spanish', fakeAsync(() => {
     TestBed.inject(I18nService).setLocale('es');
 

@@ -151,6 +151,11 @@ describe('ImageAnnotate', () => {
     component.addOperation();
   }
 
+  function addRedactOperation(): void {
+    component.onOperationTypeChange(inputEvent('redact'));
+    component.addOperation();
+  }
+
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
@@ -893,6 +898,147 @@ describe('ImageAnnotate', () => {
     flushMicrotasks();
   }));
 
+  it('asks for confirmation before running a redaction and cancels safely', fakeAsync(() => {
+    addRedactOperation();
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const trigger = primaryButton();
+    trigger.focus();
+    trigger.click();
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const dialog = element.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog).not.toBeNull();
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.textContent).toContain('Redaction is permanent');
+    expect(dialog.textContent).toContain('cannot be undone');
+    expect(component.redactConfirmOpen()).toBeTrue();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
+
+    const cancel = dialog.querySelector(
+      '.btn-secondary',
+    ) as HTMLButtonElement;
+    expect(document.activeElement).toBe(cancel);
+
+    const operationsBefore = JSON.stringify(component.operations());
+    cancel.click();
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
+    expect(component.redactConfirmOpen()).toBeFalse();
+    expect(element.querySelector('[role="dialog"]')).toBeNull();
+    expect(JSON.stringify(component.operations())).toBe(operationsBefore);
+    expect(document.activeElement).toBe(trigger);
+
+    tick(250);
+    flushMicrotasks();
+  }));
+
+  it('runs once after the redaction is confirmed', fakeAsync(() => {
+    addRedactOperation();
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    primaryButton().click();
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const confirm = element.querySelector(
+      '[role="dialog"] .btn-danger',
+    ) as HTMLButtonElement;
+    expect(confirm).not.toBeNull();
+
+    confirm.click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+    expect(component.redactConfirmOpen()).toBeFalse();
+    expect(element.querySelector('[role="dialog"]')).toBeNull();
+    expect(component.isPolling()).toBeTrue();
+
+    component.reset();
+  }));
+
+  it('cancels the redaction confirmation on Escape', fakeAsync(() => {
+    addRedactOperation();
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    primaryButton().click();
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const cancel = element.querySelector(
+      '[role="dialog"] .btn-secondary',
+    ) as HTMLButtonElement;
+
+    const escape = pressKey('Escape', {}, cancel);
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    expect(escape.defaultPrevented).toBeTrue();
+    expect(component.redactConfirmOpen()).toBeFalse();
+    expect(element.querySelector('[role="dialog"]')).toBeNull();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
+
+    tick(250);
+    flushMicrotasks();
+  }));
+
+  it('suspends page shortcuts while the redaction confirmation is open', fakeAsync(() => {
+    addRedactOperation();
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    fixture.detectChanges();
+    const operationsBefore = JSON.stringify(component.operations());
+
+    primaryButton().click();
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    pressKey('z', { ctrlKey: true }, document.body);
+    pressKey('Delete', {}, document.body);
+    fixture.detectChanges();
+
+    expect(component.redactConfirmOpen()).toBeTrue();
+    expect(JSON.stringify(component.operations())).toBe(operationsBefore);
+
+    component.cancelRedactConfirm();
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    tick(250);
+    flushMicrotasks();
+  }));
+
+  it('runs a request without redaction without asking for confirmation', fakeAsync(() => {
+    addDefaultOperation();
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    primaryButton().click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(element.querySelector('[role="dialog"]')).toBeNull();
+    expect(component.redactConfirmOpen()).toBeFalse();
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+
+    component.reset();
+  }));
+
   it('refreshes the plan after undo and redo', fakeAsync(() => {
     component.onPathsSelected(['/tmp/photo.png']);
     flushMicrotasks();
@@ -996,6 +1142,58 @@ describe('ImageAnnotate', () => {
     ).toBe(1);
 
     component.reset();
+  }));
+
+  it('asks for confirmation before retrying a redaction', fakeAsync(() => {
+    addRedactOperation();
+    component.onPathsSelected(['/tmp/a.png', '/tmp/b.jpg']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    component.jobResult.set(
+      status('annot-retry-3', 'partial_success', [
+        {
+          inputPath: '/tmp/a.png',
+          outputPath: '/tmp/a_annotated.png',
+          outputs: ['/tmp/a_annotated.png'],
+          success: true,
+          message: 'image annotate successful',
+        },
+        {
+          inputPath: '/tmp/b.jpg',
+          outputPath: '',
+          success: false,
+          message: 'image annotate failed',
+          error: {
+            code: 'EXEC_IO_TRANSIENT',
+            detail_code: 'IMAGE_ANNOTATE_BATCH_ITEM',
+            message: 'image annotate failed',
+          },
+        },
+      ]).result!,
+    );
+    fixture.detectChanges();
+
+    void component.retryFailed();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(component.redactConfirmOpen()).toBeTrue();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
+    // The queue is untouched until the user consents.
+    expect(component.selectedPaths()).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
+
+    component.cancelRedactConfirm();
+    fixture.detectChanges();
+    flushMicrotasks();
+
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
+    expect(component.selectedPaths()).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
+
+    tick(250);
+    flushMicrotasks();
   }));
 
   it('renders the file-first page without the legacy mode and path controls', () => {

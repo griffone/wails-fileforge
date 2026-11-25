@@ -4,6 +4,7 @@ import { fakeAsync, flushMicrotasks } from '@angular/core/testing';
 import { ActivityService, ActivityTask } from '../services/activity.service';
 import { DropIntakeService } from '../services/drop-intake.service';
 import { I18nService } from '../services/i18n.service';
+import { LastRequestService } from '../services/last-request.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -154,6 +155,7 @@ describe('ToolRunController', () => {
   let jobState: Subject<JobResult>;
   let activity: ActivityService;
   let dropIntake: DropIntakeService;
+  let lastRequests: jasmine.SpyObj<LastRequestService>;
   let planJob: jasmine.Spy;
   let runJob: jasmine.Spy;
   let getJobStatus: jasmine.Spy;
@@ -173,6 +175,7 @@ describe('ToolRunController', () => {
       i18n: I18N,
       activity,
       dropIntake,
+      lastRequests,
       buildRequest: () => REQUEST,
       acceptsPath: (path) => path.endsWith('.pdf'),
       canPlan: () => true,
@@ -249,6 +252,12 @@ describe('ToolRunController', () => {
     dropIntake = {
       take: jasmine.createSpy('take').and.returnValue([]),
     } as unknown as DropIntakeService;
+
+    lastRequests = jasmine.createSpyObj<LastRequestService>('LastRequestService', [
+      'save',
+      'get',
+      'clear',
+    ]);
 
     controller = create();
   });
@@ -329,6 +338,63 @@ describe('ToolRunController', () => {
     expect(controller.isPolling()).toBeFalse();
     expect(controller.activeJobId()).toBe('');
     expect(controller.outputInfos()['/tmp/a_merged.pdf'].sizeBytes).toBe(42);
+  }));
+
+  it('stores the accepted request so the result card can repeat it', fakeAsync(() => {
+    controller.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    void controller.run();
+    flushMicrotasks();
+
+    expect(lastRequests.save).toHaveBeenCalledOnceWith(REQUEST);
+  }));
+
+  it('does not store a request when the submission is rejected', fakeAsync(() => {
+    runJob.and.resolveTo({
+      success: false,
+      message: 'Could not start.',
+      jobId: '',
+      status: 'failed',
+    });
+
+    controller.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    void controller.run();
+    flushMicrotasks();
+
+    expect(controller.jobError()?.message).toBe('Could not start.');
+    expect(lastRequests.save).not.toHaveBeenCalled();
+  }));
+
+  it('adopts a job started from run again and reattaches observation', fakeAsync(() => {
+    const adopted: JobRequest[] = [];
+    const adopting = create({
+      onRunAgainAdopted: (request) => adopted.push(request),
+    });
+    const request: JobRequest = {
+      toolId: 'tool.pdf.merge',
+      mode: 'single',
+      inputPaths: ['/tmp/a.pdf', '/tmp/b.pdf'],
+      outputDir: '/tmp/out',
+      options: { order: 'auto' },
+    };
+
+    adopting.adoptRunAgain({
+      jobId: 'job-again',
+      request,
+      plan: planResponse(),
+    });
+    flushMicrotasks();
+
+    expect(adopted).toEqual([request]);
+    expect(adopting.selectedPaths()).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+    expect(adopting.outputDir()).toBe('/tmp/out');
+    expect(adopting.activeJobId()).toBe('job-again');
+    expect(adopting.isPolling()).toBeTrue();
+    expect(adopting.jobResult()?.status).toBe('running');
+    expect(getJobStatus).toHaveBeenCalledWith('job-again');
   }));
 
   it('cancels the active job and surfaces a failed cancel', fakeAsync(() => {

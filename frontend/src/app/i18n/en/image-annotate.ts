@@ -138,6 +138,11 @@ export const imageAnnotateEn = {
   'imageAnnotate.textDialog.label': 'Annotation text',
   'imageAnnotate.textDialog.confirm': 'Add text',
   'imageAnnotate.textDialog.cancel': 'Cancel',
+  'imageAnnotate.redactDialog.title': 'Redaction is permanent',
+  'imageAnnotate.redactDialog.body':
+    'This request contains at least one redaction. Redaction permanently replaces the covered area in the output image and cannot be undone. Continue?',
+  'imageAnnotate.redactDialog.confirm': 'Redact and continue',
+  'imageAnnotate.redactDialog.cancel': 'Cancel',
   'imageAnnotate.progress.aria': 'Annotation progress',
   'imageAnnotate.destination.original': 'Next to each image',
   'imageAnnotate.status.waiting': 'Waiting to start',
