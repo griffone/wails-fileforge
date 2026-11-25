@@ -1,0 +1,71 @@
+export const videoMergeEs = {
+  'videoMerge.page.eyebrow': 'VIDEO',
+  'videoMerge.page.titleLead': 'Unir',
+  'videoMerge.page.titleTail': 'video',
+  'videoMerge.page.sub':
+    'Une clips en un solo vídeo en el orden que elijas. Todo se ejecuta en este equipo.',
+  'videoMerge.page.localBadge': 'Solo local',
+  'videoMerge.intake.title': 'Vídeos',
+  'videoMerge.intake.sub': 'Suelta vídeos o elígelos desde tu equipo.',
+  'videoMerge.intake.dropTitle': 'Suelta vídeos aquí',
+  'videoMerge.intake.dropHint': 'MP4 · MOV · MKV · WebM',
+  'videoMerge.intake.dropAria': 'Suelta o elige vídeos para unir',
+  'videoMerge.intake.actionsAria': 'Acciones de selección de vídeos',
+  'videoMerge.intake.choose': 'Elegir vídeos',
+  'videoMerge.intake.clear': 'Limpiar',
+  'videoMerge.intake.orderHint':
+    'El orden de abajo es el orden de unión.',
+  'videoMerge.notice.rejectedOne':
+    '{name} no se agregó porque no es un vídeo.',
+  'videoMerge.notice.rejectedMany':
+    '{names} no se agregaron porque no son vídeos.',
+  'videoMerge.notice.duplicateOne': '{name} ya está en la cola.',
+  'videoMerge.notice.duplicateMany':
+    'Ya hay {count} videos en la cola.',
+  'videoMerge.output.title': 'Salida',
+  'videoMerge.output.sub':
+    'Elige un preset y comprueba dónde irá el archivo.',
+  'videoMerge.output.presetAria': 'Preset de salida',
+  'videoMerge.output.destinationFirst': 'Junto al primer vídeo',
+  'videoMerge.output.useFirstFolder':
+    'Usar la carpeta del primer vídeo',
+  'videoMerge.preset.mp4-balanced.label': 'MP4',
+  'videoMerge.preset.mp4-balanced.hint': 'Se reproduce en todas partes',
+  'videoMerge.preset.mp4-high.label': 'MP4 HD',
+  'videoMerge.preset.mp4-high.hint': 'Mejor calidad',
+  'videoMerge.preset.mp4-small.label': 'MP4 Pequeño',
+  'videoMerge.preset.mp4-small.hint': 'Archivo más pequeño',
+  'videoMerge.preset.webm-balanced.label': 'WebM',
+  'videoMerge.preset.webm-balanced.hint': 'Para la web',
+  'videoMerge.advanced.title': 'Avanzado',
+  'videoMerge.advanced.hint': 'Transición y audio',
+  'videoMerge.advanced.transition': 'Transición',
+  'videoMerge.advanced.transitionNone': 'Ninguna',
+  'videoMerge.advanced.transitionCrossfade': 'Fundido cruzado',
+  'videoMerge.advanced.duration':
+    'Duración del fundido cruzado (segundos)',
+  'videoMerge.advanced.durationHelp':
+    'El fundido cruzado recodifica el vídeo unido. Cada clip debe ser más largo que la transición.',
+  'videoMerge.advanced.durationInvalid':
+    'Introduce una duración de fundido cruzado entre 0.1 y 3.0 segundos.',
+  'videoMerge.advanced.audio': 'Audio',
+  'videoMerge.advanced.removeAudio': 'Quitar el audio',
+  'videoMerge.advanced.audioRemoved':
+    'El vídeo unido no tendrá pista de audio.',
+  'videoMerge.advanced.audioKept': 'Mantiene el audio de cada clip.',
+  'videoMerge.action.merge': 'Unir videos',
+  'videoMerge.action.mergeMany': 'Unir {count} videos',
+  'videoMerge.action.merging': 'Uniendo…',
+  'videoMerge.action.cancel': 'Cancelar',
+  'videoMerge.helper.addTwo': 'Añade al menos dos vídeos para unir.',
+  'videoMerge.helper.addOneMore': 'Añade un vídeo más para unir.',
+  'videoMerge.progress.aria': 'Progreso de la unión',
+  'videoMerge.status.waiting': 'Esperando para empezar',
+  'videoMerge.error.start': 'No se pudo iniciar la unión.',
+  'videoMerge.error.plan': 'No se pudo planificar la salida.',
+  'videoMerge.error.cancel': 'No se pudo cancelar el trabajo.',
+  'videoMerge.error.openFile': 'No se pudo abrir el archivo.',
+  'videoMerge.error.openFolder': 'No se pudo abrir la carpeta.',
+  'videoMerge.error.status': 'No se pudo leer el estado del trabajo.',
+  'videoMerge.error.inspect': 'No se pudieron leer los tamaños de archivo.',
+} as const;

@@ -22,8 +22,13 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -49,6 +54,7 @@ import {
 } from '../../utils/format';
 import { observeJob } from '../../utils/job-stream';
 import { resumeToolJob } from '../../utils/resume-task';
+import type { TranslationKey } from '../../i18n';
 
 const TRANSCRIBE_TOOL_ID = 'tool.video.transcribe';
 const TRANSCRIBE_ROUTE = '/video-transcribe';
@@ -71,10 +77,13 @@ const ACCEPTED_EXTENSIONS = new Set([
   'flac',
 ]);
 
-const LANGUAGE_OPTIONS: readonly { value: string; label: string }[] = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'en', label: 'English' },
-  { value: 'es', label: 'Spanish' },
+const LANGUAGE_OPTIONS: readonly {
+  value: string;
+  labelKey: TranslationKey;
+}[] = [
+  { value: 'auto', labelKey: 'videoTranscribe.language.auto' },
+  { value: 'en', labelKey: 'videoTranscribe.language.en' },
+  { value: 'es', labelKey: 'videoTranscribe.language.es' },
 ];
 
 const TERMINAL_STATUSES = new Set<string>([
@@ -103,14 +112,14 @@ export interface TranscriptSummary {
 }
 
 /** `['a']` → `A`; `['a','b']` → `A and B`; more use commas. */
-function joinWords(values: readonly string[]): string {
+function joinWords(values: readonly string[], conjunction: string): string {
   if (values.length <= 1) {
     return values[0] ?? '';
   }
   if (values.length === 2) {
-    return `${values[0]} and ${values[1]}`;
+    return `${values[0]} ${conjunction} ${values[1]}`;
   }
-  return `${values.slice(0, -1).join(', ')} and ${values[values.length - 1]}`;
+  return `${values.slice(0, -1).join(', ')} ${conjunction} ${values[values.length - 1]}`;
 }
 
 @Component({
@@ -132,6 +141,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -142,7 +152,12 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     .map((extension) => `.${extension}`)
     .join(',');
 
-  readonly languageOptions = LANGUAGE_OPTIONS;
+  readonly languageOptions = computed(() =>
+    LANGUAGE_OPTIONS.map((option) => ({
+      value: option.value,
+      label: this.i18n.t(option.labelKey),
+    })),
+  );
   readonly formatOptions = [
     { id: 'srt', label: 'SRT' },
     { id: 'vtt', label: 'VTT' },
@@ -193,7 +208,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       return '';
     }
 
-    const parts = ['Whisper ready'];
+    const parts = [this.i18n.t('videoTranscribe.model.ready')];
     const modelName = capabilities.modelName?.trim() ?? '';
     if (modelName) {
       parts.push(modelName);
@@ -205,7 +220,9 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       parts.push(formatBytes(capabilities.modelSizeBytes));
     }
     parts.push(
-      this.languageOptions.map((option) => option.label).join('/'),
+      this.languageOptions()
+        .map((option) => option.label)
+        .join('/'),
     );
     return parts.join(' · ');
   });
@@ -216,26 +233,43 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     }
 
     const capabilities = this.capabilities();
-    const whisperPath = capabilities?.whisperPath?.trim() || 'not found';
-    const modelPath = capabilities?.modelPath?.trim() || 'not found';
+    const whisperPath =
+      capabilities?.whisperPath?.trim() ||
+      this.i18n.t('videoTranscribe.capability.notFound');
+    const modelPath =
+      capabilities?.modelPath?.trim() ||
+      this.i18n.t('videoTranscribe.capability.notFound');
 
     const missing: string[] = [];
     if (capabilities && !capabilities.whisperPresent) {
-      missing.push('the whisper.cpp binary');
+      missing.push(
+        this.i18n.t('videoTranscribe.capability.missingWhisper'),
+      );
     }
     if (capabilities && !capabilities.modelPresent) {
-      missing.push('a Whisper model');
+      missing.push(
+        this.i18n.t('videoTranscribe.capability.missingModel'),
+      );
     }
 
     const guidance =
       missing.length > 0
-        ? `Install ${joinWords(missing)}, then choose the paths in Settings.`
+        ? this.i18n.t('videoTranscribe.capability.installMissing', {
+            missing: joinWords(
+              missing,
+              this.i18n.t('videoTranscribe.list.and'),
+            ),
+          })
         : capabilities?.message?.trim() ||
-          'Install whisper.cpp and choose a ggml model file in Settings.';
+          this.i18n.t('videoTranscribe.capability.installFallback');
 
     return {
-      title: 'Local transcription is unavailable.',
-      detail: `Whisper binary: ${whisperPath} · Model: ${modelPath}. ${guidance}`,
+      title: this.i18n.t('videoTranscribe.capability.title'),
+      detail: this.i18n.t('videoTranscribe.capability.detail', {
+        whisper: whisperPath,
+        model: modelPath,
+        guidance,
+      }),
     };
   });
 
@@ -253,17 +287,21 @@ export class VideoTranscribe implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Transcribing…';
+      return this.i18n.t('videoTranscribe.action.transcribing');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Transcribe files';
+      return this.i18n.t('videoTranscribe.action.transcribeFiles');
     }
-    return count === 1 ? 'Transcribe 1 file' : `Transcribe ${count} files`;
+    return count === 1
+      ? this.i18n.t('videoTranscribe.action.transcribeOne')
+      : this.i18n.t('videoTranscribe.action.transcribeMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each source',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('videoTranscribe.output.destinationEach'),
   );
 
   readonly isDefaultDestination = computed(
@@ -275,13 +313,13 @@ export class VideoTranscribe implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      return 'Add at least one video or audio file.';
+      return this.i18n.t('videoTranscribe.helper.addOne');
     }
     if (this.transcriptionBlocked()) {
-      return 'Local transcription is unavailable on this machine.';
+      return this.i18n.t('videoTranscribe.helper.unavailable');
     }
     if (this.formatsMissing()) {
-      return 'Choose at least one output format.';
+      return this.i18n.t('videoTranscribe.helper.chooseFormat');
     }
     return '';
   });
@@ -323,7 +361,13 @@ export class VideoTranscribe implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The transcription job could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            error,
+            this.i18n.t('videoTranscribe.error.start'),
+          ),
+        )
       : null;
   });
 
@@ -350,7 +394,11 @@ export class VideoTranscribe implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'file');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.fileOne'),
+      this.i18n.t('common.fileMany'),
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -493,13 +541,13 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The transcription job could not start.',
+        message: this.i18n.t('videoTranscribe.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The transcription job could not start.',
+          message: this.i18n.t('videoTranscribe.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -507,7 +555,9 @@ export class VideoTranscribe implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The transcription job could not start.',
+          message:
+            response.message ||
+            this.i18n.t('videoTranscribe.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -519,14 +569,14 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('videoTranscribe.status.waiting'),
       toolId: TRANSCRIBE_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('videoTranscribe.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -544,7 +594,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('videoTranscribe.error.cancel'),
       );
     }
   }
@@ -552,7 +602,9 @@ export class VideoTranscribe implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('videoTranscribe.error.openFile'),
     );
   }
 
@@ -561,7 +613,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('videoTranscribe.error.openFolder'),
     );
   }
 
@@ -596,7 +648,9 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       this.capabilitiesStatus.set(response.success ? 'ok' : 'error');
 
       if (response.success) {
-        const offered = this.languageOptions.map((option) => option.value);
+        const offered = this.languageOptions().map(
+          (option) => option.value,
+        );
         const defaultLanguage = response.defaultLanguage?.trim() ?? '';
         if (defaultLanguage && offered.includes(defaultLanguage)) {
           this.language.set(defaultLanguage);
@@ -646,12 +700,12 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('videoTranscribe.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('videoTranscribe.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -668,7 +722,8 @@ export class VideoTranscribe implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message:
+        response.message || this.i18n.t('videoTranscribe.error.plan'),
     };
     // Keep the failed plan so the shared plan card shows the reason next to
     // the destination it belongs to.
@@ -777,7 +832,8 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message:
+          response.message || this.i18n.t('videoTranscribe.error.status'),
       },
     );
   }
@@ -819,7 +875,7 @@ export class VideoTranscribe implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('videoTranscribe.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -919,19 +975,29 @@ export class VideoTranscribe implements OnDestroy, OnInit {
 
     if (rejected.length === 1) {
       parts.push(
-        `${fileName(rejected[0])} wasn't added because it isn't a video or audio file.`,
+        this.i18n.t('videoTranscribe.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
       );
     } else if (rejected.length > 1) {
       const names = rejected.map((path) => fileName(path)).join(', ');
       parts.push(
-        `${names} weren't added because they aren't video or audio files.`,
+        this.i18n.t('videoTranscribe.notice.rejectedMany', { names }),
       );
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('videoTranscribe.notice.duplicateOne', {
+          name: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} files are already in the queue.`);
+      parts.push(
+        this.i18n.t('videoTranscribe.notice.duplicateMany', {
+          count: duplicates.length,
+        }),
+      );
     }
 
     return parts.length > 0

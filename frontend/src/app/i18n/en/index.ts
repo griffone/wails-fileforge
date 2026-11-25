@@ -32,6 +32,10 @@ import { toastEn } from './toast';
 import { toolErrorEn } from './tool-error';
 import { toolchainEn } from './toolchain';
 import { toolsEn } from './tools';
+import { videoConvertEn } from './video-convert';
+import { videoMergeEn } from './video-merge';
+import { videoTranscribeEn } from './video-transcribe';
+import { videoTrimEn } from './video-trim';
 
 export const en = {
   ...commonEn,
@@ -68,6 +72,10 @@ export const en = {
   ...globalDropEn,
   ...toastEn,
   ...toolchainEn,
+  ...videoConvertEn,
+  ...videoTrimEn,
+  ...videoMergeEn,
+  ...videoTranscribeEn,
 } as const;
 
 export type TranslationKey = keyof typeof en;

@@ -15,8 +15,13 @@ import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -85,6 +90,7 @@ export class VideoMerge implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -127,6 +133,21 @@ export class VideoMerge implements OnDestroy, OnInit {
 
   readonly isCrossfade = computed(() => this.transition() === 'crossfade');
 
+  /** Preset labels and hints are id-keyed overlays on the shared config. */
+  presetLabel(preset: VideoPreset): string {
+    return this.i18n.tOr(
+      `videoMerge.preset.${preset.id}.label`,
+      preset.label,
+    );
+  }
+
+  presetHint(preset: VideoPreset): string {
+    return this.i18n.tOr(
+      `videoMerge.preset.${preset.id}.hint`,
+      preset.hint,
+    );
+  }
+
   readonly transitionDurationValue = computed<number | null>(() => {
     const raw = this.transitionDuration().trim();
     if (raw === '') {
@@ -159,14 +180,18 @@ export class VideoMerge implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Merging…';
+      return this.i18n.t('videoMerge.action.merging');
     }
     const count = this.selectedPaths().length;
-    return count >= 2 ? `Merge ${count} videos` : 'Merge videos';
+    return count >= 2
+      ? this.i18n.t('videoMerge.action.mergeMany', { count })
+      : this.i18n.t('videoMerge.action.merge');
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to the first video',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('videoMerge.output.destinationFirst'),
   );
 
   readonly isDefaultDestination = computed(
@@ -176,10 +201,10 @@ export class VideoMerge implements OnDestroy, OnInit {
   readonly actionHelper = computed(() => {
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Add at least two videos to merge.';
+      return this.i18n.t('videoMerge.helper.addTwo');
     }
     if (count === 1) {
-      return 'Add one more video to merge.';
+      return this.i18n.t('videoMerge.helper.addOneMore');
     }
     return '';
   });
@@ -196,7 +221,12 @@ export class VideoMerge implements OnDestroy, OnInit {
 
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
-    return error ? describeToolError(error, 'The merge could not start.') : null;
+    return error
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('videoMerge.error.start')),
+        )
+      : null;
   });
 
   private jobSubscription: Subscription | null = null;
@@ -220,7 +250,11 @@ export class VideoMerge implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'video');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.videoOne'),
+      this.i18n.t('common.videoMany'),
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -377,13 +411,13 @@ export class VideoMerge implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The merge could not start.',
+        message: this.i18n.t('videoMerge.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The merge could not start.',
+          message: this.i18n.t('videoMerge.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -391,7 +425,8 @@ export class VideoMerge implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The merge could not start.',
+          message:
+            response.message || this.i18n.t('videoMerge.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -403,14 +438,14 @@ export class VideoMerge implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('videoMerge.status.waiting'),
       toolId: VIDEO_MERGE_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('videoMerge.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -428,7 +463,7 @@ export class VideoMerge implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('videoMerge.error.cancel'),
       );
     }
   }
@@ -436,7 +471,9 @@ export class VideoMerge implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('videoMerge.error.openFile'),
     );
   }
 
@@ -445,7 +482,7 @@ export class VideoMerge implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('videoMerge.error.openFolder'),
     );
   }
 
@@ -531,12 +568,12 @@ export class VideoMerge implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('videoMerge.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('videoMerge.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -553,7 +590,8 @@ export class VideoMerge implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message:
+        response.message || this.i18n.t('videoMerge.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the error in
     // context, next to the destination it belongs to.
@@ -662,7 +700,8 @@ export class VideoMerge implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message:
+          response.message || this.i18n.t('videoMerge.error.status'),
       },
     );
   }
@@ -704,7 +743,7 @@ export class VideoMerge implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('videoMerge.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -834,16 +873,30 @@ export class VideoMerge implements OnDestroy, OnInit {
     const parts: string[] = [];
 
     if (rejected.length === 1) {
-      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a video.`);
+      parts.push(
+        this.i18n.t('videoMerge.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
+      );
     } else if (rejected.length > 0) {
       const names = rejected.map((path) => fileName(path)).join(', ');
-      parts.push(`${names} weren't added because they aren't videos.`);
+      parts.push(
+        this.i18n.t('videoMerge.notice.rejectedMany', { names }),
+      );
     }
 
     if (duplicates.length === 1) {
-      parts.push(`${fileName(duplicates[0])} is already in the queue.`);
+      parts.push(
+        this.i18n.t('videoMerge.notice.duplicateOne', {
+          name: fileName(duplicates[0]),
+        }),
+      );
     } else if (duplicates.length > 1) {
-      parts.push(`${duplicates.length} videos are already in the queue.`);
+      parts.push(
+        this.i18n.t('videoMerge.notice.duplicateMany', {
+          count: duplicates.length,
+        }),
+      );
     }
 
     return parts.length > 0

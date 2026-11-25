@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">VIDEO</p>
-        <h1 class="page-title">Video <em>Merge</em></h1>
+        <p class="eyebrow">{{ i18n.t('videoMerge.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('videoMerge.page.titleLead') }}
+          <em>{{ i18n.t('videoMerge.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Join clips into one video in the order you choose. Everything runs on this machine.
+          {{ i18n.t('videoMerge.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('videoMerge.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -21,8 +24,8 @@
       <section class="panel intake-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Videos</h2>
-            <p class="panel-sub">Drop videos or choose them from your computer.</p>
+            <h2 class="panel-title">{{ i18n.t('videoMerge.intake.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('videoMerge.intake.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
@@ -30,18 +33,18 @@
         <div class="panel-body">
           <app-file-drop
             accept="video/mp4,video/quicktime,video/x-matroska,video/webm,.mp4,.mov,.mkv,.webm"
-            title="Drop videos here"
-            hint="MP4 · MOV · MKV · WebM"
-            ariaLabel="Drop or choose videos to merge"
+            [title]="i18n.t('videoMerge.intake.dropTitle')"
+            [hint]="i18n.t('videoMerge.intake.dropHint')"
+            [ariaLabel]="i18n.t('videoMerge.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
           ></app-file-drop>
 
-          <div class="toolbar" role="group" aria-label="Video selection actions">
+          <div class="toolbar" role="group" [attr.aria-label]="i18n.t('videoMerge.intake.actionsAria')">
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose videos
+              {{ i18n.t('videoMerge.intake.choose') }}
             </button>
             <button
               type="button"
@@ -50,7 +53,7 @@
               (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
+              {{ i18n.t('videoMerge.intake.clear') }}
             </button>
           </div>
 
@@ -67,7 +70,7 @@
           }
 
           @if (fileItems().length > 0) {
-            <p class="order-hint">The order below is the merge order.</p>
+            <p class="order-hint">{{ i18n.t('videoMerge.intake.orderHint') }}</p>
 
             <app-file-queue
               [items]="fileItems()"
@@ -83,14 +86,14 @@
       <section class="panel outcome-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Output</h2>
-            <p class="panel-sub">Pick a preset and check where the file will go.</p>
+            <h2 class="panel-title">{{ i18n.t('videoMerge.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('videoMerge.output.sub') }}</p>
           </div>
-          <span class="badge badge-neutral">{{ selectedPreset().label }}</span>
+          <span class="badge badge-neutral">{{ presetLabel(selectedPreset()) }}</span>
         </div>
 
         <div class="panel-body">
-          <div class="preset-grid" role="group" aria-label="Output preset">
+          <div class="preset-grid" role="group" [attr.aria-label]="i18n.t('videoMerge.output.presetAria')">
             @for (preset of presets; track preset.id) {
               <button
                 type="button"
@@ -99,8 +102,8 @@
                 [attr.aria-pressed]="preset.id === selectedPresetId()"
                 (click)="selectPreset(preset.id)"
               >
-                <span class="preset-label">{{ preset.label }}</span>
-                <span class="preset-hint">{{ preset.hint }}</span>
+                <span class="preset-label">{{ presetLabel(preset) }}</span>
+                <span class="preset-hint">{{ presetHint(preset) }}</span>
               </button>
             }
           </div>
@@ -116,35 +119,35 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useFirstVideoFolder()">
-                Use first video's folder
+                {{ i18n.t('videoMerge.output.useFirstFolder') }}
               </button>
             </div>
           }
 
           <details class="advanced">
             <summary class="advanced-summary">
-              <span class="advanced-title">Advanced</span>
-              <span class="advanced-hint">Transition and audio</span>
+              <span class="advanced-title">{{ i18n.t('videoMerge.advanced.title') }}</span>
+              <span class="advanced-hint">{{ i18n.t('videoMerge.advanced.hint') }}</span>
             </summary>
 
             <div class="advanced-body">
               <div class="field">
-                <label class="label" for="video-merge-transition">Transition</label>
+                <label class="label" for="video-merge-transition">{{ i18n.t('videoMerge.advanced.transition') }}</label>
                 <select
                   id="video-merge-transition"
                   class="select"
                   [value]="transition()"
                   (change)="onTransitionChange($event)"
                 >
-                  <option value="none">None</option>
-                  <option value="crossfade">Crossfade</option>
+                  <option value="none">{{ i18n.t('videoMerge.advanced.transitionNone') }}</option>
+                  <option value="crossfade">{{ i18n.t('videoMerge.advanced.transitionCrossfade') }}</option>
                 </select>
               </div>
 
               @if (isCrossfade()) {
                 <div class="field">
                   <label class="label" for="video-merge-transition-duration">
-                    Crossfade duration (seconds)
+                    {{ i18n.t('videoMerge.advanced.duration') }}
                   </label>
                   <input
                     id="video-merge-transition-duration"
@@ -160,18 +163,18 @@
                     (input)="onTransitionDurationInput($event)"
                   />
                   <p id="video-merge-transition-duration-help" class="field-help">
-                    Crossfade re-encodes the merged video. Each clip must be longer than the transition.
+                    {{ i18n.t('videoMerge.advanced.durationHelp') }}
                   </p>
                   @if (transitionDurationInvalid()) {
                     <p class="field-error" role="alert">
-                      Enter a crossfade duration between 0.1 and 3.0 seconds.
+                      {{ i18n.t('videoMerge.advanced.durationInvalid') }}
                     </p>
                   }
                 </div>
               }
 
               <div class="field">
-                <span class="label">Audio</span>
+                <span class="label">{{ i18n.t('videoMerge.advanced.audio') }}</span>
                 <label class="check-row" for="video-merge-remove-audio">
                   <input
                     id="video-merge-remove-audio"
@@ -179,13 +182,13 @@
                     [checked]="removeAudio()"
                     (change)="onRemoveAudioToggle($event)"
                   />
-                  Remove audio
+                  {{ i18n.t('videoMerge.advanced.removeAudio') }}
                 </label>
                 <p class="field-help">
                   @if (removeAudio()) {
-                    The merged video will have no audio track.
+                    {{ i18n.t('videoMerge.advanced.audioRemoved') }}
                   } @else {
-                    Keeps the audio from every clip.
+                    {{ i18n.t('videoMerge.advanced.audioKept') }}
                   }
                 </p>
               </div>
@@ -224,7 +227,7 @@
             </button>
 
             @if (isPolling()) {
-              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('videoMerge.action.cancel') }}</button>
             }
           </div>
         </div>
@@ -232,7 +235,7 @@
     </div>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Merge progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('videoMerge.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

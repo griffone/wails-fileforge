@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { VideoMerge } from './video-merge';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -193,6 +194,7 @@ describe('VideoMerge', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(VideoMerge);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -200,6 +202,8 @@ describe('VideoMerge', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('requires at least two videos', fakeAsync(() => {
@@ -505,4 +509,22 @@ describe('VideoMerge', () => {
     );
     expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Unir');
+    expect(title).toContain('video');
+
+    expect(
+      element.querySelector('#video-merge-transition option[value="crossfade"]')
+        ?.textContent,
+    ).toContain('Fundido cruzado');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir vídeos');
+  });
 });

@@ -35,6 +35,10 @@ import { toastEs } from './toast';
 import { toolErrorEs } from './tool-error';
 import { toolchainEs } from './toolchain';
 import { toolsEs } from './tools';
+import { videoConvertEs } from './video-convert';
+import { videoMergeEs } from './video-merge';
+import { videoTranscribeEs } from './video-transcribe';
+import { videoTrimEs } from './video-trim';
 
 export const es: Record<TranslationKey, DictionaryValue> = {
   ...commonEs,
@@ -71,4 +75,8 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...globalDropEs,
   ...toastEs,
   ...toolchainEs,
+  ...videoConvertEs,
+  ...videoTrimEs,
+  ...videoMergeEs,
+  ...videoTranscribeEs,
 };

@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { VideoTrim } from './video-trim';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -185,6 +186,7 @@ describe('VideoTrim', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(VideoTrim);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -192,6 +194,8 @@ describe('VideoTrim', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('starts with a zero start, an empty end and no plan', () => {
@@ -581,4 +585,22 @@ describe('VideoTrim', () => {
       'Previewing the first video. The range applies to all.',
     );
   }));
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Recortar');
+    expect(title).toContain('video');
+
+    expect(
+      element.querySelector('#video-trim-mode option[value="auto"]')
+        ?.textContent,
+    ).toContain('Automático');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir vídeos');
+  });
 });

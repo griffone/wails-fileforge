@@ -9,6 +9,7 @@ import { provideRouter } from '@angular/router';
 import { EMPTY, Subject } from 'rxjs';
 
 import { VideoTranscribe } from './video-transcribe';
+import { I18nService } from '../../services/i18n.service';
 import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import {
   FileInfo,
@@ -135,6 +136,7 @@ describe('VideoTranscribe', () => {
     caps: TranscriptionCapabilitiesResponse = capabilities(),
   ): void {
     wailsSpy.getTranscriptionCapabilities.and.resolveTo(caps);
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(VideoTranscribe);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -198,6 +200,7 @@ describe('VideoTranscribe', () => {
 
   afterEach(() => {
     fixture?.destroy();
+    TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
@@ -585,5 +588,26 @@ describe('VideoTranscribe', () => {
 
     expect(component.outputDir()).toBe('/tmp/default');
     expect(component.destinationLabel()).toBe('/tmp/default');
+  }));
+
+  it('renders the page copy in Spanish', fakeAsync(() => {
+    create();
+    flushMicrotasks();
+
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Transcribir');
+    expect(title).toContain('video');
+
+    expect(
+      element.querySelector('#video-transcribe-language option[value="en"]')
+        ?.textContent,
+    ).toContain('Inglés');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir archivos');
   }));
 });

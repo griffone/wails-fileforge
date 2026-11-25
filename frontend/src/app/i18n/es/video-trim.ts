@@ -1,0 +1,103 @@
+export const videoTrimEs = {
+  'videoTrim.page.eyebrow': 'VIDEO',
+  'videoTrim.page.titleLead': 'Recortar',
+  'videoTrim.page.titleTail': 'video',
+  'videoTrim.page.sub':
+    'Recorta un intervalo de tiempo de un vídeo. Todo se ejecuta en este equipo.',
+  'videoTrim.page.localBadge': 'Solo local',
+  'videoTrim.intake.title': 'Vídeos',
+  'videoTrim.intake.sub': 'Suelta vídeos o elígelos desde tu equipo.',
+  'videoTrim.intake.dropTitle': 'Suelta vídeos aquí',
+  'videoTrim.intake.dropHint': 'MP4 · MOV · MKV · WebM',
+  'videoTrim.intake.dropAria': 'Suelta o elige vídeos para recortar',
+  'videoTrim.intake.actionsAria': 'Acciones de selección de vídeos',
+  'videoTrim.intake.choose': 'Elegir vídeos',
+  'videoTrim.intake.clear': 'Limpiar',
+  'videoTrim.notice.filesOne': 'No se agregó 1 archivo.',
+  'videoTrim.notice.filesMany': 'No se agregaron {count} archivos.',
+  'videoTrim.notice.extensionOne': '{extension} no es compatible.',
+  'videoTrim.notice.extensionsMany':
+    '{head} y {tail} no son compatibles.',
+  'videoTrim.preview.title': 'Vista previa',
+  'videoTrim.preview.sub':
+    'Desplaza el vídeo o arrastra los controles para definir el corte.',
+  'videoTrim.preview.batchHint':
+    'Vista previa del primer vídeo. El intervalo se aplica a todos.',
+  'videoTrim.preview.groupAria':
+    'Vista previa del vídeo y selección del recorte',
+  'videoTrim.preview.unavailable':
+    'Vista previa no disponible: los tiempos siguen funcionando.',
+  'videoTrim.preview.pauseAria': 'Pausar la vista previa',
+  'videoTrim.preview.playAria': 'Reproducir la vista previa',
+  'videoTrim.preview.playSelection': 'Reproducir la selección',
+  'videoTrim.preview.setStart': 'Fijar el inicio',
+  'videoTrim.preview.setEnd': 'Fijar el final',
+  'videoTrim.preview.trimStartAria': 'Inicio del recorte',
+  'videoTrim.preview.trimEndAria': 'Final del recorte',
+  'videoTrim.preview.hint':
+    'Espacio reproduce o pausa · I fija el inicio · O fija el final · Las flechas ajustan 0.1s (Mayús 1s)',
+  'videoTrim.preview.videoUnavailable':
+    'La vista previa del vídeo no está disponible. Aún puedes recortar por tiempo.',
+  'videoTrim.time.title': 'Intervalo de tiempo',
+  'videoTrim.time.sub': 'Elige dónde empieza y termina el clip.',
+  'videoTrim.time.length': 'Duración {duration}',
+  'videoTrim.time.batchHint':
+    'El intervalo de tiempo se aplica a todos los vídeos.',
+  'videoTrim.time.start': 'Inicio',
+  'videoTrim.time.end': 'Fin',
+  'videoTrim.time.errorInvalid': 'Usa un tiempo como 00:30.',
+  'videoTrim.time.errorEndAfterStart':
+    'El final debe ser posterior al inicio.',
+  'videoTrim.time.errorStartBeforeEnd':
+    'El inicio debe ser anterior al final del vídeo.',
+  'videoTrim.time.help':
+    'Usa segundos o un tiempo como 00:30. Los tiempos se aplican a todos los vídeos de un lote.',
+  'videoTrim.time.batchWarning':
+    'El final es más largo que "{name}" ({duration}). El corte se detendrá al final de ese clip.',
+  'videoTrim.output.title': 'Salida',
+  'videoTrim.output.sub':
+    'Elige un preset y comprueba dónde irán los archivos.',
+  'videoTrim.output.presetAria': 'Preset de salida',
+  'videoTrim.output.summary': '{format} · {quality}',
+  'videoTrim.output.destinationEach': 'Junto a cada original',
+  'videoTrim.output.useOriginalFolders': 'Usar las carpetas originales',
+  'videoTrim.preset.mp4-balanced.label': 'MP4',
+  'videoTrim.preset.mp4-balanced.hint': 'Se reproduce en todas partes',
+  'videoTrim.preset.mp4-high.label': 'MP4 HD',
+  'videoTrim.preset.mp4-high.hint': 'Mejor calidad',
+  'videoTrim.preset.mp4-small.label': 'MP4 Pequeño',
+  'videoTrim.preset.mp4-small.hint': 'Archivo más pequeño',
+  'videoTrim.preset.webm-balanced.label': 'WebM',
+  'videoTrim.preset.webm-balanced.hint': 'Para la web',
+  'videoTrim.quality.high': 'Alta',
+  'videoTrim.quality.medium': 'Equilibrada',
+  'videoTrim.quality.low': 'Pequeña',
+  'videoTrim.advanced.title': 'Avanzado',
+  'videoTrim.advanced.hint': 'Modo de recorte',
+  'videoTrim.advanced.trimMode': 'Modo de recorte',
+  'videoTrim.advanced.trimModeAuto': 'Automático',
+  'videoTrim.advanced.trimModeCopy': 'Copia',
+  'videoTrim.advanced.trimModeReencode': 'Recodificar',
+  'videoTrim.advanced.trimModeHelpAuto':
+    'Intenta primero una copia rápida y recodifica solo cuando es necesario.',
+  'videoTrim.advanced.trimModeHelpCopy':
+    'El más rápido. Solo funciona cuando los puntos de corte coinciden con fotogramas clave.',
+  'videoTrim.advanced.trimModeHelpReencode':
+    'El corte más preciso. Más lento y produce un archivo más grande.',
+  'videoTrim.action.trim': 'Recortar',
+  'videoTrim.action.trimOne': 'Recortar 1 video',
+  'videoTrim.action.trimMany': 'Recortar {count} videos',
+  'videoTrim.action.trimming': 'Recortando…',
+  'videoTrim.action.cancel': 'Cancelar',
+  'videoTrim.helper.addOne': 'Añade al menos un vídeo para recortar.',
+  'videoTrim.helper.setEnd': 'Establece un tiempo de final para recortar.',
+  'videoTrim.progress.aria': 'Progreso del recorte',
+  'videoTrim.status.waiting': 'Esperando para empezar',
+  'videoTrim.error.start': 'No se pudo iniciar el recorte.',
+  'videoTrim.error.plan': 'No se pudo planificar la salida.',
+  'videoTrim.error.cancel': 'No se pudo cancelar el trabajo.',
+  'videoTrim.error.openFile': 'No se pudo abrir el archivo.',
+  'videoTrim.error.openFolder': 'No se pudo abrir la carpeta.',
+  'videoTrim.error.status': 'No se pudo leer el estado del trabajo.',
+  'videoTrim.error.inspect': 'No se pudieron leer los tamaños de archivo.',
+} as const;

@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { VideoConvert } from './video-convert';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -185,6 +186,7 @@ describe('VideoConvert', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(VideoConvert);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -192,6 +194,8 @@ describe('VideoConvert', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem('ff-preferences');
   });
 
   it('adds one video and plans with the default MP4 preset', fakeAsync(() => {
@@ -442,4 +446,22 @@ describe('VideoConvert', () => {
     );
     expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
+
+  it('renders the page copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Convertir');
+    expect(title).toContain('video');
+
+    expect(
+      element.querySelector('#video-convert-quality option[value="high"]')
+        ?.textContent,
+    ).toContain('Alta');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir vídeos');
+  });
 });

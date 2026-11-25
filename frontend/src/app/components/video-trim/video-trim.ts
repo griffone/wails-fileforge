@@ -27,8 +27,13 @@ import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -55,26 +60,19 @@ import {
 } from '../../utils/format';
 import { observeJob } from '../../utils/job-stream';
 import { resumeToolJob } from '../../utils/resume-task';
+import type { TranslationKey } from '../../i18n';
 
 const VIDEO_TRIM_TOOL_ID = 'tool.video.trim';
 const TIME_PLAN_DEBOUNCE_MS = 200;
 const MIN_TRIM_RANGE_SECONDS = 0.1;
 const SMALL_NUDGE_SECONDS = 0.1;
 const LARGE_NUDGE_SECONDS = 1;
-const PREVIEW_UNAVAILABLE_MESSAGE =
-  'Video preview unavailable. You can still trim by time.';
 
 const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm']);
 
 const FORMAT_LABELS: Record<VideoPreset['targetFormat'], string> = {
   mp4: 'MP4',
   webm: 'WebM',
-};
-
-const QUALITY_LABELS: Record<VideoPreset['qualityPreset'], string> = {
-  high: 'High',
-  medium: 'Balanced',
-  low: 'Small',
 };
 
 const TERMINAL_STATUSES = new Set<string>([
@@ -89,6 +87,18 @@ type TargetFormat = VideoPreset['targetFormat'];
 type QualityPreset = VideoPreset['qualityPreset'];
 type TrimMode = 'auto' | 'copy' | 'reencode';
 type TrimHandle = 'start' | 'end';
+
+const QUALITY_KEYS: Record<QualityPreset, TranslationKey> = {
+  high: 'videoTrim.quality.high',
+  medium: 'videoTrim.quality.medium',
+  low: 'videoTrim.quality.low',
+};
+
+const TRIM_MODE_HELP_KEYS: Record<TrimMode, TranslationKey> = {
+  auto: 'videoTrim.advanced.trimModeHelpAuto',
+  copy: 'videoTrim.advanced.trimModeHelpCopy',
+  reencode: 'videoTrim.advanced.trimModeHelpReencode',
+};
 
 interface Notice {
   tone: 'warning' | 'danger';
@@ -113,6 +123,7 @@ export class VideoTrim implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -180,8 +191,26 @@ export class VideoTrim implements OnDestroy, OnInit {
 
   readonly outputSummary = computed(
     () =>
-      `${FORMAT_LABELS[this.targetFormat()]} · ${QUALITY_LABELS[this.qualityPreset()]}`,
+      this.i18n.t('videoTrim.output.summary', {
+        format: FORMAT_LABELS[this.targetFormat()],
+        quality: this.i18n.t(QUALITY_KEYS[this.qualityPreset()]),
+      }),
   );
+
+  /** Preset labels and hints are id-keyed overlays on the shared config. */
+  presetLabel(preset: VideoPreset): string {
+    return this.i18n.tOr(
+      `videoTrim.preset.${preset.id}.label`,
+      preset.label,
+    );
+  }
+
+  presetHint(preset: VideoPreset): string {
+    return this.i18n.tOr(
+      `videoTrim.preset.${preset.id}.hint`,
+      preset.hint,
+    );
+  }
 
   readonly startSeconds = computed(() =>
     parseTimeToSeconds(this.startInput()),
@@ -194,18 +223,20 @@ export class VideoTrim implements OnDestroy, OnInit {
     const endText = this.endInput().trim();
 
     if (!endText) {
-      return start === null ? 'Use a time like 00:30.' : '';
+      return start === null
+        ? this.i18n.t('videoTrim.time.errorInvalid')
+        : '';
     }
     if (start === null || end === null) {
-      return 'Use a time like 00:30.';
+      return this.i18n.t('videoTrim.time.errorInvalid');
     }
     if (end <= start) {
-      return 'End must be after start.';
+      return this.i18n.t('videoTrim.time.errorEndAfterStart');
     }
 
     const duration = this.durationSeconds();
     if (duration !== null && start >= duration) {
-      return 'Start must be before the video ends.';
+      return this.i18n.t('videoTrim.time.errorStartBeforeEnd');
     }
 
     return '';
@@ -276,10 +307,10 @@ export class VideoTrim implements OnDestroy, OnInit {
         duration > 0 &&
         duration < end
       ) {
-        return (
-          `The end is longer than "${fileName(path)}" (${formatDuration(duration)}). ` +
-          "The cut will stop at that clip's end."
-        );
+        return this.i18n.t('videoTrim.time.batchWarning', {
+          name: fileName(path),
+          duration: formatDuration(duration),
+        });
       }
     }
 
@@ -290,17 +321,21 @@ export class VideoTrim implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Trimming…';
+      return this.i18n.t('videoTrim.action.trimming');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Trim';
+      return this.i18n.t('videoTrim.action.trim');
     }
-    return count === 1 ? 'Trim 1 video' : `Trim ${count} videos`;
+    return count === 1
+      ? this.i18n.t('videoTrim.action.trimOne')
+      : this.i18n.t('videoTrim.action.trimMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each original',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('videoTrim.output.destinationEach'),
   );
 
   readonly isDefaultDestination = computed(
@@ -317,24 +352,17 @@ export class VideoTrim implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      return 'Add at least one video to trim.';
+      return this.i18n.t('videoTrim.helper.addOne');
     }
     if (!this.endInput().trim()) {
-      return 'Set an end time to trim.';
+      return this.i18n.t('videoTrim.helper.setEnd');
     }
     return '';
   });
 
-  readonly trimModeHelp = computed(() => {
-    switch (this.trimMode()) {
-      case 'copy':
-        return 'Fastest. Only works when the cut points line up with keyframes.';
-      case 'reencode':
-        return 'Most precise cut. Slower and produces a larger file.';
-      default:
-        return 'Tries a fast copy first and re-encodes only when needed.';
-    }
-  });
+  readonly trimModeHelp = computed(() =>
+    this.i18n.t(TRIM_MODE_HELP_KEYS[this.trimMode()]),
+  );
 
   readonly terminalJob = computed<JobResult | null>(() => {
     const job = this.jobResult();
@@ -349,7 +377,10 @@ export class VideoTrim implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The trim could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('videoTrim.error.start')),
+        )
       : null;
   });
 
@@ -383,7 +414,11 @@ export class VideoTrim implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'video');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.videoOne'),
+      this.i18n.t('common.videoMany'),
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -607,7 +642,9 @@ export class VideoTrim implements OnDestroy, OnInit {
       return;
     }
     this.mediaUrl.set(null);
-    this.videoError.set(PREVIEW_UNAVAILABLE_MESSAGE);
+    this.videoError.set(
+      this.i18n.t('videoTrim.preview.videoUnavailable'),
+    );
     this.videoReady.set(false);
     this.isPlaying.set(false);
     this.selectionEndSeconds = null;
@@ -785,13 +822,13 @@ export class VideoTrim implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The trim could not start.',
+        message: this.i18n.t('videoTrim.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The trim could not start.',
+          message: this.i18n.t('videoTrim.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -799,7 +836,8 @@ export class VideoTrim implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The trim could not start.',
+          message:
+            response.message || this.i18n.t('videoTrim.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -811,14 +849,14 @@ export class VideoTrim implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('videoTrim.status.waiting'),
       toolId: VIDEO_TRIM_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('videoTrim.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -836,7 +874,7 @@ export class VideoTrim implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('videoTrim.error.cancel'),
       );
     }
   }
@@ -844,7 +882,9 @@ export class VideoTrim implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('videoTrim.error.openFile'),
     );
   }
 
@@ -853,7 +893,7 @@ export class VideoTrim implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('videoTrim.error.openFolder'),
     );
   }
 
@@ -947,7 +987,7 @@ export class VideoTrim implements OnDestroy, OnInit {
       .catch(() => ({
         success: false,
         url: '',
-        message: PREVIEW_UNAVAILABLE_MESSAGE,
+        message: this.i18n.t('videoTrim.preview.videoUnavailable'),
       }));
     if (token !== this.mediaRequestToken) {
       return;
@@ -969,7 +1009,9 @@ export class VideoTrim implements OnDestroy, OnInit {
     }
 
     this.mediaUrl.set(null);
-    this.videoError.set(PREVIEW_UNAVAILABLE_MESSAGE);
+    this.videoError.set(
+      this.i18n.t('videoTrim.preview.videoUnavailable'),
+    );
   }
 
   /**
@@ -1166,12 +1208,12 @@ export class VideoTrim implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('videoTrim.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('videoTrim.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -1188,7 +1230,8 @@ export class VideoTrim implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message:
+        response.message || this.i18n.t('videoTrim.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the error in
     // context, next to the destination it belongs to.
@@ -1309,7 +1352,8 @@ export class VideoTrim implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message:
+          response.message || this.i18n.t('videoTrim.error.status'),
       },
     );
   }
@@ -1351,7 +1395,7 @@ export class VideoTrim implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('videoTrim.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -1503,14 +1547,21 @@ export class VideoTrim implements OnDestroy, OnInit {
 
     const count = rejected.length;
     const filesCopy =
-      count === 1 ? "1 file wasn't added." : `${count} files weren't added.`;
+      count === 1
+        ? this.i18n.t('videoTrim.notice.filesOne')
+        : this.i18n.t('videoTrim.notice.filesMany', { count });
 
     let extensionsCopy: string;
     if (extensions.length === 1) {
-      extensionsCopy = `${extensions[0]} isn't supported.`;
+      extensionsCopy = this.i18n.t('videoTrim.notice.extensionOne', {
+        extension: extensions[0],
+      });
     } else {
       const head = extensions.slice(0, -1).join(', ');
-      extensionsCopy = `${head} and ${extensions[extensions.length - 1]} aren't supported.`;
+      extensionsCopy = this.i18n.t('videoTrim.notice.extensionsMany', {
+        head,
+        tail: extensions[extensions.length - 1],
+      });
     }
 
     return `${filesCopy} ${extensionsCopy}`;

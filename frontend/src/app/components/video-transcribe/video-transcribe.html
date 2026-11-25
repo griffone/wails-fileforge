@@ -2,17 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">VIDEO</p>
-        <h1 class="page-title">Video <em>Transcribe</em></h1>
+        <p class="eyebrow">{{ i18n.t('videoTranscribe.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('videoTranscribe.page.titleLead') }}
+          <em>{{ i18n.t('videoTranscribe.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Transcribe video and audio into subtitles or plain text with local Whisper.
-          Everything runs on this machine.
+          {{ i18n.t('videoTranscribe.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('videoTranscribe.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -24,7 +26,7 @@
         <div class="banner-copy">
           <strong>{{ banner.title }}</strong>
           <span>{{ banner.detail }}</span>
-          <a class="banner-link" routerLink="/settings">Choose paths in Settings</a>
+          <a class="banner-link" routerLink="/settings">{{ i18n.t('videoTranscribe.capability.choosePaths') }}</a>
         </div>
       </div>
     } @else if (modelSummary(); as summary) {
@@ -34,8 +36,8 @@
     <section class="panel" aria-labelledby="video-transcribe-input-title">
       <div class="panel-head">
         <div>
-          <h2 id="video-transcribe-input-title" class="panel-title">Video or audio</h2>
-          <p class="panel-sub">Drop files or choose them from your computer.</p>
+          <h2 id="video-transcribe-input-title" class="panel-title">{{ i18n.t('videoTranscribe.intake.title') }}</h2>
+          <p class="panel-sub">{{ i18n.t('videoTranscribe.intake.sub') }}</p>
         </div>
         <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
       </div>
@@ -43,19 +45,19 @@
       <div class="panel-body">
         <app-file-drop
           [accept]="accept"
-          title="Drop video or audio here"
-          hint="Video or audio · Whisper runs locally"
-          ariaLabel="Drop or choose video and audio files"
+          [title]="i18n.t('videoTranscribe.intake.dropTitle')"
+          [hint]="i18n.t('videoTranscribe.intake.dropHint')"
+          [ariaLabel]="i18n.t('videoTranscribe.intake.dropAria')"
           [nativePicker]="true"
           [multiple]="true"
           (pathsSelected)="onPathsSelected($event)"
           (browseRequested)="chooseFiles()"
         ></app-file-drop>
 
-        <div class="toolbar" role="group" aria-label="File selection actions">
+        <div class="toolbar" role="group" [attr.aria-label]="i18n.t('videoTranscribe.intake.actionsAria')">
           <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
             <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Choose files
+            {{ i18n.t('videoTranscribe.intake.choose') }}
           </button>
           <button
             type="button"
@@ -64,7 +66,7 @@
             (click)="clear()"
           >
             <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Clear
+            {{ i18n.t('videoTranscribe.intake.clear') }}
           </button>
         </div>
 
@@ -92,15 +94,15 @@
     <section class="panel" aria-labelledby="video-transcribe-settings-title">
       <div class="panel-head">
         <div>
-          <h2 id="video-transcribe-settings-title" class="panel-title">Settings</h2>
-          <p class="panel-sub">Pick the spoken language, the outputs and where they go.</p>
+          <h2 id="video-transcribe-settings-title" class="panel-title">{{ i18n.t('videoTranscribe.settings.title') }}</h2>
+          <p class="panel-sub">{{ i18n.t('videoTranscribe.settings.sub') }}</p>
         </div>
       </div>
 
       <div class="panel-body">
         <div class="settings-grid">
           <div class="field">
-            <label class="label" for="video-transcribe-language">Language</label>
+            <label class="label" for="video-transcribe-language">{{ i18n.t('videoTranscribe.settings.language') }}</label>
             <select
               id="video-transcribe-language"
               class="select"
@@ -108,38 +110,38 @@
               [value]="language()"
               (change)="onLanguageChange($event)"
             >
-              @for (option of languageOptions; track option.value) {
+              @for (option of languageOptions(); track option.value) {
                 <option [value]="option.value" [selected]="option.value === language()">
                   {{ option.label }}
                 </option>
               }
             </select>
             <p id="video-transcribe-language-help" class="field-help">
-              Auto detects the spoken language. The model supports English and Spanish.
+              {{ i18n.t('videoTranscribe.settings.languageHelp') }}
             </p>
           </div>
 
           <div class="field">
-            <span class="label">Output folder</span>
+            <span class="label">{{ i18n.t('videoTranscribe.settings.outputFolder') }}</span>
             <div class="destination">
               <span class="destination-path mono" [title]="destinationLabel()">{{ destinationLabel() }}</span>
               <button type="button" class="btn btn-secondary btn-sm" (click)="chooseOutputFolder()">
                 <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Choose folder
+                {{ i18n.t('videoTranscribe.settings.chooseFolder') }}
               </button>
             </div>
             @if (isDefaultDestination()) {
-              <p class="field-help">Outputs are saved next to each source file.</p>
+              <p class="field-help">{{ i18n.t('videoTranscribe.settings.outputHelp') }}</p>
             } @else {
               <button type="button" class="btn btn-ghost btn-sm settings-reset" (click)="useDefaultOutputFolder()">
-                Use the default folder
+                {{ i18n.t('videoTranscribe.settings.useDefault') }}
               </button>
             }
           </div>
         </div>
 
         <div class="field">
-          <span class="label" id="video-transcribe-formats-label">Formats</span>
+          <span class="label" id="video-transcribe-formats-label">{{ i18n.t('videoTranscribe.settings.formats') }}</span>
           <div
             class="format-row"
             role="group"
@@ -160,16 +162,16 @@
           </div>
           <p id="video-transcribe-formats-help" class="field-help">
             @if (formatsMissing()) {
-              Choose at least one output format.
+              {{ i18n.t('videoTranscribe.settings.formatsRequired') }}
             } @else {
-              Subtitles and plain text are written for every file.
+              {{ i18n.t('videoTranscribe.settings.formatsHelp') }}
             }
           </p>
         </div>
 
         <div class="banner banner-warning" role="note">
           <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-          <span>Whisper runs locally. Long files take longer on CPU.</span>
+          <span>{{ i18n.t('videoTranscribe.settings.localNote') }}</span>
         </div>
       </div>
     </section>
@@ -217,14 +219,14 @@
           </button>
 
           @if (isPolling()) {
-            <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('videoTranscribe.action.cancel') }}</button>
           }
         </div>
       </div>
     </section>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Transcription progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('videoTranscribe.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>

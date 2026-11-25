@@ -16,8 +16,13 @@ import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
 import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -42,6 +47,7 @@ import {
 } from '../../utils/format';
 import { observeJob } from '../../utils/job-stream';
 import { resumeToolJob } from '../../utils/resume-task';
+import type { TranslationKey } from '../../i18n';
 
 const VIDEO_CONVERT_TOOL_ID = 'tool.video.convert';
 const ADVANCED_PLAN_DEBOUNCE_MS = 200;
@@ -59,12 +65,6 @@ const FORMAT_LABELS: Record<VideoPreset['targetFormat'], string> = {
   webm: 'WebM',
 };
 
-const QUALITY_LABELS: Record<VideoPreset['qualityPreset'], string> = {
-  high: 'High',
-  medium: 'Balanced',
-  low: 'Small',
-};
-
 const TERMINAL_STATUSES = new Set<string>([
   'success',
   'failed',
@@ -75,6 +75,12 @@ const TERMINAL_STATUSES = new Set<string>([
 
 type TargetFormat = VideoPreset['targetFormat'];
 type QualityPreset = VideoPreset['qualityPreset'];
+
+const QUALITY_KEYS: Record<QualityPreset, TranslationKey> = {
+  high: 'videoConvert.quality.high',
+  medium: 'videoConvert.quality.medium',
+  low: 'videoConvert.quality.low',
+};
 
 interface Notice {
   tone: 'warning' | 'danger';
@@ -99,6 +105,7 @@ export class VideoConvert implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -107,7 +114,6 @@ export class VideoConvert implements OnDestroy, OnInit {
   readonly resetIcon = RotateCcw;
 
   readonly presets = VIDEO_PRESETS;
-  readonly qualityLabels = QUALITY_LABELS;
 
   readonly selectedPaths = signal<string[]>([]);
   readonly fileItems = signal<FileQueueItem[]>([]);
@@ -161,8 +167,26 @@ export class VideoConvert implements OnDestroy, OnInit {
 
   readonly outputSummary = computed(
     () =>
-      `${FORMAT_LABELS[this.targetFormat()]} · ${QUALITY_LABELS[this.qualityPreset()]}`,
+      this.i18n.t('videoConvert.output.summary', {
+        format: FORMAT_LABELS[this.targetFormat()],
+        quality: this.i18n.t(QUALITY_KEYS[this.qualityPreset()]),
+      }),
   );
+
+  /** Preset labels and hints are id-keyed overlays on the shared config. */
+  presetLabel(preset: VideoPreset): string {
+    return this.i18n.tOr(
+      `videoConvert.preset.${preset.id}.label`,
+      preset.label,
+    );
+  }
+
+  presetHint(preset: VideoPreset): string {
+    return this.i18n.tOr(
+      `videoConvert.preset.${preset.id}.hint`,
+      preset.hint,
+    );
+  }
 
   /** Preset cards reflect the effective format/quality, even after an override. */
   isPresetActive(preset: VideoPreset): boolean {
@@ -174,17 +198,21 @@ export class VideoConvert implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() => {
     if (this.isSubmitting() || this.isPolling()) {
-      return 'Converting…';
+      return this.i18n.t('videoConvert.action.converting');
     }
     const count = this.selectedPaths().length;
     if (count === 0) {
-      return 'Convert';
+      return this.i18n.t('videoConvert.action.convert');
     }
-    return count === 1 ? 'Convert 1 video' : `Convert ${count} videos`;
+    return count === 1
+      ? this.i18n.t('videoConvert.action.convertOne')
+      : this.i18n.t('videoConvert.action.convertMany', { count });
   });
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to each original',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('videoConvert.output.destinationEach'),
   );
 
   readonly isDefaultDestination = computed(
@@ -200,7 +228,7 @@ export class VideoConvert implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() =>
     this.selectedPaths().length === 0
-      ? 'Add at least one video to convert.'
+      ? this.i18n.t('videoConvert.helper.addOne')
       : '',
   );
 
@@ -217,7 +245,10 @@ export class VideoConvert implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The conversion could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('videoConvert.error.start')),
+        )
       : null;
   });
 
@@ -242,7 +273,11 @@ export class VideoConvert implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'video');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.videoOne'),
+      this.i18n.t('common.videoMany'),
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -438,13 +473,13 @@ export class VideoConvert implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The conversion could not start.',
+        message: this.i18n.t('videoConvert.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The conversion could not start.',
+          message: this.i18n.t('videoConvert.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -452,7 +487,8 @@ export class VideoConvert implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The conversion could not start.',
+          message:
+            response.message || this.i18n.t('videoConvert.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -464,14 +500,14 @@ export class VideoConvert implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('videoConvert.status.waiting'),
       toolId: VIDEO_CONVERT_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('videoConvert.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -489,7 +525,7 @@ export class VideoConvert implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('videoConvert.error.cancel'),
       );
     }
   }
@@ -497,7 +533,9 @@ export class VideoConvert implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success
+        ? ''
+        : response.message || this.i18n.t('videoConvert.error.openFile'),
     );
   }
 
@@ -506,7 +544,7 @@ export class VideoConvert implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('videoConvert.error.openFolder'),
     );
   }
 
@@ -593,12 +631,12 @@ export class VideoConvert implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('videoConvert.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('videoConvert.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -615,7 +653,8 @@ export class VideoConvert implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message:
+        response.message || this.i18n.t('videoConvert.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the error in
     // context, next to the destination it belongs to.
@@ -724,7 +763,8 @@ export class VideoConvert implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message:
+          response.message || this.i18n.t('videoConvert.error.status'),
       },
     );
   }
@@ -766,7 +806,7 @@ export class VideoConvert implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('videoConvert.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -891,14 +931,21 @@ export class VideoConvert implements OnDestroy, OnInit {
 
     const count = rejected.length;
     const filesCopy =
-      count === 1 ? "1 file wasn't added." : `${count} files weren't added.`;
+      count === 1
+        ? this.i18n.t('videoConvert.notice.filesOne')
+        : this.i18n.t('videoConvert.notice.filesMany', { count });
 
     let extensionsCopy: string;
     if (extensions.length === 1) {
-      extensionsCopy = `${extensions[0]} isn't supported.`;
+      extensionsCopy = this.i18n.t('videoConvert.notice.extensionOne', {
+        extension: extensions[0],
+      });
     } else {
       const head = extensions.slice(0, -1).join(', ');
-      extensionsCopy = `${head} and ${extensions[extensions.length - 1]} aren't supported.`;
+      extensionsCopy = this.i18n.t('videoConvert.notice.extensionsMany', {
+        head,
+        tail: extensions[extensions.length - 1],
+      });
     }
 
     return `${filesCopy} ${extensionsCopy}`;
