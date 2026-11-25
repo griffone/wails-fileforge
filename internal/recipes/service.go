@@ -10,7 +10,12 @@ package recipes
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +24,7 @@ import (
 	"fileforge-desktop/internal/jobhistory"
 	"fileforge-desktop/internal/jobs"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/jsonstore"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/tools"
 )
@@ -44,11 +50,24 @@ const (
 	StateEventName = "recipes/state"
 
 	// retainedTerminalRuns is the number of finished recipe runs kept in the
-	// in-memory registry. Active runs are always retained.
+	// in-memory registry and in the persisted snapshot, matching the job
+	// engine's retainedTerminalJobs. Active runs are always retained.
 	retainedTerminalRuns = 25
 
 	// defaultRunListLimit applies when ListRuns receives a non-positive limit.
 	defaultRunListLimit = 100
+
+	// recipeRunsFileName is the run snapshot written next to the job engine and
+	// job history stores.
+	recipeRunsFileName = "recipe_runs.json"
+
+	// recipeRunsVersion versions the persisted snapshot so a future shape change
+	// can migrate instead of guessing.
+	recipeRunsVersion = 1
+
+	// recipeInterruptedMessage is used for a non-terminal run found after a
+	// restart, matching the job engine's recovery wording.
+	recipeInterruptedMessage = "recipe run interrupted after restart"
 
 	// emailPDFHistoryToolID, webImageSetHistoryToolID, socialClipHistoryToolID,
 	// cleanScanHistoryToolID and burnedSubtitlesHistoryToolID are the
@@ -65,11 +84,10 @@ const (
 	recipeStepSettleTimeout = 10 * time.Second
 )
 
-// Service owns the curated recipe catalog and the in-memory run registry.
-//
-// MVP limitation: recipe jobs are not persisted. A restart loses in-flight and
-// finished recipe snapshots, while the outputs themselves stay undoable through
-// the shared job-history store.
+// Service owns the curated recipe catalog and the run registry. When a
+// persistence path is configured, run snapshots are written through the shared
+// atomic JSON store; otherwise the registry is in-memory only. Terminal runs
+// stay undoable through the shared job-history store regardless.
 type Service struct {
 	registry *registry.Registry
 	history  *jobhistory.Store
@@ -81,13 +99,32 @@ type Service struct {
 	// tests can point it at a directory they can inspect.
 	tempDir func() (string, error)
 
+	// path and store are empty/nil when persistence is disabled.
+	path  string
+	store *jsonstore.Store
+
+	// persistMu serializes snapshot encoding and writes so concurrent terminal
+	// updates cannot interleave or land out of order.
+	persistMu sync.Mutex
+
 	mu   sync.RWMutex
 	jobs map[string]*recipeJob
 }
 
-// NewService builds the recipe service. emit may be nil in tests or headless
-// runs; history may be nil when undo is not configured.
+// NewService builds the recipe service without persistence. emit may be nil in
+// tests or headless runs; history may be nil when undo is not configured.
 func NewService(reg *registry.Registry, history *jobhistory.Store, emit func(models.RecipeProgressEvent)) *Service {
+	return newService(reg, history, emit, "")
+}
+
+// NewServiceWithPersistence builds the recipe service with a persisted run
+// registry at path. An empty path disables persistence, so headless callers and
+// tests keep the in-memory behavior.
+func NewServiceWithPersistence(reg *registry.Registry, history *jobhistory.Store, emit func(models.RecipeProgressEvent), path string) *Service {
+	return newService(reg, history, emit, path)
+}
+
+func newService(reg *registry.Registry, history *jobhistory.Store, emit func(models.RecipeProgressEvent), path string) *Service {
 	if reg == nil {
 		reg = registry.GetGlobalRegistry()
 	}
@@ -99,8 +136,22 @@ func NewService(reg *registry.Registry, history *jobhistory.Store, emit func(mod
 		jobs:     make(map[string]*recipeJob),
 	}
 	service.tempDir = newRecipeTempDir
+	service.restoreRuns(path)
 
 	return service
+}
+
+// DefaultPath returns the persisted run location:
+// os.UserConfigDir()/fileforge/recipe_runs.json, with a repo-local fallback
+// when the platform config directory is unavailable. It mirrors the job engine
+// and job history paths.
+func DefaultPath() string {
+	configDir, err := os.UserConfigDir()
+	if err != nil || configDir == "" {
+		return filepath.Join(".", ".fileforge", recipeRunsFileName)
+	}
+
+	return filepath.Join(configDir, "fileforge", recipeRunsFileName)
 }
 
 // SetEngine routes every recipe step through the shared job engine. It is wired
@@ -304,7 +355,9 @@ func (s *Service) Cancel(jobID string) models.RecipeStatusResponse {
 	}
 }
 
-// Shutdown cancels every active run; it is called when the app quits.
+// Shutdown cancels every active run; it is called when the app quits. The
+// current registry is written synchronously so a crash right after shutdown
+// still recovers the latest state.
 func (s *Service) Shutdown() {
 	s.mu.RLock()
 	jobs := make([]*recipeJob, 0, len(s.jobs))
@@ -316,6 +369,8 @@ func (s *Service) Shutdown() {
 	for _, tracked := range jobs {
 		tracked.requestCancel()
 	}
+
+	s.persistNow()
 }
 
 func (s *Service) resolve(req models.RecipeRequest) (*resolvedRecipe, *models.JobError) {
@@ -591,10 +646,13 @@ func (s *Service) emitTerminal(tracked *recipeJob, status, stepName, message str
 	s.emitStateSnapshot(tracked)
 }
 
-// emitStateSnapshot publishes the full run snapshot for the activity list. The
-// service lock only guards the emitter lookup, and the job lock is taken by
-// snapshot(), so the callback never runs while a lock is held.
+// emitStateSnapshot publishes the full run snapshot for the activity list and
+// persists the registry. The service lock only guards the emitter lookup, and
+// the job lock is taken by snapshot(), so the callback never runs while a lock
+// is held.
 func (s *Service) emitStateSnapshot(tracked *recipeJob) {
+	s.persistRuns()
+
 	s.mu.RLock()
 	onState := s.onState
 	s.mu.RUnlock()
@@ -604,6 +662,213 @@ func (s *Service) emitStateSnapshot(tracked *recipeJob) {
 	}
 
 	onState(tracked.snapshot())
+}
+
+// setWorkspace records the intermediate workspace for a run and persists the
+// registry so a restart can clean a directory that outlived the process.
+func (s *Service) setWorkspace(tracked *recipeJob, workspace string) {
+	tracked.setWorkspace(workspace)
+	s.persistRuns()
+}
+
+// persistedRecipeRun is one run as written to disk. Workspace is stored beside
+// the public snapshot because only the recipe service needs it: it is cleaned
+// best-effort after a restart and never exposed to the UI.
+type persistedRecipeRun struct {
+	Result    models.RecipeResult `json:"result"`
+	Workspace string              `json:"workspace,omitempty"`
+}
+
+// persistedRecipeRuns versions the on-disk payload.
+type persistedRecipeRuns struct {
+	Version int                  `json:"version"`
+	Runs    []persistedRecipeRun `json:"runs"`
+}
+
+// restoreRuns loads the persisted registry. A missing file is normal, while a
+// corrupt or unreadable file is logged and ignored so startup never fails.
+// Terminal runs are restored unchanged; every non-terminal run becomes
+// interrupted and is never resumed.
+func (s *Service) restoreRuns(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+
+	s.path = path
+	s.store = jsonstore.New(path, jsonstore.Options{
+		Debounce: jsonstore.DefaultDebounce,
+		OnError: func(err error) {
+			log.Printf("recipes.persistence.write.failed path=%s err=%v", path, err)
+		},
+	})
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("recipes.persistence.load.failed path=%s err=%v", path, err)
+		}
+		return
+	}
+	if info.Size() == 0 {
+		return
+	}
+
+	var persisted persistedRecipeRuns
+	if err := jsonstore.Load(path, &persisted); err != nil {
+		log.Printf("recipes.persistence.load.failed path=%s err=%v", path, err)
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	restored := make(map[string]*recipeJob, len(persisted.Runs))
+	for _, entry := range persisted.Runs {
+		result := entry.Result
+		jobID := strings.TrimSpace(result.JobID)
+		if jobID == "" {
+			continue
+		}
+		result.JobID = jobID
+
+		if !isTerminalRecipeStatus(result.Status) {
+			result.Status = models.JobStatusInterrupted
+			result.Message = recipeInterruptedMessage
+			result.EndedAt = now
+			result.Error = newRecipeError("RECIPE_INTERRUPTED", recipeInterruptedMessage, nil)
+		}
+
+		restored[jobID] = &recipeJob{result: result, workspace: strings.TrimSpace(entry.Workspace)}
+	}
+	if len(restored) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	for jobID, tracked := range restored {
+		s.jobs[jobID] = tracked
+	}
+	s.pruneTerminalRunsLocked()
+	s.mu.Unlock()
+
+	for _, tracked := range restored {
+		s.cleanupRestoredWorkspace(tracked.workspacePath())
+	}
+
+	// Write the normalized registry back so interrupted runs stay interrupted
+	// and pruned runs do not reappear on the next start.
+	s.persistNow()
+}
+
+// workspaceTempPrefix mirrors newRecipeTempDir: only directories the recipe
+// service created carry it.
+const workspaceTempPrefix = "fileforge-recipe-"
+
+// isRemovableWorkspace reports whether path is a recipe workspace this process
+// may delete. A persisted path is untrusted input: a corrupt or hand-edited
+// registry must never turn into an arbitrary RemoveAll, so cleanup stays inside
+// the system temp root and only touches directories with the recipe prefix.
+func isRemovableWorkspace(workspace string) bool {
+	trimmed := strings.TrimSpace(workspace)
+	if trimmed == "" {
+		return false
+	}
+
+	clean := filepath.Clean(trimmed)
+	if !strings.HasPrefix(filepath.Base(clean), workspaceTempPrefix) {
+		return false
+	}
+
+	root := filepath.Clean(os.TempDir())
+	rel, err := filepath.Rel(root, clean)
+	if err != nil {
+		return false
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return false
+	}
+
+	return true
+}
+
+// cleanupRestoredWorkspace removes an intermediate workspace left behind by a
+// restart. It only ever deletes a directory: final outputs live outside the
+// workspace, a missing path is a no-op, and an unsafe path is never touched.
+func (s *Service) cleanupRestoredWorkspace(workspace string) {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return
+	}
+	if !isRemovableWorkspace(workspace) {
+		log.Printf("recipes.workspace.cleanup.skipped path=%s reason=unsafe", workspace)
+		return
+	}
+
+	info, err := os.Stat(workspace)
+	if err != nil || !info.IsDir() {
+		return
+	}
+	if err := os.RemoveAll(workspace); err != nil {
+		log.Printf("recipes.workspace.cleanup.failed path=%s err=%v", workspace, err)
+	}
+}
+
+// persistRuns schedules a debounced registry write. It is a no-op without a
+// configured path.
+func (s *Service) persistRuns() {
+	if err := s.saveSnapshot(false); err != nil && !errors.Is(err, jsonstore.ErrClosed) {
+		log.Printf("recipes.persistence.enqueue.failed path=%s err=%v", s.path, err)
+	}
+}
+
+// persistNow writes the registry immediately.
+func (s *Service) persistNow() {
+	if err := s.saveSnapshot(true); err != nil && !errors.Is(err, jsonstore.ErrClosed) {
+		log.Printf("recipes.persistence.write.failed path=%s err=%v", s.path, err)
+	}
+}
+
+// saveSnapshot encodes one consistent registry snapshot and hands it to the
+// debounced store. Immediate writes are used after recovery and on shutdown.
+func (s *Service) saveSnapshot(immediate bool) error {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+
+	if s.store == nil {
+		return nil
+	}
+
+	payload, err := s.encodeSnapshot()
+	if err != nil {
+		return fmt.Errorf("encode recipe runs snapshot: %w", err)
+	}
+	if immediate {
+		return s.store.SaveNow(payload)
+	}
+
+	return s.store.Save(payload)
+}
+
+// encodeSnapshot deep-copies every tracked run newest first. Callers must not
+// hold the service lock.
+func (s *Service) encodeSnapshot() ([]byte, error) {
+	s.mu.RLock()
+	runs := make([]persistedRecipeRun, 0, len(s.jobs))
+	for _, tracked := range s.jobs {
+		runs = append(runs, persistedRecipeRun{
+			Result:    tracked.snapshot(),
+			Workspace: tracked.workspacePath(),
+		})
+	}
+	s.mu.RUnlock()
+
+	sort.Slice(runs, func(i, j int) bool {
+		if runs[i].Result.StartedAt != runs[j].Result.StartedAt {
+			return runs[i].Result.StartedAt > runs[j].Result.StartedAt
+		}
+		return runs[i].Result.JobID > runs[j].Result.JobID
+	})
+
+	return json.MarshalIndent(persistedRecipeRuns{Version: recipeRunsVersion, Runs: runs}, "", "  ")
 }
 
 // isTerminalRecipeStatus reports whether a recipe status is final. Running
@@ -690,10 +955,11 @@ func (s *Service) failJob(tracked *recipeJob, jobErr *models.JobError) {
 
 // recipeJob is the mutable in-memory state of one recipe run.
 type recipeJob struct {
-	mu      sync.RWMutex
-	result  models.RecipeResult
-	cancel  context.CancelFunc
-	percent int
+	mu        sync.RWMutex
+	result    models.RecipeResult
+	cancel    context.CancelFunc
+	percent   int
+	workspace string
 }
 
 func (j *recipeJob) snapshot() models.RecipeResult {
@@ -773,6 +1039,22 @@ func (j *recipeJob) jobID() string {
 	defer j.mu.RUnlock()
 
 	return j.result.JobID
+}
+
+// setWorkspace records the intermediate workspace used by this run.
+func (j *recipeJob) setWorkspace(workspace string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	j.workspace = strings.TrimSpace(workspace)
+}
+
+// workspacePath returns the intermediate workspace, if one was created.
+func (j *recipeJob) workspacePath() string {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+
+	return j.workspace
 }
 
 func (j *recipeJob) requestCancel() {

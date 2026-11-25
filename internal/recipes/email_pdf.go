@@ -404,6 +404,7 @@ func (s *Service) executeEmailPDF(ctx context.Context, tracked *recipeJob, resol
 		))
 		return
 	}
+	s.setWorkspace(tracked, tempDir)
 	defer func() {
 		_ = os.RemoveAll(tempDir)
 	}()

@@ -79,8 +79,9 @@ type RecipeResult struct {
 	EndedAt         int64               `json:"endedAt,omitempty"`
 }
 
-// RunRecipeResponse acknowledges a recipe submission. Recipe jobs live in
-// memory only for now, so a restart loses in-flight recipe runs.
+// RunRecipeResponse acknowledges a recipe submission. Run snapshots are
+// persisted when the service is configured with a store path, so a restart
+// keeps finished runs and reports in-flight runs as interrupted.
 type RunRecipeResponse struct {
 	Success bool      `json:"success"`
 	Message string    `json:"message"`

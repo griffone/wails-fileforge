@@ -55,9 +55,9 @@ func New(notifier *Notifier) *Services {
 	runtime := &Runtime{}
 	toolingService := services.NewToolingServiceWithBus(reg, WailsBus{})
 
-	recipeService := recipes.NewService(reg, toolingService.JobHistory(), func(evt models.RecipeProgressEvent) {
+	recipeService := recipes.NewServiceWithPersistence(reg, toolingService.JobHistory(), func(evt models.RecipeProgressEvent) {
 		WailsBus{}.Emit(recipes.ProgressEventName, evt)
-	})
+	}, recipes.DefaultPath())
 	// Recipe steps run on the same engine as direct tool jobs so one scheduler
 	// governs queueing, cancellation, and resource classes.
 	recipeService.SetEngine(toolingService.Engine())
