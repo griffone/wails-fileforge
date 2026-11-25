@@ -1,6 +1,6 @@
 {
   "name": "fileforge-desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "info": {
     "companyName": "FileForge",
     "productName": "FileForge Desktop",
@@ -8,7 +8,7 @@
     "description": "Cross-platform file conversion toolkit",
     "copyright": "(c) 2026, FileForge",
     "comments": "Local-first file workbench",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "build": {
     "appName": "FileForge Desktop",
