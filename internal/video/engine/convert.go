@@ -194,6 +194,14 @@ func BuildConvertArgs(req ConvertRequest) ([]string, *VideoError) {
 }
 
 func Convert(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req ConvertRequest) *VideoError {
+	return ConvertWithProgress(ctx, probe, runner, req, nil)
+}
+
+// ConvertWithProgress converts one video and reports monotonic percent updates
+// in 0..100 while ffmpeg runs. The source duration comes from ffprobe; when it
+// is unavailable the command still runs but no intermediate percentage is
+// reported.
+func ConvertWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req ConvertRequest, onProgress func(percent float64, message string)) *VideoError {
 	if probe == nil {
 		probe = NewFFmpegRuntimeProbe()
 	}
@@ -234,7 +242,11 @@ func Convert(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req 
 		return argsErr
 	}
 
-	if runErr := runner.Run(ctx, "ffmpeg", args); runErr != nil {
+	durationSeconds := 0.0
+	if onProgress != nil {
+		durationSeconds = probeSourceDuration(ctx, req.InputPath)
+	}
+	if runErr := runFFmpegWithProgress(ctx, runner, args, durationSeconds, onProgress); runErr != nil {
 		return mapExecutionError(runErr)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {

@@ -165,6 +165,15 @@ func ValidateMergeRequest(req MergeRequest) *VideoError {
 }
 
 func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req MergeRequest) *VideoError {
+	return MergeWithProgress(ctx, probe, runner, req, nil)
+}
+
+// MergeWithProgress merges the inputs and reports monotonic percent updates in
+// 0..100 while ffmpeg runs. Percent is measured against the sum of the input
+// durations: for the concat demuxer that is the exact output timeline, while a
+// crossfade shortens the result by the overlap of each transition, so the last
+// per-tick value can land below 100 and completion reports 100 explicitly.
+func MergeWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req MergeRequest, onProgress func(percent float64, message string)) *VideoError {
 	if probe == nil {
 		probe = NewFFmpegRuntimeProbe()
 	}
@@ -232,14 +241,24 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 			durations = append(durations, duration)
 		}
 
+		progressDuration := 0.0
+		if onProgress != nil {
+			progressDuration = sumDurations(durations)
+		}
+
 		crossfadeArgs, argsErr := BuildMergeCrossfadeArgs(req.InputPaths, durations, tempRequest)
 		if argsErr != nil {
 			return argsErr
 		}
-		if err := runner.Run(ctx, "ffmpeg", crossfadeArgs); err != nil {
+		if err := runFFmpegWithProgress(ctx, runner, crossfadeArgs, progressDuration, onProgress); err != nil {
 			return mapMergeExecutionError(err)
 		}
 		return publish()
+	}
+
+	progressDuration := 0.0
+	if onProgress != nil {
+		progressDuration, _ = mergeProgressDuration(ctx, req.InputPaths)
 	}
 
 	listFilePath, listErr := createConcatListFile(req.InputPaths)
@@ -253,7 +272,7 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 	switch mergeMode {
 	case MergeModeCopy:
 		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(tempRequest.OutputPath), req.RemoveAudio)
-		if err := runner.Run(ctx, "ffmpeg", copyArgs); err != nil {
+		if err := runFFmpegWithProgress(ctx, runner, copyArgs, progressDuration, onProgress); err != nil {
 			mapped := mapMergeExecutionError(err)
 			return &VideoError{Code: ErrorCodeVideoMergeCopyFailed, Message: "ffmpeg merge copy execution failed", Cause: mapped}
 		}
@@ -263,13 +282,13 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 		if argsErr != nil {
 			return argsErr
 		}
-		if err := runner.Run(ctx, "ffmpeg", reencodeArgs); err != nil {
+		if err := runFFmpegWithProgress(ctx, runner, reencodeArgs, progressDuration, onProgress); err != nil {
 			return mapMergeExecutionError(err)
 		}
 		return publish()
 	case MergeModeAuto:
 		copyArgs := buildMergeCopyArgs(listFilePath, strings.TrimSpace(tempRequest.OutputPath), req.RemoveAudio)
-		if err := runner.Run(ctx, "ffmpeg", copyArgs); err == nil {
+		if err := runFFmpegWithProgress(ctx, runner, copyArgs, progressDuration, onProgress); err == nil {
 			return publish()
 		} else {
 			mappedCopyErr := mapMergeExecutionError(err)
@@ -286,7 +305,7 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 				return argsErr
 			}
 
-			if reencodeErr := runner.Run(ctx, "ffmpeg", reencodeArgs); reencodeErr != nil {
+			if reencodeErr := runFFmpegWithProgress(ctx, runner, reencodeArgs, progressDuration, onProgress); reencodeErr != nil {
 				mappedReencodeErr := mapMergeExecutionError(reencodeErr)
 				return &VideoError{Code: ErrorCodeVideoMergeAutoFallbackFailed, Message: "auto merge fallback to re-encode failed", Cause: mappedReencodeErr}
 			}
@@ -295,6 +314,31 @@ func Merge(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req Me
 	default:
 		return &VideoError{Code: ErrorCodeVideoMergeModeInvalid, Message: "mergeMode must be auto, copy, or reencode"}
 	}
+}
+
+// mergeProgressDuration sums the input durations used to turn ffmpeg's
+// concatenated timeline position into a percentage. ok is false when any input
+// duration is unavailable; the run still proceeds without intermediate ticks.
+func mergeProgressDuration(ctx context.Context, inputPaths []string) (float64, bool) {
+	total := 0.0
+	for _, inputPath := range inputPaths {
+		duration := probeSourceDuration(ctx, inputPath)
+		if duration <= 0 {
+			return 0, false
+		}
+		total += duration
+	}
+
+	return total, true
+}
+
+func sumDurations(durations []float64) float64 {
+	total := 0.0
+	for _, duration := range durations {
+		total += duration
+	}
+
+	return total
 }
 
 func buildMergeCopyArgs(listFilePath string, outputPath string, removeAudio bool) []string {

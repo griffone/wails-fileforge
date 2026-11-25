@@ -191,14 +191,28 @@ func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (m
 // ExecutePlan merges into exactly the output resolved by Plan. The request only
 // supplies the already validated input order; options and the destination are
 // read from the plan.
-func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, _ func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
+func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	if len(plan.Outputs) == 0 {
 		jobErr := &models.JobError{Code: "EXECUTION_ERROR", Message: "video merge execution returned no planned output"}
 		return nil, jobErr
 	}
 
 	mergeReq := mergeRequestFromPlan(plan, req.InputPaths)
-	if err := engine.Merge(ctx, t.probe, t.runner, mergeReq); err != nil {
+
+	var mergeProgress func(percent float64, message string)
+	if onProgress != nil {
+		mergeProgress = func(percent float64, _ string) {
+			current := jobProgressPercent(percent)
+			onProgress(models.JobProgress{
+				Current: current,
+				Total:   jobProgressTotal,
+				Stage:   "merge.encode",
+				Message: fmt.Sprintf("Merging videos… %d%%", current),
+			})
+		}
+	}
+
+	if err := engine.MergeWithProgress(ctx, t.probe, t.runner, mergeReq, mergeProgress); err != nil {
 		jobErr := mapVideoError(err)
 		return []models.JobResultItem{videoPlanFailureItem(firstInputPath(mergeReq.InputPaths), mergeReq.OutputPath, jobErr)}, jobErr
 	}

@@ -12,6 +12,14 @@ import (
 	"fileforge-desktop/internal/tools"
 )
 
+// percentProgressTotal is the total used by tools that report percentage-style
+// progress instead of per-item counts.
+const percentProgressTotal = 100
+
+// retryStage marks the progress updates emitted while a job re-runs its failed
+// items. The engine sets it, so the monotonic guard can recognise a restart.
+const retryStage = "retrying"
+
 // jobState owns one submitted job. Its mutex guards the result snapshot; the
 // scheduler-only fields (queued) are guarded by Engine.queueMu instead.
 type jobState struct {
@@ -129,6 +137,15 @@ func (j *jobState) updateProgress(value models.JobProgress) {
 	}
 
 	value.ETASeconds = estimateETASeconds(j.result.StartedAt, value.Current, value.Total)
+	// A retry re-runs only the failed items and would otherwise restart the
+	// bar. Percentage-style progress is already job-global; count-style
+	// progress keeps its own semantics because a tool may legitimately count
+	// pages within each item.
+	previous := j.result.Progress
+	if value.Total == previous.Total && value.Current < previous.Current &&
+		(value.Total == percentProgressTotal || value.Stage == retryStage) {
+		value.Current = previous.Current
+	}
 	j.result.Progress = value
 	if value.Stage != "" {
 		j.result.Status = value.Stage

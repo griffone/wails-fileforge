@@ -56,6 +56,13 @@ func (r *ExecCommandRunner) Run(ctx context.Context, name string, args []string)
 		StderrTailLines: ffmpegStderrTailLines,
 		StderrTailBytes: ffmpegStderrTailBytes,
 	})
+
+	return commandRunError(result, err)
+}
+
+// commandRunError maps an execx failure onto the historical
+// "command failed: <cause> (<stderr>)" shape shared by Run and RunWithProgress.
+func commandRunError(result execx.Result, err error) error {
 	if err == nil {
 		return nil
 	}

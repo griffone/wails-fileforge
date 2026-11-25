@@ -195,8 +195,8 @@ func (t *ConvertTool) ExecuteBatch(ctx context.Context, req models.JobRequest, o
 // result keeps plan order with per-item failures isolated.
 func (t *ConvertTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	items := make([]models.JobResultItem, 0, len(plan.Outputs))
-	reportProgress := strings.TrimSpace(req.Mode) == "batch" && onProgress != nil
 	var firstErr *models.JobError
+	total := len(plan.Outputs)
 
 	for index, planned := range plan.Outputs {
 		select {
@@ -207,7 +207,20 @@ func (t *ConvertTool) ExecutePlan(ctx context.Context, req models.JobRequest, pl
 		}
 
 		convertReq := convertRequestFromPlannedOutput(planned, plan.EffectiveOptions)
-		if err := engine.Convert(ctx, t.probe, t.runner, convertReq); err != nil {
+		var itemProgress func(percent float64, message string)
+		if onProgress != nil {
+			itemProgress = func(percent float64, _ string) {
+				overall := overallBatchPercent(index, total, percent)
+				onProgress(models.JobProgress{
+					Current: overall,
+					Total:   jobProgressTotal,
+					Stage:   "convert.encode",
+					Message: convertProgressMessage(index, total, overall),
+				})
+			}
+		}
+
+		if err := engine.ConvertWithProgress(ctx, t.probe, t.runner, convertReq, itemProgress); err != nil {
 			jobErr := mapVideoError(err)
 			if firstErr == nil {
 				firstErr = jobErr
@@ -216,10 +229,6 @@ func (t *ConvertTool) ExecutePlan(ctx context.Context, req models.JobRequest, pl
 		} else {
 			items = append(items, models.JobResultItem{InputPath: convertReq.InputPath, OutputPath: convertReq.OutputPath, Outputs: []string{convertReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video conversion successful"})
 		}
-
-		if reportProgress {
-			onProgress(models.JobProgress{Current: index + 1, Total: len(plan.Outputs), Stage: "running", Message: fmt.Sprintf("processed %d/%d", index+1, len(plan.Outputs))})
-		}
 	}
 
 	if firstErr != nil {
@@ -227,6 +236,32 @@ func (t *ConvertTool) ExecutePlan(ctx context.Context, req models.JobRequest, pl
 	}
 
 	return items, nil
+}
+
+// overallBatchPercent maps one item's local percentage onto the whole plan so
+// the drawer shows a single continuous bar. A single-file plan is the identity.
+func overallBatchPercent(index, total int, itemPercent float64) int {
+	if total <= 0 {
+		return 0
+	}
+
+	clamped := itemPercent
+	if clamped < 0 {
+		clamped = 0
+	}
+	if clamped > 100 {
+		clamped = 100
+	}
+
+	return jobProgressPercent((float64(index)*100 + clamped) / float64(total))
+}
+
+func convertProgressMessage(index, total, percent int) string {
+	if total <= 1 {
+		return fmt.Sprintf("Converting video… %d%%", percent)
+	}
+
+	return fmt.Sprintf("Converting item %d of %d… %d%%", index+1, total, percent)
 }
 
 // convertVideoOptions carries the optional output controls shared by single

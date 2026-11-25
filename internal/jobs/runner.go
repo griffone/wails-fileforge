@@ -389,17 +389,22 @@ func mergePlannedRetryItems(items, retryItems []models.JobResultItem, retryIndic
 }
 
 // batchProgressHandler maps retry-local progress back to original input
-// positions so the UI never jumps backwards.
+// positions so the UI never jumps backwards. Percentage-style progress already
+// spans the whole job, so it keeps its own coordinates; per-input counts inside
+// a single planned output (for example pdf.merge) are left alone because their
+// total does not describe plan items.
 func (e *Engine) batchProgressHandler(state *jobState, retrying bool, originalIndices []int, total int) func(models.JobProgress) {
 	return func(value models.JobProgress) {
 		if retrying {
-			current := value.Current
-			if current >= 1 && current <= len(originalIndices) {
-				current = originalIndices[current-1] + 1
+			if value.Total != percentProgressTotal && value.Total <= total {
+				current := value.Current
+				if current >= 1 && current <= len(originalIndices) {
+					current = originalIndices[current-1] + 1
+				}
+				value.Current = current
+				value.Total = total
 			}
-			value.Current = current
-			value.Total = total
-			value.Stage = "retrying"
+			value.Stage = retryStage
 		}
 
 		state.updateProgress(value)
