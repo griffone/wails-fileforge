@@ -8,6 +8,7 @@ import {
 import { EMPTY, Subject } from 'rxjs';
 
 import { PdfOcr } from './pdf-ocr';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgress,
@@ -140,6 +141,7 @@ describe('PdfOcr', () => {
   /** Creates the page with the given capabilities and renders the first frame. */
   function create(caps: OCRCapabilitiesResponse = capabilities()): void {
     wailsSpy.getOCRCapabilities.and.resolveTo(caps);
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(PdfOcr);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -203,6 +205,7 @@ describe('PdfOcr', () => {
 
   afterEach(() => {
     fixture?.destroy();
+    TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
   });
 
@@ -534,5 +537,24 @@ describe('PdfOcr', () => {
 
     expect(component.outputDir()).toBe('/tmp/default');
     expect(component.destinationLabel()).toBe('/tmp/default');
+  }));
+
+  it('renders the page copy in Spanish', fakeAsync(() => {
+    create();
+    flushMicrotasks();
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('OCR');
+    expect(title).toContain('PDF');
+
+    expect(
+      element.querySelector('label[for="pdf-ocr-sidecar"]')?.textContent,
+    ).toContain('Escribir un archivo de texto junto al PDF');
+    expect(
+      element.querySelector('.toolbar .btn-secondary')?.textContent,
+    ).toContain('Elegir PDF');
   }));
 });

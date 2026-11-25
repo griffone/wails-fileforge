@@ -9,6 +9,7 @@ import { provideRouter } from '@angular/router';
 import { EMPTY, Subject } from 'rxjs';
 
 import { PdfToDocx } from './pdf-to-docx';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgress,
@@ -189,10 +190,13 @@ describe('PdfToDocx', () => {
       imports: [PdfToDocx],
       providers: [provideRouter([]), { provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
+
+    TestBed.inject(I18nService).setLocale('en');
   });
 
   afterEach(() => {
     fixture?.destroy();
+    TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
   });
 
@@ -467,5 +471,24 @@ describe('PdfToDocx', () => {
     expect(component.isPolling()).toBeFalse();
     expect(component.selectedPaths()).toEqual([]);
     expect(component.plan()).toBeNull();
+  }));
+
+  it('renders the page copy in Spanish', fakeAsync(() => {
+    create();
+    flushMicrotasks();
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('PDF');
+    expect(title).toContain('DOCX');
+
+    expect(
+      element.querySelector('.fidelity-title')?.textContent,
+    ).toContain('Fuentes y tamaños');
+    expect(
+      element.querySelector('.action-primary')?.textContent,
+    ).toContain('Convertir a DOCX');
   }));
 });

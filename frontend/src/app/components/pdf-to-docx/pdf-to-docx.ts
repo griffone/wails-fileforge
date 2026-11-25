@@ -29,8 +29,9 @@ import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import { describeToolError, localizeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -89,6 +90,7 @@ export interface ResultSummary {
 }
 
 export interface FidelityFeature {
+  id: string;
   icon: LucideIconData;
   title: string;
   detail: string;
@@ -96,20 +98,38 @@ export interface FidelityFeature {
 
 /** The fidelity contract shown on the page; matches what pdf2docx preserves. */
 export const FIDELITY_FEATURES: readonly FidelityFeature[] = [
-  { icon: Type, title: 'Fonts & sizes', detail: 'Family, size and line height' },
   {
+    id: 'fonts',
+    icon: Type,
+    title: 'Fonts & sizes',
+    detail: 'Family, size and line height',
+  },
+  {
+    id: 'emphasis',
     icon: Bold,
     title: 'Bold & italic',
     detail: 'Weight, italic, underline and strike-through',
   },
   {
+    id: 'colors',
     icon: Palette,
     title: 'Colors & alignment',
     detail: 'Text color, highlights and paragraph alignment',
   },
-  { icon: ImageIcon, title: 'Images', detail: 'Inline and floating images' },
-  { icon: Table, title: 'Tables', detail: 'Borders, shading and merged cells' },
   {
+    id: 'images',
+    icon: ImageIcon,
+    title: 'Images',
+    detail: 'Inline and floating images',
+  },
+  {
+    id: 'tables',
+    icon: Table,
+    title: 'Tables',
+    detail: 'Borders, shading and merged cells',
+  },
+  {
+    id: 'layout',
     icon: LayoutTemplate,
     title: 'Page layout',
     detail: 'Page size, margins and simple columns',
@@ -135,6 +155,7 @@ export class PdfToDocx implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -163,7 +184,11 @@ export class PdfToDocx implements OnDestroy, OnInit {
   readonly actionMessage = signal('');
 
   readonly pdfCountLabel = computed(() =>
-    formatCount(this.selectedPaths().length, 'PDF'),
+    formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.pdfOne'),
+      this.i18n.t('common.pdfMany'),
+    ),
   );
 
   /** Actionable copy for a plan failure, with a Settings route for the engine. */
@@ -178,8 +203,8 @@ export class PdfToDocx implements OnDestroy, OnInit {
       .map((code) => code.trim().toUpperCase());
     if (codes.some((code) => RUNTIME_ERROR_CODES.has(code))) {
       return {
-        title: 'The PDF to DOCX engine is not installed.',
-        detail: 'Run Install / repair in Settings, then try again.',
+        title: this.i18n.t('pdfToDocx.plan.engineMissingTitle'),
+        detail: this.i18n.t('pdfToDocx.plan.engineMissingDetail'),
         showSettings: true,
       };
     }
@@ -188,8 +213,8 @@ export class PdfToDocx implements OnDestroy, OnInit {
       typeof error.message === 'string' ? error.message.trim() : '';
 
     return {
-      title: 'The output could not be planned.',
-      detail: message || 'Try again with another PDF.',
+      title: this.i18n.t('pdfToDocx.plan.failedTitle'),
+      detail: message || this.i18n.t('pdfToDocx.plan.failedDetail'),
       showSettings: false,
     };
   });
@@ -205,12 +230,12 @@ export class PdfToDocx implements OnDestroy, OnInit {
 
   readonly primaryLabel = computed(() =>
     this.isSubmitting() || this.isPolling()
-      ? 'Converting…'
-      : 'Convert to DOCX',
+      ? this.i18n.t('pdfToDocx.action.converting')
+      : this.i18n.t('pdfToDocx.action.convert'),
   );
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to the PDF',
+    () => this.outputDir().trim() || this.i18n.t('pdfToDocx.destination.nextToPdf'),
   );
 
   readonly isDefaultDestination = computed(
@@ -219,13 +244,13 @@ export class PdfToDocx implements OnDestroy, OnInit {
 
   readonly actionHelper = computed(() => {
     if (this.selectedPaths().length === 0) {
-      return 'Add one PDF to convert.';
+      return this.i18n.t('pdfToDocx.helper.addOne');
     }
     if (this.planLoading()) {
-      return 'Planning the DOCX output…';
+      return this.i18n.t('pdfToDocx.helper.planning');
     }
     if (!this.plan()?.success) {
-      return 'The DOCX output cannot be planned yet.';
+      return this.i18n.t('pdfToDocx.helper.cannotPlan');
     }
     return '';
   });
@@ -264,7 +289,10 @@ export class PdfToDocx implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The conversion could not start.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('pdfToDocx.error.start')),
+        )
       : null;
   });
 
@@ -286,6 +314,21 @@ export class PdfToDocx implements OnDestroy, OnInit {
   ngOnDestroy(): void {
     this.stopObserving();
     this.clearPlanRefreshTimer();
+  }
+
+  /** Fidelity copy resolved at render time so the locale switch applies. */
+  fidelityTitle(feature: FidelityFeature): string {
+    return this.i18n.tOr(
+      `pdfToDocx.fidelity.${feature.id}.title`,
+      feature.title,
+    );
+  }
+
+  fidelityDetail(feature: FidelityFeature): string {
+    return this.i18n.tOr(
+      `pdfToDocx.fidelity.${feature.id}.detail`,
+      feature.detail,
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -392,13 +435,13 @@ export class PdfToDocx implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The conversion could not start.',
+        message: this.i18n.t('pdfToDocx.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The conversion could not start.',
+          message: this.i18n.t('pdfToDocx.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -406,7 +449,7 @@ export class PdfToDocx implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The conversion could not start.',
+          message: response.message || this.i18n.t('pdfToDocx.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -417,14 +460,14 @@ export class PdfToDocx implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('pdfToDocx.status.waiting'),
       toolId: PDF_TO_DOCX_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total: 1,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('pdfToDocx.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -442,7 +485,7 @@ export class PdfToDocx implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('pdfToDocx.error.cancel'),
       );
     }
   }
@@ -450,7 +493,7 @@ export class PdfToDocx implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success ? '' : response.message || this.i18n.t('pdfToDocx.error.openFile'),
     );
   }
 
@@ -459,7 +502,7 @@ export class PdfToDocx implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('pdfToDocx.error.openFolder'),
     );
   }
 
@@ -526,12 +569,12 @@ export class PdfToDocx implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('pdfToDocx.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('pdfToDocx.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -548,7 +591,7 @@ export class PdfToDocx implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('pdfToDocx.error.plan'),
     };
     // Keep the failed plan so the shared plan card can show the reason next to
     // the destination it belongs to.
@@ -658,7 +701,7 @@ export class PdfToDocx implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('pdfToDocx.error.status'),
       },
     );
   }
@@ -700,7 +743,7 @@ export class PdfToDocx implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('pdfToDocx.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -787,7 +830,13 @@ export class PdfToDocx implements OnDestroy, OnInit {
       parts.push(formatBytes(info.sizeBytes));
     }
     if (typeof info.pageCount === 'number' && info.pageCount > 0) {
-      parts.push(formatCount(info.pageCount, 'page'));
+      parts.push(
+        formatCount(
+          info.pageCount,
+          this.i18n.t('common.pageOne'),
+          this.i18n.t('common.pageMany'),
+        ),
+      );
     }
     return parts.join(' · ');
   }
@@ -801,15 +850,19 @@ export class PdfToDocx implements OnDestroy, OnInit {
 
     if (extraPdfs > 0) {
       parts.push(
-        `PDF to DOCX converts one PDF at a time. Only ${firstName} was added.`,
+        this.i18n.t('pdfToDocx.notice.oneAtATime', { name: firstName }),
       );
     }
 
     if (rejected.length === 1) {
-      parts.push(`${fileName(rejected[0])} wasn't added because it isn't a PDF.`);
+      parts.push(
+        this.i18n.t('pdfToDocx.notice.rejectedOne', {
+          name: fileName(rejected[0]),
+        }),
+      );
     } else if (rejected.length > 1) {
       const names = rejected.map((path) => fileName(path)).join(', ');
-      parts.push(`${names} weren't added because they aren't PDFs.`);
+      parts.push(this.i18n.t('pdfToDocx.notice.rejectedMany', { names }));
     }
 
     return parts.length > 0

@@ -18,8 +18,9 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
-import { describeToolError, ToolErrorCopy } from '../../services/tool-error';
+import { describeToolError, localizeToolError, ToolErrorCopy } from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
+import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { ActivityService } from '../../services/activity.service';
 import {
@@ -164,6 +165,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
   private readonly activity = inject(ActivityService);
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -288,16 +290,28 @@ export class PdfFromImages implements OnDestroy, OnInit {
     const option = PAGE_SIZE_OPTIONS.find(
       (candidate) => candidate.value === this.pageSize(),
     );
-    return option?.label ?? this.pageSize().toUpperCase();
+    return option
+      ? this.pageSizeOptionLabel(option)
+      : this.pageSize().toUpperCase();
   });
 
-  readonly layoutSummary = computed(
-    () =>
-      `${this.pageSizeLabel()} ${this.orientation()} · ${this.grid().columns} × ${this.grid().rows} · ${this.marginMm()} mm`,
+  readonly layoutSummary = computed(() =>
+    this.i18n.t('pdfFromImages.layout.summary', {
+      size: this.pageSizeLabel(),
+      orientation: this.i18n.tOr(
+        `pdfFromImages.orientation.${this.orientation()}Inline`,
+        this.orientation(),
+      ),
+      columns: this.grid().columns,
+      rows: this.grid().rows,
+      margin: this.marginMm(),
+    }),
   );
 
   readonly destinationLabel = computed(
-    () => this.outputDir().trim() || 'Next to the first image',
+    () =>
+      this.outputDir().trim() ||
+      this.i18n.t('pdfFromImages.destination.firstImage'),
   );
 
   readonly isDefaultDestination = computed(
@@ -313,15 +327,17 @@ export class PdfFromImages implements OnDestroy, OnInit {
   );
 
   readonly primaryLabel = computed(() =>
-    this.isSubmitting() || this.isPolling() ? 'Creating…' : 'Create PDF',
+    this.isSubmitting() || this.isPolling()
+      ? this.i18n.t('pdfFromImages.action.creating')
+      : this.i18n.t('pdfFromImages.action.create'),
   );
 
   readonly actionHelper = computed(() => {
     if (this.unplacedPaths().length > 0) {
-      return 'Place all images or remove them.';
+      return this.i18n.t('pdfFromImages.helper.unplaced');
     }
     if (this.selectedPaths().length === 0) {
-      return 'Add at least one image to create a PDF.';
+      return this.i18n.t('pdfFromImages.helper.addOne');
     }
     return '';
   });
@@ -339,7 +355,10 @@ export class PdfFromImages implements OnDestroy, OnInit {
   readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
     const error = this.jobError();
     return error
-      ? describeToolError(error, 'The PDF could not be created.')
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(error, this.i18n.t('pdfFromImages.error.start')),
+        )
       : null;
   });
 
@@ -364,11 +383,19 @@ export class PdfFromImages implements OnDestroy, OnInit {
   }
 
   fileCountLabel(): string {
-    return formatCount(this.selectedPaths().length, 'image');
+    return formatCount(
+      this.selectedPaths().length,
+      this.i18n.t('common.imageOne'),
+      this.i18n.t('common.imageMany'),
+    );
   }
 
   pagesLabel(): string {
-    return formatCount(this.pages(), 'page');
+    return formatCount(
+      this.pages(),
+      this.i18n.t('common.pageOne'),
+      this.i18n.t('common.pageMany'),
+    );
   }
 
   filledCount(page: number): number {
@@ -383,7 +410,36 @@ export class PdfFromImages implements OnDestroy, OnInit {
     if (path) {
       return fileName(path);
     }
-    return `Empty cell, page ${page + 1}, position ${cell + 1}`;
+    return this.i18n.t('pdfFromImages.slot.empty', {
+      page: page + 1,
+      position: cell + 1,
+    });
+  }
+
+  /** Option labels resolved at render time so the locale switch applies. */
+  pageSizeOptionLabel(option: SelectOption<PageSize>): string {
+    return this.i18n.tOr(
+      `pdfFromImages.pageSize.${option.value}`,
+      option.label,
+    );
+  }
+
+  orientationOptionLabel(option: SelectOption<Orientation>): string {
+    return this.i18n.tOr(
+      `pdfFromImages.orientation.${option.value}`,
+      option.label,
+    );
+  }
+
+  fitOptionLabel(option: SelectOption<Fit>): string {
+    return this.i18n.tOr(`pdfFromImages.fit.${option.value}`, option.label);
+  }
+
+  marginOptionLabel(option: SelectOption<number>): string {
+    return this.i18n.tOr(
+      `pdfFromImages.margin.${option.value}`,
+      option.label,
+    );
   }
 
   onPathsSelected(paths: string[]): void {
@@ -726,13 +782,13 @@ export class PdfFromImages implements OnDestroy, OnInit {
       .runJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The PDF could not be created.',
+        message: this.i18n.t('pdfFromImages.error.start'),
         jobId: '',
         status: 'failed' as const,
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: 'The PDF could not be created.',
+          message: this.i18n.t('pdfFromImages.error.start'),
         },
       }));
     if (!response.success || !response.jobId) {
@@ -740,7 +796,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
         response.error ?? {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'RUN_JOB_FAILED',
-          message: response.message || 'The PDF could not be created.',
+          message: response.message || this.i18n.t('pdfFromImages.error.start'),
         },
       );
       this.isSubmitting.set(false);
@@ -752,14 +808,14 @@ export class PdfFromImages implements OnDestroy, OnInit {
     this.jobResult.set({
       jobId: response.jobId,
       success: false,
-      message: 'Waiting to start',
+      message: this.i18n.t('pdfFromImages.status.waiting'),
       toolId: PDF_IMAGES_TOOL_ID,
       status: 'queued',
       progress: {
         current: 0,
         total,
         stage: 'queued',
-        message: 'Waiting to start',
+        message: this.i18n.t('pdfFromImages.status.waiting'),
       },
       items: [],
       startedAt: Date.now(),
@@ -777,7 +833,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     const response = await this.wailsService.cancelJob(jobId);
     if (!response.success) {
       this.actionMessage.set(
-        response.message || 'The job could not be cancelled.',
+        response.message || this.i18n.t('pdfFromImages.error.cancel'),
       );
     }
   }
@@ -785,7 +841,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
   async onOpen(path: string): Promise<void> {
     const response = await this.wailsService.openPath(path);
     this.actionMessage.set(
-      response.success ? '' : response.message || 'The file could not be opened.',
+      response.success ? '' : response.message || this.i18n.t('pdfFromImages.error.openFile'),
     );
   }
 
@@ -794,7 +850,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     this.actionMessage.set(
       response.success
         ? ''
-        : response.message || 'The folder could not be opened.',
+        : response.message || this.i18n.t('pdfFromImages.error.openFolder'),
     );
   }
 
@@ -1009,7 +1065,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     this.placements.set(next);
     this.notice.set({
       tone: 'warning',
-      text: 'The grid changed; the images were refilled.',
+      text: this.i18n.t('pdfFromImages.notice.gridChanged'),
     });
     this.schedulePlanRefresh();
   }
@@ -1035,12 +1091,12 @@ export class PdfFromImages implements OnDestroy, OnInit {
       .planJob(this.buildRequest())
       .catch(() => ({
         success: false,
-        message: 'The output could not be planned.',
+        message: this.i18n.t('pdfFromImages.error.plan'),
         outputs: [],
         error: {
           code: 'EXEC_IO_TRANSIENT',
           detail_code: 'PLAN_JOB_FAILED',
-          message: 'The output could not be planned.',
+          message: this.i18n.t('pdfFromImages.error.plan'),
         },
       }));
     if (token !== this.planToken) {
@@ -1058,7 +1114,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
     const error: JobError = response.error ?? {
       code: 'VALIDATION_INVALID_INPUT',
       detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || 'The output could not be planned.',
+      message: response.message || this.i18n.t('pdfFromImages.error.plan'),
     };
     // Keep the failed plan so the shared plan card shows the error in context.
     this.plan.set({ ...response, success: false, error });
@@ -1169,7 +1225,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
       response.error ?? {
         code: 'EXEC_IO_TRANSIENT',
         detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || 'The job status could not be read.',
+        message: response.message || this.i18n.t('pdfFromImages.error.status'),
       },
     );
   }
@@ -1211,7 +1267,7 @@ export class PdfFromImages implements OnDestroy, OnInit {
       .inspectFiles(paths)
       .catch(() => ({
         success: false,
-        message: 'File sizes could not be read.',
+        message: this.i18n.t('pdfFromImages.error.inspect'),
         files: [],
       }));
     if (!response.success) {
@@ -1307,14 +1363,21 @@ export class PdfFromImages implements OnDestroy, OnInit {
 
     const count = rejected.length;
     const filesCopy =
-      count === 1 ? "1 file wasn't added." : `${count} files weren't added.`;
+      count === 1
+        ? this.i18n.t('pdfFromImages.notice.filesOne')
+        : this.i18n.t('pdfFromImages.notice.filesMany', { count });
 
     let extensionsCopy: string;
     if (extensions.length === 1) {
-      extensionsCopy = `${extensions[0]} isn't supported.`;
+      extensionsCopy = this.i18n.t('pdfFromImages.notice.extensionOne', {
+        extension: extensions[0],
+      });
     } else {
       const head = extensions.slice(0, -1).join(', ');
-      extensionsCopy = `${head} and ${extensions[extensions.length - 1]} aren't supported.`;
+      extensionsCopy = this.i18n.t('pdfFromImages.notice.extensionsMany', {
+        head,
+        tail: extensions[extensions.length - 1],
+      });
     }
 
     return `${filesCopy} ${extensionsCopy}`;

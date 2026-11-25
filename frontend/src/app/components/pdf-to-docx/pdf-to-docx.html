@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">PDF</p>
-        <h1 class="page-title">PDF to <em>DOCX</em></h1>
+        <p class="eyebrow">{{ i18n.t('pdfToDocx.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('pdfToDocx.page.titleLead') }}
+          <em>{{ i18n.t('pdfToDocx.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Turn a PDF into an editable Word document while keeping fonts, weight, colors, images, tables and page layout as close as possible. Everything runs on this machine.
+          {{ i18n.t('pdfToDocx.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('pdfToDocx.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -24,7 +27,7 @@
           <strong>{{ banner.title }}</strong>
           <span>{{ banner.detail }}</span>
           @if (banner.showSettings) {
-            <a class="btn btn-secondary btn-sm plan-banner-action" routerLink="/settings">Open Settings</a>
+            <a class="btn btn-secondary btn-sm plan-banner-action" routerLink="/settings">{{ i18n.t('pdfToDocx.plan.openSettings') }}</a>
           }
         </div>
       </div>
@@ -34,8 +37,8 @@
       <section class="panel intake-panel" aria-labelledby="pdf-to-docx-input-title">
         <div class="panel-head">
           <div>
-            <h2 id="pdf-to-docx-input-title" class="panel-title">PDF</h2>
-            <p class="panel-sub">One source document. The original stays untouched.</p>
+            <h2 id="pdf-to-docx-input-title" class="panel-title">{{ i18n.t('pdfToDocx.intake.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfToDocx.intake.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ pdfCountLabel() }}</span>
         </div>
@@ -45,24 +48,24 @@
             <span class="flow-chip mono">PDF</span>
             <span class="flow-arrow">→</span>
             <span class="flow-chip flow-chip-out mono">DOCX</span>
-            <span class="flow-note">One PDF at a time</span>
+            <span class="flow-note">{{ i18n.t('pdfToDocx.intake.flowNote') }}</span>
           </div>
 
           <app-file-drop
             accept=".pdf,application/pdf"
             [multiple]="false"
-            title="Drop a PDF here"
-            hint="PDF only · conversion runs locally"
-            ariaLabel="Drop or choose a PDF to convert to DOCX"
+            [title]="i18n.t('pdfToDocx.intake.dropTitle')"
+            [hint]="i18n.t('pdfToDocx.intake.dropHint')"
+            [ariaLabel]="i18n.t('pdfToDocx.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFile()"
           ></app-file-drop>
 
-          <div class="toolbar" role="group" aria-label="PDF selection actions">
+          <div class="toolbar" role="group" [attr.aria-label]="i18n.t('pdfToDocx.intake.actionsAria')">
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFile()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose PDF
+              {{ i18n.t('pdfToDocx.intake.choose') }}
             </button>
             <button
               type="button"
@@ -71,7 +74,7 @@
               (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
+              {{ i18n.t('pdfToDocx.intake.clear') }}
             </button>
           </div>
 
@@ -99,10 +102,10 @@
       <section class="panel output-panel" aria-labelledby="pdf-to-docx-output-title">
         <div class="panel-head">
           <div>
-            <h2 id="pdf-to-docx-output-title" class="panel-title">Output</h2>
-            <p class="panel-sub">Check the DOCX name and where it will be saved.</p>
+            <h2 id="pdf-to-docx-output-title" class="panel-title">{{ i18n.t('pdfToDocx.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfToDocx.output.sub') }}</p>
           </div>
-          <span class="badge badge-neutral">DOCX</span>
+          <span class="badge badge-neutral">{{ i18n.t('pdfToDocx.output.badge') }}</span>
         </div>
 
         <div class="panel-body">
@@ -117,13 +120,13 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="usePdfFolder()">
-                Use the PDF's folder
+                {{ i18n.t('pdfToDocx.output.usePdfFolder') }}
               </button>
             </div>
           }
 
           <p class="output-note">
-            The DOCX takes the PDF's name. Existing files are never overwritten.
+            {{ i18n.t('pdfToDocx.output.note') }}
           </p>
         </div>
       </section>
@@ -132,22 +135,22 @@
     <section class="panel fidelity-panel" aria-labelledby="pdf-to-docx-fidelity-title">
       <div class="panel-head fidelity-head">
         <div>
-          <h2 id="pdf-to-docx-fidelity-title" class="panel-title">What it preserves</h2>
-          <p class="panel-sub">A real editable Word document, not a screenshot.</p>
+          <h2 id="pdf-to-docx-fidelity-title" class="panel-title">{{ i18n.t('pdfToDocx.fidelity.title') }}</h2>
+          <p class="panel-sub">{{ i18n.t('pdfToDocx.fidelity.sub') }}</p>
         </div>
-        <span class="badge badge-neutral">Editable</span>
+        <span class="badge badge-neutral">{{ i18n.t('pdfToDocx.fidelity.badge') }}</span>
       </div>
 
       <div class="panel-body">
-        <ul class="fidelity-grid" aria-label="Preserved document features">
-          @for (feature of fidelityFeatures; track feature.title) {
+        <ul class="fidelity-grid" [attr.aria-label]="i18n.t('pdfToDocx.fidelity.aria')">
+          @for (feature of fidelityFeatures; track feature.id) {
             <li class="fidelity-item">
               <span class="fidelity-icon" aria-hidden="true">
                 <lucide-icon [img]="feature.icon" [size]="16" [strokeWidth]="1.75"></lucide-icon>
               </span>
               <span class="fidelity-copy">
-                <span class="fidelity-title">{{ feature.title }}</span>
-                <span class="fidelity-detail">{{ feature.detail }}</span>
+                <span class="fidelity-title">{{ fidelityTitle(feature) }}</span>
+                <span class="fidelity-detail">{{ fidelityDetail(feature) }}</span>
               </span>
             </li>
           }
@@ -157,10 +160,10 @@
           <div class="fidelity-note">
             <lucide-icon [img]="alertIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
             <p>
-              Best for text-based PDFs. Complex multi-column layouts and equations may need touch-ups. Scanned PDFs need OCR first.
+              {{ i18n.t('pdfToDocx.fidelity.note') }}
             </p>
           </div>
-          <a class="btn btn-secondary btn-sm fidelity-action" routerLink="/pdf-ocr">Run PDF OCR</a>
+          <a class="btn btn-secondary btn-sm fidelity-action" routerLink="/pdf-ocr">{{ i18n.t('pdfToDocx.fidelity.ocrAction') }}</a>
         </div>
       </div>
     </section>
@@ -199,14 +202,14 @@
           </button>
 
           @if (isPolling()) {
-            <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('pdfToDocx.action.cancel') }}</button>
           }
         </div>
       </div>
     </section>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="Conversion progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('pdfToDocx.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>
@@ -223,7 +226,7 @@
         <lucide-icon [img]="shieldIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
         <span>{{ summary.text }}</span>
         @if (summary.tone === 'warning') {
-          <a class="banner-link" routerLink="/pdf-ocr">Run PDF OCR</a>
+          <a class="banner-link" routerLink="/pdf-ocr">{{ i18n.t('pdfToDocx.fidelity.ocrAction') }}</a>
         }
       </div>
     }

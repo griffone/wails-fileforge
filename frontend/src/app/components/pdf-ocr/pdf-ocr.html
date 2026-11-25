@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">PDF</p>
-        <h1 class="page-title">PDF <em>OCR</em></h1>
+        <p class="eyebrow">{{ i18n.t('pdfOcr.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('pdfOcr.page.titleLead') }}
+          <em>{{ i18n.t('pdfOcr.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Make scanned PDFs searchable with local OCR. Everything runs on this machine.
+          {{ i18n.t('pdfOcr.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('pdfOcr.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -37,8 +40,8 @@
     <section class="panel" aria-labelledby="pdf-ocr-input-title">
       <div class="panel-head">
         <div>
-          <h2 id="pdf-ocr-input-title" class="panel-title">PDFs</h2>
-          <p class="panel-sub">Drop scanned PDFs or choose them from your computer.</p>
+          <h2 id="pdf-ocr-input-title" class="panel-title">{{ i18n.t('pdfOcr.intake.title') }}</h2>
+          <p class="panel-sub">{{ i18n.t('pdfOcr.intake.sub') }}</p>
         </div>
         <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
       </div>
@@ -46,18 +49,18 @@
       <div class="panel-body">
         <app-file-drop
           accept=".pdf,application/pdf"
-          title="Drop scanned PDFs here"
-          hint="PDF files only · OCR runs locally"
-          ariaLabel="Drop or choose scanned PDFs"
+          [title]="i18n.t('pdfOcr.intake.dropTitle')"
+          [hint]="i18n.t('pdfOcr.intake.dropHint')"
+          [ariaLabel]="i18n.t('pdfOcr.intake.dropAria')"
           [nativePicker]="true"
           (pathsSelected)="onPathsSelected($event)"
           (browseRequested)="chooseFiles()"
         ></app-file-drop>
 
-        <div class="toolbar" role="group" aria-label="PDF selection actions">
+        <div class="toolbar" role="group" [attr.aria-label]="i18n.t('pdfOcr.intake.actionsAria')">
           <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
             <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Choose PDFs
+            {{ i18n.t('pdfOcr.intake.choose') }}
           </button>
           <button
             type="button"
@@ -66,7 +69,7 @@
             (click)="clear()"
           >
             <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-            Clear
+            {{ i18n.t('pdfOcr.intake.clear') }}
           </button>
         </div>
 
@@ -94,15 +97,15 @@
     <section class="panel" aria-labelledby="pdf-ocr-settings-title">
       <div class="panel-head">
         <div>
-          <h2 id="pdf-ocr-settings-title" class="panel-title">Settings</h2>
-          <p class="panel-sub">Pick the recognition language and where the output goes.</p>
+          <h2 id="pdf-ocr-settings-title" class="panel-title">{{ i18n.t('pdfOcr.settings.title') }}</h2>
+          <p class="panel-sub">{{ i18n.t('pdfOcr.settings.sub') }}</p>
         </div>
       </div>
 
       <div class="panel-body">
         <div class="settings-grid">
           <div class="field">
-            <label class="label" for="pdf-ocr-language">Language</label>
+            <label class="label" for="pdf-ocr-language">{{ i18n.t('pdfOcr.settings.language') }}</label>
             <select
               id="pdf-ocr-language"
               class="select"
@@ -111,7 +114,7 @@
               (change)="onLanguageChange($event)"
             >
               @if (languageOptions().length === 0) {
-                <option value="">No language data installed</option>
+                <option value="">{{ i18n.t('pdfOcr.language.noneInstalled') }}</option>
               } @else {
                 @for (option of languageOptions(); track option.value) {
                   <option [value]="option.value" [selected]="option.value === language()">
@@ -124,26 +127,26 @@
           </div>
 
           <div class="field">
-            <span class="label">Output folder</span>
+            <span class="label">{{ i18n.t('pdfOcr.settings.outputFolder') }}</span>
             <div class="destination">
               <span class="destination-path mono" [title]="destinationLabel()">{{ destinationLabel() }}</span>
               <button type="button" class="btn btn-secondary btn-sm" (click)="chooseOutputFolder()">
                 <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-                Choose folder
+                {{ i18n.t('pdfOcr.settings.chooseFolder') }}
               </button>
             </div>
             @if (isDefaultDestination()) {
-              <p class="field-help">The searchable PDF is saved next to each source PDF.</p>
+              <p class="field-help">{{ i18n.t('pdfOcr.settings.outputHelp') }}</p>
             } @else {
               <button type="button" class="btn btn-ghost btn-sm settings-reset" (click)="useOriginalFolders()">
-                Use the default folder
+                {{ i18n.t('pdfOcr.settings.useDefault') }}
               </button>
             }
           </div>
         </div>
 
         <div class="field">
-          <span class="label">Text sidecar</span>
+          <span class="label">{{ i18n.t('pdfOcr.settings.sidecar') }}</span>
           <label class="check-row" for="pdf-ocr-sidecar">
             <input
               id="pdf-ocr-sidecar"
@@ -152,18 +155,17 @@
               [checked]="sidecar()"
               (change)="onSidecarToggle($event)"
             />
-            Write a text file next to the PDF
+            {{ i18n.t('pdfOcr.settings.sidecarLabel') }}
           </label>
           <p id="pdf-ocr-sidecar-help" class="field-help">
-            Writes &lt;name&gt;_ocr.txt next to the searchable PDF.
+            {{ i18n.t('pdfOcr.settings.sidecarHelp') }}
           </p>
         </div>
 
         <div class="banner banner-warning" role="note">
           <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
           <span>
-            Pages are rasterized at 300 DPI. Vector text is replaced by an image with an
-            invisible text layer.
+            {{ i18n.t('pdfOcr.settings.dpiNote') }}
           </span>
         </div>
       </div>
@@ -212,14 +214,14 @@
           </button>
 
           @if (isPolling()) {
-            <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+            <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('pdfOcr.action.cancel') }}</button>
           }
         </div>
       </div>
     </section>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="OCR progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('pdfOcr.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
           @if (pageProgressLabel(); as label) {

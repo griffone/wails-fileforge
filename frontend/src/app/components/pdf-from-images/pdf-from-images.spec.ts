@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { PdfFromImages } from './pdf-from-images';
+import { I18nService } from '../../services/i18n.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -214,6 +215,7 @@ describe('PdfFromImages', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(PdfFromImages);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -221,6 +223,7 @@ describe('PdfFromImages', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
     localStorage.removeItem('ff-recent-conversions');
   });
@@ -428,5 +431,25 @@ describe('PdfFromImages', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Verification unavailable for this job.',
     );
+  }));
+
+  it('renders the page copy and layout options in Spanish', fakeAsync(() => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const title = element.querySelector('.page-title')?.textContent ?? '';
+    expect(title).toContain('Imágenes');
+    expect(title).toContain('PDF');
+
+    const pageSizes = Array.from(
+      element.querySelectorAll('#pdf-images-page-size option'),
+    ) as HTMLOptionElement[];
+    expect(
+      pageSizes.some((option) => option.textContent?.includes('Carta')),
+    ).toBeTrue();
+    expect(
+      element.querySelector('.action-primary')?.textContent,
+    ).toContain('Crear PDF');
   }));
 });

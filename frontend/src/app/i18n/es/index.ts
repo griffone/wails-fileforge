@@ -18,9 +18,12 @@ import { imageWatermarkEs } from './image-watermark';
 import { outputPlanEs } from './output-plan-card';
 import { paletteEs } from './palette';
 import { pdfCropEs } from './pdf-crop';
+import { pdfFromImagesEs } from './pdf-from-images';
 import { pdfMergeEs } from './pdf-merge';
+import { pdfOcrEs } from './pdf-ocr';
 import { pdfOptimizeEs } from './pdf-optimize';
 import { pdfSplitEs } from './pdf-split';
+import { pdfToDocxEs } from './pdf-to-docx';
 import { recipeRunEs } from './recipe-run';
 import { recipesEs } from './recipes';
 import { resultCardEs } from './result-card';
@@ -50,6 +53,9 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...pdfSplitEs,
   ...pdfCropEs,
   ...pdfOptimizeEs,
+  ...pdfOcrEs,
+  ...pdfToDocxEs,
+  ...pdfFromImagesEs,
   ...recipesEs,
   ...recipeRunEs,
   ...fileDropEs,

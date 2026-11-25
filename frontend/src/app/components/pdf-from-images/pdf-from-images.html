@@ -2,16 +2,19 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">PDF</p>
-        <h1 class="page-title">Images <em>to PDF</em></h1>
+        <p class="eyebrow">{{ i18n.t('pdfFromImages.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('pdfFromImages.page.titleLead') }}
+          <em>{{ i18n.t('pdfFromImages.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Place several images in a page grid and export one PDF. Everything runs on this machine.
+          {{ i18n.t('pdfFromImages.page.sub') }}
         </p>
       </div>
 
       <span class="badge badge-neutral page-local">
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
-        Local only
+        {{ i18n.t('pdfFromImages.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -21,8 +24,8 @@
       <section class="panel intake-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Images</h2>
-            <p class="panel-sub">Drop images or choose them from your computer.</p>
+            <h2 class="panel-title">{{ i18n.t('pdfFromImages.intake.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfFromImages.intake.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
         </div>
@@ -30,18 +33,18 @@
         <div class="panel-body">
           <app-file-drop
             accept="image/*"
-            title="Drop images here"
-            hint="PNG · JPG · WebP · GIF · BMP · TIFF"
-            ariaLabel="Drop or choose images to place in the PDF"
+            [title]="i18n.t('pdfFromImages.intake.dropTitle')"
+            [hint]="i18n.t('pdfFromImages.intake.dropHint')"
+            [ariaLabel]="i18n.t('pdfFromImages.intake.dropAria')"
             [nativePicker]="true"
             (pathsSelected)="onPathsSelected($event)"
             (browseRequested)="chooseFiles()"
           ></app-file-drop>
 
-          <div class="toolbar" role="group" aria-label="Image selection actions">
+          <div class="toolbar" role="group" [attr.aria-label]="i18n.t('pdfFromImages.intake.actionsAria')">
             <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
               <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Choose files
+              {{ i18n.t('pdfFromImages.intake.choose') }}
             </button>
             <button
               type="button"
@@ -50,7 +53,7 @@
               (click)="clear()"
             >
               <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
-              Clear
+              {{ i18n.t('pdfFromImages.intake.clear') }}
             </button>
           </div>
 
@@ -74,22 +77,22 @@
             (drop)="onTrayDrop($event)"
           >
             <div class="tray-head">
-              <span class="tray-title">Waiting to be placed</span>
+              <span class="tray-title">{{ i18n.t('pdfFromImages.tray.title') }}</span>
               <span class="badge badge-neutral">{{ unplacedPaths().length }}</span>
             </div>
 
             @if (selectedPaths().length === 0) {
               <div class="empty-state tray-empty">
                 <lucide-icon [img]="imageIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
-                <strong>No images yet</strong>
-                <span>Drop images above or choose them from your computer.</span>
+                <strong>{{ i18n.t('pdfFromImages.tray.emptyTitle') }}</strong>
+                <span>{{ i18n.t('pdfFromImages.tray.emptyBody') }}</span>
               </div>
             } @else if (unplacedPaths().length === 0) {
               <p class="tray-note">
-                All images are placed. Drag one out of a page to send it back here.
+                {{ i18n.t('pdfFromImages.tray.allPlaced') }}
               </p>
             } @else {
-              <ul class="tray-list" aria-label="Images waiting to be placed">
+              <ul class="tray-list" [attr.aria-label]="i18n.t('pdfFromImages.tray.listAria')">
                 @for (path of unplacedPaths(); track path) {
                   <li class="tray-item">
                     <span class="tray-drag" draggable="true" (dragstart)="onDragStart($event, path)" (dragend)="onDragEnd()">
@@ -105,13 +108,13 @@
 
                     <span class="tray-actions">
                       <button type="button" class="btn btn-secondary btn-sm" (click)="placeFromTray(path)">
-                        Place
+                        {{ i18n.t('pdfFromImages.tray.place') }}
                       </button>
                       <button
                         type="button"
                         class="icon-btn tray-remove"
-                        [attr.aria-label]="'Remove ' + fileName(path)"
-                        title="Remove"
+                        [attr.aria-label]="i18n.t('pdfFromImages.tray.removeAria', { name: fileName(path) })"
+                        [title]="i18n.t('pdfFromImages.tray.remove')"
                         (click)="removeImage(path)"
                       >
                         <lucide-icon [img]="closeIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
@@ -128,8 +131,8 @@
       <section class="panel outcome-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">Layout</h2>
-            <p class="panel-sub">Choose the page, the grid and how images fit.</p>
+            <h2 class="panel-title">{{ i18n.t('pdfFromImages.layout.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('pdfFromImages.layout.sub') }}</p>
           </div>
           <span class="badge badge-neutral">{{ layoutSummary() }}</span>
         </div>
@@ -137,20 +140,20 @@
         <div class="panel-body">
           <div class="settings-grid">
             <div class="field">
-              <label class="label" for="pdf-images-page-size">Page size</label>
+              <label class="label" for="pdf-images-page-size">{{ i18n.t('pdfFromImages.layout.pageSize') }}</label>
               <select
                 id="pdf-images-page-size"
                 class="select"
                 (change)="onPageSizeChange($event)"
               >
                 @for (option of pageSizeOptions; track option.value) {
-                  <option [value]="option.value" [selected]="option.value === pageSize()">{{ option.label }}</option>
+                  <option [value]="option.value" [selected]="option.value === pageSize()">{{ pageSizeOptionLabel(option) }}</option>
                 }
               </select>
             </div>
 
             <div class="field">
-              <span class="label" id="pdf-images-orientation-label">Orientation</span>
+              <span class="label" id="pdf-images-orientation-label">{{ i18n.t('pdfFromImages.layout.orientation') }}</span>
               <div class="seg" role="group" aria-labelledby="pdf-images-orientation-label">
                 @for (option of orientationOptions; track option.value) {
                   <button
@@ -160,14 +163,14 @@
                     [attr.aria-pressed]="orientation() === option.value"
                     (click)="selectOrientation(option.value)"
                   >
-                    {{ option.label }}
+                    {{ orientationOptionLabel(option) }}
                   </button>
                 }
               </div>
             </div>
 
             <div class="field field-wide">
-              <span class="label" id="pdf-images-per-page-label">Images per page</span>
+              <span class="label" id="pdf-images-per-page-label">{{ i18n.t('pdfFromImages.layout.perPage') }}</span>
               <div class="seg seg-numbers" role="group" aria-labelledby="pdf-images-per-page-label">
                 @for (count of perPageOptions; track count) {
                   <button
@@ -184,7 +187,7 @@
             </div>
 
             <div class="field field-wide">
-              <span class="label" id="pdf-images-fit-label">Fit</span>
+              <span class="label" id="pdf-images-fit-label">{{ i18n.t('pdfFromImages.layout.fit') }}</span>
               <div class="seg" role="group" aria-labelledby="pdf-images-fit-label">
                 @for (option of fitOptions; track option.value) {
                   <button
@@ -194,22 +197,22 @@
                     [attr.aria-pressed]="fit() === option.value"
                     (click)="selectFit(option.value)"
                   >
-                    {{ option.label }}
+                    {{ fitOptionLabel(option) }}
                   </button>
                 }
               </div>
-              <p class="field-help">Fit inside keeps the whole image. Fill cell crops it to cover the cell.</p>
+              <p class="field-help">{{ i18n.t('pdfFromImages.layout.fitHelp') }}</p>
             </div>
 
             <div class="field">
-              <label class="label" for="pdf-images-margin">Margin</label>
+              <label class="label" for="pdf-images-margin">{{ i18n.t('pdfFromImages.layout.margin') }}</label>
               <select
                 id="pdf-images-margin"
                 class="select"
                 (change)="onMarginChange($event)"
               >
                 @for (option of marginOptions; track option.value) {
-                  <option [value]="option.value" [selected]="option.value === marginMm()">{{ option.label }}</option>
+                  <option [value]="option.value" [selected]="option.value === marginMm()">{{ marginOptionLabel(option) }}</option>
                 }
               </select>
             </div>
@@ -226,7 +229,7 @@
           @if (!isDefaultDestination()) {
             <div class="destination-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="useFirstImageFolder()">
-                Use first image's folder
+                {{ i18n.t('pdfFromImages.destination.useFirstImage') }}
               </button>
             </div>
           }
@@ -263,18 +266,18 @@
             </button>
 
             @if (isPolling()) {
-              <button type="button" class="btn btn-ghost" (click)="cancel()">Cancel</button>
+              <button type="button" class="btn btn-ghost" (click)="cancel()">{{ i18n.t('pdfFromImages.action.cancel') }}</button>
             }
           </div>
         </div>
       </section>
     </div>
 
-    <section class="panel preview-panel" aria-label="Page previews">
+    <section class="panel preview-panel" [attr.aria-label]="i18n.t('pdfFromImages.preview.aria')">
       <div class="panel-head">
         <div>
-          <h2 class="panel-title">Pages</h2>
-          <p class="panel-sub">Drag images into a cell, or use the arrow and remove buttons.</p>
+          <h2 class="panel-title">{{ i18n.t('pdfFromImages.preview.title') }}</h2>
+          <p class="panel-sub">{{ i18n.t('pdfFromImages.preview.sub') }}</p>
         </div>
         <span class="badge badge-neutral">{{ pagesLabel() }}</span>
       </div>
@@ -283,15 +286,15 @@
         @if (selectedPaths().length === 0) {
           <div class="empty-state preview-empty">
             <lucide-icon [img]="gridIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
-            <strong>No pages yet</strong>
-            <span>Add images to see the page grid and arrange them.</span>
+            <strong>{{ i18n.t('pdfFromImages.preview.emptyTitle') }}</strong>
+            <span>{{ i18n.t('pdfFromImages.preview.emptyBody') }}</span>
           </div>
         } @else {
           <div class="preview-workspace">
             @for (slots of pageSlots(); track $index; let pageIndex = $index) {
               <figure class="page-card">
                 <figcaption class="page-caption">
-                  <span class="page-caption-label mono">Page {{ pageIndex + 1 }}</span>
+                  <span class="page-caption-label mono">{{ i18n.t('pdfFromImages.preview.page', { page: pageIndex + 1 }) }}</span>
                   <span class="page-caption-count mono">{{ filledCount(pageIndex) }} / {{ grid().cells }}</span>
                 </figcaption>
 
@@ -347,8 +350,8 @@
                               type="button"
                               class="slot-action"
                               [disabled]="!canMoveSlot(imagePath, 'left')"
-                              [attr.aria-label]="'Move ' + fileName(imagePath) + ' left'"
-                              title="Move left"
+                              [attr.aria-label]="i18n.t('pdfFromImages.slot.moveLeftAria', { name: fileName(imagePath) })"
+                              [title]="i18n.t('pdfFromImages.slot.moveLeft')"
                               (click)="moveSlot(imagePath, 'left')"
                             >
                               <lucide-icon [img]="leftIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
@@ -357,8 +360,8 @@
                               type="button"
                               class="slot-action"
                               [disabled]="!canMoveSlot(imagePath, 'up')"
-                              [attr.aria-label]="'Move ' + fileName(imagePath) + ' up'"
-                              title="Move up"
+                              [attr.aria-label]="i18n.t('pdfFromImages.slot.moveUpAria', { name: fileName(imagePath) })"
+                              [title]="i18n.t('pdfFromImages.slot.moveUp')"
                               (click)="moveSlot(imagePath, 'up')"
                             >
                               <lucide-icon [img]="upIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
@@ -367,8 +370,8 @@
                               type="button"
                               class="slot-action"
                               [disabled]="!canMoveSlot(imagePath, 'down')"
-                              [attr.aria-label]="'Move ' + fileName(imagePath) + ' down'"
-                              title="Move down"
+                              [attr.aria-label]="i18n.t('pdfFromImages.slot.moveDownAria', { name: fileName(imagePath) })"
+                              [title]="i18n.t('pdfFromImages.slot.moveDown')"
                               (click)="moveSlot(imagePath, 'down')"
                             >
                               <lucide-icon [img]="downIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
@@ -377,8 +380,8 @@
                               type="button"
                               class="slot-action"
                               [disabled]="!canMoveSlot(imagePath, 'right')"
-                              [attr.aria-label]="'Move ' + fileName(imagePath) + ' right'"
-                              title="Move right"
+                              [attr.aria-label]="i18n.t('pdfFromImages.slot.moveRightAria', { name: fileName(imagePath) })"
+                              [title]="i18n.t('pdfFromImages.slot.moveRight')"
                               (click)="moveSlot(imagePath, 'right')"
                             >
                               <lucide-icon [img]="rightIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
@@ -386,8 +389,8 @@
                             <button
                               type="button"
                               class="slot-action slot-remove"
-                              [attr.aria-label]="'Send ' + fileName(imagePath) + ' back to the tray'"
-                              title="Back to tray"
+                              [attr.aria-label]="i18n.t('pdfFromImages.slot.backToTrayAria', { name: fileName(imagePath) })"
+                              [title]="i18n.t('pdfFromImages.slot.backToTray')"
                               (click)="unplace(imagePath)"
                             >
                               <lucide-icon [img]="closeIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
@@ -406,7 +409,7 @@
     </section>
 
     @if (showProgress()) {
-      <section class="panel progress-panel" aria-label="PDF progress">
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('pdfFromImages.progress.aria')">
         <div class="panel-body progress-body">
           <app-job-card [job]="jobResult()"></app-job-card>
         </div>
