@@ -13,7 +13,9 @@ Everything runs on your machine. There are no uploads, accounts, or cloud calls.
 | Documents | Markdown → PDF (optional header/footer, single and batch), DOCX → PDF (bundled pure-Go renderer, single and batch) |
 | Video | Convert, Trim, Merge, Transcribe (Whisper) |
 
-Every batch-capable tool plans one output per input and reports partial success per item; Merge, Images → PDF, and PDF → DOCX stay single-job operations.
+Every batch-capable tool plans one output per input and reports partial success per item; PDF Merge, Video Merge, Images → PDF and PDF → DOCX are single-job operations.
+
+Curated recipes compose the tools into outcomes: Email PDF, Web image set, Social clip, Clean scan and Burned-in subtitles. Folder automations run a recipe when a matching file arrives; a rule can watch subfolders and filter by extension and file-name patterns.
 
 DOCX → PDF renders with the bundled pure-Go engine, so no office suite is
 installed or required. PDF/A export post-processes the rendered PDF with the
@@ -27,6 +29,18 @@ Tool jobs and recipe runs keep running when you switch tools. The Activity butto
 
 The drawer is event-driven: it seeds once from `ListJobs` and then follows `jobs/progress`, `jobs/state`, `recipes/progress` and `recipes/state` events. Pages subscribe to the same events instead of polling, and the elapsed-time label ticks locally without touching the backend.
 
+Closing the window while a job or recipe is running keeps the process alive in the tray instead of killing the work. The tray menu lists active tasks with show and cancel actions, and the window title and tray tooltip carry the running count. An idle close quits; quitting is always explicit from the tray or the app menu.
+
+## Workbench capabilities
+
+- **Trash and job history:** Settings → Trash and history lists finished jobs with open, reveal, undo and restore actions. It shows the trash size read from disk and empties the trash only after an explicit confirmation.
+- **Remembered options:** tool pages with durable options restore the last values used for that tool. The store is versioned per tool and validates the stored shape on read, so a corrupt or outdated payload falls back to defaults instead of breaking the form.
+- **Run again:** Image Compress, PDF Optimize, DOCX → PDF and Video Transcribe store the last submitted request and offer "Run again with the same settings", which re-plans the same inputs and produces a collision-safe new output.
+- **Drag reorder:** PDF Merge, Video Merge and multi-input recipes accept drag reordering. The move-up/move-down buttons remain as the keyboard-accessible fallback.
+- **Document thumbnails:** DOCX and Markdown inputs render a first-page thumbnail through the same in-process document engines as the conversion tools, then the shared PDF preview pipeline (`pdftoppm`). Oversized or corrupt documents degrade to the typed "no preview" state instead of failing the card.
+- **Capability panel:** Settings → Tools & Models reports every dependency it can detect — `pdftoppm`, `tesseract`, `pdftotext`, `gs`, `ffmpeg`, `ffprobe`, `libvips`, `cwebp`, `pdf2docx`, the background-removal pack and Whisper — with install guidance for each missing one.
+- **One run pipeline:** all 20 tool pages use `ToolRunController` for plan → run → observe → verify → undo, and one shared status vocabulary (`frontend/src/app/utils/job-status.ts`) renders job states consistently in the job card, activity drawer, result card and Home.
+
 ## Stack
 
 - **Backend:** Go 1.26 + Wails v3.1 (stable), typed Wails services and generated TypeScript bindings
@@ -35,7 +49,7 @@ The drawer is event-driven: it seeds once from `ListJobs` and then follows `jobs
 - **Styling:** Tailwind CSS v4 + a token-based design system (`frontend/src/styles.css`)
 - **Icons:** `lucide-angular`
 - **Fonts:** Archivo Variable, Instrument Serif, IBM Plex Mono (bundled via `@fontsource`, no CDN)
-- **Tests:** Karma + Jasmine (580 specs)
+- **Tests:** 1,184 Go test functions under `internal/`; Karma + Jasmine (746 specs)
 
 ## Quick start
 
@@ -128,9 +142,11 @@ The Angular dev server is useful for UI work, but Wails IPC is unavailable there
 
 ```bash
 task verify           # go build ./..., go vet ./..., go test ./...
-task verify:frontend  # npm run build + Karma (580 specs)
+task verify:frontend  # npm run build + Karma (746 specs)
 task verify:all       # both gates
 ```
+
+The backend suite currently holds 1,184 `Test*` functions under `internal/`.
 
 `task verify:frontend` runs `scripts/verify-frontend.sh`, which resolves a Chromium-based browser automatically: it honors `CHROME_BIN` when set and otherwise looks for `brave`, `brave-browser`, `chromium`, `chromium-browser`, `google-chrome`, or `google-chrome-stable` on `PATH`. Karma falls back to the Chromium bundled by Puppeteer when one is installed.
 
@@ -172,8 +188,11 @@ The app is a single workbench shell with a persistent navigation rail, a command
 - **Tool registry:** `frontend/src/app/config/tools.ts` + `services/tool-registry.service.ts` — the single source of truth for routes, names, descriptions, icons, formats and keywords.
 - **Theme:** `frontend/src/app/services/theme.service.ts` — persists `ff-theme`, follows the OS on first load.
 - **Recent tools:** `frontend/src/app/services/recent-tools.service.ts` — last four destinations, persisted locally.
-- **Shared components:** `components/file-drop`, `components/file-queue`, `components/output-plan-card`, `components/result-card`, `components/job-card`.
-- **File-first tool flow:** drop/choose files → file cards → preset or advanced outcome → `OutputPlanCard` with the exact destination → one primary action → `ResultCard` with open/reveal/retry. Backend `PlanJob` is the source of truth; there is no separate Validate step and no free-text output path.
+- **Shared components:** `components/file-drop`, `components/tool-flow/file-queue`, `components/tool-flow/output-plan-card`, `components/tool-flow/result-card`, `components/job-card`, `components/activity-panel`, `components/settings/trash-history`, `components/toast-host`.
+- **Run lifecycle:** `frontend/src/app/utils/tool-run-controller.ts` — one plan → run → observe → verify → undo pipeline, plus the intake, progress, cancellation and resume helpers that every tool page used to copy.
+- **Status vocabulary:** `frontend/src/app/utils/job-status.ts` — the single mapping from backend job status to label and tone for the job card, activity drawer, result card and Home.
+- **Option memory:** `frontend/src/app/utils/tool-options.ts` — versioned per-tool option stores on top of `PreferencesService`; `LastRequestService` keeps the last submitted request for "Run again" on the four tools that expose it.
+- **File-first tool flow:** drop/choose files → file cards → preset or advanced outcome → `OutputPlanCard` with the exact destination → one primary action → `ResultCard` with open/reveal/retry and, where available, "Run again with the same settings". Backend `PlanJob` is the source of truth; there is no separate Validate step and no free-text output path.
 - **Page recipe:** `.page` → `.page-head` (eyebrow, title, subtitle) → `.panel` sections → `.field`/`.input` forms → `.banner` messages → `.btn` actions.
 
 See [`docs/ui-ux.md`](docs/ui-ux.md) for the token contract, page conventions and a checklist for adding a tool.
@@ -183,21 +202,31 @@ See [`docs/ui-ux.md`](docs/ui-ux.md) for the token contract, page conventions an
 ```
 main.go                          Wails bootstrap, service registration, asset embedding
 internal/
-  app/                           Composition root + Wails services
+  app/                           Composition root + Wails services + desktop lifecycle
     tool_service.go              Catalog, plan, run, cancel, status, verify, history, undo/restore
     recipe_service.go            Recipe list, plan, run, status, cancel
     automation_service.go        Rules CRUD, enable/disable, status, runs
     toolchain_service.go         Toolchain status, install, cancel
-    preview_service.go           Image/PDF/video preview jobs
+    preview_service.go           Image/PDF/video/document preview jobs
     system_service.go            Dialogs, open/reveal, inspect, media, notifications
     events.go, eventbus.go       Typed event registration and injection
-  jobs/                          Queue, scheduler, job state machine, persistence
-  recipes/                       Recipe definitions and step execution on the job engine
-  automation/                    Watchers and rule/run stores
-  preview/                       Preview jobs and cache
+    tray.go                      Tray menu, close-to-hide, running-task count
+    tray_platform_linux.go       StatusNotifierWatcher availability probe
+  jobs/                          Priority queue, class limits, job state machine, persistence
+  services/                      Job execution facade: plan, run, verify, history, activity
+  recipes/                       Curated recipes and step execution on the job engine
+  automation/                    Watchers, recursive/pattern matching and rule/run stores
+  preview/                       Preview jobs, document thumbnails and cache
   toolchain/                     Installer, pinned downloads and layout
+  capabilities/                  Runtime dependency detection for the Settings panel
+  verify/                        Output verification and target-size checks
+  jobhistory/                    Job history, undo/restore and app trash
+  inspect/                       Input inspection for file cards
+  outputplan/                    Collision-safe output naming
+  registry/                      Tool registry instance
   media/                         Token registry and streaming server
-  tools/                         Tool contract, shared helpers, per-domain implementations
+  image|pdf|video|doc/           Per-domain tools, engines and tests
+  tools/                         Tool contract and shared tool helpers
   platform/                      Shared adapters
     fsx/                         Atomic file ops, unique paths, probes, path keys
     execx/                       Bounded process runner, process groups, timeouts
@@ -206,17 +235,33 @@ internal/
     progress/                    Coalescing progress reporter
     eventbus/                    Event bus contract used below the Wails layer
   models/                        Wire DTOs
+  testutil/, utils/              Test helpers and shared utilities
 frontend/src/app/
   app.ts|html|css                Workbench shell
   config/tools.ts                Tool registry data
-  services/                      IPC wrappers, job/recipe observers, theme, registry
-  components/                    Shell palette + tool pages + shared UI
+  services/                      IPC wrappers, job/recipe observers, preferences, theme, registry
+  utils/                         Run controller, status vocabulary, option memory, formatting
+  components/                    Shell palette, tool pages, shared tool-flow and settings panels
   styles.css                     Design system and global styles
 frontend/bindings/               Generated Wails bindings (do not edit)
 scripts/                         Build and verification helpers
 docs/                            Product and UI documentation
 odd/tasks/                       Organic development task tracking
 ```
+
+## Known limitations
+
+- **DOCX → PDF is standard fidelity, not Word-identical.** Complex desktop-publishing layouts, exact floating-shape wrapping and some SmartArt diagrams may differ. The tool manifest and the page both state "standard fidelity" (`internal/doc/tool_docx_to_pdf.go`, `doc-docx-to-pdf.spec.ts`).
+- **The DOCX renderer is pinned at a pre-1.0 release.** `github.com/bobyeoh/docx2pdf-go v0.3.0` is pinned in `go.mod` and isolated behind `engine.DOCXRenderer`; PDF/A export also requires Ghostscript, and a missing `gs` is a dependency error rather than a silent downgrade.
+- **PDF Merge has no page-level progress.** `pdfcpu` merges in one call and exposes no page hook, so the job reports honest per-input stages instead of a percentage (`internal/pdf/tool_merge.go`, `internal/pdf/engine/merge.go`).
+- **Target sizes cover images and PDFs, not video.** Image Compress and the Email PDF recipe accept a target; the PDF optimize engine accepts `targetSizeBytes`; the Video tools have no target-size mode yet.
+- **The PDF Optimize page has no target-size control.** The engine accepts `targetSizeBytes` and the Email PDF recipe sets it, but the page itself only exposes the compression presets (`internal/pdf/tool_optimize.go`, `components/pdf-optimize/`).
+- **Image target size is best effort.** JPEG and WebP use a quality search; PNG uses palette quantisation and cannot use the quality knob (`internal/image/tool_compress.go`).
+- **The Linux tray needs a status-notifier host.** Wails exports a StatusNotifierItem, so a desktop without `org.kde.StatusNotifierWatcher` (KDE, or GNOME with the AppIndicator extension) gets no tray icon; close then quits instead of hiding (`internal/app/tray_platform_linux.go`).
+- **Drag reorder is pointer-only.** The queues use native HTML5 drag events with no touch path; the move-up/move-down buttons remain the accessible and touch fallback (`components/tool-flow/file-queue.ts`).
+- **Option memory and "Run again" are not universal.** 17 of the 20 tool pages persist options; Image Annotate, PDF Merge and PDF to DOCX keep per-run state. "Run again" appears only for Image Compress, PDF Optimize, DOCX → PDF and Video Transcribe, the tools that store a last request (`utils/tool-options.ts`, `services/last-request.service.ts`).
+- **Redaction has no blocking confirmation.** Image Annotate shows a "Blur vs redact" notice, but applying a redact operation runs immediately; the filled rectangle is irreversible in the exported file (`components/image-annotate/`).
+- **Undo skips outputs modified after the conversion.** The history records size and modification time and refuses to move a file that no longer matches, so a user edit is never trashed (`internal/jobhistory/history.go`).
 
 ## Generated bindings
 

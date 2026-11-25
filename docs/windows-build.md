@@ -230,6 +230,7 @@ Notes:
 ```text
 %APPDATA%\fileforge\job_history.json
 %APPDATA%\fileforge\jobs.json
+%APPDATA%\fileforge\recipe_runs.json
 %APPDATA%\fileforge\automation_rules.json
 %APPDATA%\fileforge\automation_runs.json
 ```
@@ -283,7 +284,7 @@ following data for the current Windows user is removed:
 Shortcuts and the uninstall registry key are removed as well. The managed
 toolchain covers FFmpeg, Tesseract, Poppler, Ghostscript, Python, Whisper, the
 Whisper models and the optional background-removal pack. App data covers the
-settings, job history, automation rules and runs, and the app trash.
+settings, job history, recipe runs, automation rules and runs, and the app trash.
 
 Converted files are never touched: they live wherever you saved them. The
 Microsoft Edge WebView2 runtime is shared with other applications and stays

@@ -1,9 +1,9 @@
 # FileForge Tool Suite — Roadmap de Ejecución (MVP + DoD)
 
 **Proyecto:** `wails-fileforge`  
-**Estado del documento:** Activo (reemplaza al plan maestro anterior)  
-**Versión:** v1.0  
-**Fecha:** 2026-03-27
+**Estado del documento:** Histórico, reconciliado con `feat/v1.2-stabilization`
+**Versión:** v1.2 (estado de ejecución actualizado)
+**Fecha original:** 2026-03-27 · **Última reconciliación:** 2026-11-25
 
 ---
 
@@ -29,38 +29,47 @@ La referencia de completitud es explícita: **MVP + DoD** (global y por herramie
 
 ## 2) Matriz resumida de estado actual
 
-> Referencia: estado funcional observado en documentación vigente y estructura actual del proyecto.
+> Referencia: estado funcional verificado contra el código en `feat/v1.2-stabilization` (2026-11-25).
 
 | Área / Tool | Estado | Nota breve |
 |---|---|---|
-| Plataforma base Wails + Angular | Implementado | App desktop operativa, bindings y estructura base presentes |
-| Registro de conversores y servicios de conversión | Implementado | Hay base reutilizable para evolucionar a registry/orchestrator por tools |
-| `tool.image.crop` | Faltante (prioridad máxima) | Definido como primer objetivo de imagen |
-| `tool.image.annotate` | Parcial (definición) | Debe incluir texto/flecha/rectángulo + **blur/redacción** |
-| `tool.pdf.merge` | Faltante | Debe respetar orden de PDFs recibido |
-| `tool.pdf.crop` | Implementado (v1) | Soporta single+batch robusto con `partial_success` y autoincremento de salida |
-| `tool.doc.md_to_pdf` | Faltante | Requiere header/footer opcional y configurable |
-| `tool.doc.docx_to_pdf` | Implementado (v1) | Conversión con fidelidad estándar mediante un motor pure-Go incluido; PDF/A con Ghostscript |
-| `tool.video.convert` | Faltante | Mantener en roadmap MVP |
-| `tool.video.trim` | Faltante | Mantener en roadmap MVP |
-| Batch transversal | Parcial (infra base) | Debe cerrar `partial success` + retries + recuperación al reinicio |
+| Plataforma base Wails + Angular | Implementado | Wails v3.1, servicios tipados, bindings generados y frontend Angular 21 |
+| Registro de tools y motor de jobs | Implementado | Un registro instanciado por el composition root y un motor con cola, límites por clase, cancelación y persistencia |
+| `tool.image.crop` | Implementado | Single + batch, preview backend y salida no destructiva |
+| `tool.image.annotate` | Implementado | Texto, flecha, rectángulo, **blur** y **redacción** en orden determinístico |
+| `tool.pdf.merge` | Implementado | Respeta el orden de entrada, valida por archivo y reporta errores agregados |
+| `tool.pdf.crop` | Implementado | Single + batch con `partial_success` y autoincremento de salida |
+| `tool.doc.md_to_pdf` | Implementado | Header/footer opcional configurable; **single y batch** |
+| `tool.doc.docx_to_pdf` | Implementado | Motor pure-Go incluido, single + batch; PDF/A con Ghostscript y selección de páginas con pdfcpu |
+| `tool.video.convert` | Implementado | Presets, validación y progreso real por job |
+| `tool.video.trim` | Implementado | Inicio/fin validados, salida atómica y progreso real |
+| Batch transversal | Implementado | `partial_success`, reintentos acotados, recuperación al reinicio y recuperación de runs de receta |
+
+La matriz original cubría el MVP. El catálogo actual tiene 20 tools: se agregaron
+`tool.image.convert`, `tool.image.compress`, `tool.image.watermark`,
+`tool.image.ocr`, `tool.image.background`, `tool.pdf.split`,
+`tool.pdf.optimize`, `tool.pdf.ocr`, `tool.pdf.images`,
+`tool.pdf.to_docx`, `tool.video.merge` y `tool.video.transcribe`
+(`internal/registry`, manifiestos por dominio). Las recetas curadas
+(`internal/recipes/service.go`) y las automatizaciones de carpeta
+(`internal/automation`) son capas posteriores a este roadmap.
 
 ---
 
 ## 3) Alcance MVP (referencia de completitud)
 
-Se considera MVP de suite cuando estén operativas estas capacidades con DoD aprobado:
+Se considera MVP de suite cuando estén operativas estas capacidades con DoD aprobado. **Estado v1.2: todas entregadas**; el smoke E2E automatizado sigue pendiente (ver sección 7).
 
-- `tool.image.crop` (**prioridad #1 de imagen**)
-- `tool.image.annotate` (texto, flecha, rectángulo, **blur, redacción**)
-- `tool.pdf.merge` (respeta orden recibido)
-- `tool.pdf.crop`
-- `tool.doc.md_to_pdf` (header/footer opcional configurable)
-- `tool.doc.docx_to_pdf` (rápido/aceptable; alta fidelidad futura)
-- `tool.video.convert`
-- `tool.video.trim`
-- Ejecución batch con `partial success`
-- Retry policy v1 activa
+- [x] `tool.image.crop`
+- [x] `tool.image.annotate` (texto, flecha, rectángulo, **blur, redacción**)
+- [x] `tool.pdf.merge` (respeta orden recibido)
+- [x] `tool.pdf.crop`
+- [x] `tool.doc.md_to_pdf` (header/footer opcional configurable, single y batch)
+- [x] `tool.doc.docx_to_pdf` (fidelidad estándar con motor pure-Go; alta fidelidad en backlog)
+- [x] `tool.video.convert`
+- [x] `tool.video.trim`
+- [x] Ejecución batch con `partial success`
+- [x] Retry policy v1 activa
 
 ### 3.1 Política arquitectónica obligatoria: **V1-only (Legacy = prohibido)**
 
@@ -291,7 +300,7 @@ Completar anotación base de imagen para casos de documentación y privacidad.
 - TODO explícito agregado en backend para futura variante por-archivo en batch.
 - Preview annotate: backend pixel-perfect, usa exactamente el mismo pipeline que la ejecución final.
 - UX v2 annotate: flujo principal de dibujo directo sobre imagen (overlay interactivo con selección de herramienta y cursor crosshair), conservando formularios como “Ajustes avanzados” para edición fina.
-- UX redact: confirmación explícita previa a ejecución cuando existe al menos una operación redact.
+- UX redact: aviso visible “Blur vs redact” con la explicación de irreversibilidad. **No hay confirmación bloqueante** antes de ejecutar; es una brecha de seguridad conocida (`image-annotate.ts`, sin diálogo de confirmación para redact).
 - Export no destructivo: autogenera `*_annotated` y resuelve colisiones con sufijos `-2`, `-3`, ...
 - Restricción vigente: no se agregó framework E2E nuevo; smoke E2E transversal queda pendiente.
 
@@ -299,7 +308,7 @@ Completar anotación base de imagen para casos de documentación y privacidad.
 1. Seleccionar imagen (single) o lote (batch).
 2. Agregar operaciones en el orden exacto de ejecución final.
 3. Configurar opciones por operación (color, grosor, opacidad, intensidad blur, texto multilinea).
-4. En caso de `redact`, confirmar explícitamente la irreversibilidad antes de ejecutar.
+4. En caso de `redact`, leer el aviso de irreversibilidad antes de ejecutar; la UI actual no pide una confirmación bloqueante.
 5. Validar y ejecutar job V1.
 6. Revisar preview backend y outputs `*_annotated`.
 
@@ -336,7 +345,7 @@ Entregar merge de PDFs confiable y predecible.
 
 ### Frontend
 - [x] UI con listado reordenable (drag/drop) y orden visible (índice).
-- [x] Confirmación de orden final antes de ejecutar.
+- [x] Orden final visible en el `OutputPlanCard` antes de ejecutar (sin modal aparte desde v1.2).
 
 ### Tests
 - [x] Test de orden: output debe reflejar secuencia de entrada.
@@ -350,8 +359,8 @@ Entregar merge de PDFs confiable y predecible.
 - Validación previa por archivo (modo agregado, no fail-fast): se validan todos los PDFs de entrada antes de mergear y se devuelve una lista `details.fileErrors[]` con error por archivo inválido/protegido.
 - Distinción explícita de PDFs protegidos: los archivos con protección por contraseña devuelven `detail_code`/código específico `PDF_PROTECTED_INPUT`.
 - Si hay mezcla de errores por tipo (ej. corrupto + protegido), el error agregado del job usa `PDF_INVALID_INPUTS` y conserva el detalle por archivo para diagnóstico.
-- UI de merge mantiene listado reordenable con índice visible y agrega modal de confirmación de orden final inmediatamente antes de ejecutar.
-- El modal de confirmación congela snapshot de orden/salida para evitar cambios accidentales entre confirmación y submit.
+- UI de merge mantiene un listado reordenable por drag con índice visible y botones de subir/bajar como alternativa accesible.
+- El `OutputPlanCard` muestra el orden final y el destino resuelto antes de ejecutar; desde v1.2 ya no hay un modal de confirmación separado (`pdf-merge.spec.ts`).
 
 **Criterios de salida (gates)**
 - Orden final del PDF coincide 1:1 con orden enviado.
@@ -392,8 +401,7 @@ Exportar Markdown a PDF con branding y metadatos básicos configurables.
 - [x] Documentar opciones soportadas y ejemplos de configuración.
 
 **Detalles implementados (Etapa 4):**
-- Tool backend nuevo: `tool.doc.md_to_pdf` registrado en catálogo V1, con ejecución **solo `single`** en v1.
-- TODO explícito en backend para batch futuro (por archivo) fuera de alcance de esta etapa.
+- Tool backend: `tool.doc.md_to_pdf` registrado en el catálogo, con ejecución **`single` y `batch`**. El batch se cerró en la fase 4D-2 del refactor backend (`b095259`); cada input planifica su propia salida y renderiza hasta 2 en paralelo.
 - Motor de conversión: implementación en **Go puro**, sin runtime externo requerido en ejecución.
 - Render v1 de Markdown→PDF en **A4 vertical**.
 - Soporte v1 de contenido markdown con texto, imágenes y HTML inline/base (render aproximado para HTML complejo).
@@ -453,7 +461,7 @@ Exportar Markdown a PDF con branding y metadatos básicos configurables.
 ```
 
 **Límites conocidos v1 (Etapa 4):**
-- Solo `single` (sin batch).
+- `single` y `batch`; el batch planifica una salida por input y reporta `partial_success`.
 - Preview frontend deliberadamente aproximada (no refleja layout final exacto del PDF).
 - Render de HTML complejo dentro de Markdown se limita a un subset razonable de v1.
 - Soporte remoto v1 acotado a formatos de imagen detectables como `png`, `jpeg` y `gif`.
@@ -509,19 +517,22 @@ Habilitar conversión DOCX→PDF utilitaria para uso diario.
 - Rechazo de archivos protegidos: detección previa al renderizado por metadata DOCX (`word/settings.xml`), firma OLE/CFB y flag de cifrado ZIP.
 - Fuentes: el renderer elige una fuente del sistema o una fuente latina embebida; si la resolución falla, retorna un error canónico explícito.
 - Detail codes específicos con prefijo obligatorio `DOC_DOCX_TO_PDF_*` para validación, runtime, ejecución, protección y señales de fuentes.
-- Frontend nuevo con:
-  - badge **“fidelidad estándar”**,
-  - confirmación obligatoria previa a ejecutar con texto exacto:
-    - “Esta conversión usa fidelidad estándar. En documentos complejos puede haber diferencias de diseño (tablas, fuentes, espaciado). ¿Querés continuar?”
+- Frontend con:
+  - badge y banner **“Standard fidelity”** siempre visibles antes de ejecutar,
+  - sin diálogo de confirmación: la advertencia es informativa y no bloquea el job,
   - soporte de ejecución `single` + `batch`.
 - Integración de la tool en Home y Tool Catalog.
-- Testing Etapa 5:
-  - dataset intermedio de 5 DOCX (incluye casos complejos) en tests,
-  - snapshots por página con umbral de tolerancia del 2% sobre baseline por fixture/página.
+- Testing de la versión v1.2:
+  - fixtures DOCX generados dentro de los tests como paquetes OOXML mínimos (sin binarios en el repo),
+  - cobertura de single, batch, PDF/A, selección de páginas, DOCX protegido, DOCX corrupto y errores de fuente (`internal/doc/engine/docx_to_pdf_test.go`, `internal/doc/engine/page_selection_test.go`),
+  - specs de página para la nota de fidelidad y la ausencia de confirmación (`doc-docx-to-pdf.spec.ts`).
+  - No hay snapshots visuales por página: la fidelidad estándar se comunica como límite conocido, no se compara pixel a pixel.
 
-**Límites v1 explícitos (Etapa 5):**
-- Fidelidad estándar: documentos complejos (tablas avanzadas, tipografías no disponibles, layouts muy densos) pueden presentar diferencias visuales respecto al original.
-- La detección de fuentes faltantes/sustituidas y protección de documento es **best-effort**: cuando hay señal detectable se devuelve error; no garantiza detección universal en todos los motores/versiones.
+**Límites v1 explícitos (Etapa 5, actualizado en v1.2):**
+- Fidelidad estándar: documentos complejos (tablas avanzadas, tipografías no disponibles, layouts muy densos), DTP, ajuste exacto de formas flotantes y parte del SmartArt pueden presentar diferencias visuales respecto al original.
+- El renderer es `github.com/bobyeoh/docx2pdf-go v0.3.0`, una versión pre-1.0 fijada en `go.mod` y aislada detrás de `engine.DOCXRenderer`.
+- PDF/A requiere Ghostscript; sin `gs` la exportación falla con un error de dependencia, nunca degrada a PDF simple.
+- La detección de fuentes faltantes/sustituidas y protección de documento es **best-effort**: cuando hay señal detectable se devuelve error; no garantiza detección universal.
 - La variante de alta fidelidad NO forma parte de esta etapa.
 
 **Backlog alta fidelidad (post-MVP):**
@@ -572,7 +583,7 @@ Agregar recorte PDF con configuración por páginas/rangos.
 - En batch, rangos fuera de página por archivo ya no tumban todo el job: cada archivo devuelve resultado en `items[]` con `success/error` por ítem.
 - En resultados batch mixtos, se devuelve además error agregado del job con `error.details.fileErrors[]` (`path`, `code`, `message`) para diagnóstico consolidado.
 - Salida batch no destructiva robusta con autoincremento de colisiones: `*_cropped.pdf`, `*_cropped-2.pdf`, `*_cropped-3.pdf`, ...
-- UI de `pdf-crop` agrega confirmación previa simple (rango, preset/margins, cantidad de archivos, output) antes de submit.
+- UI de `pdf-crop` muestra rango, preset/margins, cantidad de archivos y output en el `OutputPlanCard` antes de submit; desde v1.2 no hay modal de confirmación separado (`pdf-crop.spec.ts`).
 - UI refleja correctamente `partial_success` y errores por archivo tanto a nivel item como agregado.
 
 **Criterios de salida (gates)**
@@ -613,6 +624,11 @@ Cubrir casos básicos de conversión y recorte de video.
 
 ### Docs
 - [ ] Documentar formatos de entrada/salida soportados y límites.
+
+**Estado v1.2:** `tool.video.convert` y `tool.video.trim` están implementados con
+presets, validación de timestamps, progreso real por job y publicación atómica.
+Los tests usan un runner de ffmpeg simulado, no clips reales; la integración con
+clips de referencia y una guía dedicada de formatos siguen pendientes.
 
 **Criterios de salida (gates)**
 - Conversión y trim ejecutables en dataset smoke.
@@ -707,26 +723,26 @@ Cerrar robustez transversal de ejecución batch y recuperación operacional.
 
 ## 6.1 DoD global (obligatorio para declarar completitud MVP)
 
-- [ ] Tool registrada en catálogo con metadata y validaciones.
-- [ ] Flujo single E2E funcional (input → config → run → result).
-- [ ] Batch soportado o explícitamente no aplicable.
-- [ ] Errores normalizados por código + mensaje accionable.
-- [ ] Cobertura mínima de tests (backend + frontend + smoke).
-- [ ] Documentación funcional y límites conocidos.
-- [ ] Logging técnico suficiente para diagnóstico local.
+- [x] Tool registrada en catálogo con metadata y validaciones.
+- [x] Flujo single E2E funcional (input → config → run → result).
+- [x] Batch soportado o explícitamente no aplicable.
+- [x] Errores normalizados por código + mensaje accionable.
+- [ ] Cobertura mínima de tests (backend + frontend + smoke): backend y frontend completos; **smoke E2E automatizado pendiente**.
+- [x] Documentación funcional y límites conocidos.
+- [x] Logging técnico suficiente para diagnóstico local.
 
 ## 6.2 DoD por herramienta
 
 | Tool | Checklist DoD específico |
 |---|---|
-| `tool.image.crop` | [ ] selección válida [ ] presets ratio [ ] export no destructivo [ ] tests de coordenadas |
-| `tool.image.annotate` | [ ] texto [ ] flecha [ ] rectángulo [ ] blur [ ] redacción [ ] orden determinístico |
-| `tool.pdf.merge` | [ ] orden de entrada preservado [ ] reordenamiento UI [ ] errores por archivo |
+| `tool.image.crop` | [x] selección válida [x] presets ratio [x] export no destructivo [x] tests de coordenadas |
+| `tool.image.annotate` | [x] texto [x] flecha [x] rectángulo [x] blur [x] redacción [x] orden determinístico |
+| `tool.pdf.merge` | [x] orden de entrada preservado [x] reordenamiento UI [x] errores por archivo |
 | `tool.pdf.crop` | [x] parser de rangos [x] recorte por rango [x] errores accionables |
-| `tool.doc.md_to_pdf` | [ ] render markdown [ ] header opcional [ ] footer opcional [ ] config aplicada |
-| `tool.doc.docx_to_pdf` | [x] conversión rápida/aceptable [x] límites v1 documentados [x] etiqueta de fidelidad estándar |
-| `tool.video.convert` | [ ] presets básicos [ ] validación de formato [ ] progreso visible |
-| `tool.video.trim` | [ ] inicio/fin válidos [ ] salida estable [ ] errores de timestamp claros |
+| `tool.doc.md_to_pdf` | [x] render markdown [x] header opcional [x] footer opcional [x] config aplicada [x] batch |
+| `tool.doc.docx_to_pdf` | [x] conversión estándar [x] límites v1 documentados [x] etiqueta de fidelidad estándar [x] batch |
+| `tool.video.convert` | [x] presets básicos [x] validación de formato [x] progreso visible |
+| `tool.video.trim` | [x] inicio/fin válidos [x] salida estable [x] errores de timestamp claros |
 
 ---
 
@@ -745,22 +761,27 @@ Checklist mínimo transversal:
 - [ ] Smoke de retries transitorios (3 intentos máximo).
 - [ ] Smoke de reinicio con jobs `interrupted`.
 
+El repositorio no incorpora un framework E2E. La verificación automática actual es
+`task verify` (Go: 1.184 funciones de test) y `task verify:frontend` (Karma: 746
+specs); los escenarios de batch, retry y reinicio están cubiertos por tests de Go,
+no por smoke de navegador.
+
 ---
 
 ## 8) Plan de releases incremental
 
-| Release | Contenido | Gate de salida |
-|---|---|---|
-| R0 | Etapa 0 completada | Contratos V1 estables + estados de job consistentes |
-| R0-LZ | Etapa 0.5 decommission legacy | **Gate Legacy Zero** aprobado (sin APIs/rutas/exports legacy activos) |
-| R1 | `tool.image.crop` | E2E smoke aprobado + DoD específico cumplido |
-| R2 | `tool.image.annotate` | Blur/redacción operativos + tests de orden |
-| R3 | `tool.pdf.merge` | Orden estricto validado en tests |
-| R4 | `tool.doc.md_to_pdf` | Header/footer opcional configurable funcionando |
-| R5 | `tool.doc.docx_to_pdf` v1 | Fidelidad estándar aceptable + límites documentados |
-| R6 | `tool.pdf.crop` | Rango + recorte robusto |
-| R7 | Video MVP | Convert + trim en smoke dataset |
-| R8 | Batch hardening | `partial success` + retry v1 + interrupted tras reinicio |
+| Release | Contenido | Gate de salida | Estado v1.2 |
+|---|---|---|---|
+| R0 | Etapa 0 completada | Contratos V1 estables + estados de job consistentes | Entregado |
+| R0-LZ | Etapa 0.5 decommission legacy | **Gate Legacy Zero** aprobado (sin APIs/rutas/exports legacy activos) | Entregado |
+| R1 | `tool.image.crop` | DoD específico cumplido | Entregado; smoke E2E automatizado pendiente |
+| R2 | `tool.image.annotate` | Blur/redacción operativos + tests de orden | Entregado |
+| R3 | `tool.pdf.merge` | Orden estricto validado en tests | Entregado |
+| R4 | `tool.doc.md_to_pdf` | Header/footer opcional configurable, single y batch | Entregado |
+| R5 | `tool.doc.docx_to_pdf` v1 | Fidelidad estándar aceptable + límites documentados | Entregado con motor pure-Go; alta fidelidad en backlog |
+| R6 | `tool.pdf.crop` | Rango + recorte robusto | Entregado |
+| R7 | Video MVP | Convert + trim con progreso real | Entregado; smoke E2E automatizado pendiente |
+| R8 | Batch hardening | `partial success` + retry v1 + interrupted tras reinicio | Entregado |
 
 Notas de entrega:
 - Cada release debe cerrar DoD global + DoD específico de lo incluido.
@@ -801,5 +822,5 @@ Notas de entrega:
 
 ## 11) Cierre operativo
 
-Este documento queda como **fuente única de ejecución** para el desarrollo de la suite por etapas.  
+Este documento queda como **registro histórico de la ejecución por etapas del MVP**, reconciliado con el estado v1.2. Las capacidades posteriores (recetas, automatizaciones, bandeja, historial, panel de capacidades) se documentan en `README.md` y `docs/differentiation-roadmap.md`.
 La verificación de avance debe hacerse con checklists de etapa + DoD global/específico, no con percepción subjetiva de “ya está”.
