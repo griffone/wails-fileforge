@@ -17,7 +17,7 @@ import {
 import { Subscription } from 'rxjs';
 
 import { FileDrop } from '../file-drop/file-drop';
-import { FileQueue } from '../tool-flow/file-queue';
+import { FileQueue, FileQueueReorder } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
@@ -759,6 +759,23 @@ export class RecipeRun implements OnDestroy, OnInit {
       return;
     }
     this.swap(index, index + 1);
+  }
+
+  onReorder(event: FileQueueReorder): void {
+    if (!this.multipleInputs()) {
+      return;
+    }
+    const paths = this.selectedPaths();
+    const from = paths.indexOf(event.path);
+    if (from < 0 || event.to < 0 || event.to >= paths.length || event.to === from) {
+      return;
+    }
+    const next = [...paths];
+    next.splice(from, 1);
+    next.splice(event.to, 0, event.path);
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    this.schedulePlanRefresh();
   }
 
   async chooseOutputFolder(): Promise<void> {

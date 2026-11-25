@@ -323,6 +323,23 @@ export class ToolRunController {
     return true;
   }
 
+  /** Moves one path to a final index (drag reorder); returns false as a no-op. */
+  reorderPath(path: string, to: number): boolean {
+    const previous = [...this.selectedPaths()];
+    const from = previous.indexOf(path);
+    if (from < 0 || to < 0 || to >= previous.length || to === from) {
+      return false;
+    }
+
+    const next = [...previous];
+    next.splice(from, 1);
+    next.splice(to, 0, path);
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    this.notifyPathsChanged(previous);
+    return true;
+  }
+
   /** Rebuilds the queue, keeping enriched items for paths still present. */
   syncFileItems(): void {
     const paths = this.selectedPaths();

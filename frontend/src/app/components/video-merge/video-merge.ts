@@ -9,7 +9,7 @@ import {
 
 import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
-import { FileQueue } from '../tool-flow/file-queue';
+import { FileQueue, FileQueueReorder } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
@@ -315,6 +315,10 @@ export class VideoMerge implements OnDestroy, OnInit {
 
   moveDown(path: string): void {
     this.job.movePath(path, 1);
+  }
+
+  onReorder(event: FileQueueReorder): void {
+    this.job.reorderPath(event.path, event.to);
   }
 
   selectPreset(presetId: string): void {

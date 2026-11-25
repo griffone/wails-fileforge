@@ -340,6 +340,130 @@ describe('PdfMerge', () => {
     expect(lastPlanRequest().options['inputPageRanges']).toEqual(['2-4', '1']);
   }));
 
+  it('drag reorder changes the submitted order and keeps each page range with its file', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf', '/tmp/c.pdf']);
+    flushMicrotasks();
+
+    component.onPageRangeInput('/tmp/a.pdf', inputEvent('1'));
+    component.onPageRangeInput('/tmp/b.pdf', inputEvent('2'));
+    component.onPageRangeInput('/tmp/c.pdf', inputEvent('3'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const rows = Array.from(
+      fixture.nativeElement.querySelectorAll('.file-queue-row'),
+    ) as HTMLElement[];
+    expect(rows.length).toBe(3);
+
+    const transfer = new DataTransfer();
+    const handle = rows[0].querySelector('.file-queue-drag') as HTMLElement;
+    handle.dispatchEvent(
+      new DragEvent('dragstart', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      }),
+    );
+
+    spyOn(rows[2], 'getBoundingClientRect').and.returnValue({
+      top: 0,
+      bottom: 60,
+      height: 60,
+      left: 0,
+      right: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    rows[2].dispatchEvent(
+      new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+        clientY: 55,
+      }),
+    );
+    rows[2].dispatchEvent(
+      new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+        clientY: 55,
+      }),
+    );
+
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.selectedPaths()).toEqual([
+      '/tmp/b.pdf',
+      '/tmp/c.pdf',
+      '/tmp/a.pdf',
+    ]);
+    expect(component.fileItems().map((item) => item.name)).toEqual([
+      'b.pdf',
+      'c.pdf',
+      'a.pdf',
+    ]);
+    expect(lastPlanRequest().inputPaths).toEqual([
+      '/tmp/b.pdf',
+      '/tmp/c.pdf',
+      '/tmp/a.pdf',
+    ]);
+    expect(lastPlanRequest().options['inputPageRanges']).toEqual([
+      '2',
+      '3',
+      '1',
+    ]);
+  }));
+
+  it('ignores a drag drop on the row itself and keeps the queue order', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const planCalls = wailsSpy.planJob.calls.count();
+    const rows = Array.from(
+      fixture.nativeElement.querySelectorAll('.file-queue-row'),
+    ) as HTMLElement[];
+    const transfer = new DataTransfer();
+    const handle = rows[0].querySelector('.file-queue-drag') as HTMLElement;
+    handle.dispatchEvent(
+      new DragEvent('dragstart', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      }),
+    );
+
+    spyOn(rows[0], 'getBoundingClientRect').and.returnValue({
+      top: 0,
+      bottom: 60,
+      height: 60,
+      left: 0,
+      right: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    rows[0].dispatchEvent(
+      new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+        clientY: 10,
+      }),
+    );
+
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls);
+  }));
+
   it('drops the page range when its file is removed', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf', '/tmp/c.pdf']);
     flushMicrotasks();

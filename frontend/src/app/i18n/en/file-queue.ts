@@ -4,5 +4,6 @@ export const fileQueueEn = {
   'fileQueue.emptyHint': 'Drop files above to get started.',
   'fileQueue.moveUp': 'Move {name} up',
   'fileQueue.moveDown': 'Move {name} down',
+  'fileQueue.dragHandle': 'Drag {name} to reorder',
   'fileQueue.remove': 'Remove {name}',
 } as const;

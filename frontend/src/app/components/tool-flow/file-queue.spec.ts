@@ -112,4 +112,141 @@ describe('FileQueue', () => {
     expect(down).toHaveBeenCalledOnceWith('/tmp/a.pdf');
     expect(up).not.toHaveBeenCalled();
   });
+
+  describe('drag reordering', () => {
+    function rect(height: number): DOMRect {
+      return {
+        top: 0,
+        bottom: height,
+        height,
+        left: 0,
+        right: 0,
+        width: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    }
+
+    function dragEvent(
+      type: string,
+      transfer: DataTransfer,
+      clientY = 0,
+    ): DragEvent {
+      return new DragEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+        clientY,
+      });
+    }
+
+    function rows(): HTMLElement[] {
+      return Array.from(
+        fixture.nativeElement.querySelectorAll('.file-queue-row'),
+      ) as HTMLElement[];
+    }
+
+    function startDrag(row: HTMLElement, transfer: DataTransfer): void {
+      const handle = row.querySelector('.file-queue-drag') as HTMLElement;
+      handle.dispatchEvent(dragEvent('dragstart', transfer));
+    }
+
+    beforeEach(() => {
+      component.reorderable = true;
+      component.items = [
+        { path: '/tmp/a.pdf', name: 'a.pdf', meta: '1 page' },
+        { path: '/tmp/b.pdf', name: 'b.pdf', meta: '2 pages' },
+        { path: '/tmp/c.pdf', name: 'c.pdf', meta: '3 pages' },
+      ];
+      fixture.detectChanges();
+    });
+
+    it('emits the dragged path with its final index and shows an insertion line', () => {
+      const reorder = jasmine.createSpy('reorder');
+      component.reorder.subscribe(reorder);
+      const transfer = new DataTransfer();
+      const items = rows();
+
+      startDrag(items[0], transfer);
+      spyOn(items[2], 'getBoundingClientRect').and.returnValue(rect(60));
+
+      items[2].dispatchEvent(dragEvent('dragover', transfer, 55));
+      fixture.detectChanges();
+
+      expect(items[0].classList).toContain('is-dragging');
+      expect(items[2].classList).toContain('is-drop-after');
+      expect(reorder).not.toHaveBeenCalled();
+
+      items[2].dispatchEvent(dragEvent('drop', transfer, 55));
+
+      expect(reorder).toHaveBeenCalledOnceWith({ path: '/tmp/a.pdf', to: 2 });
+    });
+
+    it('is a no-op when dropped on itself', () => {
+      const reorder = jasmine.createSpy('reorder');
+      component.reorder.subscribe(reorder);
+      const transfer = new DataTransfer();
+      const items = rows();
+
+      startDrag(items[1], transfer);
+      spyOn(items[1], 'getBoundingClientRect').and.returnValue(rect(60));
+
+      items[1].dispatchEvent(dragEvent('dragover', transfer, 10));
+      items[1].dispatchEvent(dragEvent('drop', transfer, 10));
+
+      expect(reorder).not.toHaveBeenCalled();
+    });
+
+    it('changes nothing when the drag ends outside the list', () => {
+      const reorder = jasmine.createSpy('reorder');
+      component.reorder.subscribe(reorder);
+      const transfer = new DataTransfer();
+      const items = rows();
+
+      startDrag(items[0], transfer);
+      spyOn(items[1], 'getBoundingClientRect').and.returnValue(rect(60));
+      items[1].dispatchEvent(dragEvent('dragover', transfer, 55));
+
+      const handle = items[0].querySelector('.file-queue-drag') as HTMLElement;
+      handle.dispatchEvent(dragEvent('dragend', transfer));
+      fixture.detectChanges();
+
+      expect(reorder).not.toHaveBeenCalled();
+      expect(items[1].classList).not.toContain('is-drop-after');
+    });
+
+    it('ignores a drop when the dragged row was removed mid-drag', () => {
+      const reorder = jasmine.createSpy('reorder');
+      component.reorder.subscribe(reorder);
+      const transfer = new DataTransfer();
+
+      startDrag(rows()[0], transfer);
+      component.items = [
+        { path: '/tmp/b.pdf', name: 'b.pdf', meta: '2 pages' },
+        { path: '/tmp/c.pdf', name: 'c.pdf', meta: '3 pages' },
+      ];
+      fixture.detectChanges();
+
+      const items = rows();
+      spyOn(items[1], 'getBoundingClientRect').and.returnValue(rect(60));
+      items[1].dispatchEvent(dragEvent('dragover', transfer, 55));
+      items[1].dispatchEvent(dragEvent('drop', transfer, 55));
+
+      expect(reorder).not.toHaveBeenCalled();
+    });
+
+    it('ignores drags that did not start in the queue', () => {
+      const reorder = jasmine.createSpy('reorder');
+      component.reorder.subscribe(reorder);
+      const transfer = new DataTransfer();
+      const items = rows();
+
+      spyOn(items[1], 'getBoundingClientRect').and.returnValue(rect(60));
+      items[1].dispatchEvent(dragEvent('dragover', transfer, 55));
+      items[1].dispatchEvent(dragEvent('drop', transfer, 55));
+
+      expect(reorder).not.toHaveBeenCalled();
+    });
+  });
 });
