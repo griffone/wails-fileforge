@@ -29,7 +29,9 @@ import {
   Recipe,
   Wails,
 } from '../../services/wails';
-import { fileName } from '../../utils/format';
+import { I18nService } from '../../services/i18n.service';
+import { ToolRegistryService } from '../../services/tool-registry.service';
+import { fileName, formatCount } from '../../utils/format';
 
 type ActionTone = 'success' | 'warning' | 'danger';
 
@@ -66,6 +68,9 @@ const TERMINAL_RUN_STATUSES = new Set([
 export class Automations implements OnInit, OnDestroy {
   private readonly wailsService = inject(Wails);
   private readonly zone = inject(NgZone);
+  private readonly registry = inject(ToolRegistryService);
+
+  readonly i18n = inject(I18nService);
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -185,24 +190,24 @@ export class Automations implements OnInit, OnDestroy {
         await Promise.all([
           this.wailsService.listRecipes().catch(() => ({
             success: false,
-            message: 'The recipe catalog could not be read.',
+            message: this.i18n.t('automations.error.recipes'),
             recipes: [] as Recipe[],
           })),
           this.wailsService.listAutomationRules().catch(() => ({
             success: false,
-            message: 'The automation rules could not be loaded.',
+            message: this.i18n.t('automations.error.rules'),
             rules: [] as AutomationRule[],
           })),
           this.wailsService.getAutomationStatus().catch(() => ({
             success: false,
-            message: 'The automation status could not be read.',
+            message: this.i18n.t('automations.error.status'),
             totalRules: 0,
             activeRules: 0,
           })),
           this.wailsService.listAutomationRuns(RUN_HISTORY_LIMIT).catch(
             () => ({
               success: false,
-              message: 'The automation run history could not be loaded.',
+              message: this.i18n.t('automations.error.runs'),
               runs: [] as AutomationRunRecord[],
             }),
           ),
@@ -229,32 +234,43 @@ export class Automations implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
-  recipeName(rule: AutomationRule): string {
-    return (
-      this.recipes().find((recipe) => recipe.id === rule.recipeId)?.name ??
-      rule.recipeId
+  recipeLabel(recipe: Recipe): string {
+    const definition = this.registry.recipes.find(
+      (candidate) => candidate.id === recipe.id,
     );
+    return definition
+      ? this.registry.recipeName(definition)
+      : this.i18n.tOr(`tools.${recipe.id}.name`, recipe.name);
+  }
+
+  recipeName(rule: AutomationRule): string {
+    const recipe = this.recipes().find(
+      (candidate) => candidate.id === rule.recipeId,
+    );
+    return recipe ? this.recipeLabel(recipe) : rule.recipeId;
   }
 
   extensionsLabel(rule: AutomationRule): string {
     const extensions = rule.extensions ?? [];
     return extensions.length > 0
       ? extensions.map((extension) => extension.toUpperCase()).join(' · ')
-      : 'Recipe defaults';
+      : this.i18n.t('automations.rule.recipeDefaults');
   }
 
   outputFolderLabel(rule: AutomationRule): string {
-    return rule.outputDir?.trim() || 'Next to the source';
+    return (
+      rule.outputDir?.trim() || this.i18n.t('automations.form.nextToSource')
+    );
   }
 
   runtimeLabel(rule: AutomationRule): string {
     switch (rule.runtimeStatus) {
       case 'watching':
-        return 'Watching';
+        return this.i18n.t('automations.runtime.watching');
       case 'degraded':
-        return 'Degraded';
+        return this.i18n.t('automations.runtime.degraded');
       default:
-        return 'Stopped';
+        return this.i18n.t('automations.runtime.stopped');
     }
   }
 
@@ -283,21 +299,21 @@ export class Automations implements OnInit, OnDestroy {
   statusLabel(status: string | undefined): string {
     switch (status) {
       case 'success':
-        return 'Success';
+        return this.i18n.t('home.status.success');
       case 'partial_success':
-        return 'Partial';
+        return this.i18n.t('home.status.partial');
       case 'failed':
-        return 'Failed';
+        return this.i18n.t('home.status.failed');
       case 'cancelled':
-        return 'Cancelled';
+        return this.i18n.t('home.status.cancelled');
       case 'interrupted':
-        return 'Interrupted';
+        return this.i18n.t('home.status.interrupted');
       case 'running':
-        return 'Running';
+        return this.i18n.t('activity.status.running');
       case 'queued':
-        return 'Queued';
+        return this.i18n.t('activity.status.queued');
       default:
-        return status?.trim() || 'Not run';
+        return status?.trim() || this.i18n.t('automations.status.notRun');
     }
   }
 
@@ -327,13 +343,17 @@ export class Automations implements OnInit, OnDestroy {
   runOutputsLabel(run: AutomationRunRecord): string {
     const count = run.outputs?.length ?? 0;
     if (count === 0) {
-      return 'No outputs';
+      return this.i18n.t('home.output.none');
     }
-    return count === 1 ? '1 file' : `${count} files`;
+    return formatCount(
+      count,
+      this.i18n.t('common.fileOne'),
+      this.i18n.t('common.fileMany'),
+    );
   }
 
   runFileName(run: AutomationRunRecord): string {
-    return fileName(run.filePath) || 'Unknown file';
+    return fileName(run.filePath) || this.i18n.t('automations.runs.unknownFile');
   }
 
   relativeTime(timestamp: number | undefined): string {
@@ -345,15 +365,19 @@ export class Automations implements OnInit, OnDestroy {
     const diff = Math.max(0, now - timestamp);
 
     if (diff < 60_000) {
-      return 'Just now';
+      return this.i18n.t('home.time.justNow');
     }
 
     if (diff < 3_600_000) {
-      return `${Math.max(1, Math.floor(diff / 60_000))} min ago`;
+      return this.i18n.t('home.time.minutesAgo', {
+        count: Math.max(1, Math.floor(diff / 60_000)),
+      });
     }
 
     if (diff < 86_400_000) {
-      return `${Math.max(1, Math.floor(diff / 3_600_000))} h ago`;
+      return this.i18n.t('home.time.hoursAgo', {
+        count: Math.max(1, Math.floor(diff / 3_600_000)),
+      });
     }
 
     const date = new Date(timestamp);
@@ -361,8 +385,8 @@ export class Automations implements OnInit, OnDestroy {
     yesterday.setDate(yesterday.getDate() - 1);
 
     return date.toDateString() === yesterday.toDateString()
-      ? 'Yesterday'
-      : date.toLocaleDateString(undefined, {
+      ? this.i18n.t('home.time.yesterday')
+      : date.toLocaleDateString(this.i18n.locale(), {
           month: 'short',
           day: 'numeric',
         });
@@ -463,15 +487,15 @@ export class Automations implements OnInit, OnDestroy {
     this.formError.set('');
 
     if (this.formName().trim().length === 0) {
-      this.formError.set('Give the rule a name.');
+      this.formError.set(this.i18n.t('automations.validation.name'));
       return;
     }
     if (this.formWatchDir().trim().length === 0) {
-      this.formError.set('Choose a folder to watch.');
+      this.formError.set(this.i18n.t('automations.validation.watchFolder'));
       return;
     }
     if (this.formRecipeId().trim().length === 0) {
-      this.formError.set('Choose a recipe to run.');
+      this.formError.set(this.i18n.t('automations.validation.recipe'));
       return;
     }
 
@@ -483,14 +507,17 @@ export class Automations implements OnInit, OnDestroy {
 
     if (!response.success) {
       this.formError.set(
-        this.friendlyMessage(response.message, 'The rule could not be saved.'),
+        this.friendlyMessage(
+          response.message,
+          this.i18n.t('automations.error.save'),
+        ),
       );
       return;
     }
 
     this.closeForm();
     await this.refreshRules();
-    this.setAction('success', response.message || 'Automation rule saved.');
+    this.setAction('success', this.i18n.t('automations.success.saved'));
   }
 
   async toggleRule(rule: AutomationRule): Promise<void> {
@@ -510,7 +537,7 @@ export class Automations implements OnInit, OnDestroy {
         'danger',
         this.friendlyMessage(
           response.message,
-          'The rule could not be updated.',
+          this.i18n.t('automations.error.update'),
         ),
       );
       return;
@@ -519,9 +546,10 @@ export class Automations implements OnInit, OnDestroy {
     await this.refreshRules();
     this.setAction(
       'success',
-      this.friendlyMessage(
-        response.message,
-        rule.enabled ? 'Rule disabled.' : 'Rule enabled.',
+      this.i18n.t(
+        rule.enabled
+          ? 'automations.success.disabled'
+          : 'automations.success.enabled',
       ),
     );
   }
@@ -560,17 +588,14 @@ export class Automations implements OnInit, OnDestroy {
         'danger',
         this.friendlyMessage(
           response.message,
-          'The run history could not be cleared.',
+          this.i18n.t('automations.error.clearRuns'),
         ),
       );
       return;
     }
 
     this.runs.set([]);
-    this.setAction(
-      'success',
-      this.friendlyMessage(response.message, 'Automation run history cleared.'),
-    );
+    this.setAction('success', this.i18n.t('automations.success.runsCleared'));
   }
 
   async deleteRule(rule: AutomationRule): Promise<void> {
@@ -588,17 +613,14 @@ export class Automations implements OnInit, OnDestroy {
         'danger',
         this.friendlyMessage(
           response.message,
-          'The rule could not be deleted.',
+          this.i18n.t('automations.error.delete'),
         ),
       );
       return;
     }
 
     await this.refreshRules();
-    this.setAction(
-      'success',
-      this.friendlyMessage(response.message, 'Automation rule deleted.'),
-    );
+    this.setAction('success', this.i18n.t('automations.success.deleted'));
   }
 
   private buildPayload(): AutomationRule {
@@ -672,7 +694,7 @@ export class Automations implements OnInit, OnDestroy {
     this.errorMessage.set(
       this.friendlyMessage(
         response.message,
-        'The automation run history could not be loaded. Open the desktop app to inspect past runs.',
+        this.i18n.t('automations.error.runsUnavailable'),
       ),
     );
   }
@@ -681,7 +703,7 @@ export class Automations implements OnInit, OnDestroy {
     this.errorMessage.set(
       this.friendlyMessage(
         message,
-        'The automation rules could not be loaded. Open the desktop app to manage folder rules.',
+        this.i18n.t('automations.error.rulesUnavailable'),
       ),
     );
   }

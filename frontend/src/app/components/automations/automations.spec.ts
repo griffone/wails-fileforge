@@ -7,6 +7,8 @@ import {
 import { Subject } from 'rxjs';
 
 import { Automations } from './automations';
+import { I18nService } from '../../services/i18n.service';
+import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import {
   AutomationRule,
   AutomationRunEvent,
@@ -173,6 +175,7 @@ describe('Automations', () => {
       providers: [{ provide: Wails, useValue: wailsSpy }],
     }).compileComponents();
 
+    TestBed.inject(I18nService).setLocale('en');
     fixture = TestBed.createComponent(Automations);
     component = fixture.componentInstance;
     fixture.detectChanges();
@@ -182,6 +185,8 @@ describe('Automations', () => {
 
   afterEach(() => {
     fixture.destroy();
+    TestBed.inject(I18nService).setLocale('en');
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
   it('loads recipes, rules and status and renders a rule', () => {
@@ -496,6 +501,25 @@ describe('Automations', () => {
     );
     expect(fixture.nativeElement.textContent).toContain(
       'Automation run history cleared.',
+    );
+  }));
+
+  it('renders the page, rule status and validation copy in Spanish', fakeAsync(() => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    expect(query('.page-title')?.textContent).toContain('Automatizaciones');
+    expect(fixture.nativeElement.textContent).toContain('Vigilando');
+
+    click('.automation-new-rule');
+    fixture.detectChanges();
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.saveAutomationRule).not.toHaveBeenCalled();
+    expect(query('.automation-form-error')?.textContent).toContain(
+      'Dale un nombre a la regla.',
     );
   }));
 });

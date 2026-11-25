@@ -1,4 +1,5 @@
 import { activityEn } from './activity';
+import { automationsEn } from './automations';
 import { categoriesEn } from './categories';
 import { commonEn } from './common';
 import { docDocxToPdfEn } from './doc-docx-to-pdf';
@@ -41,6 +42,7 @@ import { videoTrimEn } from './video-trim';
 
 export const en = {
   ...commonEn,
+  ...automationsEn,
   ...docDocxToPdfEn,
   ...docMdToPdfEn,
   ...shellEn,

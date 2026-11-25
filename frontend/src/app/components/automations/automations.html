@@ -2,11 +2,13 @@
   <header class="page-head">
     <div class="page-head-row">
       <div class="page-head-copy">
-        <p class="eyebrow">SYSTEM</p>
-        <h1 class="page-title">Local <em>Automations</em></h1>
+        <p class="eyebrow">{{ i18n.t('settings.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('automations.page.titleLead') }}
+          <em>{{ i18n.t('automations.page.titleTail') }}</em>
+        </h1>
         <p class="page-sub">
-          Watch a folder and run a recipe whenever a matching file arrives.
-          Everything stays on this machine.
+          {{ i18n.t('automations.page.sub') }}
         </p>
       </div>
 
@@ -17,7 +19,7 @@
           [strokeWidth]="2"
           aria-hidden="true"
         ></lucide-icon>
-        Local only
+        {{ i18n.t('automations.page.localBadge') }}
       </span>
     </div>
   </header>
@@ -57,8 +59,12 @@
     >
       <div class="panel-head">
         <div>
-          <h2 id="automation-summary-title" class="panel-title">Folder rules</h2>
-          <p class="panel-sub">One recipe run per arriving file.</p>
+          <h2 id="automation-summary-title" class="panel-title">
+            {{ i18n.t('automations.rules.title') }}
+          </h2>
+          <p class="panel-sub">
+            {{ i18n.t('automations.rules.subtitle') }}
+          </p>
         </div>
         <button
           type="button"
@@ -71,19 +77,23 @@
             [strokeWidth]="1.75"
             aria-hidden="true"
           ></lucide-icon>
-          New rule
+          {{ i18n.t('automations.rules.new') }}
         </button>
       </div>
 
       <div class="panel-body automation-summary-body">
         <div class="automation-stat">
           <span class="automation-stat-value mono">{{ totalRuleCount() }}</span>
-          <span class="automation-stat-label">Total rules</span>
+          <span class="automation-stat-label">{{
+            i18n.t('automations.stats.total')
+          }}</span>
         </div>
 
         <div class="automation-stat">
           <span class="automation-stat-value mono">{{ activeRuleCount() }}</span>
-          <span class="automation-stat-label">Active rules</span>
+          <span class="automation-stat-label">{{
+            i18n.t('automations.stats.active')
+          }}</span>
         </div>
 
         <div class="automation-stat automation-stat-last">
@@ -93,13 +103,15 @@
               <span [class]="statusBadgeClass(run.status)">{{
                 statusLabel(run.status)
               }}</span>
-              Last run
+              {{ i18n.t('automations.stats.lastRun') }}
             </span>
           } @else {
             <span class="automation-stat-value automation-stat-empty">
-              No runs yet
+              {{ i18n.t('automations.stats.noRuns') }}
             </span>
-            <span class="automation-stat-label">Last run</span>
+            <span class="automation-stat-label">{{
+              i18n.t('automations.stats.lastRun')
+            }}</span>
           }
         </div>
       </div>
@@ -108,7 +120,7 @@
     @if (loading()) {
       <section class="panel">
         <div class="panel-body automation-loading" role="status" aria-live="polite">
-          Loading automation rules…
+          {{ i18n.t('automations.loading.rules') }}
         </div>
       </section>
     }
@@ -121,14 +133,20 @@
         <div class="panel-head">
           <div>
             <h2 id="automation-form-title" class="panel-title">
-              {{ editingId() ? 'Edit rule' : 'New rule' }}
+              {{
+                editingId()
+                  ? i18n.t('automations.form.titleEdit')
+                  : i18n.t('automations.rules.new')
+              }}
             </h2>
             <p class="panel-sub">
-              A file in the watch folder runs the recipe once.
+              {{ i18n.t('automations.form.subtitle') }}
             </p>
           </div>
           <span class="badge badge-neutral">{{
-            editingId() ? 'Editing' : 'Draft'
+            editingId()
+              ? i18n.t('automations.form.badgeEditing')
+              : i18n.t('automations.form.badgeDraft')
           }}</span>
         </div>
 
@@ -138,13 +156,15 @@
           (submit)="$event.preventDefault(); save()"
         >
           <div class="field">
-            <label class="label" for="automation-name">Name</label>
+            <label class="label" for="automation-name">{{
+              i18n.t('automations.form.name')
+            }}</label>
             <input
               id="automation-name"
               class="input"
               type="text"
               autocomplete="off"
-              placeholder="Inbox PDFs"
+              [placeholder]="i18n.t('automations.form.namePlaceholder')"
               [value]="formName()"
               [attr.aria-invalid]="nameInvalid() ? 'true' : null"
               [attr.aria-describedby]="
@@ -153,19 +173,21 @@
               (input)="onNameInput($event)"
             />
             @if (nameInvalid()) {
-              <p class="field-help field-error">Give the rule a name.</p>
+              <p class="field-help field-error">
+                {{ i18n.t('automations.validation.name') }}
+              </p>
             }
           </div>
 
           <div class="field">
-            <span class="label">Watch folder</span>
+            <span class="label">{{ i18n.t('automations.form.watchFolder') }}</span>
             <div class="automation-path-row">
               <span
                 class="automation-path mono"
                 [class.is-empty]="!formWatchDir()"
                 [title]="formWatchDir()"
               >
-                {{ formWatchDir() || 'No folder chosen' }}
+                {{ formWatchDir() || i18n.t('automations.form.noFolder') }}
               </span>
               <button
                 type="button"
@@ -178,44 +200,56 @@
                   [strokeWidth]="1.75"
                   aria-hidden="true"
                 ></lucide-icon>
-                Choose folder
+                {{ i18n.t('automations.form.chooseFolder') }}
               </button>
             </div>
-            <p class="field-help">New files in this folder are processed automatically.</p>
+            <p class="field-help">
+              {{ i18n.t('automations.form.watchFolderHelp') }}
+            </p>
             @if (watchDirInvalid()) {
-              <p class="field-help field-error">Choose a folder to watch.</p>
+              <p class="field-help field-error">
+                {{ i18n.t('automations.validation.watchFolder') }}
+              </p>
             }
           </div>
 
           <div class="field">
-            <label class="label" for="automation-recipe">Recipe</label>
+            <label class="label" for="automation-recipe">{{
+              i18n.t('automations.form.recipe')
+            }}</label>
             <select
               id="automation-recipe"
               class="select"
               (change)="onRecipeChange($event)"
             >
               <option value="" [selected]="formRecipeId() === ''">
-                Choose a recipe
+                {{ i18n.t('automations.form.chooseRecipe') }}
               </option>
               @for (recipe of recipes(); track recipe.id) {
                 <option
                   [value]="recipe.id"
                   [selected]="formRecipeId() === recipe.id"
                 >
-                  {{ recipe.name }}
+                  {{ recipeLabel(recipe) }}
                 </option>
               }
             </select>
             @if (acceptedExtensionsHelp(); as help) {
-              <p class="field-help">Accepts {{ help }}.</p>
+              <p class="field-help">
+                {{ i18n.t('automations.form.accepts', { extensions: help }) }}
+              </p>
             }
             @if (recipeInvalid()) {
-              <p class="field-help field-error">Choose a recipe to run.</p>
+              <p class="field-help field-error">
+                {{ i18n.t('automations.validation.recipe') }}
+              </p>
             }
           </div>
 
           <div class="field">
-            <label class="label" for="automation-extensions">Extensions</label>
+            <label class="label" for="automation-extensions">{{
+              i18n.t('automations.form.extensions')
+            }}</label>
             <input
               id="automation-extensions"
               class="input mono"
@@ -228,19 +262,23 @@
               (input)="onExtensionsInput($event)"
             />
             <p id="automation-extensions-help" class="field-help">
-              Comma-separated. Leave empty to use the recipe's accepted types.
+              {{ i18n.t('automations.form.extensionsHelp') }}
             </p>
           </div>
 
           <div class="field">
-            <span class="label">Output folder</span>
+            <span class="label">{{
+              i18n.t('automations.form.outputFolder')
+            }}</span>
             <div class="automation-path-row">
               <span
                 class="automation-path mono"
                 [class.is-empty]="!formOutputDir()"
                 [title]="formOutputDir()"
               >
-                {{ formOutputDir() || 'Next to the source' }}
+                {{
+                  formOutputDir() || i18n.t('automations.form.nextToSource')
+                }}
               </span>
               <button
                 type="button"
@@ -253,7 +291,7 @@
                   [strokeWidth]="1.75"
                   aria-hidden="true"
                 ></lucide-icon>
-                Choose folder
+                {{ i18n.t('automations.form.chooseFolder') }}
               </button>
               @if (formOutputDir()) {
                 <button
@@ -261,11 +299,13 @@
                   class="btn btn-ghost btn-sm automation-clear-output"
                   (click)="clearOutputFolder()"
                 >
-                  Use the source folder
+                  {{ i18n.t('automations.form.useSourceFolder') }}
                 </button>
               }
             </div>
-            <p class="field-help">Leave empty to save next to the source.</p>
+            <p class="field-help">
+              {{ i18n.t('automations.form.outputFolderHelp') }}
+            </p>
           </div>
 
           <div class="field">
@@ -276,7 +316,7 @@
                 [checked]="formEnabled()"
                 (change)="onEnabledToggle($event)"
               />
-              Enabled
+              {{ i18n.t('automations.form.enabled') }}
             </label>
           </div>
 
@@ -288,11 +328,10 @@
                 [checked]="formDeleteSource()"
                 (change)="onDeleteSourceToggle($event)"
               />
-              Delete source after success
+              {{ i18n.t('automations.form.deleteSource') }}
             </label>
             <p class="field-help field-warning">
-              Deletes the source file after a successful run. This cannot be
-              undone.
+              {{ i18n.t('automations.form.deleteSourceHelp') }}
             </p>
           </div>
 
@@ -312,7 +351,13 @@
               class="btn btn-primary automation-save"
               [disabled]="saving()"
             >
-              {{ saving() ? 'Saving…' : editingId() ? 'Save changes' : 'Create rule' }}
+              {{
+                saving()
+                  ? i18n.t('automations.form.saving')
+                  : editingId()
+                    ? i18n.t('automations.form.saveChanges')
+                    : i18n.t('automations.form.create')
+              }}
             </button>
             <button
               type="button"
@@ -320,7 +365,7 @@
               [disabled]="saving()"
               (click)="closeForm()"
             >
-              Cancel
+              {{ i18n.t('automations.action.cancel') }}
             </button>
           </div>
         </form>
@@ -335,17 +380,16 @@
           [strokeWidth]="1.5"
           aria-hidden="true"
         ></lucide-icon>
-        <strong>No folder rules yet</strong>
+        <strong>{{ i18n.t('automations.empty.title') }}</strong>
         <p>
-          Watch a folder and FileForge runs the recipe whenever a file lands in
-          it. Nothing leaves this machine.
+          {{ i18n.t('automations.empty.body') }}
         </p>
         <button
           type="button"
           class="btn btn-primary empty-state-action"
           (click)="openCreateForm()"
         >
-          Create your first rule
+          {{ i18n.t('automations.empty.action') }}
         </button>
       </div>
     }
@@ -379,17 +423,25 @@
               class="btn btn-secondary btn-sm automation-toggle"
               [attr.aria-pressed]="rule.enabled"
               [attr.aria-label]="
-                (rule.enabled ? 'Disable ' : 'Enable ') + rule.name
+                rule.enabled
+                  ? i18n.t('automations.rule.disableAria', { name: rule.name })
+                  : i18n.t('automations.rule.enableAria', { name: rule.name })
               "
               [disabled]="saving()"
               (click)="toggleRule(rule)"
             >
-              {{ rule.enabled ? 'Disable' : 'Enable' }}
+              {{
+                rule.enabled
+                  ? i18n.t('automations.rule.disable')
+                  : i18n.t('automations.rule.enable')
+              }}
             </button>
             <button
               type="button"
               class="icon-btn automation-edit"
-              [attr.aria-label]="'Edit ' + rule.name"
+              [attr.aria-label]="
+                i18n.t('automations.rule.editAria', { name: rule.name })
+              "
               (click)="openEditForm(rule)"
             >
               <lucide-icon
@@ -402,7 +454,9 @@
             <button
               type="button"
               class="icon-btn automation-delete"
-              [attr.aria-label]="'Delete ' + rule.name"
+              [attr.aria-label]="
+                i18n.t('automations.rule.deleteAria', { name: rule.name })
+              "
               (click)="requestDelete(rule)"
             >
               <lucide-icon
@@ -430,26 +484,28 @@
 
           <dl class="automation-meta">
             <div class="automation-meta-row">
-              <dt>Watch folder</dt>
+              <dt>{{ i18n.t('automations.form.watchFolder') }}</dt>
               <dd class="mono" [title]="rule.watchDir">{{ rule.watchDir }}</dd>
             </div>
             <div class="automation-meta-row">
-              <dt>Recipe</dt>
+              <dt>{{ i18n.t('automations.form.recipe') }}</dt>
               <dd>{{ recipeName(rule) }}</dd>
             </div>
             <div class="automation-meta-row">
-              <dt>Output folder</dt>
+              <dt>{{ i18n.t('automations.form.outputFolder') }}</dt>
               <dd class="mono">{{ outputFolderLabel(rule) }}</dd>
             </div>
             <div class="automation-meta-row">
-              <dt>Extensions</dt>
+              <dt>{{ i18n.t('automations.form.extensions') }}</dt>
               <dd class="mono">{{ extensionsLabel(rule) }}</dd>
             </div>
           </dl>
 
           <div class="automation-last">
             <div class="automation-last-head">
-              <span class="automation-last-label mono">Last run</span>
+              <span class="automation-last-label mono">{{
+                i18n.t('automations.stats.lastRun')
+              }}</span>
               @if (rule.lastRunAt) {
                 <span class="automation-last-time mono">{{
                   relativeTime(rule.lastRunAt)
@@ -458,7 +514,9 @@
                   statusLabel(rule.lastStatus)
                 }}</span>
               } @else {
-                <span class="automation-last-time mono">Never</span>
+                <span class="automation-last-time mono">{{
+                  i18n.t('automations.rule.never')
+                }}</span>
               }
             </div>
 
@@ -473,7 +531,10 @@
             }
 
             @if (outputNames(rule).length > 0) {
-              <ul class="automation-outputs" aria-label="Last outputs">
+              <ul
+                class="automation-outputs"
+                [attr.aria-label]="i18n.t('automations.rule.lastOutputs')"
+              >
                 @for (name of outputNames(rule); track name) {
                   <li class="automation-output mono">{{ name }}</li>
                 }
@@ -485,10 +546,10 @@
             <div
               class="automation-confirm"
               role="group"
-              aria-label="Confirm delete"
+              [attr.aria-label]="i18n.t('automations.confirm.deleteAction')"
             >
               <span class="automation-confirm-text">
-                Delete “{{ rule.name }}”?
+                {{ i18n.t('automations.confirm.delete', { name: rule.name }) }}
               </span>
               <button
                 type="button"
@@ -496,14 +557,14 @@
                 [disabled]="saving()"
                 (click)="deleteRule(rule)"
               >
-                Confirm delete
+                {{ i18n.t('automations.confirm.deleteAction') }}
               </button>
               <button
                 type="button"
                 class="btn btn-ghost btn-sm automation-confirm-cancel"
                 (click)="cancelDelete()"
               >
-                Cancel
+                {{ i18n.t('automations.action.cancel') }}
               </button>
             </div>
           }
@@ -517,7 +578,9 @@
     >
       <div class="panel-head automation-runs-head">
         <div class="automation-runs-title">
-          <h2 id="automation-runs-title" class="panel-title">Recent runs</h2>
+          <h2 id="automation-runs-title" class="panel-title">
+            {{ i18n.t('automations.runs.title') }}
+          </h2>
           <span class="badge badge-neutral automation-runs-count">{{
             runs().length
           }}</span>
@@ -527,7 +590,7 @@
           <div
             class="automation-runs-confirm"
             role="group"
-            aria-label="Confirm clear run history"
+            [attr.aria-label]="i18n.t('automations.runs.clearGroupAria')"
           >
             <button
               type="button"
@@ -535,7 +598,7 @@
               [disabled]="runsLoading()"
               (click)="clearRuns()"
             >
-              Confirm clear
+              {{ i18n.t('automations.runs.confirmClear') }}
             </button>
             <button
               type="button"
@@ -543,7 +606,7 @@
               [disabled]="runsLoading()"
               (click)="cancelClearRuns()"
             >
-              Cancel
+              {{ i18n.t('automations.action.cancel') }}
             </button>
           </div>
         } @else {
@@ -553,7 +616,7 @@
             [disabled]="runsLoading() || runs().length === 0"
             (click)="requestClearRuns()"
           >
-            Clear history
+            {{ i18n.t('automations.runs.clear') }}
           </button>
         }
       </div>
@@ -565,12 +628,17 @@
             role="status"
             aria-live="polite"
           >
-            Loading recent runs…
+            {{ i18n.t('automations.runs.loading') }}
           </p>
         } @else if (runs().length === 0) {
-          <p class="automation-runs-empty">No automation runs yet.</p>
+          <p class="automation-runs-empty">
+            {{ i18n.t('automations.runs.empty') }}
+          </p>
         } @else {
-          <ul class="automation-runs-list" aria-label="Recent automation runs">
+          <ul
+            class="automation-runs-list"
+            [attr.aria-label]="i18n.t('automations.runs.listAria')"
+          >
             @for (run of runs(); track run.id) {
               <li class="automation-run">
                 <div class="automation-run-head">
