@@ -16,6 +16,7 @@ type JobHistoryEntry struct {
 	JobID        string            `json:"jobId"`
 	ToolID       string            `json:"toolId"`
 	CreatedAt    int64             `json:"createdAt"`
+	TargetBytes  int64             `json:"targetBytes,omitempty"`
 	Undone       bool              `json:"undone,omitempty"`
 	TrashEmptied bool              `json:"trashEmptied,omitempty"`
 	Outputs      []JobOutputRecord `json:"outputs"`

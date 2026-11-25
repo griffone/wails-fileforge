@@ -77,6 +77,9 @@ export interface ResultVerifyOutputRow {
   checksPassed: number;
   totalChecks: number;
   warning?: string;
+  targetActual?: string;
+  targetLimit?: string;
+  targetPassed?: boolean;
 }
 
 export interface ResultUndoSkippedRow {
@@ -294,19 +297,41 @@ export class ResultCard implements DoCheck {
     if (this.verifyLoading || this.verifyUnavailable || !this.verifyReport) {
       return 'neutral';
     }
-    return this.verifyReport.success ? 'success' : 'warning';
+    return this.verificationPassed(this.verifyReport) ? 'success' : 'warning';
   }
 
   verifyTitle(): string {
-    return this.verifyReport?.success
+    return this.verificationPassed(this.verifyReport)
       ? this.i18n.t('resultCard.verified')
       : this.i18n.t('resultCard.needsAttention');
   }
 
   verifyIcon() {
-    return this.verifyReport?.success
+    return this.verificationPassed(this.verifyReport)
       ? this.verifyOkIcon
       : this.verifyAttentionIcon;
+  }
+
+  /**
+   * Advisory checks (such as a best-effort target miss) never invalidate an
+   * output. A report whose only failures are advisory is still verified, even
+   * if an older producer left `success` false.
+   */
+  private verificationPassed(report: VerificationReport | null): boolean {
+    if (!report) {
+      return false;
+    }
+    if (report.success) {
+      return true;
+    }
+
+    const outputs = report.outputs ?? [];
+    if (outputs.length === 0) {
+      return false;
+    }
+    return outputs.every((output) =>
+      (output.checks ?? []).every((check) => check.passed || check.advisory),
+    );
   }
 
   verifySummary(): string {
@@ -332,10 +357,12 @@ export class ResultCard implements DoCheck {
     }
 
     return report.outputs.slice(0, 3).map((output) => {
-      const checks = output.checks ?? [];
+      const checks = (output.checks ?? []).filter((check) => !check.advisory);
       const checksPassed = checks.filter((check) => check.passed).length;
       const passed =
         checks.length === 0 ? output.exists : checksPassed === checks.length;
+      const targetBytes = output.targetBytes ?? 0;
+      const actualBytes = output.actualBytes ?? output.sizeBytes;
 
       return {
         path: output.path,
@@ -347,13 +374,22 @@ export class ResultCard implements DoCheck {
         warning: !passed
           ? (output.warnings?.[0] ?? this.i18n.t('resultCard.checkFailed'))
           : undefined,
+        targetActual: targetBytes > 0 ? formatBytes(actualBytes) : undefined,
+        targetLimit: targetBytes > 0 ? formatBytes(targetBytes) : undefined,
+        targetPassed: targetBytes > 0 ? actualBytes <= targetBytes : undefined,
       };
     });
   }
 
   verifyChecks(): VerificationCheck[] {
     const outputs = this.verifyReport?.outputs ?? [];
-    return outputs.length > 0 ? (outputs[0].checks ?? []).slice(0, 4) : [];
+    if (outputs.length === 0) {
+      return [];
+    }
+
+    return (outputs[0].checks ?? [])
+      .filter((check) => !check.advisory)
+      .slice(0, 4);
   }
 
   verifyCheckText(check: VerificationCheck): string {
@@ -372,6 +408,9 @@ export class ResultCard implements DoCheck {
     let total = 0;
     for (const output of report.outputs) {
       for (const check of output.checks ?? []) {
+        if (check.advisory) {
+          continue;
+        }
         total += 1;
         if (check.passed) {
           passed += 1;

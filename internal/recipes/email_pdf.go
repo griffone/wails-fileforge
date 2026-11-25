@@ -504,7 +504,7 @@ func (s *Service) executeEmailPDF(ctx context.Context, tracked *recipeJob, resol
 		s.history.RecordOutputs(tracked.jobID(), emailPDFHistoryToolID, []string{finalPath})
 	}
 
-	if report.Success {
+	if report.Success && !targetNotMet(report, resolved.TargetSizeBytes) {
 		message := fmt.Sprintf("Email PDF ready: %s.", filepath.Base(finalPath))
 		tracked.finish(models.JobStatusSuccess, message, []string{finalPath}, &report, nil, true)
 		s.emitProgress(tracked, models.JobStatusSuccess, optimizeStep.Name, models.JobStatusSuccess, message, 100)

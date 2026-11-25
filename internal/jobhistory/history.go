@@ -131,21 +131,28 @@ func (s *Store) configured() bool {
 // snapshots and jobs without existing outputs are ignored. A job id is
 // recorded at most once.
 func (s *Store) RecordJob(job models.JobResult) {
+	s.RecordJobWithTarget(job, 0)
+}
+
+// RecordJobWithTarget records a terminal job and the target size it requested.
+// Persisting the target next to the outputs keeps a finished job verifiable
+// after a restart, when the engine no longer holds the original request.
+func (s *Store) RecordJobWithTarget(job models.JobResult, targetBytes int64) {
 	if !isTerminalStatus(job.Status) {
 		return
 	}
 
-	s.record(job.JobID, job.ToolID, successfulOutputs(job), job.EndedAt)
+	s.record(job.JobID, job.ToolID, successfulOutputs(job), job.EndedAt, targetBytes)
 }
 
 // RecordOutputs records explicit outputs for jobs that do not run through the
 // job engine, such as recipe runs. The same fingerprint and dedupe rules as
 // RecordJob apply.
 func (s *Store) RecordOutputs(jobID, toolID string, outputs []string) {
-	s.record(jobID, toolID, outputs, time.Now().UnixMilli())
+	s.record(jobID, toolID, outputs, time.Now().UnixMilli(), 0)
 }
 
-func (s *Store) record(jobID, toolID string, outputs []string, createdAt int64) {
+func (s *Store) record(jobID, toolID string, outputs []string, createdAt, targetBytes int64) {
 	if !s.configured() {
 		return
 	}
@@ -173,10 +180,11 @@ func (s *Store) record(jobID, toolID string, outputs []string, createdAt int64) 
 	}
 
 	entry := models.JobHistoryEntry{
-		JobID:     jobID,
-		ToolID:    toolID,
-		CreatedAt: createdAt,
-		Outputs:   records,
+		JobID:       jobID,
+		ToolID:      toolID,
+		CreatedAt:   createdAt,
+		TargetBytes: targetBytes,
+		Outputs:     records,
 	}
 	s.entries = append([]models.JobHistoryEntry{entry}, s.entries...)
 	s.pruneLocked()

@@ -163,6 +163,9 @@ func TestVerifyPathsValidImage(t *testing.T) {
 	if !output.Exists || output.SizeBytes <= 0 || output.Kind != "image" {
 		t.Fatalf("expected an existing image output, got %+v", output)
 	}
+	if output.TargetBytes != 0 || output.ActualBytes != 0 {
+		t.Fatalf("expected no target bytes without a target, got %+v", output)
+	}
 
 	checks := checksByKey(output)
 	for _, key := range []string{checkPath, checkExists, checkRegularFile, checkReadable, checkSize, checkKind, checkImageDims} {
@@ -322,15 +325,30 @@ func TestVerifyPathsWithTarget(t *testing.T) {
 	}
 
 	tooSmall := VerifyPathsWithTarget([]string{path}, 1)
-	if tooSmall.Success {
-		t.Fatal("expected a 1-byte target to fail verification")
+	if !tooSmall.Success {
+		t.Fatalf("expected a missed target to stay verified, got %+v", tooSmall)
+	}
+	if tooSmall.Message != "verified 1 output with 1 advisory warning" {
+		t.Fatalf("expected an honest advisory message, got %q", tooSmall.Message)
+	}
+	if len(tooSmall.Warnings) == 0 || !strings.Contains(tooSmall.Warnings[0], "exceeds the 1 B target") {
+		t.Fatalf("expected an actionable target warning, got %v", tooSmall.Warnings)
+	}
+	if tooSmall.Outputs[0].TargetBytes != 1 || tooSmall.Outputs[0].ActualBytes != info.Size() {
+		t.Fatalf("expected machine-readable target bytes, got %+v", tooSmall.Outputs[0])
 	}
 	found := false
 	for _, check := range tooSmall.Outputs[0].Checks {
 		if check.Key == checkTargetSize {
 			found = true
 			if check.Passed {
-				t.Fatalf("expected target_size to fail, got %+v", check)
+				t.Fatalf("expected target_size to fail the comparison, got %+v", check)
+			}
+			if !check.Advisory {
+				t.Fatalf("expected target_size to be advisory, got %+v", check)
+			}
+			if !strings.Contains(check.Detail, "output is") || !strings.Contains(check.Detail, "target is") {
+				t.Fatalf("expected an actionable target detail, got %q", check.Detail)
 			}
 		}
 	}
@@ -341,6 +359,40 @@ func TestVerifyPathsWithTarget(t *testing.T) {
 	generous := VerifyPathsWithTarget([]string{path}, info.Size()+1)
 	if !generous.Success {
 		t.Fatalf("expected a generous target to pass, got %s (%v)", generous.Message, generous.Warnings)
+	}
+	if generous.Message != "verified 1 output" {
+		t.Fatalf("expected no advisory warning when the target is met, got %q", generous.Message)
+	}
+	if generous.Outputs[0].TargetBytes != info.Size()+1 || generous.Outputs[0].ActualBytes != info.Size() {
+		t.Fatalf("expected target bytes on the passing report, got %+v", generous.Outputs[0])
+	}
+	for _, check := range generous.Outputs[0].Checks {
+		if check.Key == checkTargetSize {
+			if !check.Passed {
+				t.Fatalf("expected target_size to pass, got %+v", check)
+			}
+			if !check.Advisory {
+				t.Fatalf("expected target_size to stay advisory when met, got %+v", check)
+			}
+			if check.Detail != "" {
+				t.Fatalf("expected no detail on a passing target, got %q", check.Detail)
+			}
+		}
+	}
+}
+
+func TestVerifyPathsWithTargetKeepsRealFailuresFatal(t *testing.T) {
+	dir := t.TempDir()
+	valid := filepath.Join(dir, "valid.png")
+	writeVerifyPNG(t, valid, 4, 4)
+	missing := filepath.Join(dir, "missing.png")
+
+	report := VerifyPathsWithTarget([]string{valid, missing}, 1)
+	if report.Success {
+		t.Fatal("expected a missing output to fail verification even with a target")
+	}
+	if !strings.Contains(report.Message, "checks failed") {
+		t.Fatalf("expected a failure summary, got %q", report.Message)
 	}
 }
 

@@ -385,8 +385,25 @@ func TestRunEmailPDFTinyTargetReturnsPartialSuccess(t *testing.T) {
 	if !strings.Contains(strings.ToLower(result.Message), "best effort") {
 		t.Fatalf("expected a best-effort message, got %q", result.Message)
 	}
-	if result.Verification == nil || result.Verification.Success {
-		t.Fatalf("expected a failed verification report, got %+v", result.Verification)
+	if result.Verification == nil {
+		t.Fatal("expected a verification report")
+	}
+	if !result.Verification.Success {
+		t.Fatalf("expected the output verification to stay successful, got %+v", result.Verification)
+	}
+	if len(result.Verification.Warnings) == 0 {
+		t.Fatalf("expected an advisory target warning, got %+v", result.Verification)
+	}
+	advisoryMiss := false
+	for _, output := range result.Verification.Outputs {
+		for _, check := range output.Checks {
+			if check.Key == "target_size" && check.Advisory && !check.Passed {
+				advisoryMiss = true
+			}
+		}
+	}
+	if !advisoryMiss {
+		t.Fatalf("expected a failed advisory target_size check, got %+v", result.Verification.Outputs)
 	}
 
 	wantOutput := filepath.Join(dir, "report_email.pdf")

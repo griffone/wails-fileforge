@@ -159,6 +159,15 @@
                           · {{ output.warning }}
                         }
                       </span>
+                      @if (output.targetLimit) {
+                        <span
+                          class="verify-output-target mono"
+                          [class.verify-output-target-failed]="!output.targetPassed"
+                        >
+                          {{ i18n.t('resultCard.targetComparison', { actual: output.targetActual ?? '', target: output.targetLimit ?? '' }) }}
+                          · {{ output.targetPassed ? i18n.t('resultCard.targetMet') : i18n.t('resultCard.targetMissed') }}
+                        </span>
+                      }
                     </span>
                   </li>
                 }

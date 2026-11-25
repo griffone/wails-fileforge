@@ -52,6 +52,7 @@ func VerifyPathsWithTarget(paths []string, targetBytes int64) models.Verificatio
 
 	totalChecks := 0
 	failedChecks := 0
+	advisoryFailures := 0
 	for _, path := range paths {
 		output := verifyOutput(path, targetBytes)
 		report.Outputs = append(report.Outputs, output)
@@ -59,9 +60,14 @@ func VerifyPathsWithTarget(paths []string, targetBytes int64) models.Verificatio
 
 		for _, check := range output.Checks {
 			totalChecks++
-			if !check.Passed {
-				failedChecks++
+			if check.Passed {
+				continue
 			}
+			if check.Advisory {
+				advisoryFailures++
+				continue
+			}
+			failedChecks++
 		}
 	}
 
@@ -72,6 +78,9 @@ func VerifyPathsWithTarget(paths []string, targetBytes int64) models.Verificatio
 	}
 
 	report.Message = fmt.Sprintf("verified %d %s", len(report.Outputs), pluralize("output", len(report.Outputs)))
+	if advisoryFailures > 0 {
+		report.Message = fmt.Sprintf("%s with %d advisory %s", report.Message, advisoryFailures, pluralize("warning", advisoryFailures))
+	}
 	return report
 }
 
@@ -142,12 +151,19 @@ func verifyOutput(path string, targetBytes int64) models.VerifiedOutput {
 
 	if targetBytes > 0 {
 		targetMet := info.SizeBytes <= targetBytes
+		output.ActualBytes = info.SizeBytes
+		output.TargetBytes = targetBytes
 		output.Checks = append(output.Checks, models.VerificationCheck{
-			Key:    checkTargetSize,
-			Label:  "Target size",
-			Passed: targetMet,
-			Value:  fmt.Sprintf("%s / %s", formatByteSize(info.SizeBytes), formatByteSize(targetBytes)),
-			Detail: checkDetail(!targetMet, "output exceeds the requested target size"),
+			Key:      checkTargetSize,
+			Label:    "Target size",
+			Passed:   targetMet,
+			Advisory: true,
+			Value:    fmt.Sprintf("%s / %s", formatByteSize(info.SizeBytes), formatByteSize(targetBytes)),
+			Detail: checkDetail(!targetMet, fmt.Sprintf(
+				"output is %s; target is %s",
+				formatByteSize(info.SizeBytes),
+				formatByteSize(targetBytes),
+			)),
 		})
 		if !targetMet {
 			output.Warnings = append(output.Warnings, fmt.Sprintf(

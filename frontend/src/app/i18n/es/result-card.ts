@@ -20,6 +20,9 @@ export const resultCardEs = {
   'resultCard.checksPassedInline':
     'Verificaciones superadas: {passed}/{total}',
   'resultCard.checkFailed': 'Una o más verificaciones fallaron.',
+  'resultCard.targetComparison': '{actual} / objetivo {target}',
+  'resultCard.targetMet': 'cumplido',
+  'resultCard.targetMissed': 'supera el objetivo',
   'resultCard.verifiedFilesAria': 'Archivos verificados',
   'resultCard.checksAria': 'Verificaciones',
   'resultCard.warningsAria': 'Advertencias de verificación',

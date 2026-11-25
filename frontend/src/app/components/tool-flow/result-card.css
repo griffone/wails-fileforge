@@ -325,6 +325,16 @@
   color: var(--danger);
 }
 
+.verify-output-target {
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--success);
+}
+
+.verify-output-target-failed {
+  color: var(--warning);
+}
+
 .verify-checks {
   padding-top: 6px;
   border-top: 1px solid var(--border);

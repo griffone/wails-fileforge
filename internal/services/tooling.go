@@ -342,12 +342,20 @@ func (s *ToolingService) VerifyJob(jobID string) models.VerificationReport {
 
 	job, found := s.engine.Get(trimmedID)
 	if found {
-		return s.verifyJobOutputs(trimmedID, jobOutputPaths(job))
+		targetBytes := s.requestedTargetBytes(trimmedID)
+		// A job recovered after a restart has no live request; its history
+		// entry keeps the target so verification stays comparable.
+		if targetBytes <= 0 && s.history != nil {
+			if entry, historyFound := s.history.Get(trimmedID); historyFound {
+				targetBytes = entry.TargetBytes
+			}
+		}
+		return s.verifyJobOutputs(trimmedID, jobOutputPaths(job), targetBytes)
 	}
 
 	if s.history != nil {
 		if entry, historyFound := s.history.Get(trimmedID); historyFound {
-			return s.verifyJobOutputs(trimmedID, historyOutputPaths(entry))
+			return s.verifyJobOutputs(trimmedID, historyOutputPaths(entry), entry.TargetBytes)
 		}
 	}
 
@@ -359,7 +367,21 @@ func (s *ToolingService) VerifyJob(jobID string) models.VerificationReport {
 	}
 }
 
-func (s *ToolingService) verifyJobOutputs(jobID string, paths []string) models.VerificationReport {
+// requestedTargetBytes returns the target size the live job requested, or zero
+// when the job is unknown or did not ask for one.
+func (s *ToolingService) requestedTargetBytes(jobID string) int64 {
+	if s.engine == nil {
+		return 0
+	}
+	targetBytes, ok := s.engine.RequestedTargetBytes(jobID)
+	if !ok {
+		return 0
+	}
+
+	return targetBytes
+}
+
+func (s *ToolingService) verifyJobOutputs(jobID string, paths []string, targetBytes int64) models.VerificationReport {
 	if len(paths) == 0 {
 		return models.VerificationReport{
 			Success: false,
@@ -368,7 +390,7 @@ func (s *ToolingService) verifyJobOutputs(jobID string, paths []string) models.V
 		}
 	}
 
-	report := verify.VerifyPaths(paths)
+	report := verify.VerifyPathsWithTarget(paths, targetBytes)
 	if !report.Success {
 		log.Printf("tooling.verify.failed jobId=%s outputs=%d message=%s", jobID, len(report.Outputs), report.Message)
 	}
@@ -440,7 +462,8 @@ func (s *ToolingService) recordTerminalJob(job models.JobResult) {
 		return
 	}
 
-	s.history.RecordJob(job)
+	targetBytes := s.requestedTargetBytes(job.JobID)
+	s.history.RecordJobWithTarget(job, targetBytes)
 	log.Printf("tooling.history.completed jobId=%s toolId=%s status=%s", job.JobID, job.ToolID, job.Status)
 }
 

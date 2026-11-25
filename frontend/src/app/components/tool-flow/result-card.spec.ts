@@ -112,6 +112,8 @@ describe('ResultCard', () => {
           path: '/tmp/out/a.pdf',
           exists: true,
           sizeBytes: 8388608,
+          actualBytes: 8388608,
+          targetBytes: 10 * 1024 * 1024,
           kind: 'pdf',
           checks: [
             { key: 'exists', label: 'Exists', passed: true, value: 'true' },
@@ -120,7 +122,8 @@ describe('ResultCard', () => {
               key: 'target_size',
               label: 'Target size',
               passed: true,
-              value: '8.2 MB / 10 MB',
+              advisory: true,
+              value: '8 MB / 10 MB',
             },
           ],
         },
@@ -441,12 +444,13 @@ describe('ResultCard', () => {
     ) as HTMLElement;
     expect(block).not.toBeNull();
     expect(block.textContent).toContain('Verified');
-    expect(block.textContent).toContain('3/3 checks passed');
+    expect(block.textContent).toContain('2/2 checks passed');
     expect(block.textContent).toContain('a.pdf');
     expect(block.textContent).toContain('8 MB');
-    expect(block.textContent).toContain('Checks passed: 3/3');
+    expect(block.textContent).toContain('Checks passed: 2/2');
     expect(block.textContent).toContain('Pages · 12');
-    expect(block.textContent).toContain('Target size · 8.2 MB / 10 MB');
+    expect(block.textContent).toContain('8 MB / target 10 MB');
+    expect(block.textContent).not.toContain('Target size ·');
   });
 
   it('fetches verification for a normal terminal job and renders the checks', async () => {
@@ -464,6 +468,135 @@ describe('ResultCard', () => {
     expect(text).toContain('Verified');
     expect(text).toContain('Pages · 12');
     expect(text).toContain('Exists · true');
+  });
+
+  it('renders the target comparison when the output carries target bytes', async () => {
+    const actualBytes = 8598323;
+    component.verification = {
+      success: true,
+      message: 'verified 1 output',
+      outputs: [
+        {
+          path: '/tmp/out/a.pdf',
+          exists: true,
+          sizeBytes: actualBytes,
+          actualBytes,
+          targetBytes: 10 * 1024 * 1024,
+          kind: 'pdf',
+          checks: [
+            { key: 'exists', label: 'Exists', passed: true, value: 'true' },
+            {
+              key: 'target_size',
+              label: 'Target size',
+              passed: true,
+              advisory: true,
+              value: '8.2 MB / 10 MB',
+            },
+          ],
+        },
+      ],
+    };
+    component.job = pdfJob({ jobId: 'job-target-met' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const targetRow = fixture.nativeElement.querySelector(
+      '.verify-output-target',
+    ) as HTMLElement | null;
+    expect(targetRow).not.toBeNull();
+    expect(targetRow?.textContent).toContain('8.2 MB / target 10 MB');
+    expect(targetRow?.textContent).toContain('met');
+    expect(
+      targetRow?.classList.contains('verify-output-target-failed'),
+    ).toBeFalse();
+    expect(fixture.nativeElement.textContent).toContain('Verified');
+    expect(fixture.nativeElement.textContent).toContain('Checks passed: 1/1');
+    expect(fixture.nativeElement.textContent).not.toContain('Target size ·');
+  });
+
+  it('keeps a missed target verified and never marks the output as failed', async () => {
+    component.verification = {
+      success: true,
+      message: 'verified 1 output with 1 advisory warning',
+      warnings: ['/tmp/out/a.pdf: 2 MB exceeds the 1 MB target'],
+      outputs: [
+        {
+          path: '/tmp/out/a.pdf',
+          exists: true,
+          sizeBytes: 2 * 1024 * 1024,
+          actualBytes: 2 * 1024 * 1024,
+          targetBytes: 1024 * 1024,
+          kind: 'pdf',
+          checks: [
+            { key: 'exists', label: 'Exists', passed: true, value: 'true' },
+            {
+              key: 'target_size',
+              label: 'Target size',
+              passed: false,
+              advisory: true,
+              value: '2 MB / 1 MB',
+              detail: 'output is 2 MB; target is 1 MB',
+            },
+          ],
+        },
+      ],
+    };
+    component.job = pdfJob({ jobId: 'job-target-missed' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const block = fixture.nativeElement.querySelector(
+      '.verify-block',
+    ) as HTMLElement;
+    const targetRow = block.querySelector(
+      '.verify-output-target',
+    ) as HTMLElement | null;
+    expect(targetRow).not.toBeNull();
+    expect(targetRow?.textContent).toContain('2 MB / target 1 MB');
+    expect(targetRow?.textContent).toContain('over target');
+    expect(
+      targetRow?.classList.contains('verify-output-target-failed'),
+    ).toBeTrue();
+
+    expect(block.textContent).toContain('Verified');
+    expect(block.textContent).not.toContain('Needs attention');
+    expect(block.textContent).toContain('Checks passed: 1/1');
+    expect(block.querySelector('.verify-output-failed')).toBeNull();
+    expect(block.querySelector('.verify-check-failed')).toBeNull();
+    expect(block.textContent).not.toContain('Target size ·');
+    expect(block.textContent).toContain('exceeds the 1 MB target');
+  });
+
+  it('does not render a target row when the job had no target', async () => {
+    component.verification = {
+      success: true,
+      message: 'verified 1 output',
+      outputs: [
+        {
+          path: '/tmp/out/a.pdf',
+          exists: true,
+          sizeBytes: 8388608,
+          kind: 'pdf',
+          checks: [
+            { key: 'exists', label: 'Exists', passed: true, value: 'true' },
+            { key: 'page_count', label: 'Pages', passed: true, value: '12' },
+          ],
+        },
+      ],
+    };
+    component.job = pdfJob({ jobId: 'job-without-target' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('.verify-output-target'),
+    ).toBeNull();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Verified');
+    expect(text).toContain('Pages · 12');
   });
 
   it('does not fabricate a pass when verification is unavailable', async () => {

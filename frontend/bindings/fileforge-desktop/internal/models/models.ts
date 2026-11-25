@@ -210,6 +210,7 @@ export interface JobHistoryEntry {
     "jobId": string;
     "toolId": string;
     "createdAt": number;
+    "targetBytes"?: number;
     "undone"?: boolean;
     "trashEmptied"?: boolean;
     "outputs": JobOutputRecord[] | null;
@@ -718,6 +719,7 @@ export interface VerificationCheck {
     "key": string;
     "label": string;
     "passed": boolean;
+    "advisory"?: boolean;
     "value"?: string;
     "detail"?: string;
 }
@@ -733,6 +735,13 @@ export interface VerifiedOutput {
     "path": string;
     "exists": boolean;
     "sizeBytes": number;
+
+    /**
+     * ActualBytes and TargetBytes are set only when the job requested a target
+     * size, so machine consumers never have to parse the human check value.
+     */
+    "actualBytes"?: number;
+    "targetBytes"?: number;
     "kind"?: string;
     "checks": VerificationCheck[] | null;
     "warnings"?: string[] | null;
