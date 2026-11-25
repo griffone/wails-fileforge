@@ -14,7 +14,7 @@
     class="progress job-card-progress"
     [class.is-indeterminate]="isIndeterminate()"
     role="progressbar"
-    aria-label="Job progress"
+    [attr.aria-label]="i18n.t('jobCard.progressAria')"
     aria-valuemin="0"
     aria-valuemax="100"
     [attr.aria-valuenow]="overallPercent()"
@@ -28,6 +28,6 @@
       <span *ngIf="isFinalizing()" class="spinner" aria-hidden="true"></span>
       <span class="mono">{{ detailText() }}</span>
     </span>
-    <span class="job-card-eta mono" *ngIf="etaText() as eta">ETA {{ eta }}</span>
+    <span class="job-card-eta mono" *ngIf="etaText() as eta">{{ i18n.t('jobCard.eta', { time: eta }) }}</span>
   </div>
 </div>

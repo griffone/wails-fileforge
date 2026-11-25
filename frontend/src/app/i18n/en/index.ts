@@ -14,6 +14,7 @@ import { imageConverterEn } from './image-converter';
 import { imageCropEn } from './image-crop';
 import { imageOcrEn } from './image-ocr';
 import { imageWatermarkEn } from './image-watermark';
+import { jobCardEn } from './job-card';
 import { outputPlanEn } from './output-plan-card';
 import { paletteEn } from './palette';
 import { pdfCropEn } from './pdf-crop';
@@ -29,6 +30,7 @@ import { resultCardEn } from './result-card';
 import { settingsEn } from './settings';
 import { shellEn } from './shell';
 import { toastEn } from './toast';
+import { toolCatalogEn } from './tool-catalog';
 import { toolErrorEn } from './tool-error';
 import { toolchainEn } from './toolchain';
 import { toolsEn } from './tools';
@@ -66,11 +68,13 @@ export const en = {
   ...fileDropEn,
   ...fileQueueEn,
   ...outputPlanEn,
+  ...jobCardEn,
   ...resultCardEn,
   ...toolErrorEn,
   ...activityEn,
   ...globalDropEn,
   ...toastEn,
+  ...toolCatalogEn,
   ...toolchainEn,
   ...videoConvertEn,
   ...videoTrimEn,

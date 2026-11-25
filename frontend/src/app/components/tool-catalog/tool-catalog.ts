@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   Activity,
@@ -11,6 +11,7 @@ import {
 } from 'lucide-angular';
 
 import type { ToolDefinition } from '../../config/tools';
+import { I18nService } from '../../services/i18n.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
 import { ToolCatalogEntry, Wails } from '../../services/wails';
 
@@ -28,9 +29,12 @@ export class ToolCatalog implements OnInit {
   readonly arrowIcon = ArrowUpRight;
   readonly skeletonRows = [0, 1, 2, 3];
 
+  readonly i18n = inject(I18nService);
+
   tools: ToolCatalogEntry[] = [];
   loading = false;
   errorMessage = '';
+  errorFallback = false;
   runtimeConnected = false;
 
   constructor(
@@ -47,6 +51,7 @@ export class ToolCatalog implements OnInit {
   async loadTools(): Promise<void> {
     this.loading = true;
     this.errorMessage = '';
+    this.errorFallback = false;
 
     try {
       const response = await this.wailsService.listTools();
@@ -62,20 +67,47 @@ export class ToolCatalog implements OnInit {
     } catch {
       this.tools = [];
       this.runtimeConnected = false;
-      this.errorMessage =
-        'The desktop backend did not respond. Open FileForge in the desktop app, then retry.';
+      this.errorFallback = true;
     } finally {
       this.loading = false;
     }
   }
 
+  /** Localized banner copy: a translated fallback or the backend detail. */
+  errorText(): string {
+    return this.errorFallback
+      ? this.i18n.t('toolCatalog.backendUnavailable')
+      : this.errorMessage;
+  }
+
   private friendlyError(message: string): string {
     const text = (message ?? '').trim();
     if (!text || /<\/?[a-z][\s\S]*>/i.test(text) || /Cannot POST|DOCTYPE html/i.test(text)) {
-      return 'The desktop backend did not respond. Open FileForge in the desktop app, then retry.';
+      this.errorFallback = true;
+      return '';
     }
 
     return text.length > 240 ? `${text.slice(0, 237)}…` : text;
+  }
+
+  runtimeTitle(): string {
+    return this.i18n.t(
+      this.runtimeConnected
+        ? 'toolCatalog.runtime.connected'
+        : 'toolCatalog.runtime.previewOnly',
+    );
+  }
+
+  runtimeDetail(): string {
+    return this.i18n.t(
+      this.runtimeConnected
+        ? 'toolCatalog.runtime.connectedDetail'
+        : 'toolCatalog.runtime.unavailableDetail',
+    );
+  }
+
+  statusLabel(status: string): string {
+    return this.i18n.tOr(`toolCatalog.status.${status}`, status);
   }
 
   getStatusClass(status: string): string {
@@ -100,6 +132,26 @@ export class ToolCatalog implements OnInit {
     return this.toolDefinition(tool)?.icon ?? this.activityIcon;
   }
 
+  /** Registry name when the tool is known, otherwise the backend manifest name. */
+  toolName(tool: ToolCatalogEntry): string {
+    const definition = this.toolDefinition(tool);
+    return definition ? this.registry.toolName(definition) : tool.manifest.name;
+  }
+
+  toolDescription(tool: ToolCatalogEntry): string {
+    const definition = this.toolDefinition(tool);
+    return definition
+      ? this.registry.toolDescription(definition)
+      : tool.manifest.description;
+  }
+
+  toolCategory(tool: ToolCatalogEntry): string {
+    const definition = this.toolDefinition(tool);
+    return definition
+      ? this.registry.categoryLabel(definition.category)
+      : tool.manifest.domain;
+  }
+
   categoryTone(tool: ToolCatalogEntry): string {
     return this.toolDefinition(tool)?.category ?? 'system';
   }
@@ -116,10 +168,12 @@ export class ToolCatalog implements OnInit {
 
   modeLabel(tool: ToolCatalogEntry): string {
     const modes = [
-      tool.manifest.supportsSingle ? 'single' : '',
-      tool.manifest.supportsBatch ? 'batch' : '',
+      tool.manifest.supportsSingle ? this.i18n.t('toolCatalog.mode.single') : '',
+      tool.manifest.supportsBatch ? this.i18n.t('toolCatalog.mode.batch') : '',
     ].filter(Boolean);
-    return modes.length > 0 ? modes.join(' + ') : 'n/a';
+    return modes.length > 0
+      ? modes.join(' + ')
+      : this.i18n.t('toolCatalog.mode.none');
   }
 
   trackByToolId(_index: number, tool: ToolCatalogEntry): string {

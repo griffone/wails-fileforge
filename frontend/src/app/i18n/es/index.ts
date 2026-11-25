@@ -17,6 +17,7 @@ import { imageConverterEs } from './image-converter';
 import { imageCropEs } from './image-crop';
 import { imageOcrEs } from './image-ocr';
 import { imageWatermarkEs } from './image-watermark';
+import { jobCardEs } from './job-card';
 import { outputPlanEs } from './output-plan-card';
 import { paletteEs } from './palette';
 import { pdfCropEs } from './pdf-crop';
@@ -32,6 +33,7 @@ import { resultCardEs } from './result-card';
 import { settingsEs } from './settings';
 import { shellEs } from './shell';
 import { toastEs } from './toast';
+import { toolCatalogEs } from './tool-catalog';
 import { toolErrorEs } from './tool-error';
 import { toolchainEs } from './toolchain';
 import { toolsEs } from './tools';
@@ -69,11 +71,13 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...fileDropEs,
   ...fileQueueEs,
   ...outputPlanEs,
+  ...jobCardEs,
   ...resultCardEs,
   ...toolErrorEs,
   ...activityEs,
   ...globalDropEs,
   ...toastEs,
+  ...toolCatalogEs,
   ...toolchainEs,
   ...videoConvertEs,
   ...videoTrimEs,

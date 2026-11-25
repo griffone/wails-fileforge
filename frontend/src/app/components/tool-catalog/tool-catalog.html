@@ -1,8 +1,8 @@
 <div class="page">
   <header class="page-head">
-    <p class="eyebrow">SYSTEM</p>
-    <h1 class="page-title">System status</h1>
-    <p class="page-sub">Registered tools, runtime health and dependency readiness.</p>
+    <p class="eyebrow">{{ i18n.t('toolCatalog.eyebrow') }}</p>
+    <h1 class="page-title">{{ i18n.t('toolCatalog.title') }}</h1>
+    <p class="page-sub">{{ i18n.t('toolCatalog.subtitle') }}</p>
   </header>
 
   <section class="panel catalog-status" aria-labelledby="catalog-runtime-title">
@@ -15,22 +15,16 @@
       ></span>
       <div class="catalog-runtime-text">
         <h2 id="catalog-runtime-title" class="catalog-runtime-title">
-          {{ runtimeConnected ? 'Runtime connected' : 'Preview only' }}
+          {{ runtimeTitle() }}
         </h2>
-        <p class="catalog-runtime-sub">
-          {{
-            runtimeConnected
-              ? 'Backend IPC is reachable from this window.'
-              : 'Backend IPC is unavailable, so tool states are static.'
-          }}
-        </p>
+        <p class="catalog-runtime-sub">{{ runtimeDetail() }}</p>
       </div>
     </div>
 
     <div class="catalog-runtime-actions">
       <p class="catalog-count">
         <span class="catalog-count-value mono">{{ tools.length }}</span>
-        <span class="catalog-count-label">registered tools</span>
+        <span class="catalog-count-label">{{ i18n.t('toolCatalog.countLabel') }}</span>
       </p>
       <button
         type="button"
@@ -46,16 +40,20 @@
           [class.is-spinning]="loading"
           aria-hidden="true"
         ></lucide-icon>
-        {{ loading ? 'Refreshing…' : 'Refresh' }}
+        {{
+          loading
+            ? i18n.t('toolCatalog.refreshing')
+            : i18n.t('toolCatalog.refresh')
+        }}
       </button>
     </div>
   </section>
 
-  <div *ngIf="errorMessage" class="banner banner-danger catalog-error" role="alert">
+  <div *ngIf="errorText()" class="banner banner-danger catalog-error" role="alert">
     <div class="catalog-error-body">
-      <p class="catalog-error-message">{{ errorMessage }}</p>
+      <p class="catalog-error-message">{{ errorText() }}</p>
       <button type="button" class="btn btn-secondary btn-sm" [disabled]="loading" (click)="loadTools()">
-        Retry
+        {{ i18n.t('toolCatalog.retry') }}
       </button>
     </div>
   </div>
@@ -64,7 +62,7 @@
     *ngIf="loading && tools.length === 0"
     class="catalog-grid"
     aria-busy="true"
-    aria-label="Loading registered tools"
+    [attr.aria-label]="i18n.t('toolCatalog.loadingAria')"
   >
     <div *ngFor="let row of skeletonRows" class="panel catalog-skeleton" aria-hidden="true">
       <span class="skeleton-line skeleton-icon"></span>
@@ -75,32 +73,36 @@
   </div>
 
   <div
-    *ngIf="!loading && !errorMessage && tools.length === 0"
+    *ngIf="!loading && !errorText() && tools.length === 0"
     class="empty-state catalog-empty"
     role="status"
   >
     <lucide-icon [img]="emptyIcon" [size]="22" [strokeWidth]="1.5" aria-hidden="true"></lucide-icon>
-    <strong>No tools registered</strong>
-    <p>The backend returned an empty catalog. Refresh once the engine is running.</p>
+    <strong>{{ i18n.t('toolCatalog.emptyTitle') }}</strong>
+    <p>{{ i18n.t('toolCatalog.emptyHint') }}</p>
   </div>
 
-  <ul *ngIf="tools.length > 0" class="catalog-grid catalog-list" aria-label="Registered tools">
+  <ul
+    *ngIf="tools.length > 0"
+    class="catalog-grid catalog-list"
+    [attr.aria-label]="i18n.t('toolCatalog.listAria')"
+  >
     <li *ngFor="let tool of tools; trackBy: trackByToolId" class="panel catalog-card">
       <div class="catalog-card-head">
         <span class="tool-icon" [attr.data-tone]="categoryTone(tool)" aria-hidden="true">
           <lucide-icon [img]="toolIcon(tool)" [size]="18" [strokeWidth]="1.75"></lucide-icon>
         </span>
         <div class="catalog-card-id">
-          <h2 class="catalog-tool-name">{{ tool.manifest.name }}</h2>
+          <h2 class="catalog-tool-name">{{ toolName(tool) }}</h2>
           <p class="catalog-tool-id mono">{{ tool.manifest.toolId }}</p>
         </div>
-        <span [class]="getStatusClass(tool.state.status)">{{ tool.state.status }}</span>
+        <span [class]="getStatusClass(tool.state.status)">{{ statusLabel(tool.state.status) }}</span>
       </div>
 
-      <p class="catalog-tool-desc">{{ tool.manifest.description }}</p>
+      <p class="catalog-tool-desc">{{ toolDescription(tool) }}</p>
 
       <div class="catalog-meta">
-        <span class="catalog-chip mono">{{ tool.manifest.domain }}</span>
+        <span class="catalog-chip mono">{{ toolCategory(tool) }}</span>
         <span class="catalog-chip mono">v{{ tool.manifest.version }}</span>
         <span class="catalog-chip mono">
           {{ modeLabel(tool) }}
@@ -114,9 +116,9 @@
         *ngIf="routeForTool(tool.manifest.toolId) as route"
         class="catalog-open"
         [routerLink]="route"
-        [attr.aria-label]="'Open tool: ' + tool.manifest.name"
+        [attr.aria-label]="i18n.t('toolCatalog.openAria', { name: toolName(tool) })"
       >
-        Open tool
+        {{ i18n.t('toolCatalog.open') }}
         <lucide-icon [img]="arrowIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
       </a>
     </li>

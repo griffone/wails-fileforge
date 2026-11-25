@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, Input } from '@angular/core';
+import { Component, Input, inject } from '@angular/core';
+import { I18nService } from '../../services/i18n.service';
 import { JobResult } from '../../services/wails';
 
 @Component({
@@ -12,6 +13,8 @@ import { JobResult } from '../../services/wails';
 export class JobCard {
   @Input() job: JobResult | null = null;
 
+  readonly i18n = inject(I18nService);
+
   currentStage(): string {
     return this.job?.progress?.stage ?? (this.job ? this.job.status : 'queued');
   }
@@ -20,37 +23,35 @@ export class JobCard {
     const s = this.currentStage();
     switch (s) {
       case 'uploading':
-        return 'Uploading';
+        return this.i18n.t('jobCard.stage.uploading');
       case 'processing':
-        return 'Processing';
+        return this.i18n.t('jobCard.stage.processing');
       case 'finalizing':
-        return 'Finalizing';
+        return this.i18n.t('jobCard.stage.finalizing');
       case 'done':
-        return 'Done';
-      case 'failed':
-        return 'Failed';
-      case 'cancelled':
-        return 'Cancelled';
-      case 'queued':
-        return 'Queued';
-      case 'running':
-        return 'Running';
-      case 'ocr':
-        return 'OCR';
-      case 'extract':
-        return 'Extracting';
-      case 'transcribe':
-        return 'Transcribing';
-      case 'publish':
-        return 'Saving';
       case 'transcribe.done':
-        return 'Done';
       case 'success':
-        return 'Done';
+        return this.i18n.t('jobCard.stage.done');
+      case 'failed':
+        return this.i18n.t('jobCard.stage.failed');
+      case 'cancelled':
+        return this.i18n.t('jobCard.stage.cancelled');
+      case 'queued':
+        return this.i18n.t('jobCard.stage.queued');
+      case 'running':
+        return this.i18n.t('jobCard.stage.running');
+      case 'ocr':
+        return this.i18n.t('jobCard.stage.ocr');
+      case 'extract':
+        return this.i18n.t('jobCard.stage.extract');
+      case 'transcribe':
+        return this.i18n.t('jobCard.stage.transcribe');
+      case 'publish':
+        return this.i18n.t('jobCard.stage.publish');
       case 'partial_success':
-        return 'Partial success';
+        return this.i18n.t('jobCard.stage.partial');
       case 'interrupted':
-        return 'Interrupted';
+        return this.i18n.t('jobCard.stage.interrupted');
       default:
         return s;
     }
@@ -69,21 +70,21 @@ export class JobCard {
 
     switch (this.currentStage()) {
       case 'queued':
-        return 'Waiting in the queue';
+        return this.i18n.t('jobCard.message.queued');
       case 'uploading':
-        return 'Sending files to the engine';
+        return this.i18n.t('jobCard.message.uploading');
       case 'processing':
-        return 'Working on your files';
+        return this.i18n.t('jobCard.message.processing');
       case 'finalizing':
-        return 'Finalizing output';
+        return this.i18n.t('jobCard.message.finalizing');
       case 'done':
-        return 'Job completed';
+        return this.i18n.t('jobCard.message.done');
       case 'failed':
-        return 'Job failed';
+        return this.i18n.t('jobCard.message.failed');
       case 'cancelled':
-        return 'Job cancelled';
+        return this.i18n.t('jobCard.message.cancelled');
       default:
-        return 'Pending';
+        return this.i18n.t('jobCard.message.pending');
     }
   }
 
@@ -119,7 +120,7 @@ export class JobCard {
       case 'processing':
         return this.processingInfo();
       case 'finalizing':
-        return 'Writing results';
+        return this.i18n.t('jobCard.detail.writing');
       default:
         return '';
     }
