@@ -1,55 +1,107 @@
 import { Routes } from '@angular/router';
 import { Home } from './components/home/home';
-import { ImageConverter } from './components/image-converter/image-converter';
-import { ToolCatalog } from './components/tool-catalog/tool-catalog';
-import { ImageCrop } from './components/image-crop/image-crop';
-import { ImageAnnotate } from './components/image-annotate/image-annotate';
-import { ImageCompress } from './components/image-compress/image-compress';
-import { ImageWatermark } from './components/image-watermark/image-watermark';
-import { ImageOcr } from './components/image-ocr/image-ocr';
-import { ImageBackground } from './components/image-background/image-background';
-import { PdfMerge } from './components/pdf-merge/pdf-merge';
-import { PdfSplit } from './components/pdf-split/pdf-split';
-import { PdfCrop } from './components/pdf-crop/pdf-crop';
-import { PdfOptimize } from './components/pdf-optimize/pdf-optimize';
-import { PdfOcr } from './components/pdf-ocr/pdf-ocr';
-import { PdfToDocx } from './components/pdf-to-docx/pdf-to-docx';
-import { PdfFromImages } from './components/pdf-from-images/pdf-from-images';
-import { DocMdToPdf } from './components/doc-md-to-pdf/doc-md-to-pdf';
-import { DocDocxToPdf } from './components/doc-docx-to-pdf/doc-docx-to-pdf';
-import { VideoConvert } from './components/video-convert/video-convert';
-import { VideoTrim } from './components/video-trim/video-trim';
-import { VideoMerge } from './components/video-merge/video-merge';
-import { VideoTranscribe } from './components/video-transcribe/video-transcribe';
-import { AudioExtract } from './components/audio/audio-extract';
-import { AudioConvert } from './components/audio/audio-convert';
-import { AudioNormalize } from './components/audio/audio-normalize';
-import { Settings } from './components/settings/settings';
-import { RecipeRun } from './components/recipe-run/recipe-run';
-import { Automations } from './components/automations/automations';
 
+/**
+ * Every tool page is a lazy route so the initial bundle only carries the shell.
+ * Home stays eager: it is the landing route and must paint without waiting for
+ * a chunk.
+ */
 export const routes: Routes = [
   { path: '', component: Home },
-  { path: 'image-converter', component: ImageConverter },
-  { path: 'tool-catalog', component: ToolCatalog },
-  { path: 'settings', component: Settings },
-  { path: 'automations', component: Automations },
+  {
+    path: 'image-converter',
+    loadComponent: () =>
+      import('./components/image-converter/image-converter').then(
+        (m) => m.ImageConverter,
+      ),
+  },
+  {
+    path: 'tool-catalog',
+    loadComponent: () =>
+      import('./components/tool-catalog/tool-catalog').then(
+        (m) => m.ToolCatalog,
+      ),
+  },
+  {
+    path: 'settings',
+    loadComponent: () =>
+      import('./components/settings/settings').then((m) => m.Settings),
+  },
+  {
+    path: 'automations',
+    loadComponent: () =>
+      import('./components/automations/automations').then((m) => m.Automations),
+  },
   {
     path: 'duplicates',
     loadComponent: () =>
       import('./components/duplicates/duplicates').then((m) => m.Duplicates),
   },
-  { path: 'image-crop', component: ImageCrop },
-  { path: 'image-annotate', component: ImageAnnotate },
-  { path: 'image-compress', component: ImageCompress },
-  { path: 'image-watermark', component: ImageWatermark },
-  { path: 'image-ocr', component: ImageOcr },
-  { path: 'image-background', component: ImageBackground },
-  { path: 'pdf-merge', component: PdfMerge },
-  { path: 'pdf-split', component: PdfSplit },
-  { path: 'pdf-crop', component: PdfCrop },
-  { path: 'pdf-optimize', component: PdfOptimize },
-  { path: 'pdf-ocr', component: PdfOcr },
+  {
+    path: 'image-crop',
+    loadComponent: () =>
+      import('./components/image-crop/image-crop').then((m) => m.ImageCrop),
+  },
+  {
+    path: 'image-annotate',
+    loadComponent: () =>
+      import('./components/image-annotate/image-annotate').then(
+        (m) => m.ImageAnnotate,
+      ),
+  },
+  {
+    path: 'image-compress',
+    loadComponent: () =>
+      import('./components/image-compress/image-compress').then(
+        (m) => m.ImageCompress,
+      ),
+  },
+  {
+    path: 'image-watermark',
+    loadComponent: () =>
+      import('./components/image-watermark/image-watermark').then(
+        (m) => m.ImageWatermark,
+      ),
+  },
+  {
+    path: 'image-ocr',
+    loadComponent: () =>
+      import('./components/image-ocr/image-ocr').then((m) => m.ImageOcr),
+  },
+  {
+    path: 'image-background',
+    loadComponent: () =>
+      import('./components/image-background/image-background').then(
+        (m) => m.ImageBackground,
+      ),
+  },
+  {
+    path: 'pdf-merge',
+    loadComponent: () =>
+      import('./components/pdf-merge/pdf-merge').then((m) => m.PdfMerge),
+  },
+  {
+    path: 'pdf-split',
+    loadComponent: () =>
+      import('./components/pdf-split/pdf-split').then((m) => m.PdfSplit),
+  },
+  {
+    path: 'pdf-crop',
+    loadComponent: () =>
+      import('./components/pdf-crop/pdf-crop').then((m) => m.PdfCrop),
+  },
+  {
+    path: 'pdf-optimize',
+    loadComponent: () =>
+      import('./components/pdf-optimize/pdf-optimize').then(
+        (m) => m.PdfOptimize,
+      ),
+  },
+  {
+    path: 'pdf-ocr',
+    loadComponent: () =>
+      import('./components/pdf-ocr/pdf-ocr').then((m) => m.PdfOcr),
+  },
   {
     path: 'pdf-rotate',
     loadComponent: () =>
@@ -76,38 +128,109 @@ export const routes: Routes = [
         (m) => m.PdfExtractImages,
       ),
   },
-  { path: 'pdf-to-docx', component: PdfToDocx },
-  { path: 'pdf-from-images', component: PdfFromImages },
-  { path: 'doc-md-to-pdf', component: DocMdToPdf },
-  { path: 'doc-docx-to-pdf', component: DocDocxToPdf },
-  { path: 'video-convert', component: VideoConvert },
-  { path: 'video-trim', component: VideoTrim },
-  { path: 'video-merge', component: VideoMerge },
-  { path: 'video-transcribe', component: VideoTranscribe },
-  { path: 'audio-extract', component: AudioExtract },
-  { path: 'audio-convert', component: AudioConvert },
-  { path: 'audio-normalize', component: AudioNormalize },
-  { path: 'recipe/email-pdf', component: RecipeRun, data: { recipeId: 'recipe.email_pdf' } },
+  {
+    path: 'pdf-to-docx',
+    loadComponent: () =>
+      import('./components/pdf-to-docx/pdf-to-docx').then(
+        (m) => m.PdfToDocx,
+      ),
+  },
+  {
+    path: 'pdf-from-images',
+    loadComponent: () =>
+      import('./components/pdf-from-images/pdf-from-images').then(
+        (m) => m.PdfFromImages,
+      ),
+  },
+  {
+    path: 'doc-md-to-pdf',
+    loadComponent: () =>
+      import('./components/doc-md-to-pdf/doc-md-to-pdf').then(
+        (m) => m.DocMdToPdf,
+      ),
+  },
+  {
+    path: 'doc-docx-to-pdf',
+    loadComponent: () =>
+      import('./components/doc-docx-to-pdf/doc-docx-to-pdf').then(
+        (m) => m.DocDocxToPdf,
+      ),
+  },
+  {
+    path: 'video-convert',
+    loadComponent: () =>
+      import('./components/video-convert/video-convert').then(
+        (m) => m.VideoConvert,
+      ),
+  },
+  {
+    path: 'video-trim',
+    loadComponent: () =>
+      import('./components/video-trim/video-trim').then((m) => m.VideoTrim),
+  },
+  {
+    path: 'video-merge',
+    loadComponent: () =>
+      import('./components/video-merge/video-merge').then((m) => m.VideoMerge),
+  },
+  {
+    path: 'video-transcribe',
+    loadComponent: () =>
+      import('./components/video-transcribe/video-transcribe').then(
+        (m) => m.VideoTranscribe,
+      ),
+  },
+  {
+    path: 'audio-extract',
+    loadComponent: () =>
+      import('./components/audio/audio-extract').then((m) => m.AudioExtract),
+  },
+  {
+    path: 'audio-convert',
+    loadComponent: () =>
+      import('./components/audio/audio-convert').then((m) => m.AudioConvert),
+  },
+  {
+    path: 'audio-normalize',
+    loadComponent: () =>
+      import('./components/audio/audio-normalize').then(
+        (m) => m.AudioNormalize,
+      ),
+  },
+  {
+    path: 'recipe/email-pdf',
+    loadComponent: () =>
+      import('./components/recipe-run/recipe-run').then((m) => m.RecipeRun),
+    data: { recipeId: 'recipe.email_pdf' },
+  },
   {
     path: 'recipe/web-image-set',
-    component: RecipeRun,
+    loadComponent: () =>
+      import('./components/recipe-run/recipe-run').then((m) => m.RecipeRun),
     data: { recipeId: 'recipe.web_image_set' },
   },
   {
     path: 'recipe/social-clip',
-    component: RecipeRun,
+    loadComponent: () =>
+      import('./components/recipe-run/recipe-run').then((m) => m.RecipeRun),
     data: { recipeId: 'recipe.social_clip' },
   },
   {
     path: 'recipe/clean-scan',
-    component: RecipeRun,
+    loadComponent: () =>
+      import('./components/recipe-run/recipe-run').then((m) => m.RecipeRun),
     data: { recipeId: 'recipe.clean_scan' },
   },
   {
     path: 'recipe/burned-subtitles',
-    component: RecipeRun,
+    loadComponent: () =>
+      import('./components/recipe-run/recipe-run').then((m) => m.RecipeRun),
     data: { recipeId: 'recipe.burned_subtitles' },
   },
-  { path: 'recipe/user/:recipeId', component: RecipeRun },
+  {
+    path: 'recipe/user/:recipeId',
+    loadComponent: () =>
+      import('./components/recipe-run/recipe-run').then((m) => m.RecipeRun),
+  },
   { path: '**', redirectTo: '' },
 ];
