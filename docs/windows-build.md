@@ -27,16 +27,28 @@ pipeline:
 6. Computes the libvips DLL closure from the executable and copies only the
    reachable DLLs next to it (`scripts/prune-windows-dlls.py`); the
    `vips-modules-*` directories are not bundled.
-7. Generates the WebView2 bootstrapper when missing and builds the NSIS
-   installer with the committed branded bitmaps.
-8. Creates a portable ZIP with the same exe, CLI and DLLs (`zip -9`).
+7. Signs the staged desktop and CLI executables with `scripts/sign-windows.sh`
+   when a certificate is configured. Without one the step warns and continues,
+   so the build stays usable for local testing.
+8. Generates the WebView2 bootstrapper when missing and builds the NSIS
+   installer with the committed branded bitmaps. The installer packages the
+   already-signed executables.
+9. Signs the generated installer, then creates a portable ZIP with the same
+   signed executables and DLLs (`zip -9`). The ZIP itself is not signed.
+10. `task package-windows` regenerates `bin/SHA256SUMS` as its last step.
 
 Artifacts:
 
 ```text
 bin/fileforge-desktop-amd64-installer.exe   (~22.1 MiB)
 bin/fileforge-desktop-windows-amd64.zip     (~33.2 MiB)
+bin/SHA256SUMS                              (generated, not committed)
 ```
+
+`bin/SHA256SUMS` holds the SHA-256 of the installer, the portable ZIP and the
+Linux AppImage. Generate it with `task checksums` **after** signing: signing
+rewrites the file bytes, so a checksum taken before signing is wrong. The
+`bin/` directory is gitignored; checksums are release output, not source.
 
 The staged bundle is about 83 MiB: the desktop executable, the 20.4 MiB CLI and
 48 libvips DLLs (29.8 MiB). The sizes above are the optimized ones: the
@@ -110,6 +122,146 @@ contains the exact commands and is the reference implementation; the native
 
 Do **not** run `wails3 update build-assets` without re-applying the NSIS
 changes: it regenerates template files and would drop the libvips bundling.
+
+## Code signing
+
+`scripts/sign-windows.sh` adds an Authenticode signature with SHA-256 and an
+RFC 3161 timestamp. `scripts/build-windows.sh` calls it twice:
+
+1. After staging, before `makensis`, for `fileforge-desktop.exe` and
+   `fileforge-cli.exe`. The installer therefore packages signed binaries.
+2. After `makensis`, for the generated installer `.exe`.
+
+The portable ZIP is written after both steps, so it already contains the signed
+executables. The ZIP is not signed.
+
+Signing is optional for local builds. With no certificate configured the script
+prints one warning and exits 0, so `task package-windows` keeps working. Set
+`REQUIRE_SIGNING=1` to make a missing certificate or signing tool fail the
+build instead.
+
+### Environment
+
+| Variable | Meaning |
+| --- | --- |
+| `WINDOWS_CERT_PFX` | PKCS#12 (`.pfx`/`.p12`) file with the code-signing key. |
+| `WINDOWS_CERT_PASSWORD` | PFX password. It is never printed and never placed on a command line; the tool-specific sections below show how each signer receives it. |
+| `WINDOWS_CERT_PASSWORD_FILE` | File containing the PFX password. It takes precedence over `WINDOWS_CERT_PASSWORD` and is passed to osslsigncode as a file. |
+| `WINDOWS_CERT_THUMBPRINT` | `signtool` only. SHA-1 thumbprint of a certificate already in `Cert:\CurrentUser\My`; no password is needed. |
+| `WINDOWS_TIMESTAMP_URL` | RFC 3161 timestamp endpoint. Defaults to `http://timestamp.digicert.com`. |
+| `SIGN_WINDOWS=0` | Skip signing on purpose. Combining it with `REQUIRE_SIGNING=1` is an error. |
+| `SIGN_WINDOWS_TOOL` | `auto` (default), `osslsigncode` or `signtool`. |
+| `REQUIRE_SIGNING=1` | Missing certificate or signing tool becomes a fatal error. |
+
+The password never reaches `argv`:
+
+- `osslsigncode` reads it with `-readpass -` from stdin, or with
+  `-readpass <password-file>` when `WINDOWS_CERT_PASSWORD_FILE` is set. The
+  script never expands it into a command line and disables `set -x`.
+- `signtool` has no stdin password option. The script therefore imports the PFX
+  into `Cert:\CurrentUser\My` with PowerShell, reading the password from the
+  environment, signs with `/sha1 <thumbprint>`, and removes the imported
+  certificate when the run ends. `signtool /p` is never used.
+  Setting `WINDOWS_CERT_THUMBPRINT` skips the import entirely and is the
+  recommended Windows setup.
+
+For an unencrypted PFX, export `WINDOWS_CERT_PASSWORD` as an empty string.
+
+### Linux: osslsigncode with an exported PFX
+
+Export the code-signing certificate and key from the Windows certificate store
+as a PFX (certlm.msc → Personal → Certificates → All Tasks → Export, include
+the private key, protect it with a password). Copy the file to the Linux build
+host and keep it outside the repository.
+
+```bash
+export WINDOWS_CERT_PFX="$HOME/.config/fileforge/codesign.pfx"
+export WINDOWS_CERT_PASSWORD_FILE="$HOME/.config/fileforge/codesign.pass"
+chmod 600 "$WINDOWS_CERT_PFX" "$WINDOWS_CERT_PASSWORD_FILE"
+
+./scripts/sign-windows.sh --check       # validate, print the plan
+./scripts/build-windows.sh              # sign during the build
+```
+
+The per-file commands are:
+
+```bash
+osslsigncode sign -pkcs12 cert.pfx -readpass - -h sha256 \
+  -ts http://timestamp.digicert.com -in file.exe -out file.exe.signed
+osslsigncode verify -in file.exe
+```
+
+`-ts` requests an RFC 3161 timestamp. Install the tool with your package
+manager (`apt install osslsigncode`, `pacman -S osslsigncode`, `brew install
+osslsigncode`).
+
+Verification normally checks the digest, the certificate chain, the timestamp
+signature and revocation. If the local CA store cannot validate the timestamp
+or the CRL endpoints (for example on an offline builder), the script retries
+with `-ignore-timestamp -ignore-cdp -ignore-crl` and warns that the signature
+and digest were verified but the timestamp signature and revocation status were
+not checked locally.
+
+### Windows: signtool
+
+Install the Windows SDK so `signtool` is on `PATH`, then either import the PFX
+once and use its thumbprint:
+
+```powershell
+$sec = ConvertTo-SecureString -String $env:WINDOWS_CERT_PASSWORD -AsPlainText -Force
+$cert = Import-PfxCertificate -FilePath $env:WINDOWS_CERT_PFX `
+  -CertStoreLocation Cert:\CurrentUser\My -Password $sec
+$env:WINDOWS_CERT_THUMBPRINT = $cert.Thumbprint
+```
+
+or let `scripts/sign-windows.sh` do the temporary import itself. The script
+uses:
+
+```text
+signtool sign /sha1 <thumbprint> /fd sha256 /tr http://timestamp.digicert.com /td sha256 file.exe
+signtool verify /pa /all file.exe
+```
+
+### Checking and previewing
+
+```bash
+./scripts/sign-windows.sh --check
+./scripts/sign-windows.sh --dry-run bin/fileforge-desktop-amd64-installer.exe
+```
+
+`--check` validates the environment and prints the plan without touching a
+file. `--dry-run` prints the exact commands. When the certificate or tool is
+missing, both respect `REQUIRE_SIGNING`: warn and exit 0, or fail.
+
+Verify a signed file at any time with:
+
+```bash
+osslsigncode verify -in file.exe                    # Linux
+signtool verify /pa /all file.exe                   # Windows
+Get-AuthenticodeSignature .\file.exe | Format-List  # PowerShell
+```
+
+### SmartScreen expectations
+
+Code signing is not a switch that removes every warning on day one.
+
+- An **OV (organization validation)** certificate makes Windows show the
+  verified publisher instead of "Unknown publisher" in the UAC prompt. It
+  removes the unknown-publisher warning, but SmartScreen reputation is built
+  per certificate over downloads and time. A brand-new OV certificate can still
+  trigger "Windows protected your PC" until enough users download the file.
+- **EV (extended validation)** certificates and **Azure Trusted Signing** start
+  with established reputation, so they usually avoid the SmartScreen warning
+  immediately.
+
+Do not promise users that the first signed build is warning-free. The honest
+baseline is: signed binaries identify the publisher, and SmartScreen reputation
+accrues over time unless an EV or Azure Trusted Signing certificate is used.
+
+The NSIS-generated `uninstall.exe` is not signed by this hook. Signing it would
+need the `!finalize`/`!uninstfinalize` hooks in `build/windows/nsis/project.nsi`,
+which run inside `makensis`; those hooks stay commented out so the signing flow
+remains one explicit step in the build script.
 
 ## Windows install paths
 
@@ -327,9 +479,11 @@ close it before continuing.
   `onnxruntime` DLLs under `rembg-venv\Lib\site-packages\onnxruntime\`.
 - **First-run downloads fail**: check the proxy/firewall. The downloads come
   from GitHub, conda-forge and Hugging Face. Re-run Install / repair.
-- **SmartScreen warns**: the installer is unsigned. Code signing is a release
-  follow-up: sign the exe, installer and uninstaller with `signtool` (the NSIS
-  script has commented `!finalize`/`!uninstfinalize` hooks). Unsigned builds are
-  fine for local testing and internal distribution.
+- **SmartScreen warns**: the build was unsigned, or the certificate has no
+  reputation yet. Configure code signing as described in
+  [Code signing](#code-signing). An OV certificate removes the
+  unknown-publisher warning, but SmartScreen reputation accrues over time; EV
+  or Azure Trusted Signing start with reputation. Unsigned builds are fine for
+  local testing and internal distribution.
 - **Windows ARM64**: not built. The toolchain currently supports
   `windows/amd64`.

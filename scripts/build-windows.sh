@@ -9,6 +9,8 @@
 #
 # Requirements: go, node, npm, makensis, mingw-w64 (gcc, dlltool and binutils
 # objdump), pkg-config, curl, python3, zip and the Wails v3 CLI (wails3).
+# Code signing is optional: scripts/sign-windows.sh signs when a certificate is
+# configured and warns otherwise. Set REQUIRE_SIGNING=1 to make it mandatory.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -157,6 +159,14 @@ python3 "$ROOT_DIR/scripts/prune-windows-dlls.py" \
   --source "$VIPS_DIR/bin" \
   --dest "$STAGE_DIR"
 
+# Sign the staged executables before makensis runs, so the installer packages
+# signed binaries and the portable ZIP below picks them up as well. The hook
+# warns and continues when no certificate is configured.
+echo "==> Signing the staged executables"
+"$ROOT_DIR/scripts/sign-windows.sh" \
+  "$STAGE_DIR/fileforge-desktop.exe" \
+  "$STAGE_DIR/fileforge-cli.exe"
+
 echo "==> Building the NSIS installer"
 BOOTSTRAPPER="$ROOT_DIR/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe"
 if [ ! -f "$BOOTSTRAPPER" ]; then
@@ -173,6 +183,13 @@ rm -f "$INSTALLER"
     project.nsi
 )
 
+# Sign the installer after makensis produced it. The uninstaller NSIS embeds
+# stays unsigned: signing it would need the NSIS !uninstfinalize hook.
+echo "==> Signing the NSIS installer"
+"$ROOT_DIR/scripts/sign-windows.sh" "$INSTALLER"
+
+# The portable ZIP bundles the already-signed executables; the ZIP itself is
+# not signed.
 echo "==> Creating the portable ZIP"
 rm -f "$PORTABLE"
 (

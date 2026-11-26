@@ -30,16 +30,50 @@ tasks:
     cmds:
       - ./scripts/build-windows.sh
 
+  checksums:
+    desc: Regenerate bin/SHA256SUMS over the release artifacts
+    summary: |
+      Writes bin/SHA256SUMS for every release artifact that exists in bin/: the
+      Windows installer and portable ZIP, the Linux AppImage, the deb, rpm and
+      Arch packages, and the headless CLI. Run it after signing: signing
+      changes the file bytes, so a checksum computed before signing is wrong.
+    dir: "{{.BIN_DIR}}"
+    cmds:
+      - |
+        set -e
+        : > SHA256SUMS
+        for artifact in \
+          fileforge-desktop-amd64-installer.exe \
+          fileforge-desktop-windows-amd64.zip \
+          fileforge-desktop-x86_64.AppImage \
+          fileforge-desktop.deb \
+          fileforge-desktop.rpm \
+          fileforge-desktop.pkg.tar.zst \
+          fileforge-cli \
+          fileforge-cli.exe; do
+          if [ -f "$artifact" ]; then
+            sha256sum "$artifact" >> SHA256SUMS
+          fi
+        done
+        if [ ! -s SHA256SUMS ]; then
+          echo "no release artifacts found in $(pwd)" >&2
+          exit 1
+        fi
+        cat SHA256SUMS
+
   package:
     summary: Build the optimized Windows installer/portable ZIP and Linux AppImage
     cmds:
       - task: package-windows
       - task: package-linux
+      # Regenerate once more so the AppImage checksum is fresh too.
+      - task: checksums
 
   package-windows:
     summary: Build the optimized Windows installer and portable ZIP (cross-build from Linux)
     cmds:
       - task: build:windows
+      - task: checksums
 
   package-linux:
     summary: Build the optimized Linux AppImage
