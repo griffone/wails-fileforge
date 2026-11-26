@@ -19,6 +19,8 @@ release: "1"
 contents:
   - src: "./bin/fileforge-desktop"
     dst: "/usr/local/bin/fileforge-desktop"
+  - src: "./bin/fileforge-cli"
+    dst: "/usr/local/bin/fileforge-cli"
   - src: "./build/appicon.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/fileforge-desktop.png"
   - src: "./build/linux/fileforge-desktop.desktop"

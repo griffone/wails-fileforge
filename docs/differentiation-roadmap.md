@@ -408,8 +408,10 @@ optional capability pack, not a bundled model set.
   declare real knobs.
 - Preset sharing: **done** — versioned export/import with per-entry validation
   and name-conflict handling.
-- CLI packaging: **done as `cmd/fileforge-cli`** (`task build:cli`). The binary
-  is not yet included in the AppImage or the NSIS installer.
+- CLI packaging: **done as `cmd/fileforge-cli`** (`task build:cli`, `task linux:cli`).
+  The binary ships in the NSIS installer and the portable ZIP, beside the
+  AppImage and inside the deb/rpm/arch packages. It is deliberately not embedded
+  in the AppImage: the generated `AppRun` launches only the desktop app.
 - Context menu / OS integration: **dropped by product decision**. There is no
   shell verb, `.desktop` action or file association; opening the app remains
   the entry point. If it returns, it needs the CLI packaged first.

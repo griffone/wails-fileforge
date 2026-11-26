@@ -22,28 +22,31 @@ pipeline:
 3. Builds the Angular frontend.
 4. Generates the Windows resources (`.syso`) and cross-compiles the `.exe` with
    cgo enabled.
-5. Computes the libvips DLL closure from the executable and copies only the
+5. Builds the headless CLI (`fileforge-cli.exe`) with the same cross environment
+   and stages it next to the desktop executable.
+6. Computes the libvips DLL closure from the executable and copies only the
    reachable DLLs next to it (`scripts/prune-windows-dlls.py`); the
    `vips-modules-*` directories are not bundled.
-6. Generates the WebView2 bootstrapper when missing and builds the NSIS
+7. Generates the WebView2 bootstrapper when missing and builds the NSIS
    installer with the committed branded bitmaps.
-7. Creates a portable ZIP with the same exe and DLLs (`zip -9`).
+8. Creates a portable ZIP with the same exe, CLI and DLLs (`zip -9`).
 
 Artifacts:
 
 ```text
-bin/fileforge-desktop-amd64-installer.exe   (~18.9 MiB)
-bin/fileforge-desktop-windows-amd64.zip     (~23.0 MiB)
+bin/fileforge-desktop-amd64-installer.exe   (~22.1 MiB)
+bin/fileforge-desktop-windows-amd64.zip     (~33.2 MiB)
 ```
 
-The staged bundle is about 57 MiB: a 27.6 MiB executable plus 48 libvips DLLs
-(29.8 MiB). The sizes above are the optimized ones: the installer uses a 64 MB
-LZMA dictionary and the ZIP is written with maximum deflate. The ZIP contains a
-`FileForge Desktop/` folder with the exe and the pruned DLL set. The optional
-libvips modules are not bundled because the app only uses the core loaders
-(JPEG, PNG, WebP, GIF, TIFF, BMP); JXL, ImageMagick, Poppler and OpenSlide are
-unnecessary. The version metadata comes from `build/windows/info.json` and the
-`INFO_PRODUCTVERSION` define in `build/windows/nsis/project.nsi`. The libvips
+The staged bundle is about 83 MiB: the desktop executable, the 20.4 MiB CLI and
+48 libvips DLLs (29.8 MiB). The sizes above are the optimized ones: the
+installer uses a 64 MB LZMA dictionary and the ZIP is written with maximum
+deflate. The ZIP contains a `FileForge Desktop/` folder with both executables
+and the pruned DLL set. The optional libvips modules are not bundled because the
+app only uses the core loaders (JPEG, PNG, WebP, GIF, TIFF, BMP); JXL,
+ImageMagick, Poppler and OpenSlide are unnecessary. The version metadata comes
+from `build/windows/info.json` and the `INFO_PRODUCTVERSION` define in
+`build/windows/nsis/project.nsi`. The libvips
 cache lives in `~/.cache/fileforge-windows`; override it with
 `FILEFORGE_WINDOWS_CACHE`. The Wails CLI is resolved from `PATH`, then
 `$HOME/go/bin/wails3`; override it with `WAILS3_BIN`.
@@ -74,6 +77,7 @@ has already loaded its imports.
 The installer bundles:
 
 - `fileforge-desktop.exe`
+- `fileforge-cli.exe` (the headless CLI, installed in the same folder)
 - libvips DLLs (the pruned set reachable from the exe)
 - the WebView2 bootstrapper
 - shortcuts and the uninstaller
@@ -96,10 +100,13 @@ build is also possible with:
   `build/windows/nsis/project.nsi` from this repository.
 
 Build the frontend, generate the `.syso`, run `go build -tags production` with
-the libvips cgo flags, run `scripts/prune-windows-dlls.py` to stage the
+the libvips cgo flags, build `./cmd/fileforge-cli` into `bin/fileforge-cli.exe`
+with the same environment, run `scripts/prune-windows-dlls.py` to stage the
 reachable DLLs, generate the WebView2 bootstrapper and run `makensis` with
-`-DLIBVIPS_DIR=<pruned stage>`. The script contains the exact commands and is
-the reference implementation.
+`-DLIBVIPS_DIR=<pruned stage>` and `-DFILEFORGE_CLI_BINARY=<cli exe>`. The script
+contains the exact commands and is the reference implementation; the native
+`build/windows/Taskfile.yml` performs the same two `go build` steps so
+`task package-native` on Windows also produces an installer with the CLI.
 
 Do **not** run `wails3 update build-assets` without re-applying the NSIS
 changes: it regenerates template files and would drop the libvips bundling.
@@ -113,6 +120,7 @@ The NSIS installer defaults to a per-machine install:
 ```text
 %ProgramFiles%\FileForge\FileForge Desktop\
   fileforge-desktop.exe
+  fileforge-cli.exe
   libvips-42.dll + dependencies
   uninstall.exe
 ```
@@ -271,7 +279,7 @@ Uninstall from **Settings → Apps → Installed apps → FileForge Desktop** or
 following data for the current Windows user is removed:
 
 ```text
-%ProgramFiles%\FileForge\FileForge Desktop\    app, libvips DLLs, uninstaller
+%ProgramFiles%\FileForge\FileForge Desktop\    app, CLI, libvips DLLs, uninstaller
 %LOCALAPPDATA%\FileForge                        managed toolchain and models
 %LOCALAPPDATA%\fileforge                        local cache fallback
 %APPDATA%\fileforge                             settings, job history, automation, trash
@@ -296,6 +304,10 @@ close it before continuing.
 - **The exe does not start / missing libvips DLL**: use the installer or the
   portable ZIP, not the bare `fileforge-desktop.exe`. The DLLs must be in the
   same folder.
+- **`fileforge-cli.exe` does not start / missing libvips DLL**: run it from the
+  install folder or the extracted portable ZIP. It links the same libvips stack
+  and loads `libvips-42.dll` from its own folder, so it cannot be copied out on
+  its own.
 - **WebView2 missing**: the installer runs the WebView2 bootstrapper. On an
   offline machine, install the Evergreen WebView2 Runtime first.
 - **OCR fails with a merge error**: open Settings → Tools & Models and run

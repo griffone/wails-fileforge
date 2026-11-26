@@ -140,6 +140,18 @@ trap 'rm -f "$SYSO"' EXIT
     -o "$STAGE_DIR/fileforge-desktop.exe" .
 )
 
+# The headless CLI links the same bimg/libvips cgo stack, so it builds with the
+# environment exported above. It stays a console binary (no -H windowsgui) and
+# is staged next to the desktop exe so the NSIS file copy and the portable ZIP
+# both pick it up.
+echo "==> Building the Windows headless CLI"
+(
+  cd "$ROOT_DIR"
+  go build -trimpath -buildvcs=false \
+    -ldflags="-w -s" \
+    -o "$STAGE_DIR/fileforge-cli.exe" ./cmd/fileforge-cli
+)
+
 echo "==> Bundling the libvips runtime"
 python3 "$ROOT_DIR/scripts/prune-windows-dlls.py" \
   --source "$VIPS_DIR/bin" \
@@ -156,6 +168,7 @@ rm -f "$INSTALLER"
   cd "$ROOT_DIR/build/windows/nsis"
   makensis \
     -DARG_WAILS_AMD64_BINARY="$STAGE_DIR/fileforge-desktop.exe" \
+    -DFILEFORGE_CLI_BINARY="$STAGE_DIR/fileforge-cli.exe" \
     -DLIBVIPS_DIR="$STAGE_DIR" \
     project.nsi
 )

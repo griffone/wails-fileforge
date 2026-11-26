@@ -63,6 +63,9 @@ task dev
 # Production build
 task build
 
+# Headless CLI for the host (bin/fileforge-cli)
+task build:cli
+
 # Optimized Windows installer + portable ZIP and Linux AppImage
 task package
 
@@ -78,22 +81,40 @@ The Windows build and the Windows install layout are documented in
 
 ## Release artifacts
 
-`task package` builds all three from Linux in one run: the optimized Windows
-installer, the portable ZIP (both cross-built), and the optimized AppImage.
+`task package` builds the Windows artifacts and the Linux AppImage from Linux
+in one run: the optimized Windows installer and portable ZIP (both cross-built),
+the optimized AppImage, and the headless CLI.
 
 | Artifact | Size |
 | --- | --- |
-| `bin/fileforge-desktop-amd64-installer.exe` | ~18.9 MiB |
-| `bin/fileforge-desktop-windows-amd64.zip` | ~23.0 MiB |
+| `bin/fileforge-desktop-amd64-installer.exe` | ~22.1 MiB |
+| `bin/fileforge-desktop-windows-amd64.zip` | ~33.2 MiB |
 | `bin/fileforge-desktop-x86_64.AppImage` | ~116.2 MiB |
+| `bin/fileforge-cli` | ~20.0 MiB |
+
+`fileforge-cli` is the headless CLI built from `cmd/fileforge-cli`. It runs the
+same tools and recipes as the desktop app without booting Wails. It ships per
+platform:
+
+| Platform | Where the CLI ships | Installed path |
+| --- | --- | --- |
+| Windows | inside the installer and the portable ZIP (`FileForge Desktop/fileforge-cli.exe`) | `%ProgramFiles%\FileForge\FileForge Desktop\fileforge-cli.exe` |
+| Linux (AppImage) | `bin/fileforge-cli`, beside the AppImage | wherever the two files are copied together |
+| Linux (deb/rpm/arch) | inside the package | `/usr/local/bin/fileforge-cli` |
+
+The Linux CLI is deliberately **not** embedded in the AppImage: the generated
+`AppRun` launches the desktop app only, so a second binary inside the bundle
+would be unreachable. Run it from the extracted directory instead.
 
 The Windows build stages the exe and copies only the libvips DLLs reachable
 from it (`scripts/prune-windows-dlls.py`), writes the portable ZIP with maximum
-deflate and uses a 64 MB LZMA dictionary for the installer. The Linux build
-post-processes the generated AppImage (`scripts/optimize-appimage.sh`): it
-removes the unused GTK3/WebKit2GTK 4.1 stack and the GObject-introspection
-typelibs, then repacks with zstd. Set `OPTIMIZE_APPIMAGE=0` to keep the
-generated AppImage unchanged.
+deflate and uses a 64 MB LZMA dictionary for the installer. The CLI is built in
+`scripts/build-windows.sh` with the same mingw + libvips cross environment,
+staged next to the desktop exe, installed by NSIS into the same folder and
+picked up by the portable ZIP. The Linux build post-processes the generated
+AppImage (`scripts/optimize-appimage.sh`): it removes the unused GTK3/WebKit2GTK
+4.1 stack and the GObject-introspection typelibs, then repacks with zstd. Set
+`OPTIMIZE_APPIMAGE=0` to keep the generated AppImage unchanged.
 
 ### Windows installer
 

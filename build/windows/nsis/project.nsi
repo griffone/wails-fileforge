@@ -226,6 +226,13 @@ Section "FileForge Desktop" SecApp
     SetOutPath $INSTDIR
     !insertmacro wails.files
 
+    # wails.files copies only the desktop exe, so the headless CLI is added
+    # explicitly. It lands in $INSTDIR beside the app and shares the bundled
+    # libvips DLLs; the uninstaller removes $INSTDIR recursively.
+    !ifdef FILEFORGE_CLI_BINARY
+        File "/oname=fileforge-cli.exe" "${FILEFORGE_CLI_BINARY}"
+    !endif
+
     # Bundle the libvips runtime next to the executable. bimg links it at
     # startup, so this cannot be installed later by the in-app toolchain.
     !ifdef LIBVIPS_DIR
