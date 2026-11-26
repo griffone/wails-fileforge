@@ -6,6 +6,7 @@ export {
 } from "./models.js";
 
 export type {
+    AutomationOrganizePreviewResponse,
     AutomationRule,
     AutomationRuleActionResponse,
     AutomationRunEvent,
@@ -53,6 +54,7 @@ export type {
     LocalCapability,
     MediaSourceResponse,
     OCRCapabilitiesResponse,
+    OrganizePlannedMove,
     OutputNameSuggestionResponse,
     PDFPreviewSourceResponse,
     PathActionResponse,

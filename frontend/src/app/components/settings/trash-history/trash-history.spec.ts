@@ -183,6 +183,21 @@ describe('TrashHistory', () => {
     );
   }));
 
+  it('labels an organize automation move instead of calling it unknown', fakeAsync(() => {
+    void render([
+      historyEntry({
+        jobId: 'auto-1',
+        toolId: 'automation.organize',
+        outputs: [output({ path: '/tmp/sorted/a.pdf' })],
+      }),
+    ]);
+
+    const row = element().querySelector('.job-history-row');
+    expect(row?.textContent).toContain('Organize files');
+    expect(row?.textContent).not.toContain('Unknown tool');
+    expect(row?.textContent).not.toContain('automation.organize');
+  }));
+
   it('restores an undone job and refreshes the list', fakeAsync(() => {
     const undone = historyEntry({
       jobId: 'job-restore',

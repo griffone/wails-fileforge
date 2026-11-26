@@ -389,7 +389,25 @@ export class TrashHistory implements OnInit {
       return this.registry.recipeName(recipe);
     }
 
+    const synthetic = this.syntheticToolName(toolId);
+    if (synthetic) {
+      return synthetic;
+    }
+
     return this.i18n.t('settings.jobHistory.unknownTool');
+  }
+
+  /**
+   * History ids that are not registered tools or recipes, such as the moves an
+   * organize automation records. They get an explicit label so the panel never
+   * calls a real operation "Unknown tool".
+   */
+  private syntheticToolName(toolId: string): string | null {
+    if (toolId === 'automation.organize') {
+      return this.i18n.t('settings.jobHistory.organizeTool');
+    }
+
+    return null;
   }
 
   /** Keeps Tab inside the confirmation dialog, matching the activity drawer. */

@@ -153,6 +153,12 @@ export class WailsIpc {
     return AutomationService.DeleteAutomationRule(id);
   }
 
+  previewAutomationRule(
+    rule: Models.AutomationRule,
+  ): Promise<Models.AutomationOrganizePreviewResponse> {
+    return AutomationService.PreviewAutomationRule(rule);
+  }
+
   setAutomationRuleEnabled(
     id: string,
     enabled: boolean,

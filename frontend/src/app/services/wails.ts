@@ -294,6 +294,19 @@ export interface AutomationRuleActionResponse
   error?: JobError;
 }
 
+/** One planned organize move; `destination` is empty for a skipped item. */
+export type OrganizePlannedMove = Models.OrganizePlannedMove;
+
+/**
+ * Dry-run plan of an organize rule. The generated model types `moves` as
+ * nullable, so the UI contract narrows it to an array.
+ */
+export interface AutomationOrganizePreviewResponse
+  extends Models.AutomationOrganizePreviewResponse {
+  moves: OrganizePlannedMove[];
+  error?: JobError;
+}
+
 export type AutomationStatusResponse = Models.AutomationStatusResponse;
 
 export type AutomationRunEvent = Models.AutomationRunEvent;
@@ -1514,6 +1527,31 @@ export class Wails {
         error: this.defaultError(
           'EXEC_IO_TRANSIENT',
           'AUTOMATION_RULE_UPDATE_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async previewAutomationRule(
+    rule: AutomationRule,
+  ): Promise<AutomationOrganizePreviewResponse> {
+    try {
+      const response = await this.ipc.previewAutomationRule(rule);
+      return {
+        ...response,
+        moves: (response.moves ?? []).map((move) => ({ ...move })),
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Preview automation rule failed', error),
+        moves: [],
+        previewStored: false,
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'AUTOMATION_RULE_PREVIEW_FAILED',
           error,
         ),
       };

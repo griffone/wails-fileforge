@@ -122,6 +122,7 @@ export const settingsEs = {
   'settings.jobHistory.emptyHint':
     'Los trabajos finalizados aparecen aquí para mostrar, deshacer o restaurar sus salidas.',
   'settings.jobHistory.unknownTool': 'Herramienta desconocida',
+  'settings.jobHistory.organizeTool': 'Organizar archivos',
   'settings.jobHistory.state.done': 'Finalizado',
   'settings.jobHistory.state.undone': 'Deshecho',
   'settings.jobHistory.state.trashed': 'En la papelera',

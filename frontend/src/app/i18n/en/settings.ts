@@ -119,6 +119,7 @@ export const settingsEn = {
   'settings.jobHistory.emptyHint':
     'Finished jobs appear here so you can reveal, undo or restore their outputs.',
   'settings.jobHistory.unknownTool': 'Unknown tool',
+  'settings.jobHistory.organizeTool': 'Organize files',
   'settings.jobHistory.state.done': 'Done',
   'settings.jobHistory.state.undone': 'Undone',
   'settings.jobHistory.state.trashed': 'In trash',
