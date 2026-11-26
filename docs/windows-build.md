@@ -58,7 +58,11 @@ and the pruned DLL set. The optional libvips modules are not bundled because the
 app only uses the core loaders (JPEG, PNG, WebP, GIF, TIFF, BMP); JXL,
 ImageMagick, Poppler and OpenSlide are unnecessary. The version metadata comes
 from `build/windows/info.json` and the `INFO_PRODUCTVERSION` define in
-`build/windows/nsis/project.nsi`. The libvips
+`build/windows/nsis/project.nsi`; the running binary's identity is injected from
+`git describe` by `scripts/versionflags` (see the README's version identity
+section). That helper falls back to `wails.json` in a source tarball, so keep
+`wails.json`, `build/config.yml` and `build/windows/info.json` on the same
+version. The libvips
 cache lives in `~/.cache/fileforge-windows`; override it with
 `FILEFORGE_WINDOWS_CACHE`. The Wails CLI is resolved from `PATH`, then
 `$HOME/go/bin/wails3`; override it with `WAILS3_BIN`.

@@ -124,6 +124,11 @@ echo "==> Building the frontend"
   npm run build
 )
 
+# Resolve the build identity once so the desktop exe and the CLI share one
+# version, commit and timestamp. GOOS is already windows here, so reset it for
+# the host-side helper.
+VERSION_LDFLAGS="$(cd "$ROOT_DIR" && GOOS= GOARCH= CGO_ENABLED=0 go run ./scripts/versionflags)"
+
 echo "==> Generating the Windows resources and executable"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
@@ -138,7 +143,7 @@ trap 'rm -f "$SYSO"' EXIT
 (
   cd "$ROOT_DIR"
   go build -tags production -trimpath -buildvcs=false \
-    -ldflags="-w -s -H windowsgui" \
+    -ldflags="-w -s -H windowsgui $VERSION_LDFLAGS" \
     -o "$STAGE_DIR/fileforge-desktop.exe" .
 )
 
@@ -150,7 +155,7 @@ echo "==> Building the Windows headless CLI"
 (
   cd "$ROOT_DIR"
   go build -trimpath -buildvcs=false \
-    -ldflags="-w -s" \
+    -ldflags="-w -s $VERSION_LDFLAGS" \
     -o "$STAGE_DIR/fileforge-cli.exe" ./cmd/fileforge-cli
 )
 

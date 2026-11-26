@@ -16,9 +16,11 @@ tasks:
             ref: .PRODUCTION
       - task: common:generate:icons
     cmds:
-      - go build {{.BUILD_FLAGS}} -o {{.OUTPUT}}
+      - go build {{.BUILD_FLAGS}} {{if eq .PRODUCTION "true"}}-ldflags="-w -s {{.VERSION_LDFLAGS}}"{{end}} -o {{.OUTPUT}}
     vars:
-      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production -trimpath -buildvcs=false -ldflags="-w -s"{{else}}-buildvcs=false -gcflags=all="-l"{{end}}'
+      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production -trimpath -buildvcs=false{{else}}-buildvcs=false -gcflags=all="-l"{{end}}'
+      VERSION_LDFLAGS:
+        sh: GOOS= GOARCH= CGO_ENABLED=0 go run {{.ROOT_DIR}}/scripts/versionflags
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
     env:

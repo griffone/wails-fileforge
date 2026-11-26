@@ -22,7 +22,10 @@ tasks:
     desc: Builds the headless CLI for the host
     summary: Builds bin/fileforge-cli, the headless CLI that never boots Wails
     cmds:
-      - go build -buildvcs=false -o {{.BIN_DIR}}/fileforge-cli {{.CLI_SOURCE}}
+      - go build -buildvcs=false -ldflags="{{.VERSION_LDFLAGS}}" -o {{.BIN_DIR}}/fileforge-cli {{.CLI_SOURCE}}
+    vars:
+      VERSION_LDFLAGS:
+        sh: GOOS= GOARCH= CGO_ENABLED=0 go run {{.ROOT_DIR}}/scripts/versionflags
 
   build:windows:
     desc: Build the complete Windows x64 installer and portable ZIP (cross-build)

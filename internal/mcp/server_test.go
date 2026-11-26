@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	appversion "fileforge-desktop/internal/version"
 )
 
 func protocolServer() *Server {
@@ -94,9 +96,24 @@ func TestInitializeHandshake(t *testing.T) {
 	if !ok || serverInfo["name"] != ServerName {
 		t.Fatalf("unexpected serverInfo: %#v", result["serverInfo"])
 	}
+	if serverInfo["version"] != appversion.Number() {
+		t.Fatalf("serverInfo.version = %#v, want %q", serverInfo["version"], appversion.Number())
+	}
 	instructions, _ := result["instructions"].(string)
 	if !strings.Contains(instructions, "fileforge-cli mcp allow <dir>") {
 		t.Fatalf("instructions must explain the grant command, got %q", instructions)
+	}
+}
+
+func TestInitializeAdvertisesTheConfiguredVersion(t *testing.T) {
+	server := NewServer(Deps{Policy: NewPolicy(nil), Stderr: io.Discard, Version: "1.2.3"})
+	responses := serveExchange(t, server,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`)
+
+	result := rpcResult(t, responses[0])
+	serverInfo, ok := result["serverInfo"].(map[string]any)
+	if !ok || serverInfo["version"] != "1.2.3" {
+		t.Fatalf("serverInfo.version = %#v, want %q", result["serverInfo"], "1.2.3")
 	}
 }
 

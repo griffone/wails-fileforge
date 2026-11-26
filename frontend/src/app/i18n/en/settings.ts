@@ -153,5 +153,15 @@ export const settingsEn = {
   'settings.status.notStarted': 'Not started',
   'settings.status.notFound': 'Not found',
   'settings.status.auto': 'Auto',
+  'settings.aboutInfo.title': 'About FileForge',
+  'settings.aboutInfo.version': 'Version',
+  'settings.aboutInfo.commit': 'Commit',
+  'settings.aboutInfo.builtAt': 'Build time',
+  'settings.aboutInfo.notReported': 'Not reported',
+  'settings.aboutInfo.loading': 'Reading the build identity…',
+  'settings.aboutInfo.unavailable': 'The build identity is not available.',
+  'settings.aboutInfo.devBuild': 'Development build',
+  'settings.aboutInfo.help':
+    'Release builds carry a version an updater can compare. Development builds report dev and never check for updates.',
   'settings.about': 'FileForge Desktop · local-first file tools',
 } as const;

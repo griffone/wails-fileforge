@@ -8,11 +8,8 @@ import (
 	"strings"
 
 	"fileforge-desktop/internal/mcp"
+	"fileforge-desktop/internal/version"
 )
-
-// cliVersion is the serverInfo.version advertised over MCP. It mirrors
-// wails.json.
-const cliVersion = "1.1.0"
 
 // mcpStdin is the protocol input. It is a variable so tests can drive
 // `mcp serve` without replacing os.Stdin.
@@ -79,7 +76,7 @@ func runMCPServe(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		Recipes:  stack.recipes,
 		Policy:   policy,
 		Audit:    mcp.NewAuditLog(mcp.AuditPath(dir)),
-		Version:  cliVersion,
+		Version:  version.Number(),
 		Stderr:   stderr,
 	})
 

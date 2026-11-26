@@ -781,6 +781,57 @@
       </div>
     </section>
 
+    <section
+      class="panel settings-panel settings-about-panel"
+      aria-labelledby="settings-about-title"
+    >
+      <div class="panel-head">
+        <h2 id="settings-about-title" class="panel-title">
+          {{ i18n.t('settings.aboutInfo.title') }}
+        </h2>
+        @if (appInfo() && !aboutRelease()) {
+          <span class="badge badge-neutral settings-about-dev">
+            {{ i18n.t('settings.aboutInfo.devBuild') }}
+          </span>
+        }
+      </div>
+
+      <div class="settings-body">
+        @if (appInfoLoading() && !appInfo()) {
+          <p class="settings-help" role="status" aria-live="polite">
+            {{ i18n.t('settings.aboutInfo.loading') }}
+          </p>
+        }
+
+        @if (appInfoError(); as error) {
+          <div class="banner banner-warning settings-about-error" role="alert">
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <span class="settings-capability-error-text">{{ error }}</span>
+          </div>
+        }
+
+        <dl class="settings-about-grid">
+          <dt>{{ i18n.t('settings.aboutInfo.version') }}</dt>
+          <dd class="mono settings-about-version">{{ aboutVersion() }}</dd>
+
+          <dt>{{ i18n.t('settings.aboutInfo.commit') }}</dt>
+          <dd class="mono settings-about-commit">{{ aboutCommit() }}</dd>
+
+          <dt>{{ i18n.t('settings.aboutInfo.builtAt') }}</dt>
+          <dd class="mono settings-about-built-at">{{ aboutBuiltAt() }}</dd>
+        </dl>
+
+        <p class="settings-help">
+          {{ i18n.t('settings.aboutInfo.help') }}
+        </p>
+      </div>
+    </section>
+
     <p class="settings-about">{{ i18n.t('settings.about') }}</p>
   </div>
 </div>

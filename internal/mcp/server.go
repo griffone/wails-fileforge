@@ -14,6 +14,7 @@ import (
 	"fileforge-desktop/internal/recipes"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/services"
+	appversion "fileforge-desktop/internal/version"
 )
 
 const (
@@ -23,8 +24,6 @@ const (
 	// DefaultProtocolVersion is the newest MCP revision this server claims. It
 	// is returned when the client asks for a revision the server does not know.
 	DefaultProtocolVersion = "2025-11-25"
-
-	defaultVersion = "1.0.0"
 
 	// maxMessageBytes bounds one newline-delimited JSON-RPC message.
 	maxMessageBytes = 8 << 20
@@ -81,7 +80,7 @@ type Server struct {
 func NewServer(deps Deps) *Server {
 	version := strings.TrimSpace(deps.Version)
 	if version == "" {
-		version = defaultVersion
+		version = appversion.Number()
 	}
 	stderr := deps.Stderr
 	if stderr == nil {

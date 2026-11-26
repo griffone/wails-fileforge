@@ -93,6 +93,18 @@ func TestGetLocalCapabilitiesContract(t *testing.T) {
 	}
 }
 
+func TestGetAppInfoContract(t *testing.T) {
+	a := newTestApp(t)
+
+	response := a.System.GetAppInfo()
+	if !response.Success {
+		t.Fatalf("GetAppInfo failed: %s", response.Message)
+	}
+	if response.Version == "" || response.Commit == "" || response.BuiltAt == "" {
+		t.Fatalf("GetAppInfo returned an incomplete identity: %+v", response)
+	}
+}
+
 func TestGetToolchainStatusContract(t *testing.T) {
 	a := newTestApp(t)
 

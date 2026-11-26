@@ -14,6 +14,7 @@ import (
 	"fileforge-desktop/internal/media"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/pdf"
+	appversion "fileforge-desktop/internal/version"
 	"fileforge-desktop/internal/video"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -40,6 +41,21 @@ func (s *SystemService) GetOCRCapabilities() models.OCRCapabilitiesResponse {
 // binary or model is reported with guidance, not an error.
 func (s *SystemService) GetTranscriptionCapabilities(whisperPath, modelPath string) models.TranscriptionCapabilitiesResponse {
 	return video.TranscriptionCapabilities(whisperPath, modelPath)
+}
+
+// GetAppInfo reports the version, commit and build time injected into this
+// binary. The Settings About panel reads it, and Release tells a future
+// updater whether the build is a stamped release.
+func (s *SystemService) GetAppInfo() models.AppInfoResponse {
+	info := appversion.Current()
+	return models.AppInfoResponse{
+		Success: true,
+		Message: "app info",
+		Version: info.Version,
+		Commit:  info.Commit,
+		BuiltAt: info.BuiltAt,
+		Release: info.Release,
+	}
 }
 
 // GetLocalCapabilities reports every external tool the local tools rely on,

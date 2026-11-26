@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/version"
 )
 
 func main() {
@@ -34,6 +35,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "help", "-h", "--help":
 		printUsage(stdout)
+		return exitSuccess
+	case "version", "--version", "-version":
+		fmt.Fprintln(stdout, version.String())
 		return exitSuccess
 	case "tools":
 		return runTools(ctx, args[1:], stdout, stderr)
@@ -183,6 +187,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprint(w, `fileforge-cli runs FileForge tools and recipes without the desktop app.
 
 Usage:
+  fileforge-cli version | --version
   fileforge-cli tools list [--json]
   fileforge-cli recipes list [--json]
   fileforge-cli run tool <toolID> --input PATH [--input PATH...] [--out DIR] [--option key=value...] [--json]

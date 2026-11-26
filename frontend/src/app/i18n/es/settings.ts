@@ -159,5 +159,16 @@ export const settingsEs = {
   'settings.status.notStarted': 'Sin iniciar',
   'settings.status.notFound': 'No encontrado',
   'settings.status.auto': 'Automático',
+  'settings.aboutInfo.title': 'Acerca de FileForge',
+  'settings.aboutInfo.version': 'Versión',
+  'settings.aboutInfo.commit': 'Commit',
+  'settings.aboutInfo.builtAt': 'Fecha de compilación',
+  'settings.aboutInfo.notReported': 'No informado',
+  'settings.aboutInfo.loading': 'Leyendo la identidad de la compilación…',
+  'settings.aboutInfo.unavailable':
+    'La identidad de la compilación no está disponible.',
+  'settings.aboutInfo.devBuild': 'Compilación de desarrollo',
+  'settings.aboutInfo.help':
+    'Las compilaciones de lanzamiento llevan una versión que el actualizador puede comparar. Las compilaciones de desarrollo muestran dev y nunca buscan actualizaciones.',
   'settings.about': 'FileForge Desktop · herramientas de archivo locales',
 };

@@ -217,6 +217,10 @@ export class WailsIpc {
     return SystemService.GetLocalCapabilities();
   }
 
+  getAppInfo(): Promise<Models.AppInfoResponse> {
+    return SystemService.GetAppInfo();
+  }
+
   getToolchainStatus(): Promise<Models.ToolchainStatus> {
     return ToolchainService.GetToolchainStatus();
   }

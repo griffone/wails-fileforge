@@ -76,6 +76,28 @@ task package-native
 task package-linux-full
 ```
 
+### Version identity
+
+`internal/version` holds `Version`, `Commit` and `BuiltAt`. Every build path
+(`Taskfile.yml`, the Linux/Windows/macOS Taskfiles and
+`scripts/build-windows.sh`) calls `go run ./scripts/versionflags` and passes the
+printed `-X` flags to `go build`, so one helper stamps both the desktop app and
+the CLI.
+
+- **Version:** `git describe --tags --always --dirty` when git is available.
+  A source tarball with no `.git` falls back to the `version` in `wails.json`.
+- **Commit:** `git rev-parse --short HEAD`, or `none`.
+- **Build time:** the current UTC time at build, in RFC 3339 format.
+
+`wails.json` stays the release-facing version. `build/config.yml` and
+`build/windows/info.json` mirror it for the Wails and Windows metadata; bump all
+three together when cutting a release and let the git tag provide the compiled
+identity. `internal/version` has a test that fails when those three copies
+drift, and, when a release version is injected, when it does not match
+`wails.json`. Development builds and dirty trees keep `dev`/`none`/`unknown`
+and `version.IsRelease()` returns false, so a future updater can refuse to
+compare them.
+
 The Windows build and the Windows install layout are documented in
 [docs/windows-build.md](docs/windows-build.md).
 

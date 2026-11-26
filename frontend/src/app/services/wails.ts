@@ -340,6 +340,8 @@ export interface LocalCapabilitiesResponse
   ocrLanguages: string[];
 }
 
+export type AppInfoResponse = Models.AppInfoResponse;
+
 /** One terminal automation run kept in the local run history. */
 export interface AutomationRunRecord extends Models.AutomationRunRecord {
   outputs?: string[];
@@ -1156,6 +1158,21 @@ export class Wails {
         message: this.formatMessage('Get local capabilities failed', error),
         checks: [],
         ocrLanguages: [],
+      };
+    }
+  }
+
+  async getAppInfo(): Promise<AppInfoResponse> {
+    try {
+      return await this.ipc.getAppInfo();
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get app info failed', error),
+        version: 'dev',
+        commit: 'none',
+        builtAt: 'unknown',
+        release: false,
       };
     }
   }

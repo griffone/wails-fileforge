@@ -27,6 +27,7 @@ import {
   ToolchainStateService,
 } from '../../services/toolchain-state.service';
 import {
+  AppInfoResponse,
   LocalCapability,
   LocalCapabilitiesResponse,
   ToolchainComponent,
@@ -94,6 +95,17 @@ export class Settings implements OnInit {
   readonly isNextToOriginal = computed(() => !this.hasDefaultDestination());
 
   readonly actionMessage = signal('');
+
+  readonly appInfo = signal<AppInfoResponse | null>(null);
+  readonly appInfoLoading = signal(false);
+  readonly appInfoError = signal('');
+
+  readonly aboutVersion = computed(() => this.aboutValue(this.appInfo()?.version));
+  readonly aboutCommit = computed(() => this.aboutValue(this.appInfo()?.commit));
+  readonly aboutBuiltAt = computed(() =>
+    this.aboutValue(this.appInfo()?.builtAt),
+  );
+  readonly aboutRelease = computed(() => this.appInfo()?.release === true);
 
   readonly capabilities = signal<LocalCapabilitiesResponse | null>(null);
   readonly capabilitiesLoading = signal(false);
@@ -222,9 +234,39 @@ export class Settings implements OnInit {
   }
 
   ngOnInit(): void {
+    void this.loadAppInfo();
     void this.loadCapabilities();
     void this.loadTranscriptionCapabilities();
     void this.toolchain.refresh();
+  }
+
+  /** Reads the build identity stamped into the desktop binary. */
+  async loadAppInfo(): Promise<void> {
+    this.appInfoLoading.set(true);
+    this.appInfoError.set('');
+
+    try {
+      const response = await this.wails.getAppInfo();
+      if (!response.success) {
+        this.appInfo.set(null);
+        this.appInfoError.set(
+          response.message || this.i18n.t('settings.aboutInfo.unavailable'),
+        );
+        return;
+      }
+
+      this.appInfo.set(response);
+    } catch {
+      this.appInfo.set(null);
+      this.appInfoError.set(this.i18n.t('settings.aboutInfo.unavailable'));
+    } finally {
+      this.appInfoLoading.set(false);
+    }
+  }
+
+  private aboutValue(value: string | undefined): string {
+    const text = (value ?? '').trim();
+    return text || this.i18n.t('settings.aboutInfo.notReported');
   }
 
   async loadCapabilities(): Promise<void> {

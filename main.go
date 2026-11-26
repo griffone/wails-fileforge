@@ -6,6 +6,7 @@ import (
 
 	myapp "fileforge-desktop/internal/app"
 	"fileforge-desktop/internal/media"
+	"fileforge-desktop/internal/version"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -17,6 +18,8 @@ import (
 var appIcon []byte
 
 func main() {
+	log.Printf("fileforge desktop %s", version.String())
+
 	notifier := myapp.NewNotifier()
 	bundle := myapp.New(notifier)
 

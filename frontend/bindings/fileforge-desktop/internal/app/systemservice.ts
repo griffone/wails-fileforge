@@ -16,6 +16,15 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as models$0 from "../models/models.js";
 
 /**
+ * GetAppInfo reports the version, commit and build time injected into this
+ * binary. The Settings About panel reads it, and Release tells a future
+ * updater whether the build is a stamped release.
+ */
+export function GetAppInfo(): $CancellablePromise<models$0.AppInfoResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetAppInfo");
+}
+
+/**
  * GetLocalCapabilities reports every external tool the local tools rely on,
  * with availability, required/optional state and guidance, plus the installed
  * OCR languages. It never fails: a missing tool is reported, not an error.

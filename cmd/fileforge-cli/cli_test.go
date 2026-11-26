@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"fileforge-desktop/internal/models"
+	appversion "fileforge-desktop/internal/version"
 )
 
 // isolateEnvironment points the user config and data directories at a temp
@@ -451,5 +452,52 @@ func TestFlagErrHelpIsRecognized(t *testing.T) {
 	_, err := parseRunFlags("run tool", []string{"-h"})
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected flag.ErrHelp, got %v", err)
+	}
+}
+
+func TestVersionFlagPrintsTheInjectedBuild(t *testing.T) {
+	restoreVersion := setVersion(t, "v1.2.3", "a1b2c3d", "2026-11-26T12:00:00Z")
+	t.Cleanup(restoreVersion)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--version"}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("expected exit 0, got %d (stderr=%s)", code, stderr.String())
+	}
+	if got, want := strings.TrimSpace(stdout.String()), "1.2.3 (a1b2c3d, 2026-11-26T12:00:00Z)"; got != want {
+		t.Fatalf("version output = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr, got %q", stderr.String())
+	}
+}
+
+func TestVersionFlagDefaultsToTheDevBuild(t *testing.T) {
+	restoreVersion := setVersion(t, "", "", "")
+	t.Cleanup(restoreVersion)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-version"}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("expected exit 0, got %d (stderr=%s)", code, stderr.String())
+	}
+	if got, want := strings.TrimSpace(stdout.String()), "dev (none, unknown)"; got != want {
+		t.Fatalf("version output = %q, want %q", got, want)
+	}
+}
+
+// setVersion overrides the link-time identity and returns a restore function.
+func setVersion(t *testing.T, value, commit, builtAt string) func() {
+	t.Helper()
+
+	previousVersion, previousCommit, previousBuiltAt := appversion.Version, appversion.Commit, appversion.BuiltAt
+	appversion.Version = value
+	appversion.Commit = commit
+	appversion.BuiltAt = builtAt
+
+	return func() {
+		appversion.Version = previousVersion
+		appversion.Commit = previousCommit
+		appversion.BuiltAt = previousBuiltAt
 	}
 }

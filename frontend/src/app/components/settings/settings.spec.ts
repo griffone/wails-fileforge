@@ -12,6 +12,7 @@ import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
 import { ToolchainStateService } from '../../services/toolchain-state.service';
 import {
+  AppInfoResponse,
   JobResult,
   LocalCapabilitiesResponse,
   ToolchainComponent,
@@ -203,6 +204,15 @@ const TRANSCRIPTION: TranscriptionCapabilitiesResponse = {
   defaultLanguage: 'auto',
 };
 
+const APP_INFO: AppInfoResponse = {
+  success: true,
+  message: 'app info',
+  version: '1.2.0',
+  commit: 'a1b2c3d',
+  builtAt: '2026-11-26T12:00:00Z',
+  release: true,
+};
+
 describe('Settings', () => {
   let fixture: ComponentFixture<Settings>;
   let component: Settings;
@@ -274,6 +284,7 @@ describe('Settings', () => {
       'openPath',
       'getLocalCapabilities',
       'getTranscriptionCapabilities',
+      'getAppInfo',
       'listJobHistory',
       'trashInfo',
     ]);
@@ -293,6 +304,7 @@ describe('Settings', () => {
     });
     wailsSpy.getLocalCapabilities.and.resolveTo(CAPABILITIES);
     wailsSpy.getTranscriptionCapabilities.and.resolveTo(TRANSCRIPTION);
+    wailsSpy.getAppInfo.and.resolveTo(APP_INFO);
 
     toolchain = new ToolchainStateStub();
 
@@ -334,6 +346,28 @@ describe('Settings', () => {
     expect(text).toContain(
       'FileForge Desktop · herramientas de archivo locales',
     );
+  }));
+
+  it('renders the About build identity in Spanish', fakeAsync(() => {
+    i18n.setLocale('es');
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      element().querySelector('.settings-about-version')?.textContent,
+    ).toContain('1.2.0');
+    expect(
+      element().querySelector('.settings-about-commit')?.textContent,
+    ).toContain('a1b2c3d');
+    expect(
+      element().querySelector('.settings-about-built-at')?.textContent,
+    ).toContain('2026-11-26T12:00:00Z');
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('Acerca de FileForge');
+    expect(text).toContain('Versión');
+    expect(text).toContain('Fecha de compilación');
   }));
 
   it('defaults to keeping outputs next to the original', () => {

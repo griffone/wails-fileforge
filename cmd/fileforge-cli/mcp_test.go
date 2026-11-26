@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"fileforge-desktop/internal/mcp"
+	appversion "fileforge-desktop/internal/version"
 )
 
 func TestMCPAllowDenyListCommandsPersistNormalizedPaths(t *testing.T) {
@@ -162,6 +163,16 @@ func TestMCPServeSpeaksProtocolOnStdout(t *testing.T) {
 		if response["jsonrpc"] != "2.0" {
 			t.Fatalf("stdout line %d is not JSON-RPC: %q", index, line)
 		}
+	}
+
+	var initialize map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &initialize); err != nil {
+		t.Fatalf("initialize response is not JSON: %v", err)
+	}
+	result, _ := initialize["result"].(map[string]any)
+	serverInfo, _ := result["serverInfo"].(map[string]any)
+	if serverInfo["version"] != appversion.Number() {
+		t.Fatalf("serverInfo.version = %#v, want %q", serverInfo["version"], appversion.Number())
 	}
 	if strings.Contains(stdout.String(), "serving stdio") {
 		t.Fatalf("startup logging leaked to stdout: %q", stdout.String())
