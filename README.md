@@ -128,6 +128,25 @@ The Linux CLI is deliberately **not** embedded in the AppImage: the generated
 `AppRun` launches the desktop app only, so a second binary inside the bundle
 would be unreachable. Run it from the extracted directory instead.
 
+### MCP server
+
+`fileforge-cli mcp serve` exposes the toolbox to MCP clients (Claude Desktop,
+Cursor, OpenCode, any stdio client) with a terminal-managed folder allowlist.
+The server offers six tools — `list_tools`, `plan_job`, `run_job`,
+`list_recipes`, `plan_recipe`, `run_recipe` — and nothing that moves or deletes
+existing files. Prefer `plan_*` before `run_*`: the plan shows the exact
+destination without writing anything.
+
+```bash
+fileforge-cli mcp allow ~/Documents/Exports   # grant a folder first
+fileforge-cli mcp list
+```
+
+An empty allowlist denies everything, paths are resolved through symlinks before
+the check, and every run is appended to `mcp_audit.log`. No MCP tool can grant
+permissions; only the terminal can. See [docs/mcp.md](docs/mcp.md) for client
+configuration, the tool arguments and the limitations.
+
 The Windows build stages the exe and copies only the libvips DLLs reachable
 from it (`scripts/prune-windows-dlls.py`), writes the portable ZIP with maximum
 deflate and uses a 64 MB LZMA dictionary for the installer. The CLI is built in
@@ -297,13 +316,17 @@ odd/tasks/                       Organic development task tracking
 - **DOCX → PDF is standard fidelity, not Word-identical.** Complex desktop-publishing layouts, exact floating-shape wrapping and some SmartArt diagrams may differ. The tool manifest and the page both state "standard fidelity" (`internal/doc/tool_docx_to_pdf.go`, `doc-docx-to-pdf.spec.ts`).
 - **The DOCX renderer is pinned at a pre-1.0 release.** `github.com/bobyeoh/docx2pdf-go v0.3.0` is pinned in `go.mod` and isolated behind `engine.DOCXRenderer`; PDF/A export also requires Ghostscript, and a missing `gs` is a dependency error rather than a silent downgrade.
 - **PDF Merge has no page-level progress.** `pdfcpu` merges in one call and exposes no page hook, so the job reports honest per-input stages instead of a percentage (`internal/pdf/tool_merge.go`, `internal/pdf/engine/merge.go`).
-- **Target sizes cover images and PDFs, not video.** Image Compress and the Email PDF recipe accept a target; the PDF optimize engine accepts `targetSizeBytes`; the Video tools have no target-size mode yet.
-- **The PDF Optimize page has no target-size control.** The engine accepts `targetSizeBytes` and the Email PDF recipe sets it, but the page itself only exposes the compression presets (`internal/pdf/tool_optimize.go`, `components/pdf-optimize/`).
+- **Target sizes cover images, PDFs and video, with different guarantees.** Image Compress bisects quality and PNG is best effort; PDF Optimize tries pdfcpu then Ghostscript tiers; the video tools compute a bitrate, apply a per-resolution floor and report "not met (best effort)" honestly when the floor binds (`internal/video/engine/target.go`, `internal/pdf/engine/optimize.go`).
+- **Video targets always re-encode.** Copy and remux modes cannot honour a size, so the plan switches to a two-pass encode and says so; merging measures against the summed input duration, so crossfades can land above the target.
 - **Image target size is best effort.** JPEG and WebP use a quality search; PNG uses palette quantisation and cannot use the quality knob (`internal/image/tool_compress.go`).
 - **The Linux tray needs a status-notifier host.** Wails exports a StatusNotifierItem, so a desktop without `org.kde.StatusNotifierWatcher` (KDE, or GNOME with the AppIndicator extension) gets no tray icon; close then quits instead of hiding (`internal/app/tray_platform_linux.go`).
 - **Drag reorder is pointer-only.** The queues use native HTML5 drag events with no touch path; the move-up/move-down buttons remain the accessible and touch fallback (`components/tool-flow/file-queue.ts`).
-- **Option memory and "Run again" are not universal.** 17 of the 20 tool pages persist options; Image Annotate, PDF Merge and PDF to DOCX keep per-run state. "Run again" appears only for Image Compress, PDF Optimize, DOCX → PDF and Video Transcribe, the tools that store a last request (`utils/tool-options.ts`, `services/last-request.service.ts`).
-- **Redaction has no blocking confirmation.** Image Annotate shows a "Blur vs redact" notice, but applying a redact operation runs immediately; the filled rectangle is irreversible in the exported file (`components/image-annotate/`).
+- **Option memory covers the pages that have an option model.** Image Annotate, PDF Merge and PDF to DOCX keep per-input or per-run state by design. "Run again" is available on every tool page because the run controller stores the last request centrally (`utils/tool-options.ts`, `utils/tool-run-controller.ts`).
+- **Redaction asks before it runs.** Any annotation set containing a `redact` operation goes through a blocking confirmation that states the change is irreversible (`components/image-annotate/`).
+- **MCP reads its allowlist at startup.** Changing grants requires restarting the MCP client; calls are synchronous with no progress notifications or cancel tool, and there is a 50-input cap (`internal/mcp/`).
+- **The CLI is not inside the Linux AppImage.** The generated `AppRun` launches the app only, so the CLI ships beside the AppImage instead of being unreachable inside it.
+- **Auto-update needs a public release feed and a pinned key.** Development builds and builds without an injected public key report updates as unavailable, an AppImage replaces itself, and a deb/rpm/arch install is told to use its package manager and is never offered a download (`internal/update/gate.go`).
+- **Windows auto-update is unverified.** The path downloads the signed installer and runs it after consent, but it has not been exercised on a Windows host.
 - **Undo skips outputs modified after the conversion.** The history records size and modification time and refuses to move a file that no longer matches, so a user edit is never trashed (`internal/jobhistory/history.go`).
 
 ## Generated bindings
