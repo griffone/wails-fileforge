@@ -445,6 +445,36 @@
     ]
   },
   {
+    "toolId": "tool.pdf.extract_images",
+    "name": "PDF Extract Images",
+    "description": "Extract embedded images into a folder with collision-safe names",
+    "domain": "pdf",
+    "capability": "tool.pdf.extract_images",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "png",
+      "jpg",
+      "jpeg",
+      "tif",
+      "tiff",
+      "jp2"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "images",
+      "extract"
+    ],
+    "resourceClass": "cpu"
+  },
+  {
     "toolId": "tool.pdf.images",
     "name": "Images to PDF",
     "description": "Place several images on a page grid and export one PDF.",
@@ -556,6 +586,83 @@
       "compress",
       "metadata"
     ]
+  },
+  {
+    "toolId": "tool.pdf.remove_pages",
+    "name": "PDF Remove Pages",
+    "description": "Delete selected pages and keep the rest of the document",
+    "domain": "pdf",
+    "capability": "tool.pdf.remove_pages",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "pages",
+      "delete",
+      "remove"
+    ],
+    "resourceClass": "cpu"
+  },
+  {
+    "toolId": "tool.pdf.reorder",
+    "name": "PDF Reorder Pages",
+    "description": "Rewrite the page order from an explicit spec, or reverse the document",
+    "domain": "pdf",
+    "capability": "tool.pdf.reorder",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "reorder",
+      "pages",
+      "order"
+    ],
+    "resourceClass": "cpu"
+  },
+  {
+    "toolId": "tool.pdf.rotate",
+    "name": "PDF Rotate",
+    "description": "Rotate all pages or a page selection by 90, 180 or 270 degrees",
+    "domain": "pdf",
+    "capability": "tool.pdf.rotate",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "rotate",
+      "pages"
+    ],
+    "resourceClass": "cpu"
   },
   {
     "toolId": "tool.pdf.split",

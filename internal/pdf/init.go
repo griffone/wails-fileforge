@@ -10,4 +10,8 @@ func init() {
 	registry.GetGlobalRegistry().SafeRegisterTool(NewOCRTool())
 	registry.GetGlobalRegistry().SafeRegisterTool(NewImagesToPDFTool())
 	registry.GetGlobalRegistry().SafeRegisterTool(NewPDFToDOCXTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewRotateTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewRemovePagesTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewReorderTool())
+	registry.GetGlobalRegistry().SafeRegisterTool(NewExtractImagesTool())
 }

@@ -23,6 +23,10 @@ var registeredToolIDs = []string{
 	"tool.pdf.ocr",
 	"tool.pdf.images",
 	"tool.pdf.to_docx",
+	"tool.pdf.rotate",
+	"tool.pdf.remove_pages",
+	"tool.pdf.reorder",
+	"tool.pdf.extract_images",
 	"tool.doc.docx_to_pdf",
 	"tool.doc.md_to_pdf",
 	"tool.video.convert",
@@ -92,6 +96,12 @@ func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
 		{name: "pdf images decode", toolID: "tool.pdf.images", detailCode: "PDF_IMAGES_DECODE_FAILED", want: true},
 		{name: "pdf images write", toolID: "tool.pdf.images", detailCode: "PDF_IMAGES_WRITE_FAILED", want: true},
 
+		// pdf.rotate/remove_pages/reorder/extract_images: pdfcpu execution.
+		{name: "pdf rotate", toolID: "tool.pdf.rotate", detailCode: "PDF_ROTATE_FAILED", want: true},
+		{name: "pdf remove pages", toolID: "tool.pdf.remove_pages", detailCode: "PDF_REMOVE_PAGES_FAILED", want: true},
+		{name: "pdf reorder", toolID: "tool.pdf.reorder", detailCode: "PDF_REORDER_FAILED", want: true},
+		{name: "pdf extract images", toolID: "tool.pdf.extract_images", detailCode: "PDF_EXTRACT_IMAGES_FAILED", want: true},
+
 		// pdf.to_docx: converter process failure.
 		{name: "pdf to docx conversion", toolID: "tool.pdf.to_docx", detailCode: "PDF_DOCX_CONVERSION_FAILED", want: true},
 
@@ -126,6 +136,11 @@ func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
 		{name: "pdf images unsupported", toolID: "tool.pdf.images", detailCode: "PDF_IMAGES_UNSUPPORTED_FORMAT", want: false},
 		{name: "pdf images verify", toolID: "tool.pdf.images", detailCode: "PDF_IMAGES_VERIFY_FAILED", want: false},
 		{name: "pdf to docx runtime", toolID: "tool.pdf.to_docx", detailCode: "PDF_DOCX_RUNTIME_UNAVAILABLE", want: false},
+		{name: "pdf rotate angle", toolID: "tool.pdf.rotate", detailCode: "PDF_ROTATE_ANGLE_INVALID", want: false},
+		{name: "pdf remove all pages", toolID: "tool.pdf.remove_pages", detailCode: "PDF_REMOVE_PAGES_ALL_PAGES", want: false},
+		{name: "pdf reorder missing", toolID: "tool.pdf.reorder", detailCode: "PDF_REORDER_PAGE_MISSING", want: false},
+		{name: "pdf extract none", toolID: "tool.pdf.extract_images", detailCode: "PDF_EXTRACT_IMAGES_NONE", want: false},
+		{name: "pdf extract count mismatch", toolID: "tool.pdf.extract_images", detailCode: "PDF_EXTRACT_IMAGES_COUNT_MISMATCH", want: false},
 
 		// Deterministic DOC codes never retry.
 		{name: "docx runtime missing", toolID: "tool.doc.docx_to_pdf", detailCode: "DOC_DOCX_TO_PDF_RUNTIME_GHOSTSCRIPT_MISSING", want: false},

@@ -154,6 +154,34 @@ func TestUnknownToolOption(t *testing.T) {
 	}
 }
 
+func TestPageOpToolOptionsAreAllowed(t *testing.T) {
+	cases := []struct {
+		toolID  string
+		options map[string]any
+	}{
+		{toolID: "tool.pdf.rotate", options: map[string]any{"pageSelection": "1-3", "angle": float64(90)}},
+		{toolID: "tool.pdf.remove_pages", options: map[string]any{"pageSelection": "2"}},
+		{toolID: "tool.pdf.reorder", options: map[string]any{"order": "3,1,2,4-6"}},
+		{toolID: "tool.pdf.extract_images", options: map[string]any{"pageSelection": "1"}},
+	}
+
+	for _, tt := range cases {
+		if unknown, keys, found := unknownToolOption(tt.toolID, tt.options); !found || unknown != "" {
+			t.Fatalf("%s: expected %v to be allowed, got unknown=%q found=%v keys=%v", tt.toolID, tt.options, unknown, found, keys)
+		}
+	}
+}
+
+func TestReorderOptionStaysAString(t *testing.T) {
+	options, err := parseOptions([]string{"order=3,1,2,4-6"})
+	if err != nil {
+		t.Fatalf("parse options: %v", err)
+	}
+	if options["order"] != "3,1,2,4-6" {
+		t.Fatalf("order = %#v (%T)", options["order"], options["order"])
+	}
+}
+
 func TestVideoTargetSizeOptionIsAllowed(t *testing.T) {
 	for _, toolID := range []string{"tool.video.convert", "tool.video.trim", "tool.video.merge"} {
 		if unknown, keys, found := unknownToolOption(toolID, map[string]any{"targetSizeBytes": int64(1024)}); !found || unknown != "" {

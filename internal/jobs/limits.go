@@ -123,7 +123,8 @@ func classForTool(toolID string) Class {
 	switch {
 	case id == "tool.pdf.ocr", id == "tool.pdf.to_docx":
 		return ClassExternal
-	case id == "tool.pdf.merge", id == "tool.pdf.split", id == "tool.pdf.crop", id == "tool.pdf.optimize", id == "tool.pdf.images":
+	case id == "tool.pdf.merge", id == "tool.pdf.split", id == "tool.pdf.crop", id == "tool.pdf.optimize", id == "tool.pdf.images",
+		id == "tool.pdf.rotate", id == "tool.pdf.remove_pages", id == "tool.pdf.reorder", id == "tool.pdf.extract_images":
 		return ClassCPU
 	case strings.HasPrefix(id, "tool.image."):
 		return ClassCPU

@@ -77,6 +77,23 @@ var transientDetailCodesByTool = map[string]map[string]struct{}{
 	"tool.pdf.crop": {
 		"PDF_CROP_FAILED": {}, // pdfcpu read/crop/write failure
 	},
+	// pdfcpu read/rotate/write failures; angle and selection codes are not.
+	"tool.pdf.rotate": {
+		"PDF_ROTATE_FAILED": {},
+	},
+	// pdfcpu read/remove/write failures; selection and all-pages codes are not.
+	"tool.pdf.remove_pages": {
+		"PDF_REMOVE_PAGES_FAILED": {},
+	},
+	// pdfcpu read/collect/write failures; order coverage codes are not.
+	"tool.pdf.reorder": {
+		"PDF_REORDER_FAILED": {},
+	},
+	// pdfcpu read/extract/write failures; a document without images and a
+	// count mismatch are deterministic and stay out.
+	"tool.pdf.extract_images": {
+		"PDF_EXTRACT_IMAGES_FAILED": {},
+	},
 	// PDF_OPTIMIZE_FAILED covers the pdfcpu/Ghostscript execution and output
 	// write. Target, metadata and output-exists codes are deterministic.
 	"tool.pdf.optimize": {

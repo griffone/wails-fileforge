@@ -41,6 +41,10 @@ var toolIDs = []string{
 	pdf.ToolIDPDFOCR,
 	pdf.ToolIDPDFImages,
 	pdf.ToolIDPDFToDOCX,
+	pdf.ToolIDPDFRotate,
+	pdf.ToolIDPDFRemovePages,
+	pdf.ToolIDPDFReorder,
+	pdf.ToolIDPDFExtractImages,
 	video.ToolIDVideoConvert,
 	video.ToolIDVideoTrim,
 	video.ToolIDVideoMerge,
@@ -60,8 +64,8 @@ func TestToolRegistryContract(t *testing.T) {
 	}
 
 	catalog := reg.ListTools(context.Background())
-	if len(catalog) != 23 {
-		t.Fatalf("registered tools = %d, want 23", len(catalog))
+	if len(catalog) != 27 {
+		t.Fatalf("registered tools = %d, want 27", len(catalog))
 	}
 
 	seen := make(map[string]struct{}, len(catalog))
