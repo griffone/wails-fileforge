@@ -100,45 +100,47 @@ func coerceOptionValue(raw string) any {
 	return raw
 }
 
-// commonToolOptions are accepted by every tool even when the tool reads them
-// from the request instead of its options map.
-var commonToolOptions = []string{"outputPath", "outputDir"}
+// commonToolOptions are accepted by every tool. Every tool writes relative to a
+// directory, so outputDir is universal. outputPath is not: a tool whose planner
+// never reads it must reject it instead of silently writing elsewhere, so it is
+// listed per tool in toolOptionKeys.
+var commonToolOptions = []string{"outputDir"}
 
 // toolOptionKeys mirrors the option keys each tool planner reads. It exists so
 // the CLI can reject a typo with TOOL_OPTION_UNKNOWN instead of letting the
 // tool silently ignore it. Keep it in sync when a tool starts reading a new
 // option.
 var toolOptionKeys = map[string][]string{
-	"tool.pdf.merge":          {"inputPageRanges"},
+	"tool.pdf.merge":          {"inputPageRanges", "outputPath"},
 	"tool.pdf.split":          {"strategy", "ranges", "pagesPerFile"},
-	"tool.pdf.crop":           {"cropPreset", "pageSelection", "margins"},
-	"tool.pdf.optimize":       {"compress", "targetSizeBytes", "metadata"},
-	"tool.pdf.ocr":            {"language", "dpi", "textSidecar"},
-	"tool.pdf.images":         {"pageSize", "orientation", "columns", "rows", "marginMm", "gapMm", "fit", "slots"},
-	"tool.pdf.to_docx":        {},
+	"tool.pdf.crop":           {"cropPreset", "pageSelection", "margins", "outputPath"},
+	"tool.pdf.optimize":       {"compress", "targetSizeBytes", "metadata", "outputPath"},
+	"tool.pdf.ocr":            {"language", "dpi", "textSidecar", "outputPath"},
+	"tool.pdf.images":         {"pageSize", "orientation", "columns", "rows", "marginMm", "gapMm", "fit", "slots", "outputPath"},
+	"tool.pdf.to_docx":        {"outputPath"},
 	"tool.pdf.rotate":         {"pageSelection", "angle"},
 	"tool.pdf.remove_pages":   {"pageSelection"},
 	"tool.pdf.reorder":        {"order"},
 	"tool.pdf.extract_images": {"pageSelection"},
-	"tool.doc.md_to_pdf":      {"pageSize", "orientation", "margins", "header", "footer"},
-	"tool.doc.docx_to_pdf":    {"pageSelection", "pdfa"},
+	"tool.doc.md_to_pdf":      {"pageSize", "orientation", "margins", "header", "footer", "outputPath"},
+	"tool.doc.docx_to_pdf":    {"pageSelection", "pdfa", "outputPath"},
 
-	"tool.image.convert":    {"format", "longestEdge", "width", "height", "quality", "rotate", "stripMetadata", "flipH", "flipV", "background"},
-	"tool.image.crop":       {"x", "y", "width", "height", "ratioPreset", "outputWidth", "outputHeight", "rotate", "flipH", "flipV", "format"},
-	"tool.image.annotate":   {"operations", "format"},
-	"tool.image.compress":   {"targetSizeBytes", "format", "quality", "maxDimension", "allowDownscale", "stripMetadata", "background"},
-	"tool.image.watermark":  {"kind", "text", "logoPath", "anchor", "color", "opacity", "bold", "tile", "scalePercent", "rotationDegrees", "marginPercent", "quality", "format"},
+	"tool.image.convert":    {"format", "longestEdge", "width", "height", "quality", "rotate", "stripMetadata", "flipH", "flipV", "background", "outputPath"},
+	"tool.image.crop":       {"x", "y", "width", "height", "ratioPreset", "outputWidth", "outputHeight", "rotate", "flipH", "flipV", "format", "outputPath"},
+	"tool.image.annotate":   {"operations", "format", "outputPath"},
+	"tool.image.compress":   {"targetSizeBytes", "format", "quality", "maxDimension", "allowDownscale", "stripMetadata", "background", "outputPath"},
+	"tool.image.watermark":  {"kind", "text", "logoPath", "anchor", "color", "opacity", "bold", "tile", "scalePercent", "rotationDegrees", "marginPercent", "quality", "format", "outputPath"},
 	"tool.image.ocr":        {"language", "dpi", "writePdf"},
 	"tool.image.background": {"backgroundColor"},
 
-	"tool.video.convert":    {"targetFormat", "qualityPreset", "resolution", "bitrateKbps", "removeAudio", "targetSizeBytes"},
-	"tool.video.trim":       {"startTime", "endTime", "trimMode", "targetFormat", "qualityPreset", "targetSizeBytes"},
-	"tool.video.merge":      {"mergeMode", "transition", "transitionDuration", "targetFormat", "qualityPreset", "removeAudio", "targetSizeBytes"},
+	"tool.video.convert":    {"targetFormat", "qualityPreset", "resolution", "bitrateKbps", "removeAudio", "targetSizeBytes", "outputPath"},
+	"tool.video.trim":       {"startTime", "endTime", "trimMode", "targetFormat", "qualityPreset", "targetSizeBytes", "outputPath"},
+	"tool.video.merge":      {"mergeMode", "transition", "transitionDuration", "targetFormat", "qualityPreset", "removeAudio", "targetSizeBytes", "outputPath"},
 	"tool.video.transcribe": {"language", "whisperPath", "modelPath", "formats"},
 
-	"tool.audio.extract":   {"format", "bitrateKbps"},
-	"tool.audio.convert":   {"format", "bitrateKbps"},
-	"tool.audio.normalize": {"bitrateKbps", "targetLufs", "truePeak"},
+	"tool.audio.extract":   {"format", "bitrateKbps", "outputPath"},
+	"tool.audio.convert":   {"format", "bitrateKbps", "outputPath"},
+	"tool.audio.normalize": {"bitrateKbps", "targetLufs", "truePeak", "outputPath"},
 }
 
 // knownToolOptions returns the sorted allowed keys for a tool. found is false

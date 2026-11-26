@@ -182,6 +182,71 @@ func TestReorderOptionStaysAString(t *testing.T) {
 	}
 }
 
+// TestOutputPathAllowlistFollowsPlannerReads pins outputPath to the tools whose
+// planner actually reads it. A tool that ignores the option must reject it, or
+// the CLI would claim success while writing to a different path.
+func TestOutputPathAllowlistFollowsPlannerReads(t *testing.T) {
+	accepting := []string{
+		"tool.pdf.merge",
+		"tool.pdf.crop",
+		"tool.pdf.optimize",
+		"tool.pdf.ocr",
+		"tool.pdf.images",
+		"tool.pdf.to_docx",
+		"tool.doc.md_to_pdf",
+		"tool.doc.docx_to_pdf",
+		"tool.image.convert",
+		"tool.image.crop",
+		"tool.image.annotate",
+		"tool.image.compress",
+		"tool.image.watermark",
+		"tool.video.convert",
+		"tool.video.trim",
+		"tool.video.merge",
+		"tool.audio.extract",
+		"tool.audio.convert",
+		"tool.audio.normalize",
+	}
+	for _, toolID := range accepting {
+		if unknown, keys, found := unknownToolOption(toolID, map[string]any{"outputPath": "/tmp/chosen.pdf"}); !found || unknown != "" {
+			t.Fatalf("%s: expected outputPath to be allowed, got unknown=%q found=%v keys=%v", toolID, unknown, found, keys)
+		}
+	}
+
+	rejecting := []string{
+		"tool.pdf.split",
+		"tool.pdf.rotate",
+		"tool.pdf.remove_pages",
+		"tool.pdf.reorder",
+		"tool.pdf.extract_images",
+		"tool.image.ocr",
+		"tool.image.background",
+		"tool.video.transcribe",
+	}
+	for _, toolID := range rejecting {
+		unknown, keys, found := unknownToolOption(toolID, map[string]any{"outputPath": "/tmp/chosen.pdf"})
+		if !found {
+			t.Fatalf("%s: expected the tool to be catalogued", toolID)
+		}
+		if unknown != "outputPath" {
+			t.Fatalf("%s: expected outputPath to be rejected, got unknown=%q keys=%v", toolID, unknown, keys)
+		}
+		if !containsOptionKey(keys, "outputDir") {
+			t.Fatalf("%s: expected outputDir to stay allowed, got %v", toolID, keys)
+		}
+	}
+}
+
+func containsOptionKey(keys []string, want string) bool {
+	for _, key := range keys {
+		if key == want {
+			return true
+		}
+	}
+
+	return false
+}
+
 func TestVideoTargetSizeOptionIsAllowed(t *testing.T) {
 	for _, toolID := range []string{"tool.video.convert", "tool.video.trim", "tool.video.merge"} {
 		if unknown, keys, found := unknownToolOption(toolID, map[string]any{"targetSizeBytes": int64(1024)}); !found || unknown != "" {

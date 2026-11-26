@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -66,6 +67,91 @@ func TestRunToolMergeEndToEnd(t *testing.T) {
 	}
 	if info.Size() == 0 || output.SizeBytes != info.Size() {
 		t.Fatalf("unexpected size: stat=%d report=%d", info.Size(), output.SizeBytes)
+	}
+}
+
+// TestRunToolMergeHonorsExplicitOutputPath proves a listed outputPath is not
+// just accepted: the merge actually writes to the requested file.
+func TestRunToolMergeHonorsExplicitOutputPath(t *testing.T) {
+	isolateEnvironment(t)
+
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.pdf")
+	second := filepath.Join(dir, "second.pdf")
+	writePDFFixture(t, first)
+	writePDFFixture(t, second)
+
+	chosen := filepath.Join(dir, "chosen.pdf")
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"run", "tool", "tool.pdf.merge",
+		"--input", first,
+		"--input", second,
+		"--option", "outputPath=" + chosen,
+		"--json",
+	}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("expected exit 0, got %d\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	var report struct {
+		Success bool `json:"success"`
+		Outputs []struct {
+			Path string `json:"path"`
+		} `json:"outputs"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode json %q: %v", stdout.String(), err)
+	}
+	if !report.Success || len(report.Outputs) != 1 || report.Outputs[0].Path != chosen {
+		t.Fatalf("expected the explicit output %q, got %#v", chosen, report)
+	}
+	if _, err := os.Stat(chosen); err != nil {
+		t.Fatalf("explicit output does not exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "first_merged.pdf")); !os.IsNotExist(err) {
+		t.Fatalf("expected no auto-named output, got %v", err)
+	}
+}
+
+// TestRunSplitRejectsOutputPath proves a tool that never reads outputPath now
+// fails instead of silently ignoring the option.
+func TestRunSplitRejectsOutputPath(t *testing.T) {
+	isolateEnvironment(t)
+
+	dir := t.TempDir()
+	ignored := filepath.Join(dir, "ignored.pdf")
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"run", "tool", "tool.pdf.split",
+		"--input", "whatever.pdf",
+		"--option", "outputPath=" + ignored,
+		"--json",
+	}, &stdout, &stderr)
+	if code != exitValidation {
+		t.Fatalf("expected exit 2, got %d (stderr=%s)", code, stderr.String())
+	}
+
+	var decoded struct {
+		Success bool `json:"success"`
+		Error   *struct {
+			DetailCode string `json:"detail_code"`
+			Message    string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+		t.Fatalf("decode json %q: %v", stdout.String(), err)
+	}
+	if decoded.Success || decoded.Error == nil || decoded.Error.DetailCode != "TOOL_OPTION_UNKNOWN" {
+		t.Fatalf("unexpected report: %#v", decoded)
+	}
+	for _, want := range []string{"outputPath", "not supported", "outputDir", "strategy"} {
+		if !strings.Contains(decoded.Error.Message, want) {
+			t.Fatalf("message %q must name %q", decoded.Error.Message, want)
+		}
+	}
+	if _, err := os.Stat(ignored); !os.IsNotExist(err) {
+		t.Fatalf("rejected option must not write an output, got %v", err)
 	}
 }
 
