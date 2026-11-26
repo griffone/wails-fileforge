@@ -69,6 +69,26 @@ describe('App', () => {
     expect(compiled.querySelector('.rail-brand-mark')).toBeTruthy();
   });
 
+  it('renders the Audio group in the rail', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    const groups = Array.from(
+      fixture.nativeElement.querySelectorAll('.rail-group'),
+    ) as HTMLElement[];
+    const audio = groups.find(
+      (group) =>
+        group.querySelector('.rail-group-label')?.textContent?.trim() ===
+        'Audio',
+    );
+
+    expect(audio).toBeTruthy();
+    const labels = Array.from(
+      audio?.querySelectorAll('.nav-item-label') ?? [],
+    ).map((label) => label.textContent?.trim());
+    expect(labels).toEqual(['Extract', 'Convert', 'Normalize']);
+  });
+
   it('opens the command palette with Ctrl+K', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();

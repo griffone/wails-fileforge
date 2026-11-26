@@ -57,6 +57,8 @@ export const resultCardEn = {
   'resultCard.verb.created': 'created',
   'resultCard.verb.madeSearchable': 'made searchable',
   'resultCard.verb.prepared': 'prepared',
+  'resultCard.verb.extracted': 'extracted',
+  'resultCard.verb.normalized': 'normalized',
   'resultCard.runAgain': 'Run again',
   'resultCard.runAgain.aria': 'Run this job again with the same inputs and settings',
   'resultCard.runAgain.title': 'Run again with the same settings?',

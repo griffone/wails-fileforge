@@ -18,12 +18,12 @@ describe('ToolRegistryService', () => {
     localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
-  it('exposes the twenty conversion tools', () => {
-    expect(service.tools.length).toBe(20);
+  it('exposes the twenty-three conversion tools', () => {
+    expect(service.tools.length).toBe(23);
   });
 
-  it('exposes twenty-four navigation entries', () => {
-    expect(service.navigation.length).toBe(24);
+  it('exposes twenty-seven navigation entries', () => {
+    expect(service.navigation.length).toBe(27);
     expect(service.navigation[0].route).toBe('/');
     expect(service.navigation[service.navigation.length - 2].route).toBe(
       '/automations',
@@ -89,7 +89,7 @@ describe('ToolRegistryService', () => {
     const toolGroups = service.navGroups.filter((group) => group.id !== 'recipes');
     const grouped = toolGroups.reduce((total, group) => total + group.items.length, 0);
 
-    expect(service.navGroups.length).toBe(7);
+    expect(service.navGroups.length).toBe(8);
     expect(grouped).toBe(service.navigation.length);
     expect(service.navGroups.map((group) => group.label)).toEqual([
       'Workspace',
@@ -98,6 +98,7 @@ describe('ToolRegistryService', () => {
       'PDF',
       'Documents',
       'Video',
+      'Audio',
       'System',
     ]);
     expect(
@@ -112,13 +113,41 @@ describe('ToolRegistryService', () => {
     expect(
       service.navGroups.find((group) => group.id === 'video')?.items.length,
     ).toBe(4);
+    expect(
+      service.navGroups.find((group) => group.id === 'audio')?.items.length,
+    ).toBe(3);
+  });
+
+  it('registers the three audio tools with their manifest routes and formats', () => {
+    const audioGroup = service.navGroups.find((group) => group.id === 'audio');
+    expect(audioGroup?.label).toBe('Audio');
+    expect(audioGroup?.items.map((item) => item.id)).toEqual([
+      'tool.audio.extract',
+      'tool.audio.convert',
+      'tool.audio.normalize',
+    ]);
+
+    const extract = service.findByRoute('/audio-extract');
+    expect(extract?.id).toBe('tool.audio.extract');
+    expect(extract?.category).toBe('audio');
+    expect(extract?.formats).toEqual(['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC']);
+
+    const convert = service.findByRoute('/audio-convert');
+    expect(convert?.id).toBe('tool.audio.convert');
+    expect(convert?.category).toBe('audio');
+    expect(convert?.formats).toEqual(['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC']);
+
+    const normalize = service.findByRoute('/audio-normalize');
+    expect(normalize?.id).toBe('tool.audio.normalize');
+    expect(normalize?.category).toBe('audio');
+    expect(normalize?.formats).toEqual(['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC']);
   });
 
   it('exposes the five recipes as navigation entries outside the tool counts', () => {
     expect(service.recipes.length).toBe(5);
     expect(service.recipeNav.length).toBe(5);
-    expect(service.navigation.length).toBe(24);
-    expect(service.tools.length).toBe(20);
+    expect(service.navigation.length).toBe(27);
+    expect(service.tools.length).toBe(23);
   });
 
   it('resolves recipes by route', () => {

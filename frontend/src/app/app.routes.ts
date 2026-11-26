@@ -21,6 +21,9 @@ import { VideoConvert } from './components/video-convert/video-convert';
 import { VideoTrim } from './components/video-trim/video-trim';
 import { VideoMerge } from './components/video-merge/video-merge';
 import { VideoTranscribe } from './components/video-transcribe/video-transcribe';
+import { AudioExtract } from './components/audio/audio-extract';
+import { AudioConvert } from './components/audio/audio-convert';
+import { AudioNormalize } from './components/audio/audio-normalize';
 import { Settings } from './components/settings/settings';
 import { RecipeRun } from './components/recipe-run/recipe-run';
 import { Automations } from './components/automations/automations';
@@ -50,6 +53,9 @@ export const routes: Routes = [
   { path: 'video-trim', component: VideoTrim },
   { path: 'video-merge', component: VideoMerge },
   { path: 'video-transcribe', component: VideoTranscribe },
+  { path: 'audio-extract', component: AudioExtract },
+  { path: 'audio-convert', component: AudioConvert },
+  { path: 'audio-normalize', component: AudioNormalize },
   { path: 'recipe/email-pdf', component: RecipeRun, data: { recipeId: 'recipe.email_pdf' } },
   {
     path: 'recipe/web-image-set',

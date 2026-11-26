@@ -25,7 +25,14 @@ import {
   type LucideIconData,
 } from 'lucide-angular';
 
-export type ToolCategory = 'workspace' | 'image' | 'pdf' | 'docs' | 'video' | 'system';
+export type ToolCategory =
+  | 'workspace'
+  | 'image'
+  | 'pdf'
+  | 'docs'
+  | 'video'
+  | 'audio'
+  | 'system';
 
 /** Sidebar groups include every tool category plus the curated recipes. */
 export type NavGroupId = ToolCategory | 'recipes';
@@ -67,6 +74,7 @@ export const TOOL_CATEGORIES: readonly ToolCategoryDefinition[] = [
   { id: 'pdf', label: 'PDF' },
   { id: 'docs', label: 'Documents' },
   { id: 'video', label: 'Video' },
+  { id: 'audio', label: 'Audio' },
   { id: 'system', label: 'System' },
 ];
 
@@ -118,7 +126,7 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
-/** The twenty conversion tools. Ids mirror the backend toolId contract. */
+/** The twenty-three conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -375,6 +383,77 @@ export const TOOLS: readonly ToolDefinition[] = [
     keywords: ['video', 'audio', 'transcribe', 'whisper', 'subtitles', 'srt', 'vtt'],
   },
   {
+    id: 'tool.audio.extract',
+    name: 'Extract Audio',
+    navName: 'Extract',
+    description:
+      'Extract the audio track from a video or audio file as mp3, m4a, opus, wav or flac',
+    route: '/audio-extract',
+    category: 'audio',
+    icon: Captions,
+    formats: ['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC'],
+    keywords: [
+      'audio',
+      'extract',
+      'extract audio',
+      'audio track',
+      'soundtrack',
+      'rip audio',
+      'video',
+      'mp3',
+      'm4a',
+      'opus',
+      'wav',
+      'flac',
+    ],
+  },
+  {
+    id: 'tool.audio.convert',
+    name: 'Audio Convert',
+    navName: 'Convert',
+    description: 'Convert audio files between mp3, m4a, opus, wav and flac',
+    route: '/audio-convert',
+    category: 'audio',
+    icon: FileType,
+    formats: ['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC'],
+    keywords: [
+      'audio',
+      'convert',
+      'format',
+      'codec',
+      'mp3',
+      'm4a',
+      'opus',
+      'wav',
+      'flac',
+      'bitrate',
+    ],
+  },
+  {
+    id: 'tool.audio.normalize',
+    name: 'Normalize Audio',
+    navName: 'Normalize',
+    description:
+      'Two-pass EBU R128 loudness normalization to streaming, broadcast or podcast targets',
+    route: '/audio-normalize',
+    category: 'audio',
+    icon: Gauge,
+    formats: ['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC'],
+    keywords: [
+      'audio',
+      'normalize',
+      'normalise',
+      'loudness',
+      'lufs',
+      'ebu r128',
+      'volume',
+      'true peak',
+      'streaming',
+      'broadcast',
+      'podcast',
+    ],
+  },
+  {
     id: 'tool.pdf.images',
     name: 'Images to PDF',
     navName: 'Images to PDF',
@@ -398,7 +477,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 24-entry navigation model. */
+/** Home, every tool, then System Status, Automations and Settings: the full 27-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,

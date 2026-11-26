@@ -1,0 +1,237 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">{{ i18n.t(copy.eyebrow) }}</p>
+        <h1 class="page-title">
+          {{ i18n.t(copy.titleLead) }}
+          <em>{{ i18n.t(copy.titleTail) }}</em>
+        </h1>
+        <p class="page-sub">
+          {{ i18n.t(copy.sub) }}
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
+        {{ i18n.t('audioTool.page.localBadge') }}
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    <div class="flow-grid">
+      <section class="panel intake-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">{{ i18n.t(copy.intakeTitle) }}</h2>
+            <p class="panel-sub">{{ i18n.t(copy.intakeSub) }}</p>
+          </div>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+        </div>
+
+        <div class="panel-body">
+          <app-file-drop
+            [accept]="acceptAttribute"
+            [title]="i18n.t(copy.dropTitle)"
+            [hint]="i18n.t(copy.dropHint)"
+            [ariaLabel]="i18n.t(copy.dropAria)"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
+          <div class="toolbar" role="group" [attr.aria-label]="i18n.t('audioTool.intake.actionsAria')">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="chooseFiles()">
+              <lucide-icon [img]="folderIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              {{ i18n.t('audioTool.intake.choose') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
+            >
+              <lucide-icon [img]="closeIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              {{ i18n.t('audioTool.intake.clear') }}
+            </button>
+          </div>
+
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ note.text }}</span>
+            </div>
+          }
+
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
+        </div>
+      </section>
+
+      <section class="panel outcome-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">{{ i18n.t('audioTool.output.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t(copy.outputSub) }}</p>
+          </div>
+          <span class="badge badge-neutral">{{ outputBadge() }}</span>
+        </div>
+
+        <div class="panel-body">
+          <div class="audio-options">
+            <div class="field">
+              <label class="label" for="audio-tool-target">{{ i18n.t('audioNormalize.target.label') }}</label>
+              <select
+                id="audio-tool-target"
+                class="select"
+                (change)="onTargetChange($event)"
+              >
+                @for (target of targets; track target) {
+                  <option [value]="target" [selected]="target === targetLufs()">{{ targetLabel(target) }}</option>
+                }
+              </select>
+              <p class="field-help">{{ i18n.t('audioNormalize.target.help') }}</p>
+            </div>
+
+            <div class="field">
+              <label class="label" for="audio-tool-true-peak">{{ i18n.t('audioNormalize.truePeak.label') }}</label>
+              <input
+                id="audio-tool-true-peak"
+                class="input"
+                type="number"
+                inputmode="decimal"
+                step="0.1"
+                [min]="truePeakMin"
+                [max]="truePeakMax"
+                [value]="truePeakInput()"
+                [attr.aria-invalid]="truePeakError() ? 'true' : null"
+                (input)="onTruePeakInput($event)"
+              />
+              <p class="field-help">{{ i18n.t('audioNormalize.truePeak.help') }}</p>
+            </div>
+          </div>
+
+          @if (truePeakError(); as error) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ error }}</span>
+            </div>
+          }
+
+          <p class="field-help">{{ i18n.t('audioNormalize.container.help') }}</p>
+
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="useOriginalFolders()">
+                {{ i18n.t('audioTool.output.useOriginalFolders') }}
+              </button>
+            </div>
+          }
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (actionHelper(); as helper) {
+            <p class="action-helper">{{ helper }}</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">
+                {{ i18n.t('audioTool.action.cancel') }}
+              </button>
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('audioTool.progress.aria')">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
+        toolLabel="file"
+        [verbPast]="verbPast"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+        (runAgainStarted)="onRunAgainStarted($event)"
+      ></app-result-card>
+    }
+
+    @if (loudnessRows().length > 0) {
+      <section class="panel loudness-panel" [attr.aria-label]="i18n.t('audioTool.loudness.title')">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">{{ i18n.t('audioTool.loudness.title') }}</h2>
+            <p class="panel-sub">{{ i18n.t('audioTool.loudness.sub') }}</p>
+          </div>
+        </div>
+
+        <div class="panel-body">
+          <ul class="loudness-list">
+            @for (row of loudnessRows(); track row.path) {
+              <li class="loudness-row">
+                <span class="loudness-name" [title]="row.path">{{ row.name }}</span>
+                <span class="loudness-values mono">{{ row.values }}</span>
+              </li>
+            }
+          </ul>
+        </div>
+      </section>
+    }
+  </div>
+</div>

@@ -59,6 +59,8 @@ export const resultCardEs = {
   'resultCard.verb.created': 'creados',
   'resultCard.verb.madeSearchable': 'hechos buscables',
   'resultCard.verb.prepared': 'preparados',
+  'resultCard.verb.extracted': 'extraídos',
+  'resultCard.verb.normalized': 'normalizados',
   'resultCard.runAgain': 'Ejecutar de nuevo',
   'resultCard.runAgain.aria':
     'Ejecutar este trabajo otra vez con las mismas entradas y opciones',

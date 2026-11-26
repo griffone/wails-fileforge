@@ -239,6 +239,7 @@ export class Home implements OnInit {
       pdf: 0,
       docs: 0,
       video: 0,
+      audio: 0,
       system: 0,
     };
 

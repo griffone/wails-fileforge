@@ -1,0 +1,87 @@
+import type { AudioConversionPageCopy, AudioToolPageCopy } from './audio-tool-config';
+
+/**
+ * Copy blocks per audio page.
+ *
+ * Keys are literal so the templates stay type-checked through `i18n.t(...)`,
+ * and `i18n.t` reads the locale signal during rendering, which is what makes a
+ * language switch re-render the whole page.
+ */
+export const AUDIO_EXTRACT_COPY: AudioConversionPageCopy = {
+  eyebrow: 'audioExtract.page.eyebrow',
+  titleLead: 'audioExtract.page.titleLead',
+  titleTail: 'audioExtract.page.titleTail',
+  sub: 'audioExtract.page.sub',
+  intakeTitle: 'audioExtract.intake.title',
+  intakeSub: 'audioExtract.intake.sub',
+  dropTitle: 'audioExtract.intake.dropTitle',
+  dropHint: 'audioExtract.intake.dropHint',
+  dropAria: 'audioExtract.intake.dropAria',
+  outputSub: 'audioExtract.output.sub',
+  formatLabel: 'audioExtract.format.label',
+  formatHelp: 'audioExtract.format.help',
+  actionIdle: 'audioExtract.action.idle',
+  actionOne: 'audioExtract.action.one',
+  actionMany: 'audioExtract.action.many',
+  actionBusy: 'audioExtract.action.busy',
+  helperAddOne: 'audioExtract.helper.addOne',
+  errorStart: 'audioExtract.error.start',
+  errorPlan: 'audioExtract.error.plan',
+  errorCancel: 'audioExtract.error.cancel',
+  errorOpenFile: 'audioExtract.error.openFile',
+  errorOpenFolder: 'audioExtract.error.openFolder',
+  errorStatus: 'audioExtract.error.status',
+  errorInspect: 'audioExtract.error.inspect',
+};
+
+export const AUDIO_CONVERT_COPY: AudioConversionPageCopy = {
+  eyebrow: 'audioConvert.page.eyebrow',
+  titleLead: 'audioConvert.page.titleLead',
+  titleTail: 'audioConvert.page.titleTail',
+  sub: 'audioConvert.page.sub',
+  intakeTitle: 'audioConvert.intake.title',
+  intakeSub: 'audioConvert.intake.sub',
+  dropTitle: 'audioConvert.intake.dropTitle',
+  dropHint: 'audioConvert.intake.dropHint',
+  dropAria: 'audioConvert.intake.dropAria',
+  outputSub: 'audioConvert.output.sub',
+  formatLabel: 'audioConvert.format.label',
+  formatHelp: 'audioConvert.format.help',
+  actionIdle: 'audioConvert.action.idle',
+  actionOne: 'audioConvert.action.one',
+  actionMany: 'audioConvert.action.many',
+  actionBusy: 'audioConvert.action.busy',
+  helperAddOne: 'audioConvert.helper.addOne',
+  errorStart: 'audioConvert.error.start',
+  errorPlan: 'audioConvert.error.plan',
+  errorCancel: 'audioConvert.error.cancel',
+  errorOpenFile: 'audioConvert.error.openFile',
+  errorOpenFolder: 'audioConvert.error.openFolder',
+  errorStatus: 'audioConvert.error.status',
+  errorInspect: 'audioConvert.error.inspect',
+};
+
+export const AUDIO_NORMALIZE_COPY: AudioToolPageCopy = {
+  eyebrow: 'audioNormalize.page.eyebrow',
+  titleLead: 'audioNormalize.page.titleLead',
+  titleTail: 'audioNormalize.page.titleTail',
+  sub: 'audioNormalize.page.sub',
+  intakeTitle: 'audioNormalize.intake.title',
+  intakeSub: 'audioNormalize.intake.sub',
+  dropTitle: 'audioNormalize.intake.dropTitle',
+  dropHint: 'audioNormalize.intake.dropHint',
+  dropAria: 'audioNormalize.intake.dropAria',
+  outputSub: 'audioNormalize.output.sub',
+  actionIdle: 'audioNormalize.action.idle',
+  actionOne: 'audioNormalize.action.one',
+  actionMany: 'audioNormalize.action.many',
+  actionBusy: 'audioNormalize.action.busy',
+  helperAddOne: 'audioNormalize.helper.addOne',
+  errorStart: 'audioNormalize.error.start',
+  errorPlan: 'audioNormalize.error.plan',
+  errorCancel: 'audioNormalize.error.cancel',
+  errorOpenFile: 'audioNormalize.error.openFile',
+  errorOpenFolder: 'audioNormalize.error.openFolder',
+  errorStatus: 'audioNormalize.error.status',
+  errorInspect: 'audioNormalize.error.inspect',
+};

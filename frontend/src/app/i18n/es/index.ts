@@ -2,6 +2,7 @@ import type { TranslationKey } from '../en';
 import type { DictionaryValue } from '../types';
 
 import { activityEs } from './activity';
+import { audioToolsEs } from './audio-tools';
 import { automationsEs } from './automations';
 import { categoriesEs } from './categories';
 import { commonEs } from './common';
@@ -48,6 +49,7 @@ import { videoTrimEs } from './video-trim';
 export const es: Record<TranslationKey, DictionaryValue> = {
   ...commonEs,
   ...destinationPresetsEs,
+  ...audioToolsEs,
   ...automationsEs,
   ...docDocxToPdfEs,
   ...docMdToPdfEs,

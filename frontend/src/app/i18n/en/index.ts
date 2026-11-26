@@ -1,4 +1,5 @@
 import { activityEn } from './activity';
+import { audioToolsEn } from './audio-tools';
 import { automationsEn } from './automations';
 import { categoriesEn } from './categories';
 import { commonEn } from './common';
@@ -45,6 +46,7 @@ import { videoTrimEn } from './video-trim';
 export const en = {
   ...commonEn,
   ...destinationPresetsEn,
+  ...audioToolsEn,
   ...automationsEn,
   ...docDocxToPdfEn,
   ...docMdToPdfEn,

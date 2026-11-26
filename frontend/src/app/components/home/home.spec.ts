@@ -265,7 +265,7 @@ describe('Home', () => {
   it('renders every workbench tool by default', () => {
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(20);
+    expect(cardNames().length).toBe(23);
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -331,6 +331,21 @@ describe('Home', () => {
     ]);
   });
 
+  it('shows the three audio tools under the Audio category', () => {
+    fixture.detectChanges();
+
+    expect(component.categoryCounts()['audio']).toBe(3);
+
+    filterChip('Audio').click();
+    fixture.detectChanges();
+
+    expect(cardNames()).toEqual([
+      'Extract Audio',
+      'Audio Convert',
+      'Normalize Audio',
+    ]);
+  });
+
   it('opens the first filtered tool when Enter is pressed', () => {
     const router = TestBed.inject(Router);
     const navigate = spyOn(router, 'navigateByUrl').and.resolveTo(true);
@@ -354,7 +369,7 @@ describe('Home', () => {
     (fixture.nativeElement.querySelector('.empty-state-action') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(20);
+    expect(cardNames().length).toBe(23);
     expect(searchInput().value).toBe('');
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
@@ -413,7 +428,7 @@ describe('Home', () => {
     expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
       'Outcomes, not one tool at a time.',
     );
-    expect(cardNames().length).toBe(20);
+    expect(cardNames().length).toBe(23);
   });
 
   it('hides recipes while a search query is active', () => {
@@ -447,7 +462,7 @@ describe('Home', () => {
     expect(section?.querySelector('a')?.getAttribute('href')).toBe(
       '/automations',
     );
-    expect(cardNames().length).toBe(20);
+    expect(cardNames().length).toBe(23);
   });
 
   it('hides the folder-rule card when there are no rules', async () => {

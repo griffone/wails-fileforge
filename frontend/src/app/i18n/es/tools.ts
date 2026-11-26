@@ -98,6 +98,21 @@ export const toolsEs = {
   'tools.tool.video.transcribe.description':
     'Transcribe video y audio localmente con Whisper. Sin subidas.',
 
+  'tools.tool.audio.extract.name': 'Extraer audio',
+  'tools.tool.audio.extract.navName': 'Extraer',
+  'tools.tool.audio.extract.description':
+    'Extrae la pista de audio de un vídeo o archivo de audio como mp3, m4a, opus, wav o flac',
+
+  'tools.tool.audio.convert.name': 'Convertir audio',
+  'tools.tool.audio.convert.navName': 'Convertir',
+  'tools.tool.audio.convert.description':
+    'Convierte archivos de audio entre mp3, m4a, opus, wav y flac',
+
+  'tools.tool.audio.normalize.name': 'Normalizar audio',
+  'tools.tool.audio.normalize.navName': 'Normalizar',
+  'tools.tool.audio.normalize.description':
+    'Normalización de sonoridad EBU R128 en dos pasadas para objetivos de streaming, difusión o pódcast',
+
   'tools.tool.pdf.images.name': 'Imágenes a PDF',
   'tools.tool.pdf.images.navName': 'Imágenes a PDF',
   'tools.tool.pdf.images.description':
