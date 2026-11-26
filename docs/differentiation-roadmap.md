@@ -400,11 +400,23 @@ optional capability pack, not a bundled model set.
 - Auto-crop; smart rename: pending.
 - Settings capability panel: done.
 
-### Phase 4 — Polish (ongoing) — not started
+### Phase 4 — Polish (ongoing) — delivered except the OS integration
 
-- User-defined recipes / recipe builder.
-- Preset sharing, CLI packaging, context menu.
-- Performance and docs.
+- User-defined recipes: **done** — duplicate a built-in, edit the knobs its
+  schema declares, save, run, rename, delete. Schemas exist for Email PDF and
+  Web image set; the other three recipes offer no duplicate action until they
+  declare real knobs.
+- Preset sharing: **done** — versioned export/import with per-entry validation
+  and name-conflict handling.
+- CLI packaging: **done as `cmd/fileforge-cli`** (`task build:cli`). The binary
+  is not yet included in the AppImage or the NSIS installer.
+- Context menu / OS integration: **dropped by product decision**. There is no
+  shell verb, `.desktop` action or file association; opening the app remains
+  the entry point. If it returns, it needs the CLI packaged first.
+- Performance: **done** — the debounced job snapshot no longer encodes per
+  progress tick (125 µs → 430 ns per tick, write path unchanged). Other
+  candidates were measured and rejected because they would alter output bytes
+  or capability semantics.
 
 Total indicative effort: **30–47 engineering days**, delivered in small releases; not a single big-bang.
 
