@@ -7,6 +7,16 @@ import {
   X,
 } from 'lucide-angular';
 
+import {
+  DESTINATION_PRESETS,
+  DestinationPreset,
+  MAX_TARGET_MB,
+  MAX_TARGET_MB_LABEL,
+  mbToTargetBytes,
+  presetForTargetMb,
+  presetTargetMb,
+  targetSizeLabel,
+} from '../../config/destination-presets';
 import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
@@ -88,11 +98,12 @@ function emptyMetadata(): MetadataValues {
 
 type PdfOptimizeOptions = {
   compress: boolean;
+  targetMb: number | null;
   metadata: MetadataValues;
 };
 
 function defaultOptions(): PdfOptimizeOptions {
-  return { compress: true, metadata: emptyMetadata() };
+  return { compress: true, targetMb: null, metadata: emptyMetadata() };
 }
 
 /** Only known fields with valid shapes survive a stale or corrupt payload. */
@@ -103,6 +114,16 @@ function normalizeOptions(
 
   if (typeof stored['compress'] === 'boolean') {
     result.compress = stored['compress'];
+  }
+
+  const targetMb = stored['targetMb'];
+  if (
+    typeof targetMb === 'number' &&
+    Number.isFinite(targetMb) &&
+    targetMb > 0 &&
+    targetMb <= MAX_TARGET_MB
+  ) {
+    result.targetMb = targetMb;
   }
 
   const rawMetadata = stored['metadata'];
@@ -164,7 +185,11 @@ export class PdfOptimize implements OnDestroy, OnInit {
     initialOutputDir: this.preferences.defaultOutputDir(),
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) => fileExtension(path).toLowerCase() === 'pdf',
-    canPlan: () => this.selectedPaths().length > 0 && !this.metadataInvalid(),
+    canPlan: () =>
+      this.selectedPaths().length > 0 &&
+      !this.metadataInvalid() &&
+      this.targetValid() &&
+      !this.targetRequiresCompression(),
     canRun: () => this.canRun(),
     extraBlocked: () => this.plan()?.success === false,
     describeFileInfo: (info) => this.describeFileInfo(info),
@@ -218,8 +243,72 @@ export class PdfOptimize implements OnDestroy, OnInit {
   readonly verificationLoading = this.job.verificationLoading;
   readonly verificationUnavailable = this.job.verificationUnavailable;
 
+  readonly destinationPresets = DESTINATION_PRESETS;
+
   readonly compress = signal(true);
+  readonly targetMb = signal<number | null>(null);
   readonly metadata = signal<MetadataValues>(emptyMetadata());
+
+  readonly targetSizeBytes = computed(() =>
+    mbToTargetBytes(this.targetMb()),
+  );
+
+  readonly hasTarget = computed(() => this.targetSizeBytes() > 0);
+
+  /** A blank target is valid; a filled one must convert to usable bytes. */
+  readonly targetValid = computed(
+    () => this.targetMb() === null || this.targetSizeBytes() > 0,
+  );
+
+  /** The engine rejects a target without compression, so the form does too. */
+  readonly targetRequiresCompression = computed(
+    () => this.hasTarget() && !this.compress(),
+  );
+
+  readonly activeTargetPreset = computed<DestinationPreset | null>(() =>
+    presetForTargetMb(this.targetMb()),
+  );
+
+  readonly activeTargetPresetId = computed<string | null>(
+    () => this.activeTargetPreset()?.id ?? null,
+  );
+
+  readonly targetError = computed<string | null>(() => {
+    const target = this.targetMb();
+    if (target === null) {
+      return null;
+    }
+    if (!Number.isFinite(target) || target <= 0) {
+      return this.i18n.t('pdfOptimize.target.errorPositive');
+    }
+    if (target > MAX_TARGET_MB) {
+      return this.i18n.t('pdfOptimize.target.errorMax', {
+        max: MAX_TARGET_MB_LABEL,
+      });
+    }
+    if (!this.targetValid()) {
+      return this.i18n.t('pdfOptimize.target.errorTooLarge');
+    }
+    return null;
+  });
+
+  readonly targetSummary = computed(() =>
+    this.hasTarget()
+      ? this.i18n.t('pdfOptimize.target.summary', {
+          size: targetSizeLabel(this.targetSizeBytes()),
+        })
+      : '',
+  );
+
+  /** Preset shown on the plan card so the choice survives to confirmation. */
+  readonly planTargetLabel = computed(() => {
+    const preset = this.activeTargetPreset();
+    return preset ? this.presetLabel(preset) : '';
+  });
+
+  readonly planTargetValue = computed(() =>
+    this.hasTarget() ? targetSizeLabel(this.targetSizeBytes()) : '',
+  );
 
   /** True when a metadata value exceeds the backend's 512-character limit. */
   readonly metadataInvalid = computed(() =>
@@ -244,6 +333,8 @@ export class PdfOptimize implements OnDestroy, OnInit {
     () =>
       this.selectedPaths().length > 0 &&
       !this.metadataInvalid() &&
+      this.targetValid() &&
+      !this.targetRequiresCompression() &&
       !this.isSubmitting() &&
       !this.isPolling(),
   );
@@ -282,6 +373,14 @@ export class PdfOptimize implements OnDestroy, OnInit {
         max: METADATA_MAX_LENGTH,
       });
     }
+    if (!this.targetValid()) {
+      return (
+        this.targetError() ?? this.i18n.t('pdfOptimize.target.errorPositive')
+      );
+    }
+    if (this.targetRequiresCompression()) {
+      return this.i18n.t('pdfOptimize.helper.targetNeedsCompression');
+    }
     return '';
   });
 
@@ -318,6 +417,18 @@ export class PdfOptimize implements OnDestroy, OnInit {
     );
   }
 
+  /** Preset copy resolved at render time so the locale switch applies. */
+  presetLabel(preset: DestinationPreset): string {
+    return this.i18n.tOr(
+      `destinationPreset.${preset.id}.label`,
+      preset.label,
+    );
+  }
+
+  presetSizeLabel(preset: DestinationPreset): string {
+    return targetSizeLabel(preset.targetBytes);
+  }
+
   onPathsSelected(paths: string[]): void {
     this.job.onPathsSelected(paths);
   }
@@ -335,6 +446,27 @@ export class PdfOptimize implements OnDestroy, OnInit {
 
   removeFile(path: string): void {
     this.job.removeFile(path);
+  }
+
+  onTargetInput(event: Event): void {
+    const raw = (event.target as HTMLInputElement | null)?.value ?? '';
+    const value = Number.parseFloat(raw);
+    const target = raw.trim() === '' || !Number.isFinite(value) ? null : value;
+    this.targetMb.set(target);
+    // A target only works with compression, so setting one turns it on.
+    if (target !== null && target > 0) {
+      this.compress.set(true);
+    }
+    this.actionMessage.set('');
+    this.schedulePlan();
+  }
+
+  /** A preset writes its exact MB value into the field and enables compression. */
+  selectTargetPreset(preset: DestinationPreset): void {
+    this.targetMb.set(presetTargetMb(preset));
+    this.compress.set(true);
+    this.actionMessage.set('');
+    this.schedulePlan();
   }
 
   onCompressToggle(event: Event): void {
@@ -356,12 +488,13 @@ export class PdfOptimize implements OnDestroy, OnInit {
     const alreadyEmpty = METADATA_FIELDS.every(
       (field) => values[field.key] === empty[field.key],
     );
-    if (alreadyEmpty && this.compress()) {
+    if (alreadyEmpty && this.compress() && this.targetMb() === null) {
       return;
     }
 
     this.metadata.set(empty);
     this.compress.set(true);
+    this.targetMb.set(null);
     this.actionMessage.set('');
     void this.job.refreshPlan();
   }
@@ -431,13 +564,34 @@ export class PdfOptimize implements OnDestroy, OnInit {
     this.job.adoptRunAgain(event);
   }
 
+  /**
+   * An invalid target or a target without compression drops the stale plan
+   * immediately instead of waiting for the debounce.
+   */
+  private schedulePlan(): void {
+    if (
+      this.selectedPaths().length === 0 ||
+      !this.targetValid() ||
+      this.targetRequiresCompression()
+    ) {
+      this.job.clearPlan();
+      return;
+    }
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
+  }
+
   private currentOptions(): PdfOptimizeOptions {
-    return { compress: this.compress(), metadata: { ...this.metadata() } };
+    return {
+      compress: this.compress(),
+      targetMb: this.targetMb(),
+      metadata: { ...this.metadata() },
+    };
   }
 
   private restoreOptions(): void {
     const options = this.settings.restore();
     this.compress.set(options.compress);
+    this.targetMb.set(options.targetMb);
     this.metadata.set({ ...options.metadata });
   }
 
@@ -448,6 +602,10 @@ export class PdfOptimize implements OnDestroy, OnInit {
     // Compression defaults to on in the backend, so only the opt-out is sent.
     if (!this.compress()) {
       options['compress'] = false;
+    }
+
+    if (this.hasTarget()) {
+      options['targetSizeBytes'] = this.targetSizeBytes();
     }
 
     const metadata = this.metadataPayload();

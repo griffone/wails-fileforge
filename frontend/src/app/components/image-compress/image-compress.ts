@@ -15,6 +15,16 @@ import {
   X,
 } from 'lucide-angular';
 
+import {
+  DESTINATION_PRESETS,
+  DestinationPreset,
+  MAX_TARGET_MB,
+  MAX_TARGET_MB_LABEL,
+  mbToTargetBytes,
+  presetForTargetMb,
+  presetTargetMb,
+  targetSizeLabel,
+} from '../../config/destination-presets';
 import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
@@ -37,15 +47,10 @@ import { ToolRunController } from '../../utils/tool-run-controller';
 
 const IMAGE_TOOL_ID = 'tool.image.compress';
 const SETTINGS_PLAN_DEBOUNCE_MS = 200;
-const BYTES_PER_MB = 1024 * 1024;
 const MIN_QUALITY = 40;
 // The compressor's quality search ceiling is 95, so the UI must not advertise
 // more than the encoder can use.
 const MAX_QUALITY = 95;
-// int64 can hold far more, but anything above ~1 TB per image is not a real
-// target and would only produce an unusable request.
-const MAX_TARGET_MB = 1_000_000;
-const MAX_TARGET_MB_LABEL = '1,000,000';
 const OPTIONS_SCHEMA_VERSION = 1;
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
@@ -222,6 +227,7 @@ export class ImageCompress implements OnDestroy, OnInit {
   readonly resetIcon = RotateCcw;
 
   readonly formatOptions = FORMAT_OPTIONS;
+  readonly destinationPresets = DESTINATION_PRESETS;
 
   readonly selectedPaths = this.job.selectedPaths;
   readonly fileItems = this.job.fileItems;
@@ -258,26 +264,19 @@ export class ImageCompress implements OnDestroy, OnInit {
   readonly verificationLoading = this.job.verificationLoading;
   readonly verificationUnavailable = this.job.verificationUnavailable;
 
-  readonly targetSizeBytes = computed(() => {
-    const target = this.targetMb();
-    if (
-      target === null ||
-      !Number.isFinite(target) ||
-      target <= 0 ||
-      target > MAX_TARGET_MB
-    ) {
-      return 0;
-    }
-
-    const bytes = target * BYTES_PER_MB;
-    if (!Number.isFinite(bytes) || bytes <= 0) {
-      return 0;
-    }
-
-    return Math.max(1, Math.round(bytes));
-  });
+  readonly targetSizeBytes = computed(() =>
+    mbToTargetBytes(this.targetMb()),
+  );
 
   readonly targetValid = computed(() => this.targetSizeBytes() > 0);
+
+  readonly activeTargetPreset = computed<DestinationPreset | null>(() =>
+    presetForTargetMb(this.targetMb()),
+  );
+
+  readonly activeTargetPresetId = computed<string | null>(
+    () => this.activeTargetPreset()?.id ?? null,
+  );
 
   /**
    * The specific reason the target cannot be used. Kept separate from
@@ -302,7 +301,7 @@ export class ImageCompress implements OnDestroy, OnInit {
 
   readonly targetLabel = computed(() =>
     this.targetValid()
-      ? formatBytes(this.targetSizeBytes())
+      ? targetSizeLabel(this.targetSizeBytes())
       : this.i18n.t('imageCompress.target.noTarget'),
   );
 
@@ -312,6 +311,16 @@ export class ImageCompress implements OnDestroy, OnInit {
           size: this.targetLabel(),
         })
       : '',
+  );
+
+  /** Preset shown on the plan card so the choice survives to confirmation. */
+  readonly planTargetLabel = computed(() => {
+    const preset = this.activeTargetPreset();
+    return preset ? this.presetLabel(preset) : '';
+  });
+
+  readonly planTargetValue = computed(() =>
+    this.targetValid() ? this.targetLabel() : '',
   );
 
   readonly formatBadge = computed(() => this.formatOptionLabel(this.format()));
@@ -380,7 +389,7 @@ export class ImageCompress implements OnDestroy, OnInit {
       return null;
     }
 
-    const targetLabel = formatBytes(target);
+    const targetLabel = targetSizeLabel(target);
     const atTarget = sizes.filter((size) => size <= target).length;
     if (atTarget === sizes.length) {
       return sizes.length === 1
@@ -475,6 +484,18 @@ export class ImageCompress implements OnDestroy, OnInit {
     );
   }
 
+  /** Preset copy resolved at render time so the locale switch applies. */
+  presetLabel(preset: DestinationPreset): string {
+    return this.i18n.tOr(
+      `destinationPreset.${preset.id}.label`,
+      preset.label,
+    );
+  }
+
+  presetSizeLabel(preset: DestinationPreset): string {
+    return targetSizeLabel(preset.targetBytes);
+  }
+
   onPathsSelected(paths: string[]): void {
     this.job.onPathsSelected(paths);
   }
@@ -498,6 +519,13 @@ export class ImageCompress implements OnDestroy, OnInit {
     const raw = this.readValue(event).trim();
     const value = Number.parseFloat(raw);
     this.targetMb.set(raw === '' || !Number.isFinite(value) ? null : value);
+    this.actionMessage.set('');
+    this.schedulePlan();
+  }
+
+  /** A preset writes its exact MB value into the field and re-plans. */
+  selectTargetPreset(preset: DestinationPreset): void {
+    this.targetMb.set(presetTargetMb(preset));
     this.actionMessage.set('');
     this.schedulePlan();
   }

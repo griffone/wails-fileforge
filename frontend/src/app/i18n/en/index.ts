@@ -2,6 +2,7 @@ import { activityEn } from './activity';
 import { automationsEn } from './automations';
 import { categoriesEn } from './categories';
 import { commonEn } from './common';
+import { destinationPresetsEn } from './destination-presets';
 import { docDocxToPdfEn } from './doc-docx-to-pdf';
 import { docMdToPdfEn } from './doc-md-to-pdf';
 import { fileDropEn } from './file-drop';
@@ -43,6 +44,7 @@ import { videoTrimEn } from './video-trim';
 
 export const en = {
   ...commonEn,
+  ...destinationPresetsEn,
   ...automationsEn,
   ...docDocxToPdfEn,
   ...docMdToPdfEn,

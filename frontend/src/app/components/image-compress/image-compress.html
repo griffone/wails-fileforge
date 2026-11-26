@@ -134,6 +134,27 @@
         <div class="panel-body">
           <div class="field">
             <label class="label" for="compress-target">{{ i18n.t('imageCompress.field.target') }}</label>
+            <div
+              class="target-presets"
+              role="group"
+              [attr.aria-label]="i18n.t('imageCompress.presets.label')"
+            >
+              @for (preset of destinationPresets; track preset.id) {
+                <button
+                  type="button"
+                  class="chip target-chip"
+                  [attr.data-preset]="preset.id"
+                  [attr.aria-pressed]="preset.id === activeTargetPresetId()"
+                  (click)="selectTargetPreset(preset)"
+                >
+                  <span>{{ presetLabel(preset) }}</span>
+                  <span class="target-chip-size mono">{{ presetSizeLabel(preset) }}</span>
+                </button>
+              }
+            </div>
+            <p class="field-help presets-help">
+              {{ i18n.t('imageCompress.presets.help') }}
+            </p>
             <div class="target-row">
               <input
                 id="compress-target"
@@ -166,6 +187,7 @@
                 {{ targetError() }}
               </p>
             }
+            <p class="field-help">{{ i18n.t('imageCompress.target.unitHelp') }}</p>
           </div>
 
           <div class="field">
@@ -216,6 +238,8 @@
             [loading]="planLoading()"
             [destinationLabel]="destinationLabel()"
             [isDefaultDestination]="isDefaultDestination()"
+            [targetLabel]="planTargetLabel()"
+            [targetValue]="planTargetValue()"
             (changeDestination)="chooseOutputFolder()"
           ></app-output-plan-card>
 

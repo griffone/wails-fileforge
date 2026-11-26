@@ -25,6 +25,16 @@
       }
     </div>
 
+    @if (targetValue) {
+      <div class="output-plan-target">
+        <span class="output-plan-label">{{ i18n.t('outputPlan.target') }}</span>
+        <span class="output-plan-value">{{ targetValue }}</span>
+        @if (targetLabel) {
+          <span class="badge badge-neutral">{{ targetLabel }}</span>
+        }
+      </div>
+    }
+
     @if (errorCopy(); as error) {
       <div class="banner banner-danger output-plan-error" role="alert">
         <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>

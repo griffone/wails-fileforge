@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { ImageCompress } from './image-compress';
+import { DESTINATION_PRESETS } from '../../config/destination-presets';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import {
@@ -243,7 +244,7 @@ describe('ImageCompress', () => {
     expect(request.inputPaths).toEqual(['/tmp/photo.png']);
     expect(request.outputDir).toBe('');
     expect(request.options).toEqual({
-      targetSizeBytes: 1024 * 1024,
+      targetSizeBytes: 1_048_576,
       format: 'auto',
       allowDownscale: true,
       stripMetadata: true,
@@ -260,7 +261,7 @@ describe('ImageCompress', () => {
     tick(200);
     flushMicrotasks();
 
-    expect(component.targetSizeBytes()).toBe(Math.round(2.5 * 1024 * 1024));
+    expect(component.targetSizeBytes()).toBe(2_621_440);
     expect(component.targetSizeBytes()).toBe(2621440);
     expect(lastPlanRequest().options['targetSizeBytes']).toBe(2621440);
 
@@ -268,7 +269,84 @@ describe('ImageCompress', () => {
     tick(200);
     flushMicrotasks();
 
-    expect(lastPlanRequest().options['targetSizeBytes']).toBe(524288);
+    expect(lastPlanRequest().options['targetSizeBytes']).toBe(524_288);
+  }));
+
+  it('fills the field from a preset chip and re-plans', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const chip = fixture.nativeElement.querySelector(
+      '[data-preset="discord"]',
+    ) as HTMLButtonElement;
+    chip.click();
+    tick(200);
+    flushMicrotasks();
+
+    expect(component.targetMb()).toBe(9.5);
+    expect(component.activeTargetPresetId()).toBe('discord');
+    expect(component.targetSizeBytes()).toBe(9_961_472);
+    expect(lastPlanRequest().options['targetSizeBytes']).toBe(9_961_472);
+  }));
+
+  it('selects a preset when the typed value matches it', () => {
+    component.selectTargetPreset(
+      DESTINATION_PRESETS.find((preset) => preset.id === 'discord')!,
+    );
+    expect(component.activeTargetPresetId()).toBe('discord');
+
+    component.onTargetInput(inputEvent('12'));
+    expect(component.activeTargetPresetId()).toBeNull();
+
+    component.onTargetInput(inputEvent('9.5'));
+    expect(component.activeTargetPresetId()).toBe('discord');
+    expect(component.targetSizeBytes()).toBe(9_961_472);
+
+    component.onTargetInput(inputEvent('16'));
+    expect(component.activeTargetPresetId()).toBe('whatsapp');
+  });
+
+  it('agrees with the MB field for the same preset value', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+
+    const email = DESTINATION_PRESETS.find(
+      (preset) => preset.id === 'email',
+    )!;
+
+    component.onTargetInput(inputEvent('25'));
+    tick(200);
+    flushMicrotasks();
+    expect(component.targetSizeBytes()).toBe(email.targetBytes);
+    expect(lastPlanRequest().options['targetSizeBytes']).toBe(
+      email.targetBytes,
+    );
+
+    component.selectTargetPreset(email);
+    tick(200);
+    flushMicrotasks();
+    expect(component.targetMb()).toBe(25);
+    expect(component.targetSizeBytes()).toBe(email.targetBytes);
+  }));
+
+  it('shows the active preset and target on the plan card', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.png']);
+    flushMicrotasks();
+
+    component.selectTargetPreset(
+      DESTINATION_PRESETS.find((preset) => preset.id === 'discord')!,
+    );
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const targetRow = fixture.nativeElement.querySelector(
+      '.output-plan-target',
+    ) as HTMLElement;
+    expect(targetRow.textContent).toContain('Target');
+    expect(targetRow.textContent).toContain('9.5 MB');
+    expect(targetRow.textContent).toContain('Discord');
   }));
 
   it('blocks the run and the plan for an invalid target', fakeAsync(() => {
@@ -415,7 +493,7 @@ describe('ImageCompress', () => {
     const request = wailsSpy.runJob.calls.mostRecent()
       .args[0] as JobRequest;
     expect(request.toolId).toBe('tool.image.compress');
-    expect(request.options['targetSizeBytes']).toBe(1024 * 1024);
+    expect(request.options['targetSizeBytes']).toBe(1_048_576);
 
     expect(component.jobResult()?.status).toBe('success');
     expect(component.terminalJob()).not.toBeNull();
@@ -463,7 +541,7 @@ describe('ImageCompress', () => {
     tick(1000);
     flushMicrotasks();
 
-    expect(component.runTargetBytes()).toBe(1024 * 1024);
+    expect(component.runTargetBytes()).toBe(1_048_576);
     expect(component.targetOutcome()).toBe(
       'The output is at or under the 1 MB target.',
     );
@@ -473,7 +551,7 @@ describe('ImageCompress', () => {
     tick(200);
     flushMicrotasks();
 
-    expect(component.targetSizeBytes()).toBe(5 * 1024 * 1024);
+    expect(component.targetSizeBytes()).toBe(5_242_880);
     expect(component.targetOutcome()).toBe(
       'The output is at or under the 1 MB target.',
     );

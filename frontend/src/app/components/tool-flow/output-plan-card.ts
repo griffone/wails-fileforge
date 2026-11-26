@@ -28,6 +28,10 @@ export class OutputPlanCard {
   /** Optional destination copy; falls back to the translated default. */
   @Input() destinationLabel = '';
   @Input() isDefaultDestination = true;
+  /** Active destination preset, shown next to the target before confirming. */
+  @Input() targetLabel = '';
+  /** Formatted target size; empty hides the target row. */
+  @Input() targetValue = '';
   /** How many planned outputs stay listed before the `+ N more` row. */
   @Input() visibleLimit = VISIBLE_OUTPUT_LIMIT;
   /**

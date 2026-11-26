@@ -65,6 +65,40 @@
   font-weight: 650;
 }
 
+.target-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.target-chip-size {
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.target-chip.is-active .target-chip-size {
+  color: inherit;
+  opacity: 0.75;
+}
+
+.target-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.target-unit {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.target-summary {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
 .destination-actions {
   display: flex;
   justify-content: flex-end;
@@ -145,7 +179,8 @@
   color: var(--muted);
 }
 
-.field-error {
+.field-error,
+.field-help-error {
   margin: 0;
   font-size: 0.6875rem;
   line-height: 1.45;

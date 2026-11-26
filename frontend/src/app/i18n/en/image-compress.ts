@@ -24,6 +24,9 @@ export const imageCompressEn = {
   'imageCompress.output.sub':
     'Set the target, then check where the files will go.',
   'imageCompress.field.target': 'Target size (MB)',
+  'imageCompress.presets.label': 'Destination presets',
+  'imageCompress.presets.help':
+    'Pick a service and the target fills in. Any value you type also works.',
   'imageCompress.field.format': 'Format',
   'imageCompress.format.auto.label': 'Auto',
   'imageCompress.format.jpeg.label': 'JPEG',
@@ -69,6 +72,7 @@ export const imageCompressEn = {
     'The target size is too large to use.',
   'imageCompress.target.noTarget': 'No target',
   'imageCompress.target.summary': 'Target {size} per image',
+  'imageCompress.target.unitHelp': 'Target sizes use 1 MB = 1,048,576 bytes.',
   'imageCompress.action.compress': 'Compress',
   'imageCompress.action.compressOne': 'Compress 1 image',
   'imageCompress.action.compressMany': 'Compress {count} images',

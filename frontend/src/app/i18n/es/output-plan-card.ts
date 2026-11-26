@@ -3,6 +3,7 @@ export const outputPlanEs = {
   'outputPlan.sub': 'Elige dónde deben ir los archivos convertidos.',
   'outputPlan.change': 'Cambiar',
   'outputPlan.destination': 'Destino',
+  'outputPlan.target': 'Objetivo',
   'outputPlan.default': 'Predeterminado',
   'outputPlan.working': 'Calculando la salida…',
   'outputPlan.folder': 'Carpeta',

@@ -8,6 +8,7 @@ import {
 import { Subject } from 'rxjs';
 
 import { PdfOptimize } from './pdf-optimize';
+import { DESTINATION_PRESETS } from '../../config/destination-presets';
 import { I18nService } from '../../services/i18n.service';
 import {
   TOOL_OPTIONS_STORAGE_PREFIX,
@@ -107,6 +108,18 @@ describe('PdfOptimize', () => {
 
   function inputEvent(value: string): Event {
     return { target: { value } } as unknown as Event;
+  }
+
+  function checkedEvent(checked: boolean): Event {
+    return { target: { checked } } as unknown as Event;
+  }
+
+  function preset(id: string) {
+    const found = DESTINATION_PRESETS.find((candidate) => candidate.id === id);
+    if (!found) {
+      throw new Error(`missing preset ${id}`);
+    }
+    return found;
   }
 
   function lastPlanRequest(): JobRequest {
@@ -302,6 +315,92 @@ describe('PdfOptimize', () => {
       keywords: 'pdf, report',
     });
     expect(request.mode).toBe('single');
+  }));
+
+  it('turns compression on and plans a preset target', fakeAsync(() => {
+    component.onCompressToggle(checkedEvent(false));
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    expect(component.compress()).toBeFalse();
+
+    component.selectTargetPreset(preset('discord'));
+    tick(250);
+    flushMicrotasks();
+
+    expect(component.compress()).toBeTrue();
+    expect(component.targetMb()).toBe(9.5);
+    expect(component.activeTargetPresetId()).toBe('discord');
+    expect(component.targetValid()).toBeTrue();
+    expect(component.targetSizeBytes()).toBe(9_961_472);
+
+    const request = lastPlanRequest();
+    expect(request.options['targetSizeBytes']).toBe(9_961_472);
+    expect(request.options['compress']).toBeUndefined();
+  }));
+
+  it('turns compression on when a custom target is typed', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.onCompressToggle(checkedEvent(false));
+    flushMicrotasks();
+    expect(component.compress()).toBeFalse();
+
+    component.onTargetInput(inputEvent('5'));
+    tick(250);
+    flushMicrotasks();
+
+    expect(component.compress()).toBeTrue();
+    expect(component.activeTargetPresetId()).toBeNull();
+    expect(lastPlanRequest().options['targetSizeBytes']).toBe(5_242_880);
+  }));
+
+  it('blocks a target without compression', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectTargetPreset(preset('discord'));
+    tick(250);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJob.calls.count();
+
+    component.onCompressToggle(checkedEvent(false));
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.targetValid()).toBeTrue();
+    expect(component.targetRequiresCompression()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+    expect(component.plan()).toBeNull();
+    expect(component.actionHelper()).toBe(
+      'Enable compression to use a target size.',
+    );
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls);
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeTrue();
+  }));
+
+  it('shows the target preset on the plan card', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectTargetPreset(preset('discord'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const targetRow = fixture.nativeElement.querySelector(
+      '.output-plan-target',
+    ) as HTMLElement;
+    expect(targetRow.textContent).toContain('Target');
+    expect(targetRow.textContent).toContain('9.5 MB');
+    expect(targetRow.textContent).toContain('Discord');
   }));
 
   it('omits compression and metadata when nothing changes them', fakeAsync(() => {
@@ -557,6 +656,7 @@ describe('PdfOptimize', () => {
       schemaVersion: 1,
       values: {
         compress: false,
+        targetMb: null,
         metadata: {
           title: 'Draft',
           author: '',
@@ -603,6 +703,7 @@ describe('PdfOptimize', () => {
       schemaVersion: 1,
       values: {
         compress: false,
+        targetMb: null,
         metadata: {
           title: 'Kept title',
           author: '',

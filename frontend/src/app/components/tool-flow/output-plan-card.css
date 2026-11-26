@@ -9,7 +9,8 @@
   padding: 14px 18px 16px;
 }
 
-.output-plan-destination {
+.output-plan-destination,
+.output-plan-target {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

@@ -22,7 +22,22 @@ export const pdfOptimizeEn = {
     '{count} PDFs are already in the queue.',
   'pdfOptimize.output.title': 'Output',
   'pdfOptimize.output.sub':
-    'Choose compression and metadata, then check where the files will go.',
+    'Set an optional target, choose compression and metadata, then check where the files will go.',
+  'pdfOptimize.field.target': 'Target size (MB)',
+  'pdfOptimize.presets.label': 'Destination presets',
+  'pdfOptimize.presets.help':
+    'Pick a service and the target fills in. Any value you type also works.',
+  'pdfOptimize.target.help':
+    'Optional. A target needs compression, so setting one turns it on. Leave it blank to compress without a size target.',
+  'pdfOptimize.target.summary': 'Target {size} per PDF',
+  'pdfOptimize.target.unitHelp':
+    'Target sizes use 1 MB = 1,048,576 bytes.',
+  'pdfOptimize.target.errorPositive':
+    'Enter a target size greater than 0 MB.',
+  'pdfOptimize.target.errorMax':
+    'Enter a target size of {max} MB or less.',
+  'pdfOptimize.target.errorTooLarge':
+    'The target size is too large to use.',
   'pdfOptimize.badge.compressOn': 'Compress on',
   'pdfOptimize.badge.compressOff': 'Compress off',
   'pdfOptimize.advanced.title': 'Advanced',
@@ -55,6 +70,8 @@ export const pdfOptimizeEn = {
   'pdfOptimize.helper.addOne': 'Add at least one PDF to optimize.',
   'pdfOptimize.helper.metadataTooLong':
     'Shorten each metadata value to {max} characters or fewer.',
+  'pdfOptimize.helper.targetNeedsCompression':
+    'Enable compression to use a target size.',
   'pdfOptimize.action.optimize': 'Optimize PDFs',
   'pdfOptimize.action.optimizeOne': 'Optimize 1 PDF',
   'pdfOptimize.action.optimizeMany': 'Optimize {count} PDFs',

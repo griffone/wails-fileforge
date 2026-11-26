@@ -245,6 +245,43 @@ describe('OutputPlanCard', () => {
     );
   });
 
+  it('shows the active target preset next to the destination', () => {
+    component.destinationLabel = '/tmp/out';
+    component.isDefaultDestination = false;
+    component.targetLabel = 'Discord';
+    component.targetValue = '10 MB';
+    fixture.detectChanges();
+
+    const targetRow = fixture.nativeElement.querySelector(
+      '.output-plan-target',
+    ) as HTMLElement;
+    expect(targetRow.textContent).toContain('Target');
+    expect(targetRow.textContent).toContain('10 MB');
+    expect(targetRow.textContent).toContain('Discord');
+    expect(fixture.nativeElement.textContent).toContain('/tmp/out');
+  });
+
+  it('hides the target row when no target is set', () => {
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-target'),
+    ).toBeNull();
+  });
+
+  it('renders the target row copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    component.targetLabel = 'Correo';
+    component.targetValue = '25 MB';
+    fixture.detectChanges();
+
+    const targetRow = fixture.nativeElement.querySelector(
+      '.output-plan-target',
+    ) as HTMLElement;
+    expect(targetRow.textContent).toContain('Objetivo');
+    expect(targetRow.textContent).toContain('Correo');
+  });
+
   it('emits changeDestination from the Change button', () => {
     const spy = jasmine.createSpy('changeDestination');
     component.changeDestination.subscribe(spy);

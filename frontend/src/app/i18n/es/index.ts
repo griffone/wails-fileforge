@@ -5,6 +5,7 @@ import { activityEs } from './activity';
 import { automationsEs } from './automations';
 import { categoriesEs } from './categories';
 import { commonEs } from './common';
+import { destinationPresetsEs } from './destination-presets';
 import { docDocxToPdfEs } from './doc-docx-to-pdf';
 import { docMdToPdfEs } from './doc-md-to-pdf';
 import { fileDropEs } from './file-drop';
@@ -46,6 +47,7 @@ import { videoTrimEs } from './video-trim';
 
 export const es: Record<TranslationKey, DictionaryValue> = {
   ...commonEs,
+  ...destinationPresetsEs,
   ...automationsEs,
   ...docDocxToPdfEs,
   ...docMdToPdfEs,
