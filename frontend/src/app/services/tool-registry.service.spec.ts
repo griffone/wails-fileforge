@@ -22,11 +22,14 @@ describe('ToolRegistryService', () => {
     expect(service.tools.length).toBe(23);
   });
 
-  it('exposes twenty-seven navigation entries', () => {
-    expect(service.navigation.length).toBe(27);
+  it('exposes twenty-eight navigation entries', () => {
+    expect(service.navigation.length).toBe(28);
     expect(service.navigation[0].route).toBe('/');
-    expect(service.navigation[service.navigation.length - 2].route).toBe(
+    expect(service.navigation[service.navigation.length - 3].route).toBe(
       '/automations',
+    );
+    expect(service.navigation[service.navigation.length - 2].route).toBe(
+      '/duplicates',
     );
     expect(service.navigation[service.navigation.length - 1].route).toBe(
       '/settings',
@@ -71,6 +74,7 @@ describe('ToolRegistryService', () => {
     const home = service.findByRoute('/');
     const system = service.findByRoute('/tool-catalog');
     const automations = service.findByRoute('/automations');
+    const duplicates = service.findByRoute('/duplicates');
     const settings = service.findByRoute('/settings');
     const tool = service.findByRoute('/video-trim');
     const ocr = service.findByRoute('/pdf-ocr');
@@ -79,6 +83,7 @@ describe('ToolRegistryService', () => {
     expect(home && service.isTool(home)).toBeFalse();
     expect(system && service.isTool(system)).toBeFalse();
     expect(automations && service.isTool(automations)).toBeFalse();
+    expect(duplicates && service.isTool(duplicates)).toBeFalse();
     expect(settings && service.isTool(settings)).toBeFalse();
     expect(tool && service.isTool(tool)).toBeTrue();
     expect(ocr && service.isTool(ocr)).toBeTrue();
@@ -143,10 +148,26 @@ describe('ToolRegistryService', () => {
     expect(normalize?.formats).toEqual(['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC']);
   });
 
+  it('registers the duplicates page as a non-tool system entry', () => {
+    const systemGroup = service.navGroups.find((group) => group.id === 'system');
+    expect(systemGroup?.items.map((item) => item.id)).toEqual([
+      'system.status',
+      'system.automations',
+      'system.duplicates',
+      'system.settings',
+    ]);
+
+    const duplicates = service.findByRoute('/duplicates');
+    expect(duplicates?.id).toBe('system.duplicates');
+    expect(duplicates?.category).toBe('system');
+    expect(duplicates?.formats).toEqual([]);
+    expect(service.findById('system.duplicates')?.route).toBe('/duplicates');
+  });
+
   it('exposes the five recipes as navigation entries outside the tool counts', () => {
     expect(service.recipes.length).toBe(5);
     expect(service.recipeNav.length).toBe(5);
-    expect(service.navigation.length).toBe(27);
+    expect(service.navigation.length).toBe(28);
     expect(service.tools.length).toBe(23);
   });
 

@@ -133,6 +133,11 @@ export const toolsEs = {
   'tools.system.automations.description':
     'Vigila una carpeta y ejecuta una receta cuando llega un archivo.',
 
+  'tools.system.duplicates.name': 'Duplicados',
+  'tools.system.duplicates.navName': 'Duplicados',
+  'tools.system.duplicates.description':
+    'Busca archivos idénticos en tus carpetas y muestra cuánto espacio ocupan de más.',
+
   'tools.system.settings.name': 'Configuración',
   'tools.system.settings.navName': 'Ajustes',
   'tools.system.settings.description':

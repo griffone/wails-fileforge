@@ -9,6 +9,7 @@ import { commonEs } from './common';
 import { destinationPresetsEs } from './destination-presets';
 import { docDocxToPdfEs } from './doc-docx-to-pdf';
 import { docMdToPdfEs } from './doc-md-to-pdf';
+import { duplicatesEs } from './duplicates';
 import { fileDropEs } from './file-drop';
 import { fileQueueEs } from './file-queue';
 import { globalDropEs } from './global-drop';
@@ -52,6 +53,7 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...destinationPresetsEs,
   ...audioToolsEs,
   ...automationsEs,
+  ...duplicatesEs,
   ...docDocxToPdfEs,
   ...docMdToPdfEs,
   ...shellEs,

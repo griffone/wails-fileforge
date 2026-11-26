@@ -6,6 +6,7 @@ import { commonEn } from './common';
 import { destinationPresetsEn } from './destination-presets';
 import { docDocxToPdfEn } from './doc-docx-to-pdf';
 import { docMdToPdfEn } from './doc-md-to-pdf';
+import { duplicatesEn } from './duplicates';
 import { fileDropEn } from './file-drop';
 import { fileQueueEn } from './file-queue';
 import { globalDropEn } from './global-drop';
@@ -49,6 +50,7 @@ export const en = {
   ...destinationPresetsEn,
   ...audioToolsEn,
   ...automationsEn,
+  ...duplicatesEn,
   ...docDocxToPdfEn,
   ...docMdToPdfEn,
   ...shellEn,

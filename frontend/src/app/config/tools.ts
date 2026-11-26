@@ -17,6 +17,7 @@ import {
   PenTool,
   ScanText,
   Scissors,
+  ScanSearch,
   Stamp,
   Settings2,
   Timer,
@@ -124,6 +125,32 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   icon: Workflow,
   formats: [],
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
+};
+
+/**
+ * Duplicate scan page. It is a folder-level report, not a tool: no file drop,
+ * no job queue and no plan card. Read-only by design.
+ */
+export const DUPLICATES_TOOL: ToolDefinition = {
+  id: 'system.duplicates',
+  name: 'Duplicates',
+  navName: 'Duplicates',
+  description:
+    'Scan folders for identical files and see how much space they waste.',
+  route: '/duplicates',
+  category: 'system',
+  icon: ScanSearch,
+  formats: [],
+  keywords: [
+    'duplicates',
+    'duplicate',
+    'copy',
+    'identical',
+    'hash',
+    'space',
+    'wasted',
+    'scan',
+  ],
 };
 
 /** The twenty-three conversion tools. Ids mirror the backend toolId contract. */
@@ -477,12 +504,13 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 27-entry navigation model. */
+/** Home, every tool, then System Status, Automations, Duplicates and Settings: the full 28-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,
   SYSTEM_TOOL,
   AUTOMATION_TOOL,
+  DUPLICATES_TOOL,
   SETTINGS_TOOL,
 ];
 

@@ -13,6 +13,8 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "automation/run": models$0.AutomationRunEvent;
+            "duplicates/progress": models$0.DuplicateScanProgressEvent;
+            "duplicates/state": models$0.DuplicateScanState;
             "jobs/progress": models$0.JobProgressEvent;
             "jobs/state": models$0.JobResult;
             "recipes/progress": models$0.RecipeProgressEvent;

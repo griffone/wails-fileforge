@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 
 import {
   AutomationService,
+  DuplicatesService,
   PreviewService,
   RecipeService,
   SystemService,
@@ -171,6 +172,27 @@ export class WailsIpc {
 
   clearAutomationRuns(): Promise<Models.AutomationRunsActionResponse> {
     return AutomationService.ClearAutomationRuns();
+  }
+
+  // Duplicate scans (read-only).
+  startDuplicateScan(
+    request: Models.DuplicateScanRequest,
+  ): Promise<Models.DuplicateStartResponse> {
+    return DuplicatesService.StartScan(request);
+  }
+
+  getDuplicateScan(scanId: string): Promise<Models.DuplicateScanStatusResponse> {
+    return DuplicatesService.GetScan(scanId);
+  }
+
+  cancelDuplicateScan(
+    scanId: string,
+  ): Promise<Models.DuplicateScanActionResponse> {
+    return DuplicatesService.CancelScan(scanId);
+  }
+
+  listDuplicateScans(): Promise<Models.DuplicateScanListResponse> {
+    return DuplicatesService.ListScans();
   }
 
   // Capabilities and toolchain.

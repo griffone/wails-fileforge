@@ -27,6 +27,7 @@ import { AudioNormalize } from './components/audio/audio-normalize';
 import { Settings } from './components/settings/settings';
 import { RecipeRun } from './components/recipe-run/recipe-run';
 import { Automations } from './components/automations/automations';
+import { Duplicates } from './components/duplicates/duplicates';
 
 export const routes: Routes = [
   { path: '', component: Home },
@@ -34,6 +35,7 @@ export const routes: Routes = [
   { path: 'tool-catalog', component: ToolCatalog },
   { path: 'settings', component: Settings },
   { path: 'automations', component: Automations },
+  { path: 'duplicates', component: Duplicates },
   { path: 'image-crop', component: ImageCrop },
   { path: 'image-annotate', component: ImageAnnotate },
   { path: 'image-compress', component: ImageCompress },

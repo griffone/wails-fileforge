@@ -339,6 +339,42 @@ export interface ListAutomationRunsResponse
 
 export type AutomationRunsActionResponse = Models.AutomationRunsActionResponse;
 
+/**
+ * Read-only duplicate scan request. Directories are folders, not files, and
+ * nothing on disk is ever written.
+ */
+export type DuplicateScanRequest = Models.DuplicateScanRequest;
+
+/** Generated empty slices model as `null`; the UI always iterates a list. */
+export interface DuplicateScanGroup extends Models.DuplicateScanGroup {
+  paths: string[];
+}
+
+export type DuplicateScanTotals = Models.DuplicateScanTotals;
+
+export type DuplicateScanWarning = Models.DuplicateScanWarning;
+
+export type DuplicateScanProgressEvent = Models.DuplicateScanProgressEvent;
+
+export interface DuplicateScanState extends Models.DuplicateScanState {
+  groups: DuplicateScanGroup[];
+  warnings: DuplicateScanWarning[];
+}
+
+export type DuplicateStartResponse = Models.DuplicateStartResponse;
+
+export interface DuplicateScanStatusResponse
+  extends Models.DuplicateScanStatusResponse {
+  scan?: DuplicateScanState;
+}
+
+export interface DuplicateScanListResponse
+  extends Models.DuplicateScanListResponse {
+  scans: DuplicateScanState[];
+}
+
+export type DuplicateScanActionResponse = Models.DuplicateScanActionResponse;
+
 export type ToolchainComponent = Models.ToolchainComponent;
 
 /**
@@ -419,6 +455,18 @@ export class Wails {
     null;
   private automationRunUnsubscribe: (() => void) | null = null;
   private automationRunRefCount = 0;
+
+  // Duplicate scans emit progress and a full snapshot like a job, but carry a
+  // scan id instead of a job id. Same lazy lifecycle and replay contract.
+  private duplicateProgressSubject: ReplaySubject<DuplicateScanProgressEvent> | null =
+    null;
+  private duplicateProgressUnsubscribe: (() => void) | null = null;
+  private duplicateProgressRefCount = 0;
+
+  private duplicateStateSubject: ReplaySubject<DuplicateScanState> | null =
+    null;
+  private duplicateStateUnsubscribe: (() => void) | null = null;
+  private duplicateStateRefCount = 0;
 
   // Toolchain installer progress follows the same lazy lifecycle. A late UI
   // gets the last event replayed, then polls the install state for the rest.
@@ -559,6 +607,48 @@ export class Wails {
       const unregister = this.ensureToolchainInstallRegistered();
 
       const sub = this.toolchainInstallSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    });
+
+  // Duplicate scan streams. A late subscriber gets the last snapshot replayed;
+  // the page filters by scan id because a replay may belong to an older scan.
+  public readonly duplicateProgress$: Observable<DuplicateScanProgressEvent> =
+    new Observable((subscriber) => {
+      const unregister = this.ensureDuplicateProgressRegistered();
+
+      const sub = this.duplicateProgressSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    });
+
+  public readonly duplicateState$: Observable<DuplicateScanState> =
+    new Observable((subscriber) => {
+      const unregister = this.ensureDuplicateStateRegistered();
+
+      const sub = this.duplicateStateSubject!.subscribe({
         next: (v) => subscriber.next(v),
         error: (e) => subscriber.error(e),
         complete: () => subscriber.complete(),
@@ -1475,6 +1565,69 @@ export class Wails {
     }
   }
 
+  async startDuplicateScan(
+    request: DuplicateScanRequest,
+  ): Promise<DuplicateStartResponse> {
+    try {
+      return await this.ipc.startDuplicateScan(request);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Start duplicate scan failed', error),
+      };
+    }
+  }
+
+  async getDuplicateScan(scanId: string): Promise<DuplicateScanStatusResponse> {
+    try {
+      const response = await this.ipc.getDuplicateScan(scanId);
+      return {
+        ...response,
+        scan: response.scan
+          ? this.normalizeDuplicateScanState(response.scan)
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get duplicate scan failed', error),
+        found: false,
+      };
+    }
+  }
+
+  async cancelDuplicateScan(
+    scanId: string,
+  ): Promise<DuplicateScanActionResponse> {
+    try {
+      return await this.ipc.cancelDuplicateScan(scanId);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Cancel duplicate scan failed', error),
+        scanId,
+      };
+    }
+  }
+
+  async listDuplicateScans(): Promise<DuplicateScanListResponse> {
+    try {
+      const response = await this.ipc.listDuplicateScans();
+      return {
+        ...response,
+        scans: (response.scans ?? []).map((scan) =>
+          this.normalizeDuplicateScanState(scan),
+        ),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('List duplicate scans failed', error),
+        scans: [],
+      };
+    }
+  }
+
   async openPath(path: string): Promise<PathActionResponse> {
     try {
       return await this.ipc.openPath(path);
@@ -2090,6 +2243,128 @@ export class Wails {
     };
   }
 
+  // Duplicate scan progress only needs a scan id and a progress payload, the
+  // same minimum the job progress stream checks for.
+  private ensureDuplicateProgressRegistered(): () => void {
+    if (!this.duplicateProgressSubject) {
+      this.duplicateProgressSubject =
+        new ReplaySubject<DuplicateScanProgressEvent>(1);
+      this.duplicateProgressUnsubscribe = Events.On(
+        'duplicates/progress',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<DuplicateScanProgressEvent>;
+          if (
+            typeof candidate.scanId !== 'string' ||
+            candidate.scanId.trim().length === 0 ||
+            !candidate.progress
+          ) {
+            return;
+          }
+
+          this.duplicateProgressSubject?.next({
+            scanId: candidate.scanId,
+            kind: typeof candidate.kind === 'string' ? candidate.kind : '',
+            status:
+              typeof candidate.status === 'string'
+                ? candidate.status
+                : 'running',
+            progress: candidate.progress,
+          });
+        },
+      );
+    }
+
+    this.duplicateProgressRefCount += 1;
+
+    return () => {
+      this.duplicateProgressRefCount -= 1;
+      if (this.duplicateProgressRefCount <= 0) {
+        try {
+          this.duplicateProgressUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.duplicateProgressUnsubscribe = null;
+        try {
+          this.duplicateProgressSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.duplicateProgressSubject = null;
+        this.duplicateProgressRefCount = 0;
+      }
+    };
+  }
+
+  // A duplicate snapshot needs a scan id and a status; the lists are normalized
+  // so consumers never branch on null.
+  private ensureDuplicateStateRegistered(): () => void {
+    if (!this.duplicateStateSubject) {
+      this.duplicateStateSubject = new ReplaySubject<DuplicateScanState>(1);
+      this.duplicateStateUnsubscribe = Events.On(
+        'duplicates/state',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<Models.DuplicateScanState>;
+          if (
+            typeof candidate.scanId !== 'string' ||
+            candidate.scanId.trim().length === 0 ||
+            typeof candidate.status !== 'string' ||
+            candidate.status.trim().length === 0
+          ) {
+            return;
+          }
+
+          this.emitDuplicateState(
+            this.normalizeDuplicateScanState(
+              candidate as Models.DuplicateScanState,
+            ),
+          );
+        },
+      );
+    }
+
+    this.duplicateStateRefCount += 1;
+
+    return () => {
+      this.duplicateStateRefCount -= 1;
+      if (this.duplicateStateRefCount <= 0) {
+        try {
+          this.duplicateStateUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.duplicateStateUnsubscribe = null;
+        try {
+          this.duplicateStateSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.duplicateStateSubject = null;
+        this.duplicateStateRefCount = 0;
+      }
+    };
+  }
+
+  // Native events may arrive outside the Angular zone; the snapshot is emitted
+  // inside it so signal consumers re-render.
+  private emitDuplicateState(snapshot: DuplicateScanState): void {
+    try {
+      this.zone.run(() => this.duplicateStateSubject?.next(snapshot));
+    } catch {
+      // ignore
+    }
+  }
+
   // Ensure the toolchain replay subject exists and the native install event
   // handler is registered. Mirrors the other streams; only a phase string, a
   // finite percent and a message are required to drive the progress UI.
@@ -2225,6 +2500,19 @@ export class Wails {
       patterns: rule.patterns ?? undefined,
       options: rule.options ?? undefined,
       lastOutputs: rule.lastOutputs ?? undefined,
+    };
+  }
+
+  private normalizeDuplicateScanState(
+    scan: Models.DuplicateScanState,
+  ): DuplicateScanState {
+    return {
+      ...scan,
+      groups: (scan.groups ?? []).map((group) => ({
+        ...group,
+        paths: group.paths ?? [],
+      })),
+      warnings: scan.warnings ?? [],
     };
   }
 

@@ -135,6 +135,11 @@ export const toolsEn = {
   'tools.system.automations.description':
     'Watch a folder and run a recipe when a file arrives.',
 
+  'tools.system.duplicates.name': 'Duplicates',
+  'tools.system.duplicates.navName': 'Duplicates',
+  'tools.system.duplicates.description':
+    'Scan folders for identical files and see how much space they waste.',
+
   'tools.system.settings.name': 'Settings',
   'tools.system.settings.navName': 'Settings',
   'tools.system.settings.description':

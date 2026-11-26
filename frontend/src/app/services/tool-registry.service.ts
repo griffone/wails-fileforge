@@ -33,7 +33,7 @@ export class ToolRegistryService {
   /** The twenty conversion tools, without Home or System Status. */
   readonly tools: readonly ToolDefinition[] = TOOLS;
 
-  /** Home + twenty tools + System Status + Automations + Settings (24 entries). */
+  /** Home + twenty-three tools + System Status + Automations + Duplicates + Settings (28 entries). */
   readonly navigation: readonly ToolDefinition[] = NAVIGATION;
 
   /** Navigation grouped for the sidebar rail, with Recipes after Workspace. */

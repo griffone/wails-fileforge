@@ -1,0 +1,101 @@
+export const duplicatesEs = {
+  'duplicates.page.eyebrow': 'Biblioteca',
+  'duplicates.page.titleLead': 'Encontrar',
+  'duplicates.page.titleTail': 'duplicados',
+  'duplicates.page.sub':
+    'Analiza una o más carpetas en busca de archivos con contenido idéntico y mira cuánto espacio ocupan de más. Nada se borra, se mueve ni se renombra.',
+  'duplicates.page.readOnlyBadge': 'Solo lectura',
+  'duplicates.form.title': 'Nuevo análisis',
+  'duplicates.form.subtitle':
+    'Las carpetas se leen una vez. El análisis nunca escribe en ellas.',
+  'duplicates.form.folders': 'Carpetas',
+  'duplicates.form.noFolders':
+    'Todavía no hay carpetas. Agrega al menos una carpeta para analizar.',
+  'duplicates.form.addFolder': 'Agregar carpeta',
+  'duplicates.form.removeFolder': 'Quitar {path} del análisis',
+  'duplicates.form.remove': 'Quitar',
+  'duplicates.form.recursive': 'Incluir subcarpetas',
+  'duplicates.form.recursiveHelp':
+    'Recorre cada subcarpeta de las carpetas de arriba. Los archivos ocultos y los nombres temporales siempre se omiten.',
+  'duplicates.form.minSize': 'Tamaño mínimo de archivo (KiB)',
+  'duplicates.form.minSizePlaceholder': '4',
+  'duplicates.form.minSizeHelp':
+    'Los archivos más chicos se omiten. Déjalo vacío o en 4 para usar el valor por defecto.',
+  'duplicates.form.extensions': 'Extensiones',
+  'duplicates.form.extensionsPlaceholder': 'jpg, png, pdf',
+  'duplicates.form.extensionsHelp':
+    'Opcional, separadas por comas, con o sin el punto. Déjalo vacío para analizar todos los tipos de archivo.',
+  'duplicates.form.maxFiles': 'Límite de archivos',
+  'duplicates.form.maxFilesPlaceholder': '20000',
+  'duplicates.form.maxFilesHelp':
+    'El análisis se detiene al llegar a esta cantidad de archivos y muestra una advertencia. Por defecto: 20000.',
+  'duplicates.form.unlimitedFiles': 'Sin límite de archivos',
+  'duplicates.form.start': 'Iniciar análisis',
+  'duplicates.form.starting': 'Iniciando…',
+  'duplicates.error.folders': 'Agrega al menos una carpeta para analizar.',
+  'duplicates.error.minSize':
+    'Ingresa el tamaño mínimo en KiB o déjalo vacío para usar el valor por defecto.',
+  'duplicates.error.maxFiles':
+    'Ingresa un límite mayor que cero o elige no limitar los archivos.',
+  'duplicates.error.start':
+    'El análisis no pudo iniciarse. Abre la aplicación de escritorio e inténtalo de nuevo.',
+  'duplicates.scan.title': 'Estado del análisis',
+  'duplicates.scan.stage.walking': 'Recorriendo carpetas',
+  'duplicates.scan.stage.hashing': 'Calculando hashes',
+  'duplicates.scan.stage.done': 'Terminado',
+  'duplicates.scan.walked': '{count} archivos analizados',
+  'duplicates.scan.hashed': '{current} / {total} archivos con hash',
+  'duplicates.scan.cancel': 'Cancelar análisis',
+  'duplicates.scan.cancelling': 'Cancelando…',
+  'duplicates.scan.cancelledHint':
+    'El análisis se detuvo antes de terminar. No se generaron resultados.',
+  'duplicates.scan.requested':
+    'Cancelación solicitada. El análisis se detendrá en breve.',
+  'duplicates.error.cancel': 'El análisis no pudo cancelarse.',
+  'duplicates.results.title': 'Resultado',
+  'duplicates.totals.filesScanned': 'Archivos analizados',
+  'duplicates.totals.filesHashed': 'Archivos con hash',
+  'duplicates.totals.groups': 'Grupos',
+  'duplicates.totals.wasted': 'Espacio desperdiciado',
+  'duplicates.groups.title': 'Grupos de duplicados',
+  'duplicates.group.filesOne': '{count} archivo',
+  'duplicates.group.filesMany': '{count} archivos',
+  'duplicates.group.size': 'Cada archivo: {size}',
+  'duplicates.group.wasted': 'Desperdicio: {size}',
+  'duplicates.group.showAll': 'Ver las {count} rutas',
+  'duplicates.group.showLess': 'Ver menos',
+  'duplicates.group.reveal': 'Mostrar {path} en la carpeta',
+  'duplicates.group.revealLabel': 'Mostrar',
+  'duplicates.group.copy': 'Copiar la ruta {path}',
+  'duplicates.group.copyLabel': 'Copiar ruta',
+  'duplicates.group.copied': 'Ruta copiada.',
+  'duplicates.group.copyFailed': 'No se pudo copiar la ruta.',
+  'duplicates.group.revealFailed': 'No se pudo abrir la carpeta.',
+  'duplicates.empty.title': 'No se encontraron duplicados',
+  'duplicates.empty.body':
+    'Todos los archivos que cumplen los filtros tienen contenido único.',
+  'duplicates.error.title': 'El análisis falló',
+  'duplicates.error.body':
+    'No se muestra ningún resultado porque el análisis no terminó. Revisa las carpetas e inténtalo de nuevo.',
+  'duplicates.warnings.title': 'Advertencias',
+  'duplicates.warnings.subtitle':
+    'Algunas rutas se omitieron; el resto del análisis continuó.',
+  'duplicates.history.title': 'Análisis anteriores',
+  'duplicates.history.subtitle':
+    'Los últimos análisis conservados en esta sesión.',
+  'duplicates.history.loading': 'Cargando análisis anteriores…',
+  'duplicates.history.show': 'Ver resultado',
+  'duplicates.history.current': 'Mostrando',
+  'duplicates.history.noGroups': 'Sin duplicados',
+  'duplicates.history.summary': '{groups} grupos · {size} desperdiciados',
+  'duplicates.history.started': 'Iniciado {time}',
+  'duplicates.error.history':
+    'No se pudieron listar los análisis anteriores. Abre la aplicación de escritorio para revisarlos.',
+  'duplicates.status.queued': 'En cola',
+  'duplicates.status.running': 'En curso',
+  'duplicates.status.success': 'Completado',
+  'duplicates.status.partial': 'Parcial',
+  'duplicates.status.failed': 'Fallido',
+  'duplicates.status.cancelled': 'Cancelado',
+  'duplicates.status.interrupted': 'Interrumpido',
+} as const;

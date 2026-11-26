@@ -1,0 +1,578 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">{{ i18n.t('duplicates.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('duplicates.page.titleLead') }}
+          <em>{{ i18n.t('duplicates.page.titleTail') }}</em>
+        </h1>
+        <p class="page-sub">
+          {{ i18n.t('duplicates.page.sub') }}
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-readonly">
+        <lucide-icon
+          [img]="shieldIcon"
+          [size]="12"
+          [strokeWidth]="2"
+          aria-hidden="true"
+        ></lucide-icon>
+        {{ i18n.t('duplicates.page.readOnlyBadge') }}
+      </span>
+    </div>
+  </header>
+
+  <div class="page-stack">
+    @if (formError(); as message) {
+      <div class="banner banner-danger" role="alert">
+        <lucide-icon
+          [img]="alertIcon"
+          [size]="16"
+          [strokeWidth]="1.75"
+          aria-hidden="true"
+        ></lucide-icon>
+        <span>{{ message }}</span>
+      </div>
+    }
+
+    @if (actionMessage(); as message) {
+      <div
+        [class]="'banner banner-' + message.tone"
+        role="status"
+        aria-live="polite"
+      >
+        <span>{{ message.text }}</span>
+      </div>
+    }
+
+    @if (historyError(); as message) {
+      <div class="banner banner-danger" role="alert">
+        <lucide-icon
+          [img]="alertIcon"
+          [size]="16"
+          [strokeWidth]="1.75"
+          aria-hidden="true"
+        ></lucide-icon>
+        <span>{{ message }}</span>
+      </div>
+    }
+
+    <section
+      class="panel duplicates-form"
+      aria-labelledby="duplicates-form-title"
+    >
+      <div class="panel-head">
+        <div>
+          <h2 id="duplicates-form-title" class="panel-title">
+            {{ i18n.t('duplicates.form.title') }}
+          </h2>
+          <p class="panel-sub">
+            {{ i18n.t('duplicates.form.subtitle') }}
+          </p>
+        </div>
+        <span class="badge badge-neutral">
+          {{ i18n.t('duplicates.page.readOnlyBadge') }}
+        </span>
+      </div>
+
+      <div class="panel-body duplicates-form-body">
+        <div class="field">
+          <span class="label">{{ i18n.t('duplicates.form.folders') }}</span>
+          <div class="duplicates-folder-actions">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm duplicates-add-folder"
+              (click)="addFolder()"
+            >
+              <lucide-icon
+                [img]="plusIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              {{ i18n.t('duplicates.form.addFolder') }}
+            </button>
+          </div>
+
+          @if (folders().length === 0) {
+            <p
+              class="field-help duplicates-folders-empty"
+              [class.field-error]="formAttempted()"
+              role="status"
+            >
+              {{ i18n.t('duplicates.form.noFolders') }}
+            </p>
+          } @else {
+            <ul class="duplicates-folder-list">
+              @for (folder of folders(); track folder) {
+                <li class="duplicates-folder">
+                  <span class="mono duplicates-folder-path" [title]="folder">
+                    {{ folder }}
+                  </span>
+                  <button
+                    type="button"
+                    class="icon-btn duplicates-remove-folder"
+                    [attr.aria-label]="
+                      i18n.t('duplicates.form.removeFolder', { path: folder })
+                    "
+                    [title]="i18n.t('duplicates.form.remove')"
+                    (click)="removeFolder(folder)"
+                  >
+                    <lucide-icon
+                      [img]="removeIcon"
+                      [size]="15"
+                      [strokeWidth]="1.75"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+
+        <div class="field-grid duplicates-options">
+          <div class="field duplicates-option-recursive">
+            <label class="check-row" for="duplicates-recursive">
+              <input
+                id="duplicates-recursive"
+                type="checkbox"
+                [checked]="recursive()"
+                (change)="onRecursiveToggle($event)"
+              />
+              {{ i18n.t('duplicates.form.recursive') }}
+            </label>
+            <p class="field-help">
+              {{ i18n.t('duplicates.form.recursiveHelp') }}
+            </p>
+          </div>
+
+          <div class="field">
+            <label class="label" for="duplicates-min-size">{{
+              i18n.t('duplicates.form.minSize')
+            }}</label>
+            <input
+              id="duplicates-min-size"
+              class="input mono"
+              type="number"
+              min="1"
+              step="1"
+              inputmode="numeric"
+              autocomplete="off"
+              [placeholder]="i18n.t('duplicates.form.minSizePlaceholder')"
+              [value]="minSizeKiB()"
+              aria-describedby="duplicates-min-size-help"
+              (input)="onMinSizeInput($event)"
+            />
+            <p id="duplicates-min-size-help" class="field-help">
+              {{ i18n.t('duplicates.form.minSizeHelp') }}
+            </p>
+          </div>
+
+          <div class="field">
+            <label class="label" for="duplicates-extensions">{{
+              i18n.t('duplicates.form.extensions')
+            }}</label>
+            <input
+              id="duplicates-extensions"
+              class="input mono"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              [placeholder]="i18n.t('duplicates.form.extensionsPlaceholder')"
+              [value]="extensionsText()"
+              aria-describedby="duplicates-extensions-help"
+              (input)="onExtensionsInput($event)"
+            />
+            <p id="duplicates-extensions-help" class="field-help">
+              {{ i18n.t('duplicates.form.extensionsHelp') }}
+            </p>
+          </div>
+
+          <div class="field">
+            <label class="label" for="duplicates-max-files">{{
+              i18n.t('duplicates.form.maxFiles')
+            }}</label>
+            <input
+              id="duplicates-max-files"
+              class="input mono"
+              type="number"
+              min="1"
+              step="1"
+              inputmode="numeric"
+              autocomplete="off"
+              [placeholder]="i18n.t('duplicates.form.maxFilesPlaceholder')"
+              [value]="maxFilesText()"
+              [disabled]="unlimitedFiles()"
+              aria-describedby="duplicates-max-files-help"
+              (input)="onMaxFilesInput($event)"
+            />
+            <label class="check-row" for="duplicates-unlimited-files">
+              <input
+                id="duplicates-unlimited-files"
+                type="checkbox"
+                [checked]="unlimitedFiles()"
+                (change)="onUnlimitedToggle($event)"
+              />
+              {{ i18n.t('duplicates.form.unlimitedFiles') }}
+            </label>
+            <p id="duplicates-max-files-help" class="field-help">
+              {{ i18n.t('duplicates.form.maxFilesHelp') }}
+            </p>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button
+            type="button"
+            class="btn btn-primary duplicates-start"
+            [disabled]="starting() || scanning()"
+            (click)="startScan()"
+          >
+            {{ starting() ? i18n.t('duplicates.form.starting') : i18n.t('duplicates.form.start') }}
+          </button>
+        </div>
+      </div>
+    </section>
+
+    @if (activeScan(); as scan) {
+      <section
+        class="panel duplicates-progress"
+        aria-labelledby="duplicates-progress-title"
+      >
+        <div class="panel-head duplicates-progress-head">
+          <div>
+            <h2 id="duplicates-progress-title" class="panel-title">
+              {{ i18n.t('duplicates.scan.title') }}
+            </h2>
+            <p class="panel-sub">{{ scanStartedLabel(scan) }}</p>
+          </div>
+
+          <div class="duplicates-progress-actions">
+            <span [class]="scanBadgeClass(scan.status)">
+              {{ scanStatusLabel(scan.status) }}
+            </span>
+            @if (scanning()) {
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm duplicates-cancel"
+                [disabled]="cancelling()"
+                (click)="cancelScan()"
+              >
+                {{
+                  cancelling()
+                    ? i18n.t('duplicates.scan.cancelling')
+                    : i18n.t('duplicates.scan.cancel')
+                }}
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="panel-body duplicates-progress-body">
+          @if (scanning()) {
+            <div
+              class="duplicates-progress-track"
+              [class.is-indeterminate]="progressPercent() === null"
+              role="progressbar"
+              [attr.aria-label]="stageLabel()"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              [attr.aria-valuenow]="progressPercent()"
+            >
+              <span
+                class="duplicates-progress-fill"
+                [style.width.%]="progressPercent() ?? 0"
+              ></span>
+            </div>
+            <p class="duplicates-progress-stage">
+              {{ stageLabel() }}
+              @if (progressPercent() !== null) {
+                <span class="duplicates-progress-percent mono">
+                  {{ progressPercent() }}%
+                </span>
+              }
+            </p>
+            @if (progressDetail(); as detail) {
+              <p class="duplicates-progress-detail mono">{{ detail }}</p>
+            }
+          } @else {
+            <p class="duplicates-progress-message">{{ scan.message }}</p>
+            @if (scanCancelled()) {
+              <p class="field-help">
+                {{ i18n.t('duplicates.scan.cancelledHint') }}
+              </p>
+            }
+          }
+        </div>
+      </section>
+    }
+
+    @if (scanFailed() && activeScan(); as scan) {
+      <section
+        class="panel duplicates-failed"
+        role="alert"
+        aria-labelledby="duplicates-failed-title"
+      >
+        <div class="panel-head">
+          <div>
+            <h2 id="duplicates-failed-title" class="panel-title">
+              {{ i18n.t('duplicates.error.title') }}
+            </h2>
+            <p class="panel-sub">{{ i18n.t('duplicates.error.body') }}</p>
+          </div>
+        </div>
+        <div class="panel-body">
+          <p class="duplicates-failed-message">{{ scan.message }}</p>
+        </div>
+      </section>
+    }
+
+    @if (showResults() && activeScan(); as scan) {
+      <section
+        class="panel duplicates-results"
+        aria-labelledby="duplicates-results-title"
+      >
+        <div class="panel-head">
+          <div>
+            <h2 id="duplicates-results-title" class="panel-title">
+              {{ i18n.t('duplicates.results.title') }}
+            </h2>
+            <p class="panel-sub">{{ scanStartedLabel(scan) }}</p>
+          </div>
+          <span [class]="scanBadgeClass(scan.status)">
+            {{ scanStatusLabel(scan.status) }}
+          </span>
+        </div>
+
+        <div class="panel-body duplicates-results-body">
+          @if (totals(); as summary) {
+            <dl class="duplicates-totals">
+              <div class="duplicates-stat">
+                <dt>{{ i18n.t('duplicates.totals.filesScanned') }}</dt>
+                <dd class="mono">{{ summary.filesScanned }}</dd>
+              </div>
+              <div class="duplicates-stat">
+                <dt>{{ i18n.t('duplicates.totals.filesHashed') }}</dt>
+                <dd class="mono">{{ summary.filesHashed }}</dd>
+              </div>
+              <div class="duplicates-stat">
+                <dt>{{ i18n.t('duplicates.totals.groups') }}</dt>
+                <dd class="mono">{{ summary.groups }}</dd>
+              </div>
+              <div class="duplicates-stat duplicates-stat-wasted">
+                <dt>{{ i18n.t('duplicates.totals.wasted') }}</dt>
+                <dd class="mono">{{ formatBytes(summary.wastedBytes) }}</dd>
+              </div>
+            </dl>
+          }
+
+          @if (groups().length === 0) {
+            <div class="empty-state duplicates-empty">
+              <lucide-icon
+                [img]="scanIcon"
+                [size]="22"
+                [strokeWidth]="1.5"
+                aria-hidden="true"
+              ></lucide-icon>
+              <strong>{{ i18n.t('duplicates.empty.title') }}</strong>
+              <p>{{ i18n.t('duplicates.empty.body') }}</p>
+            </div>
+          } @else {
+            <div
+              class="duplicates-groups"
+              [attr.aria-label]="i18n.t('duplicates.groups.title')"
+            >
+              @for (group of groups(); track group.hash) {
+                <article class="duplicates-group">
+                  <header class="duplicates-group-head">
+                    <div class="duplicates-group-title">
+                      <span
+                        class="mono duplicates-group-name"
+                        [title]="group.hash"
+                      >
+                        {{ groupTitle(group) }}
+                      </span>
+                      <span class="badge badge-neutral">
+                        {{ groupCountLabel(group) }}
+                      </span>
+                    </div>
+                    <div class="duplicates-group-metrics">
+                      <span class="mono">{{ groupSizeLabel(group) }}</span>
+                      <span class="mono duplicates-group-wasted">
+                        {{ groupWastedLabel(group) }}
+                      </span>
+                    </div>
+                  </header>
+
+                  <ul class="duplicates-paths">
+                    @for (path of visiblePaths(group); track path) {
+                      <li class="duplicates-path">
+                        <span
+                          class="mono duplicates-path-text"
+                          [title]="path"
+                        >
+                          {{ path }}
+                        </span>
+                        <span class="duplicates-path-actions">
+                          <button
+                            type="button"
+                            class="icon-btn duplicates-reveal"
+                            [attr.aria-label]="
+                              i18n.t('duplicates.group.reveal', { path })
+                            "
+                            [title]="i18n.t('duplicates.group.revealLabel')"
+                            (click)="revealPath(path)"
+                          >
+                            <lucide-icon
+                              [img]="revealIcon"
+                              [size]="15"
+                              [strokeWidth]="1.75"
+                              aria-hidden="true"
+                            ></lucide-icon>
+                          </button>
+                          <button
+                            type="button"
+                            class="icon-btn duplicates-copy"
+                            [attr.aria-label]="
+                              i18n.t('duplicates.group.copy', { path })
+                            "
+                            [title]="i18n.t('duplicates.group.copyLabel')"
+                            (click)="copyPath(path)"
+                          >
+                            <lucide-icon
+                              [img]="copyIcon"
+                              [size]="15"
+                              [strokeWidth]="1.75"
+                              aria-hidden="true"
+                            ></lucide-icon>
+                          </button>
+                        </span>
+                      </li>
+                    }
+                  </ul>
+
+                  @if (hasMorePaths(group)) {
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-mini duplicates-toggle-paths"
+                      [attr.aria-expanded]="isGroupExpanded(group.hash)"
+                      (click)="toggleGroup(group.hash)"
+                    >
+                      {{
+                        isGroupExpanded(group.hash)
+                          ? i18n.t('duplicates.group.showLess')
+                          : i18n.t('duplicates.group.showAll', {
+                              count: group.paths.length,
+                            })
+                      }}
+                    </button>
+                  }
+                </article>
+              }
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+    @if (warnings().length > 0) {
+      <section
+        class="panel duplicates-warnings"
+        aria-labelledby="duplicates-warnings-title"
+      >
+        <div class="panel-head">
+          <div class="duplicates-warnings-heading">
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="15"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <div>
+              <h2 id="duplicates-warnings-title" class="panel-title">
+                {{ i18n.t('duplicates.warnings.title') }}
+              </h2>
+              <p class="panel-sub">
+                {{ i18n.t('duplicates.warnings.subtitle') }}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <ul class="duplicates-warning-list">
+            @for (warning of warnings(); track $index) {
+              <li class="duplicates-warning">
+                @if (warning.path) {
+                  <span class="mono duplicates-warning-path" [title]="warning.path">
+                    {{ warning.path }}
+                  </span>
+                }
+                <span class="duplicates-warning-message">{{ warning.message }}</span>
+              </li>
+            }
+          </ul>
+        </div>
+      </section>
+    }
+
+    @if (historyLoading() || scans().length > 0) {
+      <section
+        class="panel duplicates-history"
+        aria-labelledby="duplicates-history-title"
+      >
+        <div class="panel-head">
+          <div>
+            <h2 id="duplicates-history-title" class="panel-title">
+              {{ i18n.t('duplicates.history.title') }}
+            </h2>
+            <p class="panel-sub">
+              {{ i18n.t('duplicates.history.subtitle') }}
+            </p>
+          </div>
+        </div>
+
+        <div class="panel-body">
+          @if (historyLoading()) {
+            <p class="duplicates-history-loading" role="status" aria-live="polite">
+              {{ i18n.t('duplicates.history.loading') }}
+            </p>
+          } @else {
+            <ul class="duplicates-history-list">
+              @for (scan of scans(); track scan.scanId) {
+                <li class="duplicates-history-item">
+                  <button
+                    type="button"
+                    class="duplicates-history-row"
+                    [class.is-active]="isActiveScan(scan)"
+                    [attr.aria-pressed]="isActiveScan(scan)"
+                    (click)="selectScan(scan)"
+                  >
+                    <span [class]="scanBadgeClass(scan.status)">
+                      {{ scanStatusLabel(scan.status) }}
+                    </span>
+                    <span class="duplicates-history-time mono">
+                      {{ relativeTime(scan.startedAt) }}
+                    </span>
+                    <span class="duplicates-history-summary">
+                      {{ historySummary(scan) }}
+                    </span>
+                    <span class="duplicates-history-action">
+                      {{
+                        isActiveScan(scan)
+                          ? i18n.t('duplicates.history.current')
+                          : i18n.t('duplicates.history.show')
+                      }}
+                    </span>
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      </section>
+    }
+  </div>
+</div>

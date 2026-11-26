@@ -111,6 +111,147 @@ export interface CancelJobResponse {
 }
 
 /**
+ * DuplicateScanActionResponse is the result of cancelling a scan.
+ */
+export interface DuplicateScanActionResponse {
+    "success": boolean;
+    "message": string;
+    "scanId"?: string;
+}
+
+/**
+ * DuplicateScanGroup is one set of files with identical content. Paths are
+ * sorted; WastedBytes is the space recoverable by keeping a single copy.
+ */
+export interface DuplicateScanGroup {
+    "hash": string;
+    "sizeBytes": number;
+    "count": number;
+    "wastedBytes": number;
+    "paths": string[] | null;
+}
+
+/**
+ * DuplicateScanListResponse lists retained scans, newest first.
+ */
+export interface DuplicateScanListResponse {
+    "success": boolean;
+    "message": string;
+    "scans": DuplicateScanState[] | null;
+}
+
+/**
+ * DuplicateScanProgressEvent is emitted on duplicates/progress. Its shape
+ * mirrors JobProgressEvent so the activity drawer can merge it the same way;
+ * ScanID replaces JobID because the work is not a job-engine job.
+ */
+export interface DuplicateScanProgressEvent {
+    "scanId": string;
+    "kind"?: string;
+    "status": string;
+    "progress": JobProgress;
+}
+
+/**
+ * DuplicateScanRequest describes a read-only duplicate scan. It is not a job
+ * request: the inputs are folders, not files, and nothing is ever written.
+ */
+export interface DuplicateScanRequest {
+    /**
+     * Directories are the folders to scan. The same folder listed twice (or a
+     * folder that contains another requested folder) is scanned once.
+     */
+    "directories": string[] | null;
+
+    /**
+     * Recursive walks subfolders. Omitted means true.
+     */
+    "recursive"?: boolean | null;
+
+    /**
+     * MinSizeBytes skips files smaller than this. Zero uses the service default
+     * (4 KiB); a negative value skips only empty files.
+     */
+    "minSizeBytes"?: number;
+
+    /**
+     * Extensions limits candidates to the listed extensions. Entries may be
+     * written with or without the leading dot; an empty list accepts any file.
+     */
+    "extensions"?: string[] | null;
+
+    /**
+     * MaxFiles bounds how many files one scan records. Zero uses the default; a
+     * negative value disables the cap.
+     */
+    "maxFiles"?: number;
+
+    /**
+     * Workers is the hashing concurrency. Zero uses the service default.
+     */
+    "workers"?: number;
+}
+
+/**
+ * DuplicateScanState is the full snapshot emitted on duplicates/state and
+ * returned by GetScan. Status uses the shared job status vocabulary so terminal
+ * states (success, cancelled, failed) render like any other background task.
+ */
+export interface DuplicateScanState {
+    "scanId": string;
+    "kind"?: string;
+    "success": boolean;
+    "message": string;
+    "status": string;
+    "progress": JobProgress;
+    "groups": DuplicateScanGroup[] | null;
+    "totals": DuplicateScanTotals;
+    "warnings": DuplicateScanWarning[] | null;
+    "startedAt": number;
+    "endedAt"?: number;
+}
+
+/**
+ * DuplicateScanStatusResponse returns one scan snapshot.
+ */
+export interface DuplicateScanStatusResponse {
+    "success": boolean;
+    "message": string;
+    "found": boolean;
+    "scan"?: DuplicateScanState | null;
+}
+
+/**
+ * DuplicateScanTotals summarises one scan. FilesScanned counts the files that
+ * passed the name, extension and size filters; FilesHashed counts the subset
+ * that the hashing phase opened (including files that turned out unreadable).
+ */
+export interface DuplicateScanTotals {
+    "filesScanned": number;
+    "filesHashed": number;
+    "groups": number;
+    "wastedBytes": number;
+}
+
+/**
+ * DuplicateScanWarning is a non-fatal problem: an unreadable file or folder, or
+ * a cap that stopped the walk. Path is empty for scan-wide warnings.
+ */
+export interface DuplicateScanWarning {
+    "path"?: string;
+    "message": string;
+}
+
+/**
+ * DuplicateStartResponse is returned when a scan is accepted.
+ */
+export interface DuplicateStartResponse {
+    "success": boolean;
+    "message": string;
+    "scanId"?: string;
+}
+
+/**
  * ExportUserRecipesResponse reports where the preset file was written and how
  * many recipes it contains.
  */
