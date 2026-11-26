@@ -17,8 +17,9 @@ import * as models$0 from "../models/models.js";
 
 /**
  * GetAppInfo reports the version, commit and build time injected into this
- * binary. The Settings About panel reads it, and Release tells a future
- * updater whether the build is a stamped release.
+ * binary, plus whether the build pinned an update signing key. The Settings
+ * About panel reads it, and Release tells a future updater whether the build
+ * is a stamped release.
  */
 export function GetAppInfo(): $CancellablePromise<models$0.AppInfoResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetAppInfo");

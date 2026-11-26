@@ -167,5 +167,85 @@ export const settingsEn = {
     'Not pinned · updates disabled because this build has no signing key',
   'settings.aboutInfo.help':
     'Release builds carry a version an updater can compare. Development builds report dev and never check for updates.',
+  'settings.updates.title': 'Updates',
+  'settings.updates.check': 'Check for updates',
+  'settings.updates.checking': 'Checking for updates…',
+  'settings.updates.checkAgain': 'Check again',
+  'settings.updates.idle':
+    'No update check has run in this session. Checking only reads the release feed; nothing is downloaded or installed.',
+  'settings.updates.currentVersion': 'Current version {version}',
+  'settings.updates.availableTitle': 'Version {version} is available',
+  'settings.updates.availableBody':
+    'FileForge {version} is ready to download. Nothing is downloaded until you ask for it.',
+  'settings.updates.notes': 'Release notes',
+  'settings.updates.notesShowMore': 'Show more',
+  'settings.updates.notesShowLess': 'Show less',
+  'settings.updates.size': 'Download size: {size}',
+  'settings.updates.sizeUnknown': 'Download size not reported by the release',
+  'settings.updates.download': 'Download {version}',
+  'settings.updates.availableHelp':
+    'FileForge downloads only when you ask, and installs only after you confirm.',
+  'settings.updates.downloading': 'Downloading {version}…',
+  'settings.updates.downloadingHint':
+    'The update installs only after you confirm. You can keep using FileForge while it downloads.',
+  'settings.updates.noCancel':
+    'This download cannot be cancelled from FileForge; it stops when it finishes or fails.',
+  'settings.updates.progress': '{written} of {total}',
+  'settings.updates.progressUnknown': '{written} downloaded',
+  'settings.updates.downloadedTitle':
+    'Version {version} is downloaded and verified.',
+  'settings.updates.verified':
+    'The checksum and signature matched the pinned update key.',
+  'settings.updates.installHint':
+    'Nothing is installed until you review the next step.',
+  'settings.updates.installAppImage': 'Install {version} and restart…',
+  'settings.updates.installWindows':
+    'Install {version} and open the installer…',
+  'settings.updates.installGeneric': 'Install {version}…',
+  'settings.updates.consentTitle': 'Install FileForge {version}?',
+  'settings.updates.consentAppImage':
+    'FileForge will close, replace its AppImage file with the verified download and start again.',
+  'settings.updates.consentWindows':
+    'FileForge will open the update installer and then close. Follow the installer to finish; it may ask for administrator rights.',
+  'settings.updates.consentGeneric':
+    'FileForge will close and install the update.',
+  'settings.updates.ackAppImage':
+    'I understand FileForge will restart after installing.',
+  'settings.updates.ackWindows':
+    'I understand the installer will open and FileForge will close.',
+  'settings.updates.ackGeneric': 'I understand FileForge will close.',
+  'settings.updates.consentCancel': 'Cancel',
+  'settings.updates.consentConfirm':
+    'Yes, install and restart FileForge',
+  'settings.updates.consentConfirmWindows':
+    'Yes, install and open the installer',
+  'settings.updates.consentConfirmGeneric': 'Yes, install the update',
+  'settings.updates.installing': 'Installing {version}…',
+  'settings.updates.installingHelp':
+    'FileForge will restart when the install finishes.',
+  'settings.updates.installed': 'The update was installed. FileForge restarts now.',
+  'settings.updates.upToDate': 'FileForge {version} is up to date.',
+  'settings.updates.upToDateHelp':
+    'This is the latest stable release. You can check again at any time.',
+  'settings.updates.errorTitle': 'The update check failed.',
+  'settings.updates.errorGeneric': 'The update operation failed.',
+  'settings.updates.retry': 'Try again',
+  'settings.updates.state.available': 'Update available',
+  'settings.updates.state.downloading': 'Downloading',
+  'settings.updates.state.downloaded': 'Downloaded',
+  'settings.updates.state.installing': 'Installing',
+  'settings.updates.state.upToDate': 'Up to date',
+  'settings.updates.state.error': 'Update error',
+  'settings.updates.state.checking': 'Checking',
+  'settings.updates.unavailable.dev':
+    'Updates are off in this development build. Only release builds can update themselves.',
+  'settings.updates.unavailable.noKey':
+    'This build has no update signing key pinned, so FileForge will not accept or install an update.',
+  'settings.updates.unavailable.packageManager':
+    'FileForge was installed by your package manager. Update it from there.',
+  'settings.updates.unavailable.platform':
+    'Updates are not supported on this platform. Install a new version manually.',
+  'settings.updates.unavailable.generic':
+    'Updates are unavailable in this build.',
   'settings.about': 'FileForge Desktop · local-first file tools',
 } as const;

@@ -35,6 +35,7 @@ import {
   Wails,
 } from '../../services/wails';
 import { formatBytes } from '../../utils/format';
+import { SettingsUpdates } from './settings-updates/settings-updates';
 import { TrashHistory } from './trash-history/trash-history';
 
 /** Shared with the Home onboarding strip. */
@@ -49,7 +50,7 @@ const DEFAULT_OCR_LANGUAGES = ['eng', 'spa'];
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [LucideAngularModule, TrashHistory],
+  imports: [LucideAngularModule, TrashHistory, SettingsUpdates],
   templateUrl: './settings.html',
   styleUrl: './settings.css',
 })

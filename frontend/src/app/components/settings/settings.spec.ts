@@ -19,6 +19,7 @@ import {
   ToolchainInstallEvent,
   ToolchainStatus,
   TranscriptionCapabilitiesResponse,
+  UpdateStatus,
   Wails,
 } from '../../services/wails';
 
@@ -214,6 +215,18 @@ const APP_INFO: AppInfoResponse = {
   updateKeyConfigured: false,
 };
 
+const UPDATE_STATUS: UpdateStatus = {
+  success: true,
+  message: '',
+  state: 'unavailable',
+  currentVersion: '1.2.0',
+  updatesEnabled: false,
+  updateAvailable: false,
+  reason:
+    'This is a development build. Updates are only available in release builds.',
+  consentGranted: false,
+};
+
 describe('Settings', () => {
   let fixture: ComponentFixture<Settings>;
   let component: Settings;
@@ -286,6 +299,7 @@ describe('Settings', () => {
       'getLocalCapabilities',
       'getTranscriptionCapabilities',
       'getAppInfo',
+      'getUpdateStatus',
       'listJobHistory',
       'trashInfo',
     ]);
@@ -306,6 +320,7 @@ describe('Settings', () => {
     wailsSpy.getLocalCapabilities.and.resolveTo(CAPABILITIES);
     wailsSpy.getTranscriptionCapabilities.and.resolveTo(TRANSCRIPTION);
     wailsSpy.getAppInfo.and.resolveTo(APP_INFO);
+    wailsSpy.getUpdateStatus.and.resolveTo(UPDATE_STATUS);
 
     toolchain = new ToolchainStateStub();
 
@@ -371,8 +386,20 @@ describe('Settings', () => {
     expect(text).toContain('Fecha de compilación');
   }));
 
-  it('defaults to keeping outputs next to the original', () => {
-    expect(component.defaultOutputDir()).toBe('');
+  it('renders the updates block inside the About panel', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const about = element().querySelector('.settings-about-panel');
+    expect(about).not.toBeNull();
+    expect(about?.querySelector('.settings-updates')).not.toBeNull();
+    expect(about?.textContent).toContain(
+      'Updates are off in this development build',
+    );
+    expect(wailsSpy.getUpdateStatus).toHaveBeenCalledTimes(1);
+  }));
+
+  it('defaults to keeping outputs next to the original', () => {    expect(component.defaultOutputDir()).toBe('');
     expect(button('.settings-next-to-original').getAttribute('aria-pressed')).toBe(
       'true',
     );

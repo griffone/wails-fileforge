@@ -48,3 +48,18 @@ export const RecipesState = "recipes/state";
  */
 export const ToolchainInstall = "toolchain/install";
 
+/**
+ * Name of the custom event "update/error".
+ */
+export const UpdateError = "update/error";
+
+/**
+ * Name of the custom event "update/progress".
+ */
+export const UpdateProgress = "update/progress";
+
+/**
+ * Name of the custom event "update/state".
+ */
+export const UpdateState = "update/state";
+

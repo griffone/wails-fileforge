@@ -8,9 +8,11 @@ import {
   SystemService,
   ToolService,
   ToolchainService,
+  UpdateService,
 } from '../../../bindings/fileforge-desktop/internal/app';
 import type * as Models from '../../../bindings/fileforge-desktop/internal/models';
 import type * as PreviewModels from '../../../bindings/fileforge-desktop/internal/preview/models';
+import type * as UpdateModels from '../../../bindings/fileforge-desktop/internal/update';
 
 /**
  * Typed adapter over the generated Wails bindings.
@@ -219,6 +221,27 @@ export class WailsIpc {
 
   getAppInfo(): Promise<Models.AppInfoResponse> {
     return SystemService.GetAppInfo();
+  }
+
+  // Updates. The backend owns gating and consent; these are pass-throughs.
+  getUpdateStatus(): Promise<UpdateModels.Status> {
+    return UpdateService.GetUpdateStatus();
+  }
+
+  checkForUpdates(): Promise<UpdateModels.Status> {
+    return UpdateService.CheckForUpdates();
+  }
+
+  downloadUpdate(): Promise<UpdateModels.Status> {
+    return UpdateService.DownloadUpdate();
+  }
+
+  grantInstallConsent(): Promise<UpdateModels.Status> {
+    return UpdateService.GrantInstallConsent();
+  }
+
+  installUpdate(): Promise<UpdateModels.Status> {
+    return UpdateService.InstallUpdate();
   }
 
   getToolchainStatus(): Promise<Models.ToolchainStatus> {

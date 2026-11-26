@@ -3,6 +3,7 @@ import { Events } from '@wailsio/runtime';
 import { Subject, Subscription, ReplaySubject, Observable } from 'rxjs';
 
 import type * as Models from '../../../bindings/fileforge-desktop/internal/models';
+import type * as UpdateModels from '../../../bindings/fileforge-desktop/internal/update';
 
 import { WailsIpc } from './wails-ipc';
 
@@ -410,6 +411,17 @@ export interface ToolchainInstallOptions extends Models.ToolchainInstallOptions 
 
 export type ToolchainInstallEvent = Models.ToolchainInstallEvent;
 
+// The update service returns whole status snapshots. The generated models are
+// the contract: `release` and `download` are nullable until the backend knows
+// about them, and `stage`/`reason`/`method` are optional by design.
+export type UpdateAsset = UpdateModels.Asset;
+export type UpdateDownloaded = UpdateModels.Downloaded;
+export type UpdateErrorEvent = UpdateModels.ErrorEvent;
+export type UpdateProgressEvent = UpdateModels.ProgressEvent;
+export type UpdateRelease = UpdateModels.Release;
+export type UpdateStage = UpdateModels.Stage;
+export type UpdateStatus = UpdateModels.Status;
+
 export type PathActionResponse = Models.PathActionResponse;
 
 export interface InspectFilesResponse extends Models.InspectFilesResponse {
@@ -489,6 +501,17 @@ export class Wails {
     null;
   private toolchainInstallUnsubscribe: (() => void) | null = null;
   private toolchainInstallRefCount = 0;
+
+  // Update streams: progress while bytes move, a full status snapshot on every
+  // transition. Same lazy registration and replay contract as the others.
+  private updateProgressSubject: ReplaySubject<UpdateProgressEvent> | null =
+    null;
+  private updateProgressUnsubscribe: (() => void) | null = null;
+  private updateProgressRefCount = 0;
+
+  private updateStateSubject: ReplaySubject<UpdateStatus> | null = null;
+  private updateStateUnsubscribe: (() => void) | null = null;
+  private updateStateRefCount = 0;
 
   // Bounded thumbnail cache: key is `${path}:${size}`, value is a data URL or
   // null when the preview could not be produced (browser dev mode, bad file).
@@ -678,6 +701,50 @@ export class Wails {
         unregister();
       };
     });
+
+  // Update progress is only valid while a download runs. A late subscriber may
+  // receive the last replayed event; the status snapshot decides whether the
+  // UI draws it.
+  public readonly updateProgress$: Observable<UpdateProgressEvent> =
+    new Observable((subscriber) => {
+      const unregister = this.ensureUpdateProgressRegistered();
+
+      const sub = this.updateProgressSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    });
+
+  public readonly updateState$: Observable<UpdateStatus> = new Observable(
+    (subscriber) => {
+      const unregister = this.ensureUpdateStateRegistered();
+
+      const sub = this.updateStateSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    },
+  );
 
   async listTools(): Promise<ListToolsResponse> {
     try {
@@ -1175,6 +1242,51 @@ export class Wails {
         release: false,
         updateKeyConfigured: false,
       };
+    }
+  }
+
+  /** Reads the cached update status. This call never touches the network. */
+  async getUpdateStatus(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.getUpdateStatus();
+    } catch (error) {
+      return this.updateFallback();
+    }
+  }
+
+  /** Checks the release feed. It downloads nothing. */
+  async checkForUpdates(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.checkForUpdates();
+    } catch (error) {
+      return this.updateFallback();
+    }
+  }
+
+  /** Downloads and verifies the checked release. */
+  async downloadUpdate(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.downloadUpdate();
+    } catch (error) {
+      return this.updateFallback();
+    }
+  }
+
+  /** Records explicit consent for the verified download. */
+  async grantInstallConsent(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.grantInstallConsent();
+    } catch (error) {
+      return this.updateFallback();
+    }
+  }
+
+  /** Installs the verified download; the backend refuses without consent. */
+  async installUpdate(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.installUpdate();
+    } catch (error) {
+      return this.updateFallback();
     }
   }
 
@@ -2481,6 +2593,132 @@ export class Wails {
     };
   }
 
+  // Update progress only needs a stage and finite counters; the status
+  // snapshot decides whether the UI is actually downloading.
+  private ensureUpdateProgressRegistered(): () => void {
+    if (!this.updateProgressSubject) {
+      this.updateProgressSubject = new ReplaySubject<UpdateProgressEvent>(1);
+      this.updateProgressUnsubscribe = Events.On(
+        'update/progress',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<UpdateProgressEvent>;
+          if (typeof candidate.stage !== 'string') {
+            return;
+          }
+
+          this.emitUpdateProgress({
+            stage: candidate.stage as UpdateStage,
+            written:
+              typeof candidate.written === 'number' &&
+              Number.isFinite(candidate.written)
+                ? candidate.written
+                : 0,
+            total:
+              typeof candidate.total === 'number' &&
+              Number.isFinite(candidate.total)
+                ? candidate.total
+                : 0,
+            percent:
+              typeof candidate.percent === 'number' &&
+              Number.isFinite(candidate.percent)
+                ? candidate.percent
+                : 0,
+          });
+        },
+      );
+    }
+
+    this.updateProgressRefCount += 1;
+
+    return () => {
+      this.updateProgressRefCount -= 1;
+      if (this.updateProgressRefCount <= 0) {
+        try {
+          this.updateProgressUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.updateProgressUnsubscribe = null;
+        try {
+          this.updateProgressSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.updateProgressSubject = null;
+        this.updateProgressRefCount = 0;
+      }
+    };
+  }
+
+  // Full update snapshots need a state string; every other field is optional
+  // and already modeled as such by the generated type.
+  private ensureUpdateStateRegistered(): () => void {
+    if (!this.updateStateSubject) {
+      this.updateStateSubject = new ReplaySubject<UpdateStatus>(1);
+      this.updateStateUnsubscribe = Events.On(
+        'update/state',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<UpdateStatus>;
+          if (
+            typeof candidate.state !== 'string' ||
+            candidate.state.trim().length === 0
+          ) {
+            return;
+          }
+
+          this.emitUpdateState(candidate as UpdateStatus);
+        },
+      );
+    }
+
+    this.updateStateRefCount += 1;
+
+    return () => {
+      this.updateStateRefCount -= 1;
+      if (this.updateStateRefCount <= 0) {
+        try {
+          this.updateStateUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.updateStateUnsubscribe = null;
+        try {
+          this.updateStateSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.updateStateSubject = null;
+        this.updateStateRefCount = 0;
+      }
+    };
+  }
+
+  private emitUpdateProgress(progress: UpdateProgressEvent): void {
+    try {
+      this.zone.run(() => this.updateProgressSubject?.next(progress));
+    } catch {
+      // ignore
+    }
+  }
+
+  private emitUpdateState(status: UpdateStatus): void {
+    try {
+      this.zone.run(() => this.updateStateSubject?.next(status));
+    } catch {
+      // ignore
+    }
+  }
+
   /** Safe fallback for toolchain calls when IPC is unavailable (preview). */
   private toolchainFallback(
     prefix: string,
@@ -2496,6 +2734,25 @@ export class Wails {
       components: [],
       model: 'medium',
       ocrLanguages: [],
+    };
+  }
+
+  /**
+   * Safe fallback for update calls when IPC is unavailable (preview).
+   *
+   * It carries no message: the panel renders a translated error and the
+   * technical IPC detail is not user-facing copy. `updatesEnabled: false`
+   * keeps the UI from offering an install that can never happen.
+   */
+  private updateFallback(): UpdateStatus {
+    return {
+      success: false,
+      message: '',
+      state: 'error',
+      currentVersion: 'dev',
+      updatesEnabled: false,
+      updateAvailable: false,
+      consentGranted: false,
     };
   }
 

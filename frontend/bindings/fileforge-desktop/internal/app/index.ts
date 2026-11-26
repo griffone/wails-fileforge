@@ -9,6 +9,7 @@ import * as RecipeService from "./recipeservice.js";
 import * as SystemService from "./systemservice.js";
 import * as ToolService from "./toolservice.js";
 import * as ToolchainService from "./toolchainservice.js";
+import * as UpdateService from "./updateservice.js";
 export {
     AutomationService,
     DuplicatesService,
@@ -17,5 +18,6 @@ export {
     RecipeService,
     SystemService,
     ToolService,
-    ToolchainService
+    ToolchainService,
+    UpdateService
 };

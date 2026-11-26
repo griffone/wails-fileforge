@@ -1,0 +1,134 @@
+:host {
+  display: block;
+}
+
+.settings-updates {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-updates-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-updates-title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.settings-updates-status {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.settings-updates-release {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-updates-version {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.settings-updates-notes-label {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.settings-updates-notes {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--surface-2);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-updates-notes-toggle {
+  align-self: flex-start;
+}
+
+.settings-updates-meta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.settings-updates-progress-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.settings-updates-no-cancel {
+  color: var(--muted);
+}
+
+.settings-updates-consent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--accent-soft);
+}
+
+.settings-updates-consent-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.settings-updates-consent-body {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.settings-updates-ack {
+  align-items: flex-start;
+}
+
+.settings-updates-ack input {
+  margin-top: 2px;
+}
+
+.settings-updates-error,
+.settings-updates-unavailable {
+  align-items: center;
+  flex-wrap: wrap;
+}

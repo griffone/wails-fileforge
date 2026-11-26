@@ -829,6 +829,8 @@
           <dd class="settings-about-update-key">{{ aboutUpdateKey() }}</dd>
         </dl>
 
+        <app-settings-updates [appInfo]="appInfo()"></app-settings-updates>
+
         <p class="settings-help">
           {{ i18n.t('settings.aboutInfo.help') }}
         </p>

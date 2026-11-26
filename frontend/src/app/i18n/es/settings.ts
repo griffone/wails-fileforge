@@ -174,5 +174,87 @@ export const settingsEs = {
     'Sin fijar · actualizaciones desactivadas porque esta compilación no tiene clave de firma',
   'settings.aboutInfo.help':
     'Las compilaciones de lanzamiento llevan una versión que el actualizador puede comparar. Las compilaciones de desarrollo muestran dev y nunca buscan actualizaciones.',
+  'settings.updates.title': 'Actualizaciones',
+  'settings.updates.check': 'Buscar actualizaciones',
+  'settings.updates.checking': 'Buscando actualizaciones…',
+  'settings.updates.checkAgain': 'Buscar de nuevo',
+  'settings.updates.idle':
+    'Todavía no se buscaron actualizaciones en esta sesión. Buscar solo lee el listado de versiones; no descarga ni instala nada.',
+  'settings.updates.currentVersion': 'Versión actual {version}',
+  'settings.updates.availableTitle': 'La versión {version} está disponible',
+  'settings.updates.availableBody':
+    'FileForge {version} está listo para descargar. No se descarga nada hasta que lo pidas.',
+  'settings.updates.notes': 'Notas de la versión',
+  'settings.updates.notesShowMore': 'Mostrar más',
+  'settings.updates.notesShowLess': 'Mostrar menos',
+  'settings.updates.size': 'Tamaño de la descarga: {size}',
+  'settings.updates.sizeUnknown':
+    'La versión no informa el tamaño de la descarga',
+  'settings.updates.download': 'Descargar {version}',
+  'settings.updates.availableHelp':
+    'FileForge descarga solo cuando lo pides y se instala solo después de que confirmes.',
+  'settings.updates.downloading': 'Descargando {version}…',
+  'settings.updates.downloadingHint':
+    'La actualización se instala solo después de que confirmes. Puedes seguir usando FileForge mientras descarga.',
+  'settings.updates.noCancel':
+    'Esta descarga no se puede cancelar desde FileForge; termina o falla.',
+  'settings.updates.progress': '{written} de {total}',
+  'settings.updates.progressUnknown': '{written} descargados',
+  'settings.updates.downloadedTitle':
+    'La versión {version} está descargada y verificada.',
+  'settings.updates.verified':
+    'La suma de verificación y la firma coinciden con la clave fijada.',
+  'settings.updates.installHint':
+    'No se instala nada hasta que revises el paso siguiente.',
+  'settings.updates.installAppImage': 'Instalar {version} y reiniciar…',
+  'settings.updates.installWindows':
+    'Instalar {version} y abrir el instalador…',
+  'settings.updates.installGeneric': 'Instalar {version}…',
+  'settings.updates.consentTitle': '¿Instalar FileForge {version}?',
+  'settings.updates.consentAppImage':
+    'FileForge se cerrará, reemplazará su archivo AppImage por la descarga verificada y volverá a iniciarse.',
+  'settings.updates.consentWindows':
+    'FileForge abrirá el instalador de la actualización y luego se cerrará. Sigue el instalador para terminar; puede pedir permisos de administrador.',
+  'settings.updates.consentGeneric':
+    'FileForge se cerrará e instalará la actualización.',
+  'settings.updates.ackAppImage':
+    'Entiendo que FileForge se reiniciará después de instalar.',
+  'settings.updates.ackWindows':
+    'Entiendo que se abrirá el instalador y que FileForge se cerrará.',
+  'settings.updates.ackGeneric': 'Entiendo que FileForge se cerrará.',
+  'settings.updates.consentCancel': 'Cancelar',
+  'settings.updates.consentConfirm':
+    'Sí, instalar y reiniciar FileForge',
+  'settings.updates.consentConfirmWindows':
+    'Sí, instalar y abrir el instalador',
+  'settings.updates.consentConfirmGeneric': 'Sí, instalar la actualización',
+  'settings.updates.installing': 'Instalando {version}…',
+  'settings.updates.installingHelp':
+    'FileForge se reiniciará cuando termine la instalación.',
+  'settings.updates.installed':
+    'La actualización se instaló. FileForge se reinicia ahora.',
+  'settings.updates.upToDate': 'FileForge {version} está actualizado.',
+  'settings.updates.upToDateHelp':
+    'Esta es la última versión estable. Puedes buscar de nuevo cuando quieras.',
+  'settings.updates.errorTitle': 'La búsqueda de actualizaciones falló.',
+  'settings.updates.errorGeneric': 'La operación de actualización falló.',
+  'settings.updates.retry': 'Reintentar',
+  'settings.updates.state.available': 'Actualización disponible',
+  'settings.updates.state.downloading': 'Descargando',
+  'settings.updates.state.downloaded': 'Descargada',
+  'settings.updates.state.installing': 'Instalando',
+  'settings.updates.state.upToDate': 'Actualizado',
+  'settings.updates.state.error': 'Error de actualización',
+  'settings.updates.state.checking': 'Buscando',
+  'settings.updates.unavailable.dev':
+    'Las actualizaciones están desactivadas en esta compilación de desarrollo. Solo las compilaciones de lanzamiento pueden actualizarse solas.',
+  'settings.updates.unavailable.noKey':
+    'Esta compilación no tiene una clave de firma de actualizaciones fijada, así que FileForge no aceptará ni instalará una actualización.',
+  'settings.updates.unavailable.packageManager':
+    'FileForge se instaló con tu gestor de paquetes. Actualízalo desde ahí.',
+  'settings.updates.unavailable.platform':
+    'Las actualizaciones no son compatibles con esta plataforma. Instala una versión nueva manualmente.',
+  'settings.updates.unavailable.generic':
+    'Las actualizaciones no están disponibles en esta compilación.',
   'settings.about': 'FileForge Desktop · herramientas de archivo locales',
 };

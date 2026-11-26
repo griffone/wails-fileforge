@@ -1,0 +1,307 @@
+<section class="settings-updates" aria-labelledby="settings-updates-title">
+  <div class="settings-updates-head">
+    <h3 id="settings-updates-title" class="settings-updates-title">
+      {{ i18n.t('settings.updates.title') }}
+    </h3>
+    @if (stateBadge(); as badge) {
+      <span [class]="badge.className">{{ i18n.t(badge.key) }}</span>
+    }
+  </div>
+
+  @switch (view()) {
+    @case ('unavailable') {
+      @if (unavailableReason(); as reasonKey) {
+        <div
+          class="banner banner-info settings-updates-unavailable"
+          role="status"
+        >
+          <span class="settings-capability-error-text">{{
+            i18n.t(reasonKey)
+          }}</span>
+        </div>
+      }
+    }
+
+    @case ('error') {
+      <div
+        class="banner banner-danger settings-updates-error"
+        role="alert"
+      >
+        <span class="settings-capability-error-text">
+          {{ errorMessage() }}
+        </span>
+      </div>
+      <div class="actions">
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm settings-updates-retry"
+          [disabled]="busy()"
+          (click)="retry()"
+        >
+          {{ i18n.t('settings.updates.retry') }}
+        </button>
+      </div>
+    }
+
+    @case ('checking') {
+      <p class="settings-updates-status" role="status" aria-live="polite">
+        {{ i18n.t('settings.updates.checking') }}
+      </p>
+    }
+
+    @case ('available') {
+      <div class="settings-updates-release">
+        <p class="settings-updates-version">
+          {{
+            i18n.t('settings.updates.availableTitle', {
+              version: releaseVersion(),
+            })
+          }}
+        </p>
+        <p class="settings-help">
+          {{
+            i18n.t('settings.updates.availableBody', {
+              version: releaseVersion(),
+            })
+          }}
+        </p>
+
+        @if (notes()) {
+          <p class="settings-updates-notes-label">
+            {{ i18n.t('settings.updates.notes') }}
+          </p>
+          <p class="settings-updates-notes">{{ displayedNotes() }}</p>
+          @if (notesTruncated()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm settings-updates-notes-toggle"
+              [attr.aria-expanded]="notesExpanded()"
+              (click)="toggleNotes()"
+            >
+              {{
+                i18n.t(
+                  notesExpanded()
+                    ? 'settings.updates.notesShowLess'
+                    : 'settings.updates.notesShowMore'
+                )
+              }}
+            </button>
+          }
+        }
+
+        <p class="settings-updates-meta mono">
+          {{
+            sizeLabel()
+              ? i18n.t('settings.updates.size', { size: sizeLabel() })
+              : i18n.t('settings.updates.sizeUnknown')
+          }}
+        </p>
+      </div>
+
+      <div class="actions">
+        <button
+          type="button"
+          class="btn btn-primary btn-sm settings-updates-download"
+          [disabled]="busy()"
+          (click)="download()"
+        >
+          {{
+            i18n.t('settings.updates.download', {
+              version: releaseVersion(),
+            })
+          }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm settings-updates-check-again"
+          [disabled]="busy()"
+          (click)="check()"
+        >
+          {{ i18n.t('settings.updates.checkAgain') }}
+        </button>
+      </div>
+      <p class="settings-help">
+        {{ i18n.t('settings.updates.availableHelp') }}
+      </p>
+    }
+
+    @case ('downloading') {
+      <p class="settings-updates-status" role="status" aria-live="polite">
+        {{
+          i18n.t('settings.updates.downloading', {
+            version: releaseVersion(),
+          })
+        }}
+      </p>
+      <div
+        class="progress settings-updates-progress"
+        role="progressbar"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        [attr.aria-valuenow]="
+          downloadIndeterminate() ? null : downloadPercent()
+        "
+        [attr.aria-valuetext]="downloadPercent() + '%'"
+      >
+        <div
+          class="progress-fill"
+          [class.is-indeterminate]="downloadIndeterminate()"
+          [style.width.%]="downloadIndeterminate() ? null : downloadPercent()"
+        ></div>
+      </div>
+      <div class="settings-updates-progress-meta">
+        <span>{{ downloadProgressLabel() }}</span>
+        <span class="mono">{{ downloadPercent() }}%</span>
+      </div>
+      <p class="settings-help">
+        {{ i18n.t('settings.updates.downloadingHint') }}
+      </p>
+      <p class="settings-help settings-updates-no-cancel">
+        {{ i18n.t('settings.updates.noCancel') }}
+      </p>
+    }
+
+    @case ('downloaded') {
+      <p class="settings-updates-status" role="status">
+        {{
+          i18n.t('settings.updates.downloadedTitle', {
+            version: releaseVersion(),
+          })
+        }}
+      </p>
+      <p class="settings-help">
+        {{ i18n.t('settings.updates.verified') }}
+      </p>
+
+      @if (!confirmingInstall()) {
+        <div class="actions">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm settings-updates-install"
+            [disabled]="busy()"
+            (click)="requestInstall()"
+          >
+            {{
+              i18n.t(installActionKey(), { version: releaseVersion() })
+            }}
+          </button>
+        </div>
+        <p class="settings-help">
+          {{ i18n.t('settings.updates.installHint') }}
+        </p>
+      } @else {
+        <section
+          class="settings-updates-consent"
+          aria-labelledby="settings-updates-consent-title"
+        >
+          <h4
+            id="settings-updates-consent-title"
+            class="settings-updates-consent-title"
+          >
+            {{
+              i18n.t('settings.updates.consentTitle', {
+                version: releaseVersion(),
+              })
+            }}
+          </h4>
+          <p class="settings-updates-consent-body">
+            {{ i18n.t(consentConsequenceKey()) }}
+          </p>
+
+          <label class="settings-check settings-updates-ack">
+            <input
+              type="checkbox"
+              class="settings-updates-ack-input"
+              [checked]="installAcknowledged()"
+              (change)="onAcknowledge($event)"
+            />
+            <span>{{ i18n.t(acknowledgeKey()) }}</span>
+          </label>
+
+          <div class="actions">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm settings-updates-consent-cancel"
+              (click)="cancelInstall()"
+            >
+              {{ i18n.t('settings.updates.consentCancel') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm settings-updates-consent-confirm"
+              [disabled]="!installAcknowledged() || submittingInstall()"
+              (click)="confirmInstall()"
+            >
+              {{ i18n.t(consentConfirmKey()) }}
+            </button>
+          </div>
+        </section>
+      }
+    }
+
+    @case ('installing') {
+      <p class="settings-updates-status" role="status" aria-live="polite">
+        {{
+          i18n.t('settings.updates.installing', {
+            version: releaseVersion(),
+          })
+        }}
+      </p>
+      <p class="settings-help">
+        {{ i18n.t('settings.updates.installingHelp') }}
+      </p>
+    }
+
+    @case ('installed') {
+      <p class="settings-updates-status" role="status">
+        {{ i18n.t('settings.updates.installed') }}
+      </p>
+    }
+
+    @case ('upToDate') {
+      <p class="settings-updates-status" role="status">
+        {{
+          i18n.t('settings.updates.upToDate', {
+            version: currentVersion(),
+          })
+        }}
+      </p>
+      <p class="settings-help">
+        {{ i18n.t('settings.updates.upToDateHelp') }}
+      </p>
+      <div class="actions">
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm settings-updates-check-again"
+          [disabled]="busy()"
+          (click)="check()"
+        >
+          {{ i18n.t('settings.updates.check') }}
+        </button>
+      </div>
+    }
+
+    @default {
+      <p class="settings-updates-status">
+        {{
+          i18n.t('settings.updates.currentVersion', {
+            version: currentVersion(),
+          })
+        }}
+      </p>
+      <p class="settings-help">
+        {{ i18n.t('settings.updates.idle') }}
+      </p>
+      <div class="actions">
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm settings-updates-check"
+          [disabled]="busy()"
+          (click)="check()"
+        >
+          {{ i18n.t('settings.updates.check') }}
+        </button>
+      </div>
+    }
+  }
+</section>

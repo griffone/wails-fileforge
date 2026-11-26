@@ -31,6 +31,7 @@ import { I18nService } from './services/i18n.service';
 import { RecentToolsService } from './services/recent-tools.service';
 import { ThemeService } from './services/theme.service';
 import { ToolRegistryService } from './services/tool-registry.service';
+import { UpdateStateService } from './services/update-state.service';
 import { Wails } from './services/wails';
 
 interface NativeDropPayload {
@@ -68,6 +69,7 @@ export class App {
   private readonly injector = inject(Injector);
   private readonly zone = inject(NgZone);
   private readonly globalDrop = inject(GlobalDropService);
+  private readonly updates = inject(UpdateStateService);
 
   readonly brandIcon = BRAND_ICON;
   readonly searchIcon = Search;
@@ -111,6 +113,9 @@ export class App {
     // Keep the recents history alive from app start; it records on its own.
     inject(RecentToolsService);
     void this.activity.refresh();
+    // Production builds check once per launch, at most once per 24 hours, and
+    // stay silent when the check fails. Development builds never check here.
+    void this.updates.ensureLaunchCheck();
     this.syncCurrentTool(this.router.url);
     this.router.events
       .pipe(
