@@ -236,6 +236,42 @@ func (s *Store) SetEnabled(id string, enabled bool) error {
 	return nil
 }
 
+// SetPreview stores the hash of the configuration a successful preview ran
+// against. Enabling an organize rule requires the stored hash to match the
+// current configuration.
+func (s *Store) SetPreview(id, hash string, at int64) error {
+	trimmed := strings.TrimSpace(id)
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return errors.New("automation: preview hash is required")
+	}
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	s.mu.Lock()
+	index := s.findIndexLocked(trimmed)
+	if index < 0 {
+		s.mu.Unlock()
+		return ErrRuleNotFound
+	}
+
+	previous := s.snapshotLocked()
+	s.rules[index].PreviewHash = hash
+	s.rules[index].PreviewedAt = at
+	snapshot := s.snapshotLocked()
+	s.mu.Unlock()
+
+	if err := s.saveRules(snapshot); err != nil {
+		s.mu.Lock()
+		s.rules = previous
+		s.mu.Unlock()
+		return err
+	}
+
+	return nil
+}
+
 func (s *Store) load() {
 	if !s.configured() {
 		s.rules = []models.AutomationRule{}
@@ -283,6 +319,17 @@ func normalizeRules(rules []models.AutomationRule) []models.AutomationRule {
 		rule.ID = id
 		rule.RuntimeStatus = ""
 		rule.RuntimeReason = ""
+		// A rule written before the action existed has no action key and keeps
+		// running its recipe. An unknown value is treated as the default so a
+		// hand-edited store still loads a working rule.
+		if action, err := normalizeRuleAction(rule.Action); err == nil {
+			rule.Action = action
+		} else {
+			rule.Action = models.AutomationActionRecipe
+		}
+		if rule.Action == models.AutomationActionOrganize {
+			rule.CollisionPolicy = normalizeCollisionPolicy(rule.CollisionPolicy)
+		}
 		if len(rule.LastOutputs) > maxLastOutputs {
 			rule.LastOutputs = rule.LastOutputs[:maxLastOutputs]
 		}

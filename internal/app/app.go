@@ -74,6 +74,9 @@ func New(notifier *Notifier) *Services {
 		WailsBus{}.Emit(automation.RunEventName, evt)
 	})
 	automationService.SetRunStore(automation.NewRunStore(automation.DefaultRunPath()))
+	// Organize moves are recorded in the same undo history as tool jobs, so the
+	// existing Undo and Restore path can bring a moved file back.
+	automationService.SetMoveHistory(toolingService.JobHistory())
 	// initialize preview service with sensible defaults; AllowedRoots: $HOME + TMP
 	home, _ := os.UserHomeDir()
 	allowed := []string{}

@@ -14,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"fileforge-desktop/internal/jobhistory"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/platform/fsx"
 )
 
 const (
@@ -47,12 +49,27 @@ type RecipeRunner interface {
 	Cancel(string) models.RecipeStatusResponse
 }
 
+// MoveRecorder records organize moves in the shared undo history.
+// *jobhistory.Store satisfies it.
+type MoveRecorder interface {
+	RecordMoves(jobID, toolID string, moves []jobhistory.MoveRecord)
+}
+
 // Service owns the automation rules and their watchers.
 type Service struct {
 	store   *Store
 	runs    *RunStore
 	recipes RecipeRunner
 	emit    func(models.AutomationRunEvent)
+
+	// moveHistory records every successful organize move so the existing Undo
+	// and Restore path can bring the file back. It may be nil in tests.
+	moveHistory MoveRecorder
+
+	// titleFor resolves {title}; it is a test seam around outputname.Suggest.
+	titleFor func(path string) string
+	// mover is the filesystem seam for organize moves.
+	mover organizeMover
 
 	// Test-settable timings.
 	stabilityDelay     time.Duration
@@ -75,6 +92,8 @@ func NewService(store *Store, recipes RecipeRunner, emit func(models.AutomationR
 		store:              store,
 		recipes:            recipes,
 		emit:               emit,
+		titleFor:           defaultOrganizeTitle,
+		mover:              defaultOrganizeMover(),
 		stabilityDelay:     defaultStabilityDelay,
 		statusPollInterval: defaultStatusPollInterval,
 		runTimeout:         defaultRunTimeout,
@@ -84,6 +103,12 @@ func NewService(store *Store, recipes RecipeRunner, emit func(models.AutomationR
 	}
 
 	return service
+}
+
+// SetMoveHistory attaches the undo history used by organize rules. It is called
+// once during app wiring, before Start.
+func (s *Service) SetMoveHistory(history MoveRecorder) {
+	s.moveHistory = history
 }
 
 // SetRunStore attaches the optional terminal-run history. It is called once
@@ -234,6 +259,29 @@ func (s *Service) SaveRule(rule models.AutomationRule) models.AutomationRuleActi
 	if normalized.CreatedAt <= 0 {
 		normalized.CreatedAt = now.UnixMilli()
 	}
+
+	// A preview hash is server-owned. The client value is discarded and the
+	// stored one is carried over only when the organize configuration did not
+	// change, so editing any relevant field always invalidates the preview.
+	normalized.PreviewHash = ""
+	normalized.PreviewedAt = 0
+	if existingFound && normalized.Action == models.AutomationActionOrganize &&
+		strings.TrimSpace(existing.PreviewHash) != "" &&
+		organizeConfigHash(existing) == organizeConfigHash(normalized) {
+		normalized.PreviewHash = existing.PreviewHash
+		normalized.PreviewedAt = existing.PreviewedAt
+	}
+
+	previewGated := false
+	if normalized.Action == models.AutomationActionOrganize &&
+		normalized.Enabled &&
+		!organizePreviewCurrent(normalized) {
+		// Never start a watcher that moves files without a preview of this
+		// exact configuration, even when the client asked to enable it.
+		normalized.Enabled = false
+		previewGated = true
+	}
+
 	normalized.UpdatedAt = now.UnixMilli()
 
 	saved, err := s.store.Save(normalized)
@@ -254,10 +302,14 @@ func (s *Service) SaveRule(rule models.AutomationRule) models.AutomationRuleActi
 	}
 
 	view := s.viewOf(saved)
+	message := "Automation rule saved."
+	if previewGated {
+		message = "Automation rule saved. It stays disabled until you preview the current settings."
+	}
 
 	return models.AutomationRuleActionResponse{
 		Success: true,
-		Message: "Automation rule saved.",
+		Message: message,
 		Rule:    &view,
 	}
 }
@@ -319,6 +371,14 @@ func (s *Service) SetRuleEnabled(id string, enabled bool) models.AutomationRuleA
 			fmt.Sprintf("Automation rule '%s' was not found.", trimmed),
 			"AUTOMATION_RULE_NOT_FOUND",
 			nil,
+		)
+	}
+
+	if enabled && rule.Action == models.AutomationActionOrganize && !organizePreviewCurrent(rule) {
+		return s.failure(
+			"Run a preview of the current settings before enabling this rule; enabling an organize rule without previewing could move files into the wrong place.",
+			"AUTOMATION_RULE_PREVIEW_REQUIRED",
+			map[string]any{"ruleId": rule.ID},
 		)
 	}
 
@@ -445,6 +505,12 @@ func (s *Service) ClearRuns() models.AutomationRunsActionResponse {
 }
 
 func (s *Service) validateRule(rule models.AutomationRule) (models.AutomationRule, *models.JobError) {
+	return s.validateRuleWithProbe(rule, true)
+}
+
+// validateRuleWithProbe validates a rule. probe is false for a dry run, which
+// must not create even a temporary writability file.
+func (s *Service) validateRuleWithProbe(rule models.AutomationRule, probe bool) (models.AutomationRule, *models.JobError) {
 	normalized := cloneRule(rule)
 	normalized.ID = strings.TrimSpace(normalized.ID)
 	normalized.Name = strings.TrimSpace(normalized.Name)
@@ -456,11 +522,21 @@ func (s *Service) validateRule(rule models.AutomationRule) (models.AutomationRul
 		return normalized, automationError("AUTOMATION_RULE_NAME_REQUIRED", "Give the automation rule a name.")
 	}
 
+	action, actionErr := normalizeRuleAction(normalized.Action)
+	if actionErr != nil {
+		return normalized, actionErr
+	}
+	normalized.Action = action
+
 	watchDir, jobErr := resolveExistingDirectory(normalized.WatchDir, "watch folder")
 	if jobErr != nil {
 		return normalized, jobErr
 	}
 	normalized.WatchDir = watchDir
+
+	if normalized.Action == models.AutomationActionOrganize {
+		return s.validateOrganizeRule(normalized, probe)
+	}
 
 	if s.recipes == nil {
 		return normalized, automationError("AUTOMATION_RECIPE_UNAVAILABLE", "Recipes are not available.")
@@ -505,11 +581,13 @@ func (s *Service) validateRule(rule models.AutomationRule) (models.AutomationRul
 		if dirErr != nil {
 			return normalized, dirErr
 		}
-		if err := probeWritableDirectory(outputDir); err != nil {
-			return normalized, automationError(
-				"AUTOMATION_RULE_OUTPUT_NOT_WRITABLE",
-				fmt.Sprintf("The output folder is not writable: %v", err),
-			)
+		if probe {
+			if err := probeWritableDirectory(outputDir); err != nil {
+				return normalized, automationError(
+					"AUTOMATION_RULE_OUTPUT_NOT_WRITABLE",
+					fmt.Sprintf("The output folder is not writable: %v", err),
+				)
+			}
 		}
 		normalized.OutputDir = outputDir
 	} else {
@@ -517,6 +595,220 @@ func (s *Service) validateRule(rule models.AutomationRule) (models.AutomationRul
 	}
 
 	return normalized, nil
+}
+
+// validateOrganizeRule validates the move configuration. The safety rules that
+// execution depends on are enforced here, at save time: the target folder can
+// never be the watch folder or live inside it, so loop protection does not
+// rely on the watcher noticing its own moves.
+func (s *Service) validateOrganizeRule(normalized models.AutomationRule, probe bool) (models.AutomationRule, *models.JobError) {
+	normalized.Extensions = normalizeExtensions(normalized.Extensions)
+	// An organize rule never writes a processed copy, so a leftover output
+	// folder from a recipe rule would only act as a hidden file filter.
+	normalized.OutputDir = ""
+
+	patterns, patternErr := normalizePatterns(normalized.Patterns)
+	if patternErr != nil {
+		return normalized, patternErr
+	}
+	normalized.Patterns = patterns
+
+	targetDir, targetErr := resolveExistingDirectory(normalized.TargetDir, "target folder")
+	if targetErr != nil {
+		return normalized, targetErr
+	}
+	if probe {
+		if err := probeWritableDirectory(targetDir); err != nil {
+			return normalized, automationError(
+				"AUTOMATION_RULE_TARGET_NOT_WRITABLE",
+				fmt.Sprintf("The target folder is not writable: %v", err),
+			)
+		}
+	}
+
+	if sameDirectory(normalized.WatchDir, targetDir) {
+		return normalized, automationError(
+			"AUTOMATION_RULE_TARGET_INSIDE_WATCH",
+			"The target folder cannot be the watch folder. Choose a folder outside it so the rule never sees its own moves.",
+		)
+	}
+	if directoryWithin(normalized.WatchDir, targetDir) {
+		return normalized, automationError(
+			"AUTOMATION_RULE_TARGET_INSIDE_WATCH",
+			fmt.Sprintf(
+				"The target folder cannot be inside the watch folder (%s). Choose a folder outside it so the rule never sees its own moves.",
+				normalized.WatchDir,
+			),
+		)
+	}
+	normalized.TargetDir = targetDir
+
+	normalized.FolderTemplate = strings.TrimSpace(normalized.FolderTemplate)
+	normalized.NameTemplate = strings.TrimSpace(normalized.NameTemplate)
+	if templateErr := validateOrganizeTemplates(normalized.FolderTemplate, normalized.NameTemplate); templateErr != nil {
+		return normalized, automationError("AUTOMATION_RULE_TEMPLATE_INVALID", templateErr.Error())
+	}
+
+	policy := normalizeCollisionPolicy(normalized.CollisionPolicy)
+	if requested := strings.ToLower(strings.TrimSpace(normalized.CollisionPolicy)); requested != "" &&
+		requested != models.AutomationCollisionSkip &&
+		requested != models.AutomationCollisionSuffix {
+		return normalized, automationError(
+			"AUTOMATION_RULE_COLLISION_INVALID",
+			fmt.Sprintf(
+				"The collision policy '%s' is not supported. Use '%s' or '%s'.",
+				strings.TrimSpace(normalized.CollisionPolicy),
+				models.AutomationCollisionSkip,
+				models.AutomationCollisionSuffix,
+			),
+		)
+	}
+	normalized.CollisionPolicy = policy
+
+	return normalized, nil
+}
+
+// normalizeRuleAction returns the effective action and rejects an unknown one.
+func normalizeRuleAction(value string) (string, *models.JobError) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", models.AutomationActionRecipe:
+		return models.AutomationActionRecipe, nil
+	case models.AutomationActionOrganize:
+		return models.AutomationActionOrganize, nil
+	default:
+		return "", automationError(
+			"AUTOMATION_RULE_ACTION_INVALID",
+			fmt.Sprintf(
+				"The action '%s' is not supported. Use '%s' or '%s'.",
+				strings.TrimSpace(value),
+				models.AutomationActionRecipe,
+				models.AutomationActionOrganize,
+			),
+		)
+	}
+}
+
+// PreviewOrganize returns the planned moves of an organize rule without
+// writing a file or recording history. The plan is built with the exact
+// template, collision and containment logic execution uses.
+//
+// When the previewed configuration matches the saved rule, the preview hash is
+// stored on that rule and the rule becomes enableable. Previewing unsaved edits
+// returns the plan but does not store the hash.
+func (s *Service) PreviewOrganize(rule models.AutomationRule) models.AutomationOrganizePreviewResponse {
+	response := models.AutomationOrganizePreviewResponse{
+		Success:     false,
+		Moves:       []models.OrganizePlannedMove{},
+		GeneratedAt: time.Now().UnixMilli(),
+	}
+
+	normalized, jobErr := s.validateRuleWithProbe(rule, false)
+	if jobErr != nil {
+		response.Message = jobErr.Message
+		response.Error = jobErr
+
+		return response
+	}
+	if normalized.Action != models.AutomationActionOrganize {
+		jobErr := automationError(
+			"AUTOMATION_RULE_ACTION_NOT_ORGANIZE",
+			"This rule does not organize files. Choose the organize action to preview moves.",
+		)
+		response.Message = jobErr.Message
+		response.Error = jobErr
+
+		return response
+	}
+
+	moves, planErr := s.planOrganizeMoves(normalized)
+	if planErr != nil {
+		response.Message = planErr.Message
+		response.Error = planErr
+
+		return response
+	}
+
+	hash := organizeConfigHash(normalized)
+	response.Success = true
+	response.Moves = moves
+	response.RuleID = normalized.ID
+	response.TargetDir = normalized.TargetDir
+	response.PreviewHash = hash
+
+	if normalized.ID != "" && s.store != nil {
+		if stored, found := s.store.Get(normalized.ID); found && organizeConfigHash(stored) == hash {
+			if err := s.store.SetPreview(normalized.ID, hash, response.GeneratedAt); err != nil {
+				log.Printf("automation.rule.preview.persist_failed ruleId=%s err=%v", normalized.ID, err)
+			} else {
+				response.PreviewStored = true
+			}
+		}
+	}
+
+	response.Message = organizePreviewMessage(moves, response.PreviewStored)
+
+	return response
+}
+
+func organizePreviewMessage(moves []models.OrganizePlannedMove, stored bool) string {
+	planned := 0
+	skipped := 0
+	for _, move := range moves {
+		if move.Action == models.OrganizeMoveAction {
+			planned++
+
+			continue
+		}
+		skipped++
+	}
+
+	message := fmt.Sprintf("Preview: %d %s planned, %d %s.", planned, pluralizeWord("move", planned), skipped, pluralizeWord("skip", skipped))
+	if !stored {
+		message += " Save the rule with these settings, then preview again before enabling it."
+	}
+
+	return message
+}
+
+func pluralizeWord(word string, count int) string {
+	if count == 1 {
+		return word
+	}
+
+	return word + "s"
+}
+
+// sameDirectory reports whether both paths name the same existing directory.
+// Symlinks are resolved first so a link to the watch folder is still rejected.
+func sameDirectory(a, b string) bool {
+	return fsx.SameFile(resolveDirectoryPath(a), resolveDirectoryPath(b))
+}
+
+// directoryWithin reports whether candidate lives inside outer. Both paths are
+// resolved through symlinks so a link cannot bypass the watch-folder guard.
+func directoryWithin(outer, candidate string) bool {
+	outerPath := resolveDirectoryPath(outer)
+	candidatePath := resolveDirectoryPath(candidate)
+	if fsx.SameFile(outerPath, candidatePath) {
+		return true
+	}
+
+	return pathWithin(outerPath, candidatePath)
+}
+
+// resolveDirectoryPath resolves symlinks when possible and always returns a
+// cleaned absolute path.
+func resolveDirectoryPath(path string) string {
+	absolute, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return filepath.Clean(strings.TrimSpace(path))
+	}
+	absolute = filepath.Clean(absolute)
+	if resolved, resolveErr := filepath.EvalSymlinks(absolute); resolveErr == nil {
+		return filepath.Clean(resolved)
+	}
+
+	return absolute
 }
 
 func resolveExistingDirectory(raw, label string) (string, *models.JobError) {
@@ -649,6 +941,22 @@ func (s *Service) checkRuleRuntime(rule models.AutomationRule) string {
 	if err != nil || !info.IsDir() {
 		return fmt.Sprintf("The watch folder is not available: %s", rule.WatchDir)
 	}
+
+	if rule.Action == models.AutomationActionOrganize {
+		if !organizePreviewCurrent(rule) {
+			return "Preview the current settings before enabling this rule."
+		}
+		targetInfo, targetErr := os.Stat(rule.TargetDir)
+		if targetErr != nil || !targetInfo.IsDir() {
+			return fmt.Sprintf("The target folder is not available: %s", rule.TargetDir)
+		}
+		if sameDirectory(rule.WatchDir, rule.TargetDir) || directoryWithin(rule.WatchDir, rule.TargetDir) {
+			return "The target folder is inside the watch folder."
+		}
+
+		return ""
+	}
+
 	if s.recipes == nil || findRecipe(s.recipes.List(), rule.RecipeID) == nil {
 		return fmt.Sprintf("Recipe '%s' is not available.", rule.RecipeID)
 	}

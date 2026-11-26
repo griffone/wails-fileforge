@@ -149,6 +149,12 @@ func TestStoreLoadsRulesWrittenBeforeRecursivePatterns(t *testing.T) {
 	if !found {
 		t.Fatal("legacy rule was not loaded")
 	}
+	if rule.Action != models.AutomationActionRecipe {
+		t.Fatalf("a legacy rule must load as a recipe rule, got %q", rule.Action)
+	}
+	if rule.TargetDir != "" || rule.FolderTemplate != "" || rule.NameTemplate != "" || rule.PreviewHash != "" {
+		t.Fatalf("a legacy rule must load without organize fields: %+v", rule)
+	}
 	if rule.Recursive {
 		t.Fatalf("a legacy rule must load with recursion off: %+v", rule)
 	}
@@ -181,6 +187,67 @@ func TestStoreLoadsRulesWrittenBeforeRecursivePatterns(t *testing.T) {
 	reloaded, found := NewStore(path).Get("rule_legacy")
 	if !found || !reloaded.Recursive || len(reloaded.Patterns) != 1 || reloaded.Patterns[0] != "invoice-*.pdf" {
 		t.Fatalf("recursive rule did not persist: %+v", reloaded)
+	}
+}
+
+// TestStoreRoundTripsOrganizeRule proves the organize configuration and the
+// preview hash persist, and that a recipe rule keeps the organize fields empty.
+func TestStoreRoundTripsOrganizeRule(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, rulesFileName)
+	store := NewStore(path)
+
+	organize := models.AutomationRule{
+		ID:              "rule_organize",
+		Name:            "Invoices",
+		WatchDir:        "/tmp/watch",
+		Action:          models.AutomationActionOrganize,
+		TargetDir:       "/tmp/target",
+		FolderTemplate:  "{year}/{month}",
+		NameTemplate:    "{title}{ext}",
+		CollisionPolicy: models.AutomationCollisionSuffix,
+		PreviewHash:     "abc123",
+		PreviewedAt:     1700000000000,
+		CreatedAt:       1,
+	}
+	if _, err := store.Save(organize); err != nil {
+		t.Fatalf("save organize rule: %v", err)
+	}
+	recipe := models.AutomationRule{
+		ID:        "rule_recipe",
+		Name:      "Recipes",
+		WatchDir:  "/tmp/watch",
+		RecipeID:  "recipe.email_pdf",
+		CreatedAt: 1,
+	}
+	if _, err := store.Save(recipe); err != nil {
+		t.Fatalf("save recipe rule: %v", err)
+	}
+
+	reloaded := NewStore(path)
+	stored, found := reloaded.Get("rule_organize")
+	if !found {
+		t.Fatal("organize rule did not persist")
+	}
+	if stored.Action != models.AutomationActionOrganize ||
+		stored.TargetDir != "/tmp/target" ||
+		stored.FolderTemplate != "{year}/{month}" ||
+		stored.NameTemplate != "{title}{ext}" ||
+		stored.CollisionPolicy != models.AutomationCollisionSuffix ||
+		stored.PreviewHash != "abc123" ||
+		stored.PreviewedAt != 1700000000000 {
+		t.Fatalf("organize fields changed across reload: %+v", stored)
+	}
+
+	recipeStored, found := reloaded.Get("rule_recipe")
+	if !found {
+		t.Fatal("recipe rule did not persist")
+	}
+	if recipeStored.Action != models.AutomationActionRecipe {
+		t.Fatalf("a recipe rule must persist as a recipe rule, got %q", recipeStored.Action)
+	}
+	if recipeStored.TargetDir != "" || recipeStored.PreviewHash != "" {
+		t.Fatalf("a recipe rule must not gain organize fields: %+v", recipeStored)
 	}
 }
 

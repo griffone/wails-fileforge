@@ -540,6 +540,72 @@ func TestRecordOutputsRecordsRecipeJobs(t *testing.T) {
 	}
 }
 
+// TestRecordMovesUndoAndRestore proves a moved file is recorded with its
+// destination as the undo target and its source as the restore target, so the
+// existing Undo/Restore path reverts a move instead of deleting a file.
+func TestRecordMovesUndoAndRestore(t *testing.T) {
+	store, dir := newTestStore(t)
+	source := filepath.Join(dir, "watch", "report.pdf")
+	destination := filepath.Join(dir, "organized", "2026", "report.pdf")
+	writeTestFile(t, destination, "moved bytes")
+
+	store.RecordMoves("automation_rule_1", "automation.organize", []MoveRecord{{
+		Source:      source,
+		Destination: destination,
+	}})
+
+	entries := store.List()
+	if len(entries) != 1 {
+		t.Fatalf("expected one entry, got %+v", entries)
+	}
+	entry := entries[0]
+	if len(entry.Outputs) != 1 {
+		t.Fatalf("expected one output, got %+v", entry.Outputs)
+	}
+	output := entry.Outputs[0]
+	if output.Path != destination || output.RestorePath != source {
+		t.Fatalf("unexpected move record: %+v", output)
+	}
+	if output.SizeBytes != int64(len("moved bytes")) {
+		t.Fatalf("move record must fingerprint the destination: %+v", output)
+	}
+
+	if result := store.Undo(entry.JobID); !result.Success || len(result.Moved) != 1 {
+		t.Fatalf("undo failed: %+v", result)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("undo must move the destination to the trash, got err=%v", err)
+	}
+
+	result := store.Restore(entry.JobID)
+	if !result.Success || len(result.Moved) != 1 || result.Moved[0] != source {
+		t.Fatalf("restore must return the file to its source, got %+v", result)
+	}
+	if got := readTestFile(t, source); got != "moved bytes" {
+		t.Fatalf("expected original bytes at the source, got %q", got)
+	}
+
+	// A reload keeps the restore target.
+	reloaded := NewStore(store.path)
+	stored, found := reloaded.Get(entry.JobID)
+	if !found || stored.Outputs[0].RestorePath != source {
+		t.Fatalf("restore path did not survive a reload: %+v", stored)
+	}
+}
+
+func TestRecordMovesSkipsMissingDestinations(t *testing.T) {
+	store, dir := newTestStore(t)
+
+	store.RecordMoves("automation_rule_1", "automation.organize", []MoveRecord{{
+		Source:      filepath.Join(dir, "watch", "missing.pdf"),
+		Destination: filepath.Join(dir, "organized", "missing.pdf"),
+	}})
+
+	if entries := store.List(); len(entries) != 0 {
+		t.Fatalf("a move whose destination is missing must not be recorded: %+v", entries)
+	}
+}
+
 func TestMoveFileFallsBackToCopyOnCrossDevice(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.pdf")
