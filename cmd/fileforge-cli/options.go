@@ -126,9 +126,9 @@ var toolOptionKeys = map[string][]string{
 	"tool.image.ocr":        {"language", "dpi", "writePdf"},
 	"tool.image.background": {"backgroundColor"},
 
-	"tool.video.convert":    {"targetFormat", "qualityPreset", "resolution", "bitrateKbps", "removeAudio"},
-	"tool.video.trim":       {"startTime", "endTime", "trimMode", "targetFormat", "qualityPreset"},
-	"tool.video.merge":      {"mergeMode", "transition", "transitionDuration", "targetFormat", "qualityPreset", "removeAudio"},
+	"tool.video.convert":    {"targetFormat", "qualityPreset", "resolution", "bitrateKbps", "removeAudio", "targetSizeBytes"},
+	"tool.video.trim":       {"startTime", "endTime", "trimMode", "targetFormat", "qualityPreset", "targetSizeBytes"},
+	"tool.video.merge":      {"mergeMode", "transition", "transitionDuration", "targetFormat", "qualityPreset", "removeAudio", "targetSizeBytes"},
 	"tool.video.transcribe": {"language", "whisperPath", "modelPath", "formats"},
 
 	"tool.audio.extract":   {"format", "bitrateKbps"},

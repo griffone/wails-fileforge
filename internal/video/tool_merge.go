@@ -113,6 +113,15 @@ func (t *MergeTool) Plan(ctx context.Context, req models.JobRequest) (models.Pla
 		return planFailure(plan, &models.JobError{Code: engine.ErrorCodeVideoMergeModeInvalid, Message: "mergeMode must be auto, copy, or reencode"})
 	}
 
+	targetSizeBytes, targetErr := videoOptionTargetSize(req.Options, engine.ErrorCodeVideoMergeValidation)
+	if targetErr != nil {
+		return planFailure(plan, targetErr)
+	}
+	copyModeForcedToReencode := targetSizeBytes > 0 && mergeMode != engine.MergeModeReencode
+	if targetSizeBytes > 0 && mergeMode != engine.MergeModeReencode {
+		mergeMode = engine.MergeModeReencode
+	}
+
 	removeAudio, audioErr := videoOptionBool(req.Options, "removeAudio", engine.ErrorCodeVideoMergeValidation)
 	if audioErr != nil {
 		return planFailure(plan, audioErr)
@@ -131,6 +140,7 @@ func (t *MergeTool) Plan(ctx context.Context, req models.JobRequest) (models.Pla
 		RemoveAudio:        removeAudio,
 		Transition:         transition,
 		TransitionDuration: transitionDuration,
+		TargetSizeBytes:    targetSizeBytes,
 	}
 
 	explicitOutput := optionString(req.Options, "outputPath")
@@ -155,7 +165,10 @@ func (t *MergeTool) Plan(ctx context.Context, req models.JobRequest) (models.Pla
 	plan.Message = videoMergePlanMessage(len(inputPaths))
 	plan.Outputs = []models.PlannedOutput{planned}
 	plan.Warnings = append(plan.Warnings, planned.Warnings...)
-	plan.EffectiveOptions = map[string]any{
+	if targetSizeBytes > 0 {
+		plan.Warnings = append(plan.Warnings, mergeTargetWarnings(ctx, inputPaths, mergeRequest, copyModeForcedToReencode)...)
+	}
+	effectiveOptions := map[string]any{
 		"targetFormat":       targetFormat,
 		"qualityPreset":      qualityPreset,
 		"mergeMode":          mergeMode,
@@ -163,8 +176,47 @@ func (t *MergeTool) Plan(ctx context.Context, req models.JobRequest) (models.Pla
 		"transition":         transition,
 		"transitionDuration": transitionDuration,
 	}
+	if targetSizeBytes > 0 {
+		effectiveOptions["targetSizeBytes"] = targetSizeBytes
+	}
+	plan.EffectiveOptions = effectiveOptions
 
 	return plan, nil
+}
+
+// mergeTargetWarnings explains the summed-duration approximation before the
+// encode starts. A crossfade shortens the real output, so the target cannot be
+// exact.
+func mergeTargetWarnings(ctx context.Context, inputPaths []string, request engine.MergeRequest, forcedReencode bool) []string {
+	spec := targetPlanSpec{
+		targetBytes:    request.TargetSizeBytes,
+		resolution:     engine.ResolutionOriginal,
+		forcedReencode: forcedReencode,
+		mergeCrossfade: strings.EqualFold(strings.TrimSpace(request.Transition), engine.MergeTransitionCrossfade),
+	}
+
+	totalDuration := 0.0
+	hasAudio := false
+	maxHeight := 0
+	durationKnown := true
+	for _, inputPath := range inputPaths {
+		media, ok := targetMediaForPath(ctx, inputPath)
+		if !ok {
+			durationKnown = false
+			continue
+		}
+		totalDuration += media.DurationSeconds
+		hasAudio = hasAudio || media.HasAudio
+		if media.Height > maxHeight {
+			maxHeight = media.Height
+		}
+	}
+	spec.durationKnown = durationKnown
+	spec.durationSeconds = totalDuration
+	spec.sourceHeight = maxHeight
+	spec.audioKbps = engine.TargetAudioKbps(request.TargetFormat, hasAudio && !request.RemoveAudio)
+
+	return targetPlanWarnings(spec)
 }
 
 func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (models.JobResultItem, *models.JobError) {
@@ -212,12 +264,19 @@ func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan
 		}
 	}
 
-	if err := engine.MergeWithProgress(ctx, t.probe, t.runner, mergeReq, mergeProgress); err != nil {
-		jobErr := mapVideoError(err)
+	outcome, mergeErr := engine.MergeWithOutcome(ctx, t.probe, t.runner, mergeReq, mergeProgress)
+	if mergeErr != nil {
+		jobErr := mapVideoError(mergeErr)
 		return []models.JobResultItem{videoPlanFailureItem(firstInputPath(mergeReq.InputPaths), mergeReq.OutputPath, jobErr)}, jobErr
 	}
 
-	return []models.JobResultItem{{InputPath: firstInputPath(mergeReq.InputPaths), OutputPath: mergeReq.OutputPath, Outputs: []string{mergeReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video merge successful"}}, nil
+	item := models.JobResultItem{InputPath: firstInputPath(mergeReq.InputPaths), OutputPath: mergeReq.OutputPath, Outputs: []string{mergeReq.OutputPath}, OutputCount: 1, Success: true, Message: "Video merge successful"}
+	if outcome.TargetAttempted {
+		item.Message = targetResultMessage(outcome, "Merged")
+		applyTargetDetails(&item, outcome)
+	}
+
+	return []models.JobResultItem{item}, nil
 }
 
 func planExplicitMergeOutput(outputPath string, request engine.MergeRequest) (models.PlannedOutput, *models.JobError) {
@@ -259,6 +318,7 @@ func mergeRequestFromPlan(plan models.PlanJobResponse, inputPaths []string) engi
 		RemoveAudio:        removeAudio,
 		Transition:         transition,
 		TransitionDuration: transitionDuration,
+		TargetSizeBytes:    videoInt64Option(plan.EffectiveOptions, "targetSizeBytes"),
 	}
 }
 

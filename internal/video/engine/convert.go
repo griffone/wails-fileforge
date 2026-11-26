@@ -73,6 +73,9 @@ type ConvertRequest struct {
 	BitrateKbps int
 	// RemoveAudio drops the audio stream from the output.
 	RemoveAudio bool
+	// TargetSizeBytes forces a two-pass encode sized to the requested bytes.
+	// It overrides BitrateKbps when both are set.
+	TargetSizeBytes int64
 }
 
 func ValidateConvertRequest(req ConvertRequest) *VideoError {
@@ -102,6 +105,10 @@ func ValidateConvertRequest(req ConvertRequest) *VideoError {
 
 	if req.BitrateKbps < 0 {
 		return &VideoError{Code: ErrorCodeVideoValidation, Message: "bitrateKbps must be >= 0"}
+	}
+
+	if req.TargetSizeBytes < 0 {
+		return &VideoError{Code: ErrorCodeVideoTargetInvalid, Message: "targetSizeBytes must be >= 0"}
 	}
 
 	if outputExt := strings.TrimPrefix(strings.ToLower(filepath.Ext(outputPath)), "."); outputExt != targetFormat {
@@ -193,6 +200,27 @@ func BuildConvertArgs(req ConvertRequest) ([]string, *VideoError) {
 	return args, nil
 }
 
+// buildConvertTargetPassArgs builds one pass of a two-pass target encode. The
+// caller already resolved the temporary output path; validation happens once
+// before the loop.
+func buildConvertTargetPassArgs(req ConvertRequest, bitrateKbps, pass int, passLogPrefix, outputPath string) ([]string, *VideoError) {
+	encoding, encodingErr := resolveVideoEncoding(req.TargetFormat, req.QualityPreset)
+	if encodingErr != nil {
+		return nil, &VideoError{Code: ErrorCodeVideoValidation, Message: encodingErr.Error()}
+	}
+	encoding = encoding.withBitrateOnly(bitrateKbps).withTargetAudio(TargetAudioKbps(req.TargetFormat, !req.RemoveAudio))
+
+	args := withFFmpegGlobalArgs([]string{
+		"-y",
+		"-i", strings.TrimSpace(req.InputPath),
+	})
+	if scaleHeight, _ := convertResolutionHeight(req.Resolution); scaleHeight > 0 {
+		args = append(args, "-vf", fmt.Sprintf("scale=-2:%d", scaleHeight))
+	}
+
+	return appendTargetPassArgs(args, encoding, req.RemoveAudio, pass, passLogPrefix, outputPath), nil
+}
+
 func Convert(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req ConvertRequest) *VideoError {
 	return ConvertWithProgress(ctx, probe, runner, req, nil)
 }
@@ -202,6 +230,16 @@ func Convert(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req 
 // is unavailable the command still runs but no intermediate percentage is
 // reported.
 func ConvertWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req ConvertRequest, onProgress func(percent float64, message string)) *VideoError {
+	_, convertErr := ConvertWithOutcome(ctx, probe, runner, req, onProgress)
+	return convertErr
+}
+
+// ConvertWithOutcome is ConvertWithProgress plus the target-size outcome. With
+// a target, the encode runs two passes and retries at a reduced bitrate when
+// the real file overshoots; the outcome reports what actually happened.
+func ConvertWithOutcome(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req ConvertRequest, onProgress func(percent float64, message string)) (TargetEncodeOutcome, *VideoError) {
+	var outcome TargetEncodeOutcome
+
 	if probe == nil {
 		probe = NewFFmpegRuntimeProbe()
 	}
@@ -213,20 +251,20 @@ func ConvertWithProgress(ctx context.Context, probe RuntimeProbe, runner Command
 		var vErr *VideoError
 		if errors.As(runtimeErr, &vErr) {
 			if vErr.Code == ErrorCodeRuntimeFFmpegNotFound || vErr.Code == ErrorCodeRuntimeFFprobeNotFound {
-				return &VideoError{Code: ErrorCodeRuntimeUnavailable, Message: "ffmpeg/ffprobe runtime is unavailable", Cause: vErr}
+				return outcome, &VideoError{Code: ErrorCodeRuntimeUnavailable, Message: "ffmpeg/ffprobe runtime is unavailable", Cause: vErr}
 			}
-			return vErr
+			return outcome, vErr
 		}
-		return &VideoError{Code: ErrorCodeRuntimeUnavailable, Message: ErrFFmpegNotFound.Error(), Cause: runtimeErr}
+		return outcome, &VideoError{Code: ErrorCodeRuntimeUnavailable, Message: ErrFFmpegNotFound.Error(), Cause: runtimeErr}
 	}
 
 	if validationErr := ValidateConvertRequest(req); validationErr != nil {
-		return validationErr
+		return outcome, validationErr
 	}
 
 	tempPath, tempErr := tempOutputPath(req.OutputPath)
 	if tempErr != nil {
-		return &VideoError{Code: ErrorCodeVideoOutputWriteFailed, Message: "video output could not be prepared", Cause: tempErr}
+		return outcome, &VideoError{Code: ErrorCodeVideoOutputWriteFailed, Message: "video output could not be prepared", Cause: tempErr}
 	}
 	published := false
 	defer func() {
@@ -235,11 +273,59 @@ func ConvertWithProgress(ctx context.Context, probe RuntimeProbe, runner Command
 		}
 	}()
 
+	reportTargetProgress := func(evt TargetProgressEvent) {
+		if onProgress == nil {
+			return
+		}
+		message := strings.TrimSpace(evt.Message)
+		if message == "" {
+			message = evt.Stage
+		}
+		onProgress(evt.Percent, message)
+	}
+
+	if req.TargetSizeBytes > 0 {
+		media, mediaOK := ProbeTargetMediaOrDuration(ctx, req.InputPath)
+		if !mediaOK {
+			return outcome, &VideoError{
+				Code:    ErrorCodeVideoTargetDurationUnavailable,
+				Message: "the source duration could not be read; a size target cannot be computed",
+			}
+		}
+
+		spec := TargetEncodeSpec{
+			TargetBytes:     req.TargetSizeBytes,
+			DurationSeconds: media.DurationSeconds,
+			AudioKbps:       TargetAudioKbps(req.TargetFormat, media.HasAudio && !req.RemoveAudio),
+			FloorKbps:       MinVideoBitrateKbps(req.Resolution, media.Height),
+			OutputPath:      tempPath,
+			BuildPassArgs: func(bitrateKbps, pass int, passLogPrefix, outputPath string) ([]string, *VideoError) {
+				return buildConvertTargetPassArgs(req, bitrateKbps, pass, passLogPrefix, outputPath)
+			},
+			MapRunError: mapExecutionError,
+			OnEvent:     reportTargetProgress,
+		}
+		targetOutcome, targetErr := TargetEncode(ctx, runner, spec)
+		if targetErr != nil {
+			return targetOutcome, targetErr
+		}
+
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return targetOutcome, mapExecutionError(ctxErr)
+		}
+		if publishErr := publishOutput(tempPath, req.OutputPath); publishErr != nil {
+			return targetOutcome, &VideoError{Code: ErrorCodeVideoOutputWriteFailed, Message: "video output could not be published", Cause: publishErr}
+		}
+		published = true
+
+		return targetOutcome, nil
+	}
+
 	tempRequest := req
 	tempRequest.OutputPath = tempPath
 	args, argsErr := BuildConvertArgs(tempRequest)
 	if argsErr != nil {
-		return argsErr
+		return outcome, argsErr
 	}
 
 	durationSeconds := 0.0
@@ -247,18 +333,18 @@ func ConvertWithProgress(ctx context.Context, probe RuntimeProbe, runner Command
 		durationSeconds = probeSourceDuration(ctx, req.InputPath)
 	}
 	if runErr := runFFmpegWithProgress(ctx, runner, args, durationSeconds, onProgress); runErr != nil {
-		return mapExecutionError(runErr)
+		return outcome, mapExecutionError(runErr)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return mapExecutionError(ctxErr)
+		return outcome, mapExecutionError(ctxErr)
 	}
 
 	if publishErr := publishOutput(tempPath, req.OutputPath); publishErr != nil {
-		return &VideoError{Code: ErrorCodeVideoOutputWriteFailed, Message: "video output could not be published", Cause: publishErr}
+		return outcome, &VideoError{Code: ErrorCodeVideoOutputWriteFailed, Message: "video output could not be published", Cause: publishErr}
 	}
 	published = true
 
-	return nil
+	return outcome, nil
 }
 
 func validateOutputDir(outputPath string) *VideoError {

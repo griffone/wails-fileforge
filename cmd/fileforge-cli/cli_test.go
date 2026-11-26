@@ -154,6 +154,14 @@ func TestUnknownToolOption(t *testing.T) {
 	}
 }
 
+func TestVideoTargetSizeOptionIsAllowed(t *testing.T) {
+	for _, toolID := range []string{"tool.video.convert", "tool.video.trim", "tool.video.merge"} {
+		if unknown, keys, found := unknownToolOption(toolID, map[string]any{"targetSizeBytes": int64(1024)}); !found || unknown != "" {
+			t.Fatalf("%s: expected targetSizeBytes to be allowed, got unknown=%q found=%v keys=%v", toolID, unknown, found, keys)
+		}
+	}
+}
+
 func TestJSONReportShape(t *testing.T) {
 	dir := t.TempDir()
 	output := filepath.Join(dir, "merged.pdf")
