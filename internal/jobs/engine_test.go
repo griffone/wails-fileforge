@@ -741,6 +741,40 @@ func readEnginePersistedJobs(t *testing.T, path string) []models.JobResult {
 	return persisted
 }
 
+// TestEngineDebouncedSnapshotWritesAfterTheWindow guards the lazy persistence
+// path: a coalesced tick hands the store a producer, so the file must still
+// appear once the debounce window elapses and carry the current state.
+func TestEngineDebouncedSnapshotWritesAfterTheWindow(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "jobs.json")
+	engine := newTestEngine(t, newEngineResolver(t), Options{
+		PersistencePath: storePath,
+		Debounce:        10 * time.Millisecond,
+	})
+
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_debounced", StartedAt: 7, Status: StatusRunning})
+
+	engine.persistDebounced()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(storePath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("debounced snapshot was not written before the deadline")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	persisted := readEnginePersistedJobs(t, storePath)
+	if len(persisted) != 1 || persisted[0].JobID != "job_debounced" {
+		t.Fatalf("debounced snapshot = %+v, want job_debounced", persisted)
+	}
+	if persisted[0].Status != StatusRunning {
+		t.Fatalf("persisted status = %q, want %q", persisted[0].Status, StatusRunning)
+	}
+}
+
 func TestEngineSubmitRejectsInvalidRequest(t *testing.T) {
 	validationErr := models.NewCanonicalJobError("VALIDATION_INVALID_INPUT", "input missing", nil)
 	tool := &engineFakeTool{

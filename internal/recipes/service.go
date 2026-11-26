@@ -893,6 +893,8 @@ func (s *Service) persistNow() {
 
 // saveSnapshot encodes one consistent registry snapshot and hands it to the
 // debounced store. Immediate writes are used after recovery and on shutdown.
+// A debounced write passes the encoder itself: the store runs it only when the
+// window elapses, so coalesced step-progress events never encode a snapshot.
 func (s *Service) saveSnapshot(immediate bool) error {
 	s.persistMu.Lock()
 	defer s.persistMu.Unlock()
@@ -901,15 +903,16 @@ func (s *Service) saveSnapshot(immediate bool) error {
 		return nil
 	}
 
+	if !immediate {
+		return s.store.SaveFunc(s.encodeSnapshot)
+	}
+
 	payload, err := s.encodeSnapshot()
 	if err != nil {
 		return fmt.Errorf("encode recipe runs snapshot: %w", err)
 	}
-	if immediate {
-		return s.store.SaveNow(payload)
-	}
 
-	return s.store.Save(payload)
+	return s.store.SaveNow(payload)
 }
 
 // encodeSnapshot deep-copies every tracked run newest first. Callers must not

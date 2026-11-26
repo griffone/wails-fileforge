@@ -751,20 +751,24 @@ func (e *Engine) saveSnapshot(immediate bool) error {
 }
 
 // saveSnapshotLocked writes the current snapshot. The caller holds persistMu.
+// A debounced snapshot hands the store a producer instead of encoded bytes: the
+// engine marshals only when the debounce window actually elapses, so progress
+// ticks that the store coalesces cost no clone and no JSON encode.
 func (e *Engine) saveSnapshotLocked(immediate bool) error {
 	if e.store == nil {
 		return nil
+	}
+
+	if !immediate {
+		return e.store.SaveFunc(e.marshalSnapshot)
 	}
 
 	payload, err := e.marshalSnapshot()
 	if err != nil {
 		return fmt.Errorf("encode jobs snapshot: %w", err)
 	}
-	if immediate {
-		return e.store.SaveNow(payload)
-	}
 
-	return e.store.Save(payload)
+	return e.store.SaveNow(payload)
 }
 
 func (e *Engine) marshalSnapshot() ([]byte, error) {

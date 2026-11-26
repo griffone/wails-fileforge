@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,6 +25,42 @@ func BenchmarkPersistJobsSnapshot(b *testing.B) {
 			b.Fatalf("save jobs snapshot: %v", err)
 		}
 	}
+}
+
+// BenchmarkPersistDebouncedTick records the cost of one coalesced progress tick
+// on an engine that already holds a realistic terminal history. The engine hands
+// the store a snapshot producer, so a tick inside the debounce window must not
+// clone the jobs or encode JSON: only the write that follows the window does.
+func BenchmarkPersistDebouncedTick(b *testing.B) {
+	engine := newBenchmarkEngine(b)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		engine.persistDebounced()
+	}
+}
+
+// newBenchmarkEngine builds an engine whose map holds the same 25 terminal jobs
+// benchmarkPersistedJobs produces, with debounced persistence enabled.
+func newBenchmarkEngine(b *testing.B) *Engine {
+	b.Helper()
+
+	engine := NewEngine(nil, Options{
+		PersistencePath: filepath.Join(b.TempDir(), "jobs.json"),
+		Debounce:        500 * time.Millisecond,
+	})
+	b.Cleanup(func() { _ = engine.Shutdown(context.Background()) })
+
+	for _, job := range benchmarkPersistedJobs() {
+		state := &jobState{engine: engine, terminal: true, result: job, done: make(chan struct{})}
+		close(state.done)
+		engine.mu.Lock()
+		engine.jobs[job.JobID] = state
+		engine.mu.Unlock()
+	}
+
+	return engine
 }
 
 func TestSaveJobsSnapshotWritesValidJSON(t *testing.T) {

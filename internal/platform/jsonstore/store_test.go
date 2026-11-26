@@ -425,6 +425,21 @@ func assertFileContent(t *testing.T, path string, want []byte) {
 	}
 }
 
+// waitForFile waits until the debounced write produced path.
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if fsx.Exists(path) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatalf("%s was not written before the deadline", path)
+}
+
 func assertNoStoreTempFiles(t *testing.T, dir string) {
 	t.Helper()
 
@@ -436,5 +451,199 @@ func assertNoStoreTempFiles(t *testing.T, dir string) {
 		if strings.HasSuffix(entry.Name(), ".tmp") {
 			t.Fatalf("temporary file left behind: %s", entry.Name())
 		}
+	}
+}
+
+func TestSaveFuncDefersTheProducer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := newTestStore(t, path, Options{Debounce: 5 * time.Second})
+
+	calls := 0
+	if err := store.SaveFunc(func() ([]byte, error) {
+		calls++
+
+		return []byte(`{"lazy":true}`), nil
+	}); err != nil {
+		t.Fatalf("SaveFunc: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if calls != 0 {
+		t.Fatalf("producer ran %d times before the debounce interval elapsed", calls)
+	}
+	if fsx.Exists(path) {
+		t.Fatal("SaveFunc wrote the file before the debounce interval elapsed")
+	}
+}
+
+func TestSaveFuncRunsTheProducerOnWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := newTestStore(t, path, Options{Debounce: 10 * time.Millisecond})
+
+	calls := 0
+	if err := store.SaveFunc(func() ([]byte, error) {
+		calls++
+
+		return []byte(`{"lazy":true}`), nil
+	}); err != nil {
+		t.Fatalf("SaveFunc: %v", err)
+	}
+
+	waitForFile(t, path)
+	assertFileContent(t, path, []byte(`{"lazy":true}`))
+	if calls != 1 {
+		t.Fatalf("producer ran %d times, want 1", calls)
+	}
+}
+
+func TestSaveFuncCoalescesToTheLastProducer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := newTestStore(t, path, Options{Debounce: 150 * time.Millisecond})
+
+	firstCalls := 0
+	secondCalls := 0
+	if err := store.SaveFunc(func() ([]byte, error) {
+		firstCalls++
+
+		return []byte(`{"value":1}`), nil
+	}); err != nil {
+		t.Fatalf("SaveFunc first: %v", err)
+	}
+	if err := store.SaveFunc(func() ([]byte, error) {
+		secondCalls++
+
+		return []byte(`{"value":2}`), nil
+	}); err != nil {
+		t.Fatalf("SaveFunc second: %v", err)
+	}
+
+	waitForFile(t, path)
+	assertFileContent(t, path, []byte(`{"value":2}`))
+	if firstCalls != 0 {
+		t.Fatalf("superseded producer ran %d times", firstCalls)
+	}
+	if secondCalls != 1 {
+		t.Fatalf("last producer ran %d times, want 1", secondCalls)
+	}
+}
+
+func TestSaveFuncKeepsTheLatestProducerAcrossMixedSaves(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := newTestStore(t, path, Options{Debounce: 5 * time.Second})
+
+	if err := store.SaveFunc(func() ([]byte, error) {
+		t.Fatal("superseded producer ran")
+
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("SaveFunc: %v", err)
+	}
+	if err := store.Save([]byte(`{"eager":true}`)); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	assertFileContent(t, path, []byte(`{"eager":true}`))
+}
+
+func TestFlushRunsThePendingProducer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := newTestStore(t, path, Options{Debounce: 5 * time.Second})
+
+	if err := store.SaveFunc(func() ([]byte, error) {
+		return []byte(`{"flushed":true}`), nil
+	}); err != nil {
+		t.Fatalf("SaveFunc: %v", err)
+	}
+	if err := store.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	assertFileContent(t, path, []byte(`{"flushed":true}`))
+}
+
+func TestCloseRunsThePendingProducer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := newTestStore(t, path, Options{Debounce: 5 * time.Second})
+
+	if err := store.SaveFunc(func() ([]byte, error) {
+		return []byte(`{"closed":true}`), nil
+	}); err != nil {
+		t.Fatalf("SaveFunc: %v", err)
+	}
+	if err := store.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	assertFileContent(t, path, []byte(`{"closed":true}`))
+}
+
+func TestSaveNowDiscardsThePendingProducer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := newTestStore(t, path, Options{Debounce: 5 * time.Second})
+
+	if err := store.SaveFunc(func() ([]byte, error) {
+		t.Fatal("superseded producer ran")
+
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("SaveFunc: %v", err)
+	}
+	if err := store.SaveNow([]byte(`{"immediate":true}`)); err != nil {
+		t.Fatalf("SaveNow: %v", err)
+	}
+
+	assertFileContent(t, path, []byte(`{"immediate":true}`))
+}
+
+func TestOnErrorReportsProducerFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	errorsCh := make(chan error, 1)
+	store := New(path, Options{
+		Debounce: 10 * time.Millisecond,
+		OnError: func(err error) {
+			select {
+			case errorsCh <- err:
+			default:
+			}
+		},
+	})
+	t.Cleanup(func() { _ = store.Close(context.Background()) })
+
+	producerErr := errors.New("encode failed")
+	if err := store.SaveFunc(func() ([]byte, error) {
+		return nil, producerErr
+	}); err != nil {
+		t.Fatalf("SaveFunc: %v", err)
+	}
+
+	select {
+	case err := <-errorsCh:
+		if !errors.Is(err, producerErr) {
+			t.Fatalf("OnError error = %v, want %v", err, producerErr)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("OnError was not called for a failed producer")
+	}
+	if fsx.Exists(path) {
+		t.Fatal("a failed producer still wrote the file")
+	}
+}
+
+func TestSaveFuncRejectsEmptyPath(t *testing.T) {
+	store := New("  ", Options{})
+	if err := store.SaveFunc(func() ([]byte, error) { return nil, nil }); err == nil {
+		t.Fatal("SaveFunc with an empty path returned nil error")
+	}
+}
+
+func TestSaveFuncAfterCloseReturnsErrClosed(t *testing.T) {
+	store := New(filepath.Join(t.TempDir(), "state.json"), Options{})
+	if err := store.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := store.SaveFunc(func() ([]byte, error) { return nil, nil }); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SaveFunc after Close = %v, want ErrClosed", err)
 	}
 }
