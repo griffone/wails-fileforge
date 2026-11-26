@@ -2,6 +2,7 @@ package app
 
 import (
 	"fileforge-desktop/internal/automation"
+	"fileforge-desktop/internal/duplicates"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/recipes"
 	"fileforge-desktop/internal/services"
@@ -20,4 +21,6 @@ func init() {
 	application.RegisterEvent[models.RecipeResult](recipes.StateEventName)
 	application.RegisterEvent[models.AutomationRunEvent](automation.RunEventName)
 	application.RegisterEvent[models.ToolchainInstallEvent](toolchain.InstallEventName)
+	application.RegisterEvent[models.DuplicateScanProgressEvent](duplicates.ProgressEventName)
+	application.RegisterEvent[models.DuplicateScanState](duplicates.StateEventName)
 }

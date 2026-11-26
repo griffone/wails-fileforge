@@ -11,6 +11,7 @@ import (
 	_ "fileforge-desktop/internal/audio"
 	"fileforge-desktop/internal/automation"
 	_ "fileforge-desktop/internal/doc"
+	"fileforge-desktop/internal/duplicates"
 	_ "fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/media"
 	"fileforge-desktop/internal/models"
@@ -36,6 +37,7 @@ type Services struct {
 	Preview    *PreviewService
 	System     *SystemService
 	Notifier   *Notifier
+	Duplicates *DuplicatesService
 }
 
 // App is the composition root. It owns the underlying domain services, the
@@ -48,6 +50,7 @@ type App struct {
 	automationService *automation.Service
 	previewService    *preview.PreviewService
 	toolchainService  *toolchain.Service
+	duplicatesService *duplicates.Service
 }
 
 // New builds the full service graph and returns the bound-service bundle.
@@ -83,6 +86,7 @@ func New(notifier *Notifier) *Services {
 	media.SetAllowedRoots(allowed)
 	previewService := preview.NewPreviewService(preview.Config{AllowedRoots: allowed, MaxQueue: 1024})
 	toolchainService := newToolchainService()
+	duplicatesService := duplicates.NewService(duplicates.Config{Bus: WailsBus{}})
 
 	lifecycle := &App{
 		runtime:           runtime,
@@ -91,6 +95,7 @@ func New(notifier *Notifier) *Services {
 		automationService: automationService,
 		previewService:    previewService,
 		toolchainService:  toolchainService,
+		duplicatesService: duplicatesService,
 	}
 
 	return &Services{
@@ -102,6 +107,7 @@ func New(notifier *Notifier) *Services {
 		Preview:    &PreviewService{service: previewService, runtime: runtime},
 		System:     &SystemService{runtime: runtime, notifier: notifier},
 		Notifier:   notifier,
+		Duplicates: &DuplicatesService{service: duplicatesService, runtime: runtime},
 	}
 }
 
@@ -168,6 +174,13 @@ func (a *App) shutdown(ctx context.Context) error {
 	}
 	if a.recipeService != nil {
 		a.recipeService.Shutdown()
+	}
+	// Scans are read-only and in-memory: cancel them before any file store is
+	// flushed so shutdown never waits on a folder walk.
+	if a.duplicatesService != nil {
+		if err := a.duplicatesService.Shutdown(ctx); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("app duplicates: %w", err)
+		}
 	}
 	// shutdown preview service
 	if a.previewService != nil {
