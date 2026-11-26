@@ -505,6 +505,11 @@ var canonicalSystemCodes = canonicalCodeFamilies{
 		// The headless CLI rejects an option the tool does not read instead of
 		// silently ignoring a typo.
 		"TOOL_OPTION_UNKNOWN",
+		// The local MCP server reports a path outside the terminal-granted
+		// allowlist and its per-call input cap as validation failures.
+		"MCP_PATH_NOT_ALLOWED",
+		"MCP_OUTPUT_NOT_ALLOWED",
+		"MCP_INPUT_LIMIT_EXCEEDED",
 	},
 	runtime: []string{
 		"RUNTIME_DEP_MISSING",

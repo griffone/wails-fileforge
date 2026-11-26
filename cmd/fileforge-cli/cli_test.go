@@ -24,6 +24,9 @@ func isolateEnvironment(t *testing.T) {
 	t.Setenv("HOME", root)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	// os.UserConfigDir uses APPDATA on Windows, so isolate it too.
+	t.Setenv("AppData", filepath.Join(root, "appdata"))
+	t.Setenv("LocalAppData", filepath.Join(root, "localappdata"))
 
 	oldPath := os.Getenv("PATH")
 	t.Cleanup(func() {

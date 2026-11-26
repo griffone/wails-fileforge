@@ -41,6 +41,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runRecipes(ctx, args[1:], stdout, stderr)
 	case "run":
 		return runJob(ctx, args[1:], stdout, stderr)
+	case "mcp":
+		return runMCP(ctx, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
@@ -185,6 +187,10 @@ Usage:
   fileforge-cli recipes list [--json]
   fileforge-cli run tool <toolID> --input PATH [--input PATH...] [--out DIR] [--option key=value...] [--json]
   fileforge-cli run recipe <recipeID> --input PATH [--input PATH...] [--out DIR] [--option key=value...] [--json]
+  fileforge-cli mcp serve
+  fileforge-cli mcp allow <dir>
+  fileforge-cli mcp deny <dir>
+  fileforge-cli mcp list
   fileforge-cli help
 
 Options:
@@ -195,6 +201,10 @@ Options:
 
 Every run is planned first. A failed plan prints the canonical code and
 message and exits 2 without starting a job.
+
+The mcp commands manage the local Model Context Protocol server. The serve
+command writes JSON-RPC on stdout only; the folder allowlist is managed from the
+terminal and is never exposed to an MCP client.
 
 Exit codes:
   0  success
