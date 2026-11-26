@@ -434,6 +434,11 @@ var canonicalRecipeCodes = canonicalCodeFamilies{
 }
 
 var canonicalSystemCodes = canonicalCodeFamilies{
+	validation: []string{
+		// The headless CLI rejects an option the tool does not read instead of
+		// silently ignoring a typo.
+		"TOOL_OPTION_UNKNOWN",
+	},
 	runtime: []string{
 		"RUNTIME_DEP_MISSING",
 	},

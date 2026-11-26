@@ -54,6 +54,14 @@ func NewToolingServiceWithBus(reg *registry.Registry, bus eventbus.Bus) *Tooling
 	return newToolingServiceWithBus(reg, jobhistory.NewStore(jobhistory.DefaultPath()), bus)
 }
 
+// NewHeadlessToolingService builds a tooling service for a command-line run.
+// Job persistence stays disabled (nothing calls SetContext) and the undo
+// history is disabled too, so a CLI run can never read, prune or write the
+// app's job stores.
+func NewHeadlessToolingService(reg *registry.Registry) *ToolingService {
+	return newToolingService(reg, jobhistory.NewStore(""))
+}
+
 func newToolingService(reg *registry.Registry, history *jobhistory.Store) *ToolingService {
 	return newToolingServiceWithBus(reg, history, nil)
 }
