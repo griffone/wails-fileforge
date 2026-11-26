@@ -36,6 +36,7 @@ func main() {
 			application.NewService(bundle.System),
 			application.NewService(bundle.Notifier),
 			application.NewService(bundle.Duplicates),
+			application.NewService(bundle.Update),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),

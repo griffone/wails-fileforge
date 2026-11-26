@@ -38,6 +38,7 @@ type Services struct {
 	System     *SystemService
 	Notifier   *Notifier
 	Duplicates *DuplicatesService
+	Update     *UpdateService
 }
 
 // App is the composition root. It owns the underlying domain services, the
@@ -111,6 +112,7 @@ func New(notifier *Notifier) *Services {
 		System:     &SystemService{runtime: runtime, notifier: notifier},
 		Notifier:   notifier,
 		Duplicates: &DuplicatesService{service: duplicatesService, runtime: runtime},
+		Update:     newUpdateService(runtime),
 	}
 }
 

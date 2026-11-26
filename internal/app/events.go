@@ -7,6 +7,7 @@ import (
 	"fileforge-desktop/internal/recipes"
 	"fileforge-desktop/internal/services"
 	"fileforge-desktop/internal/toolchain"
+	"fileforge-desktop/internal/update"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -23,4 +24,7 @@ func init() {
 	application.RegisterEvent[models.ToolchainInstallEvent](toolchain.InstallEventName)
 	application.RegisterEvent[models.DuplicateScanProgressEvent](duplicates.ProgressEventName)
 	application.RegisterEvent[models.DuplicateScanState](duplicates.StateEventName)
+	application.RegisterEvent[update.ProgressEvent](update.ProgressEventName)
+	application.RegisterEvent[update.Status](update.StateEventName)
+	application.RegisterEvent[update.ErrorEvent](update.ErrorEventName)
 }

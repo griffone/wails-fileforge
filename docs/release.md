@@ -10,17 +10,41 @@ The signer lives in `scripts/releasesign`. The Taskfile wraps it as
 
 ## Trust model
 
-- **One key, pinned out of band.** `Config.PublicKey` in Wails' updater is the
-  only trust anchor. A release cannot choose its own key.
+- **One key, pinned out of band.** `internal/update.PublicKey`, stamped into
+  the binary from `FILEFORGE_UPDATE_PUBKEY`, is the only trust anchor. A
+  release cannot choose its own key.
 - **Fail closed.** When a key is pinned, a release without a signature is
   rejected. There is no unsigned fallback.
 - **Detached signature per artifact.** GitHub's bundled provider only fills a
-  digest from `SHA256SUMS`, so our release carries `<artifact>.sig` next to
-  every artifact. A dedicated provider attaches it to `Release.Verification`
-  (see the P6 plan).
+  digest from `SHA256SUMS`, and Wails' updater assumes it can swap the running
+  binary. FileForge ships a small provider of its own
+  (`internal/update/provider.go`) that reads `releases/latest`, selects one
+  asset for the running platform, fetches `SHA256SUMS` and `<artifact>.sig`,
+  and verifies both during a streaming download before any install step runs.
 - **No key means no updates.** A build without `FILEFORGE_UPDATE_PUBKEY` has an
   empty `internal/update.PublicKey`. Update checking is disabled and Settings →
   About says so.
+
+## In-app update contract
+
+`internal/update` owns the check, download, verify and install flow;
+`internal/app.UpdateService` binds it to Wails. The installability gate is
+computed by the app from the build identity and install type, never from the
+release feed:
+
+| Build / install | Offered? | Method |
+| --- | --- | --- |
+| development or non-release build | no: "development build" | — |
+| release build without a pinned key | no: "no signing key" | — |
+| platform other than linux/amd64 or windows/amd64 | no: "unsupported" | — |
+| Linux deb/rpm/Arch (`$APPIMAGE` unset) | no: "use your package manager" | — |
+| Linux AppImage (`$APPIMAGE` set) | yes | replace the file atomically and relaunch |
+| Windows amd64 | yes | run the verified NSIS installer, then quit |
+
+`InstallUpdate` requires a verified download and a prior
+`GrantInstallConsent`; there is no silent install. `FILEFORGE_GITHUB_TOKEN` may
+carry a token for private repositories or higher rate limits, and is never
+logged.
 
 ## Key generation (once, offline)
 
