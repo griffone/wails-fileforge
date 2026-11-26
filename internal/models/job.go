@@ -33,15 +33,18 @@ type JobProgressEvent struct {
 }
 
 type JobResultItem struct {
-	InputPath   string    `json:"inputPath"`
-	OutputPath  string    `json:"outputPath"`
-	Outputs     []string  `json:"outputs,omitempty"`
-	OutputCount int       `json:"outputCount,omitempty"`
-	Attempts    int       `json:"attempts,omitempty"`
-	RetryCount  int       `json:"retryCount,omitempty"`
-	Success     bool      `json:"success"`
-	Message     string    `json:"message"`
-	Error       *JobError `json:"error,omitempty"`
+	InputPath   string   `json:"inputPath"`
+	OutputPath  string   `json:"outputPath"`
+	Outputs     []string `json:"outputs,omitempty"`
+	OutputCount int      `json:"outputCount,omitempty"`
+	Attempts    int      `json:"attempts,omitempty"`
+	RetryCount  int      `json:"retryCount,omitempty"`
+	Success     bool     `json:"success"`
+	Message     string   `json:"message"`
+	// Details carries optional machine-readable measurements, such as the
+	// measured input/output loudness of a normalization item.
+	Details map[string]any `json:"details,omitempty"`
+	Error   *JobError      `json:"error,omitempty"`
 }
 
 type JobResult struct {

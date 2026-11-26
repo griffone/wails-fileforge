@@ -132,7 +132,7 @@ export interface FileInfo {
     "mimeType"?: string;
 
     /**
-     * image|pdf|video|document|archive|other
+     * image|pdf|video|audio|document|archive|other
      */
     "kind": string;
     "width"?: number;
@@ -354,6 +354,12 @@ export interface JobResultItem {
     "retryCount"?: number;
     "success": boolean;
     "message": string;
+
+    /**
+     * Details carries optional machine-readable measurements, such as the
+     * measured input/output loudness of a normalization item.
+     */
+    "details"?: { [_ in string]?: any } | null;
     "error"?: JobError | null;
 }
 

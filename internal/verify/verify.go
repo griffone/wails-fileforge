@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -24,11 +25,13 @@ const (
 	checkVideoDims   = "video_dimensions"
 	checkVideoCodec  = "video_codec"
 	checkAudioCodec  = "audio_codec"
+	checkAudioLength = "audio_duration"
 	checkTargetSize  = "target_size"
 
 	kindImage = "image"
 	kindPDF   = "pdf"
 	kindVideo = "video"
+	kindAudio = "audio"
 )
 
 // VerifyPaths verifies every path without a size target.
@@ -193,6 +196,8 @@ func mediaChecks(info models.FileInfo, output *models.VerifiedOutput) []models.V
 		}}
 	case kindVideo:
 		return videoChecks(info, output)
+	case kindAudio:
+		return audioChecks(info, output)
 	default:
 		return nil
 	}
@@ -266,6 +271,41 @@ func videoChecks(info models.FileInfo, output *models.VerifiedOutput) []models.V
 		displayPath(info.Path),
 	))
 	return nil
+}
+
+func audioChecks(info models.FileInfo, output *models.VerifiedOutput) []models.VerificationCheck {
+	metadata, ok := inspect.ProbeVideoMetadata(context.Background(), info.Path)
+	duration := 0.0
+	codec := ""
+	if ok {
+		duration = metadata.DurationSeconds
+		codec = strings.ToLower(strings.TrimSpace(metadata.AudioCodec))
+	} else {
+		output.Warnings = append(output.Warnings, fmt.Sprintf(
+			"%s: audio metadata could not be read (ffprobe is unavailable or the file is truncated)",
+			displayPath(info.Path),
+		))
+	}
+
+	durationPassed := duration > 0
+	codecPassed := codec != ""
+
+	return []models.VerificationCheck{
+		{
+			Key:    checkAudioLength,
+			Label:  "Duration",
+			Passed: durationPassed,
+			Value:  fmt.Sprintf("%.1f s", duration),
+			Detail: checkDetail(!durationPassed, "audio duration is zero or missing"),
+		},
+		{
+			Key:    checkAudioCodec,
+			Label:  "Audio codec",
+			Passed: codecPassed,
+			Value:  codec,
+			Detail: checkDetail(!codecPassed, "no audio stream was found"),
+		},
+	}
 }
 
 func regularFile(path string) (bool, string) {

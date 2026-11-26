@@ -127,6 +127,18 @@ var transientDetailCodesByTool = map[string]map[string]struct{}{
 		"TRANSCRIBE_FAILED":        {},
 		"TRANSCRIBE_OUTPUT_FAILED": {},
 	},
+	// Audio encodes are ffmpeg process failures. Validation, unsupported
+	// formats, missing encoders and cancellation are deterministic and stay out.
+	"tool.audio.extract": {
+		"AUDIO_EXECUTION_FAILED": {},
+	},
+	"tool.audio.convert": {
+		"AUDIO_EXECUTION_FAILED": {},
+	},
+	"tool.audio.normalize": {
+		"AUDIO_EXECUTION_FAILED": {},
+		"AUDIO_LOUDNORM_FAILED":  {},
+	},
 }
 
 func isRetryableError(toolID string, jobErr *models.JobError) bool {

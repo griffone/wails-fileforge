@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	_ "fileforge-desktop/internal/audio"
 	_ "fileforge-desktop/internal/doc"
 	_ "fileforge-desktop/internal/image"
 	_ "fileforge-desktop/internal/pdf"

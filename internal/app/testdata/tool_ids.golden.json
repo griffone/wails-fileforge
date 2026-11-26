@@ -1,4 +1,7 @@
 [
+  "tool.audio.convert",
+  "tool.audio.extract",
+  "tool.audio.normalize",
   "tool.doc.docx_to_pdf",
   "tool.doc.md_to_pdf",
   "tool.image.annotate",

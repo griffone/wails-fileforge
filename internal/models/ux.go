@@ -27,7 +27,7 @@ type FileInfo struct {
 	SizeBytes        int64   `json:"sizeBytes"`
 	ModifiedAt       int64   `json:"modifiedAt,omitempty"`
 	MimeType         string  `json:"mimeType,omitempty"`
-	Kind             string  `json:"kind"` // image|pdf|video|document|archive|other
+	Kind             string  `json:"kind"` // image|pdf|video|audio|document|archive|other
 	Width            int     `json:"width,omitempty"`
 	Height           int     `json:"height,omitempty"`
 	PageCount        int     `json:"pageCount,omitempty"`

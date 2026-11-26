@@ -130,6 +130,10 @@ var toolOptionKeys = map[string][]string{
 	"tool.video.trim":       {"startTime", "endTime", "trimMode", "targetFormat", "qualityPreset"},
 	"tool.video.merge":      {"mergeMode", "transition", "transitionDuration", "targetFormat", "qualityPreset", "removeAudio"},
 	"tool.video.transcribe": {"language", "whisperPath", "modelPath", "formats"},
+
+	"tool.audio.extract":   {"format", "bitrateKbps"},
+	"tool.audio.convert":   {"format", "bitrateKbps"},
+	"tool.audio.normalize": {"bitrateKbps", "targetLufs", "truePeak"},
 }
 
 // knownToolOptions returns the sorted allowed keys for a tool. found is false

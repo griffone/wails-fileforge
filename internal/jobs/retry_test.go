@@ -29,6 +29,9 @@ var registeredToolIDs = []string{
 	"tool.video.trim",
 	"tool.video.merge",
 	"tool.video.transcribe",
+	"tool.audio.extract",
+	"tool.audio.convert",
+	"tool.audio.normalize",
 }
 
 func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
@@ -97,6 +100,12 @@ func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
 		{name: "transcribe whisper", toolID: "tool.video.transcribe", detailCode: "TRANSCRIBE_FAILED", want: true},
 		{name: "transcribe output", toolID: "tool.video.transcribe", detailCode: "TRANSCRIBE_OUTPUT_FAILED", want: true},
 
+		// audio: ffmpeg encode and loudness failures are transient.
+		{name: "audio extract execution", toolID: "tool.audio.extract", detailCode: "AUDIO_EXECUTION_FAILED", want: true},
+		{name: "audio convert execution", toolID: "tool.audio.convert", detailCode: "AUDIO_EXECUTION_FAILED", want: true},
+		{name: "audio normalize execution", toolID: "tool.audio.normalize", detailCode: "AUDIO_EXECUTION_FAILED", want: true},
+		{name: "audio normalize loudness", toolID: "tool.audio.normalize", detailCode: "AUDIO_LOUDNORM_FAILED", want: true},
+
 		// Deterministic image codes never retry.
 		{name: "image crop validation", toolID: "tool.image.crop", detailCode: "IMAGE_CROP_DIMENSIONS_INVALID", want: false},
 		{name: "image compress invalid target", toolID: "tool.image.compress", detailCode: "IMAGE_COMPRESS_TARGET_INVALID", want: false},
@@ -131,6 +140,13 @@ func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
 		{name: "video merge validation", toolID: "tool.video.merge", detailCode: "VIDEO_MERGE_INSUFFICIENT_INPUTS", want: false},
 		{name: "transcribe runtime missing", toolID: "tool.video.transcribe", detailCode: "TRANSCRIBE_RUNTIME_UNAVAILABLE", want: false},
 		{name: "transcribe model missing", toolID: "tool.video.transcribe", detailCode: "TRANSCRIBE_MODEL_MISSING", want: false},
+
+		// Deterministic audio codes never retry.
+		{name: "audio runtime missing", toolID: "tool.audio.convert", detailCode: "AUDIO_RUNTIME_UNAVAILABLE", want: false},
+		{name: "audio encoder missing", toolID: "tool.audio.extract", detailCode: "AUDIO_ENCODER_UNAVAILABLE", want: false},
+		{name: "audio unsupported input", toolID: "tool.audio.convert", detailCode: "AUDIO_INPUT_UNSUPPORTED", want: false},
+		{name: "audio unsupported format", toolID: "tool.audio.convert", detailCode: "AUDIO_FORMAT_UNSUPPORTED", want: false},
+		{name: "audio validation", toolID: "tool.audio.normalize", detailCode: "AUDIO_TARGET_LUFS_INVALID", want: false},
 
 		{name: "unknown tool", toolID: "tool.unknown", detailCode: "IMAGE_CROP_EXECUTION", want: false},
 	}

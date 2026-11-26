@@ -220,10 +220,13 @@ func TestDefaultLimitsInvariants(t *testing.T) {
 	if limits.External != 1 {
 		t.Fatalf("External = %d, want 1", limits.External)
 	}
+	if limits.Audio < 1 || limits.Audio > 2 {
+		t.Fatalf("Audio = %d, want [1,2]", limits.Audio)
+	}
 	if limits.IO != 2 {
 		t.Fatalf("IO = %d, want 2", limits.IO)
 	}
-	if limits.Total < max(limits.CPU, limits.External, limits.IO) {
+	if limits.Total < max(limits.CPU, limits.External, limits.Audio, limits.IO) {
 		t.Fatalf("Total = %d must cover every class: %+v", limits.Total, limits)
 	}
 }
@@ -244,6 +247,9 @@ func TestClassForToolMapping(t *testing.T) {
 		{name: "pdf ocr", toolID: "tool.pdf.ocr", want: ClassExternal},
 		{name: "pdf to docx", toolID: "tool.pdf.to_docx", want: ClassExternal},
 		{name: "video convert", toolID: "tool.video.convert", want: ClassExternal},
+		{name: "audio extract", toolID: "tool.audio.extract", want: ClassAudio},
+		{name: "audio convert", toolID: "tool.audio.convert", want: ClassAudio},
+		{name: "audio normalize", toolID: "tool.audio.normalize", want: ClassAudio},
 		{name: "doc md to pdf", toolID: "tool.doc.md_to_pdf", want: ClassExternal},
 		{name: "unknown", toolID: "tool.unknown", want: ClassCPU},
 	}

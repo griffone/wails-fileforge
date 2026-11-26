@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	_ "fileforge-desktop/internal/audio"
 	"fileforge-desktop/internal/automation"
 	_ "fileforge-desktop/internal/doc"
 	_ "fileforge-desktop/internal/image"

@@ -310,6 +310,34 @@ func TestCanonicalErrorCodeClassifiesVideoCodes(t *testing.T) {
 	})
 }
 
+func TestCanonicalErrorCodeClassifiesAudioCodes(t *testing.T) {
+	assertCanonicalCodes(t, map[string]string{
+		"AUDIO_BITRATE_INVALID":           ErrorCodeValidationInvalidInput,
+		"AUDIO_INPUT_NOT_FOUND":           ErrorCodeValidationInvalidInput,
+		"AUDIO_INPUT_REQUIRED":            ErrorCodeValidationInvalidInput,
+		"AUDIO_OUTPUT_COLLIDES_INPUT":     ErrorCodeValidationInvalidInput,
+		"AUDIO_OUTPUT_DIR_NOT_DIRECTORY":  ErrorCodeValidationInvalidInput,
+		"AUDIO_OUTPUT_DIR_NOT_FOUND":      ErrorCodeValidationInvalidInput,
+		"AUDIO_OUTPUT_DIR_NOT_WRITABLE":   ErrorCodeValidationInvalidInput,
+		"AUDIO_OUTPUT_EXISTS":             ErrorCodeValidationInvalidInput,
+		"AUDIO_TARGET_LUFS_INVALID":       ErrorCodeValidationInvalidInput,
+		"AUDIO_TRUE_PEAK_INVALID":         ErrorCodeValidationInvalidInput,
+		"AUDIO_VALIDATION_ERROR":          ErrorCodeValidationInvalidInput,
+		"AUDIO_ENCODER_UNAVAILABLE":       ErrorCodeRuntimeDepMissing,
+		"AUDIO_RUNTIME_FFMPEG_NOT_FOUND":  ErrorCodeRuntimeDepMissing,
+		"AUDIO_RUNTIME_FFPROBE_NOT_FOUND": ErrorCodeRuntimeDepMissing,
+		"AUDIO_RUNTIME_UNAVAILABLE":       ErrorCodeRuntimeDepMissing,
+		"AUDIO_FORMAT_MISMATCH":           ErrorCodeUnsupportedFormat,
+		"AUDIO_FORMAT_UNSUPPORTED":        ErrorCodeUnsupportedFormat,
+		"AUDIO_INPUT_UNSUPPORTED":         ErrorCodeUnsupportedFormat,
+		"AUDIO_CANCELLED":                 ErrorCodeCancelledByUser,
+		"AUDIO_EXECUTION_FAILED":          ErrorCodeExecIOTransient,
+		"AUDIO_INPUT_OPEN_FAILED":         ErrorCodeExecIOTransient,
+		"AUDIO_LOUDNORM_FAILED":           ErrorCodeExecIOTransient,
+		"AUDIO_OUTPUT_WRITE_FAILED":       ErrorCodeExecIOTransient,
+	})
+}
+
 func TestCanonicalErrorCodeKeepsDOCRules(t *testing.T) {
 	assertCanonicalCodes(t, map[string]string{
 		"DOC_DOCX_TO_PDF_CANCELLED":                    ErrorCodeCancelledByUser,

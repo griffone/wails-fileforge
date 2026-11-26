@@ -195,15 +195,15 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 			Label:      "ffmpeg",
 			Available:  ffmpeg,
 			Required:   true,
-			Detail:     "Video conversion, trimming and merging",
-			Suggestion: suggestion(ffmpeg, "Install ffmpeg for the video tools."),
+			Detail:     "Video and audio conversion, trimming, merging and normalization",
+			Suggestion: suggestion(ffmpeg, "Install ffmpeg for the video and audio tools."),
 		},
 		{
 			ID:         "ffprobe",
 			Label:      "ffprobe",
 			Available:  ffprobe,
 			Required:   true,
-			Detail:     "Video metadata and durations",
+			Detail:     "Video and audio metadata, durations and output verification",
 			Suggestion: suggestion(ffprobe, "Install ffprobe (usually with ffmpeg)."),
 		},
 		{

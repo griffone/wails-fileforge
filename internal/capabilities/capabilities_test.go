@@ -211,7 +211,7 @@ func TestDetectWithMissingOptionalAndRequiredTools(t *testing.T) {
 	if ffmpegCheck.Available || !ffmpegCheck.Required {
 		t.Fatalf("ffmpeg must be an unavailable required tool: %+v", ffmpegCheck)
 	}
-	if ffmpegCheck.Suggestion != "Install ffmpeg for the video tools." {
+	if ffmpegCheck.Suggestion != "Install ffmpeg for the video and audio tools." {
 		t.Fatalf("unexpected ffmpeg suggestion: %q", ffmpegCheck.Suggestion)
 	}
 

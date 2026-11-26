@@ -301,6 +301,12 @@ func cloneJobItem(in models.JobResultItem) models.JobResultItem {
 	if in.Outputs != nil {
 		out.Outputs = append([]string(nil), in.Outputs...)
 	}
+	if in.Details != nil {
+		out.Details = make(map[string]any, len(in.Details))
+		for key, value := range in.Details {
+			out.Details[key] = value
+		}
+	}
 	out.Error = cloneJobError(in.Error)
 
 	return out

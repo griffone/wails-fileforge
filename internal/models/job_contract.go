@@ -410,6 +410,45 @@ var canonicalVideoCodes = canonicalCodeFamilies{
 	},
 }
 
+// canonicalAudioCodes classifies the audio engine's stable detail codes. Every
+// code an audio tool can emit is enumerated so a deterministic failure never
+// falls through to a transient or unknown family.
+var canonicalAudioCodes = canonicalCodeFamilies{
+	validation: []string{
+		"AUDIO_BITRATE_INVALID",
+		"AUDIO_INPUT_NOT_FOUND",
+		"AUDIO_INPUT_REQUIRED",
+		"AUDIO_OUTPUT_COLLIDES_INPUT",
+		"AUDIO_OUTPUT_DIR_NOT_DIRECTORY",
+		"AUDIO_OUTPUT_DIR_NOT_FOUND",
+		"AUDIO_OUTPUT_DIR_NOT_WRITABLE",
+		"AUDIO_OUTPUT_EXISTS",
+		"AUDIO_TARGET_LUFS_INVALID",
+		"AUDIO_TRUE_PEAK_INVALID",
+		"AUDIO_VALIDATION_ERROR",
+	},
+	runtime: []string{
+		"AUDIO_ENCODER_UNAVAILABLE",
+		"AUDIO_RUNTIME_FFMPEG_NOT_FOUND",
+		"AUDIO_RUNTIME_FFPROBE_NOT_FOUND",
+		"AUDIO_RUNTIME_UNAVAILABLE",
+	},
+	unsupported: []string{
+		"AUDIO_FORMAT_MISMATCH",
+		"AUDIO_FORMAT_UNSUPPORTED",
+		"AUDIO_INPUT_UNSUPPORTED",
+	},
+	cancelled: []string{
+		"AUDIO_CANCELLED",
+	},
+	execution: []string{
+		"AUDIO_EXECUTION_FAILED",
+		"AUDIO_INPUT_OPEN_FAILED",
+		"AUDIO_LOUDNORM_FAILED",
+		"AUDIO_OUTPUT_WRITE_FAILED",
+	},
+}
+
 // canonicalSystemCodes keeps runtime-wide codes (job engine, service layer)
 // classified as they were before the per-domain table existed.
 // canonicalRecipeCodes classifies the duplicate-and-edit errors so the UI and
@@ -461,6 +500,7 @@ var canonicalCodeTable = buildCanonicalCodeTable(
 	canonicalPDFCodes,
 	canonicalRecipeCodes,
 	canonicalVideoCodes,
+	canonicalAudioCodes,
 	canonicalSystemCodes,
 )
 

@@ -137,6 +137,55 @@ func writeVerifyVideo(t *testing.T, path string) {
 	}
 }
 
+// writeVerifyAudio generates a short WAV fixture with ffmpeg. Tests skip when
+// the ffmpeg toolchain is missing instead of failing.
+func writeVerifyAudio(t *testing.T, path string) {
+	t.Helper()
+
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg is not available")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe is not available")
+	}
+
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi",
+		"-i", "sine=frequency=440:sample_rate=48000:duration=2",
+		"-c:a", "pcm_s16le",
+		path,
+	}
+	if output, runErr := exec.Command(ffmpegPath, args...).CombinedOutput(); runErr != nil {
+		t.Fatalf("generate audio fixture: %v (%s)", runErr, strings.TrimSpace(string(output)))
+	}
+}
+
+// writeVerifyMP3 generates an MP3 fixture used by the truncation test.
+func writeVerifyMP3(t *testing.T, path string) {
+	t.Helper()
+
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg is not available")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe is not available")
+	}
+
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi",
+		"-i", "sine=frequency=440:sample_rate=48000:duration=2",
+		"-c:a", "libmp3lame", "-b:a", "192k",
+		path,
+	}
+	if output, runErr := exec.Command(ffmpegPath, args...).CombinedOutput(); runErr != nil {
+		t.Fatalf("generate mp3 fixture: %v (%s)", runErr, strings.TrimSpace(string(output)))
+	}
+}
+
 func checksByKey(output models.VerifiedOutput) map[string]bool {
 	checks := make(map[string]bool, len(output.Checks))
 	for _, check := range output.Checks {
@@ -450,6 +499,78 @@ func TestVerifyPathsVideoDurationIsTolerant(t *testing.T) {
 		if !foundWarning {
 			t.Fatalf("expected a duration warning when ffprobe cannot read the file, got %v", report.Outputs[0].Warnings)
 		}
+	}
+}
+
+func TestVerifyPathsRealAudioReportsDurationAndCodec(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clip.wav")
+	writeVerifyAudio(t, path)
+
+	report := VerifyPaths([]string{path})
+	if !report.Success {
+		t.Fatalf("expected a real audio file to verify, got %s (%v)", report.Message, report.Warnings)
+	}
+
+	output := report.Outputs[0]
+	if output.Kind != "audio" {
+		t.Fatalf("expected the audio kind, got %q", output.Kind)
+	}
+	checks := checksByKey(output)
+	for _, key := range []string{checkPath, checkExists, checkRegularFile, checkReadable, checkSize, checkKind, checkAudioLength, checkAudioCodec} {
+		passed, ok := checks[key]
+		if !ok {
+			t.Fatalf("expected check %q, got %v", key, checks)
+		}
+		if !passed {
+			t.Fatalf("expected check %q to pass, got %v", key, checks)
+		}
+	}
+
+	values := make(map[string]string, len(output.Checks))
+	for _, check := range output.Checks {
+		values[check.Key] = check.Value
+	}
+	if values[checkAudioCodec] != "pcm_s16le" {
+		t.Fatalf("expected pcm_s16le, got %q", values[checkAudioCodec])
+	}
+	if values[checkAudioLength] != "2.0 s" {
+		t.Fatalf("expected 2.0 s, got %q", values[checkAudioLength])
+	}
+}
+
+func TestVerifyPathsTruncatedAudioFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "broken.mp3")
+	writeVerifyMP3(t, path)
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read mp3 fixture: %v", err)
+	}
+	// Cut below the first complete audio frames: ffprobe no longer finds a
+	// decodable stream, which is exactly the truncated output this check stops.
+	if len(content) < 2000 {
+		t.Fatalf("fixture is unexpectedly small: %d bytes", len(content))
+	}
+	if err := os.WriteFile(path, content[:1000], 0o644); err != nil {
+		t.Fatalf("truncate mp3 fixture: %v", err)
+	}
+
+	report := VerifyPaths([]string{path})
+	if report.Success {
+		t.Fatal("expected a truncated audio file to fail verification")
+	}
+
+	checks := checksByKey(report.Outputs[0])
+	if passed, ok := checks[checkSize]; !ok || !passed {
+		t.Fatalf("expected the size check to pass for a non-empty truncated file, got %v", checks)
+	}
+	if passed, ok := checks[checkAudioLength]; !ok || passed {
+		t.Fatalf("expected the duration check to fail, got %v", checks)
+	}
+	if passed, ok := checks[checkAudioCodec]; !ok || passed {
+		t.Fatalf("expected the codec check to fail, got %v", checks)
 	}
 }
 

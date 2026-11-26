@@ -433,7 +433,7 @@ func (e *Engine) normalizeSubmitOptions(tool tools.Tool, toolID string, opts Sub
 		opts.Class = classForTool(toolID)
 	}
 	switch opts.Class {
-	case ClassCPU, ClassExternal, ClassIO:
+	case ClassCPU, ClassExternal, ClassAudio, ClassIO:
 	default:
 		opts.Class = ClassCPU
 	}
@@ -462,7 +462,7 @@ func (e *Engine) normalizeSubmitOptions(tool tools.Tool, toolID string, opts Sub
 func manifestResourceClass(resourceClass string) Class {
 	class := Class(strings.ToLower(strings.TrimSpace(resourceClass)))
 	switch class {
-	case ClassCPU, ClassExternal, ClassIO:
+	case ClassCPU, ClassExternal, ClassAudio, ClassIO:
 		return class
 	default:
 		return ""

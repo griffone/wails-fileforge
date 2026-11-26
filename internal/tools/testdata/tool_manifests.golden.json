@@ -1,5 +1,134 @@
 [
   {
+    "toolId": "tool.audio.convert",
+    "name": "Audio Convert",
+    "description": "Convert audio files between mp3, m4a, opus, wav and flac",
+    "domain": "audio",
+    "capability": "tool.audio.convert",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "mp3",
+      "m4a",
+      "aac",
+      "opus",
+      "ogg",
+      "wav",
+      "flac",
+      "wma",
+      "aiff"
+    ],
+    "outputExtensions": [
+      "mp3",
+      "m4a",
+      "opus",
+      "wav",
+      "flac"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "audio",
+      "convert",
+      "ffmpeg"
+    ],
+    "resourceClass": "audio",
+    "maxWorkers": 1
+  },
+  {
+    "toolId": "tool.audio.extract",
+    "name": "Extract Audio",
+    "description": "Extract the audio track from a video or audio file as mp3, m4a, opus, wav or flac",
+    "domain": "audio",
+    "capability": "tool.audio.extract",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "mp3",
+      "m4a",
+      "aac",
+      "opus",
+      "ogg",
+      "wav",
+      "flac",
+      "wma",
+      "aiff",
+      "mp4",
+      "m4v",
+      "mov",
+      "mkv",
+      "webm",
+      "avi",
+      "wmv",
+      "flv",
+      "ts",
+      "mts",
+      "3gp"
+    ],
+    "outputExtensions": [
+      "mp3",
+      "m4a",
+      "opus",
+      "wav",
+      "flac"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "audio",
+      "extract",
+      "ffmpeg"
+    ],
+    "resourceClass": "audio",
+    "maxWorkers": 1
+  },
+  {
+    "toolId": "tool.audio.normalize",
+    "name": "Normalize Audio",
+    "description": "Two-pass EBU R128 loudness normalization to streaming, broadcast or podcast targets",
+    "domain": "audio",
+    "capability": "tool.audio.normalize",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "mp3",
+      "m4a",
+      "aac",
+      "opus",
+      "ogg",
+      "wav",
+      "flac",
+      "wma",
+      "aiff"
+    ],
+    "outputExtensions": [
+      "mp3",
+      "m4a",
+      "opus",
+      "wav",
+      "flac"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "audio",
+      "normalize",
+      "loudness",
+      "ffmpeg"
+    ],
+    "resourceClass": "audio",
+    "maxWorkers": 1
+  },
+  {
     "toolId": "tool.doc.docx_to_pdf",
     "name": "DOCX to PDF",
     "description": "Convert DOCX to PDF with standard fidelity using the bundled pure-Go renderer. Complex desktop publishing layouts, exact floating-shape wrapping and some SmartArt diagrams may differ; PDF/A export needs Ghostscript.",
