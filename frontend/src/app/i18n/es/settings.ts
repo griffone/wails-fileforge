@@ -168,6 +168,10 @@ export const settingsEs = {
   'settings.aboutInfo.unavailable':
     'La identidad de la compilación no está disponible.',
   'settings.aboutInfo.devBuild': 'Compilación de desarrollo',
+  'settings.aboutInfo.updateKey': 'Clave de firma de actualizaciones',
+  'settings.aboutInfo.updateKeyConfigured': 'Fijada en esta compilación',
+  'settings.aboutInfo.updateKeyDisabled':
+    'Sin fijar · actualizaciones desactivadas porque esta compilación no tiene clave de firma',
   'settings.aboutInfo.help':
     'Las compilaciones de lanzamiento llevan una versión que el actualizador puede comparar. Las compilaciones de desarrollo muestran dev y nunca buscan actualizaciones.',
   'settings.about': 'FileForge Desktop · herramientas de archivo locales',

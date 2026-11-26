@@ -18,6 +18,13 @@ export interface AppInfoResponse {
      * compare. Development and dirty builds always report false.
      */
     "release": boolean;
+
+    /**
+     * UpdateKeyConfigured is true when this build pinned the ed25519 public
+     * key used to verify release signatures. False means update checking is
+     * disabled: there is no trust anchor.
+     */
+    "updateKeyConfigured": boolean;
 }
 
 /**

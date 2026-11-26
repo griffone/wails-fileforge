@@ -1173,6 +1173,7 @@ export class Wails {
         commit: 'none',
         builtAt: 'unknown',
         release: false,
+        updateKeyConfigured: false,
       };
     }
   }

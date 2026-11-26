@@ -11,6 +11,17 @@ vars:
   BIN_DIR: "bin"
   CLI_SOURCE: "./cmd/fileforge-cli"
   VITE_PORT: "{{.WAILS_VITE_PORT | default 9245}}"
+  # Release assets, in publication order. Shared by checksums, signing,
+  # verification and the dist assembly so a new artifact is added once.
+  RELEASE_ARTIFACTS: >-
+    fileforge-desktop-amd64-installer.exe
+    fileforge-desktop-windows-amd64.zip
+    fileforge-desktop-x86_64.AppImage
+    fileforge-desktop.deb
+    fileforge-desktop.rpm
+    fileforge-desktop.pkg.tar.zst
+    fileforge-cli
+    fileforge-cli.exe
 
 tasks:
   build:
@@ -45,15 +56,7 @@ tasks:
       - |
         set -e
         : > SHA256SUMS
-        for artifact in \
-          fileforge-desktop-amd64-installer.exe \
-          fileforge-desktop-windows-amd64.zip \
-          fileforge-desktop-x86_64.AppImage \
-          fileforge-desktop.deb \
-          fileforge-desktop.rpm \
-          fileforge-desktop.pkg.tar.zst \
-          fileforge-cli \
-          fileforge-cli.exe; do
+        for artifact in {{.RELEASE_ARTIFACTS}}; do
           if [ -f "$artifact" ]; then
             sha256sum "$artifact" >> SHA256SUMS
           fi
@@ -63,6 +66,112 @@ tasks:
           exit 1
         fi
         cat SHA256SUMS
+
+  release:keygen:
+    desc: Generate an offline ed25519 release-signing keypair
+    summary: |
+      Writes <OUT>.key (mode 0600) and <OUT>.pub outside the repository and
+      prints the base64 public key. Keep the private key offline: a new key
+      invalidates every signature made with the old one.
+
+        task release:keygen OUT=~/.config/fileforge/release
+        export FILEFORGE_UPDATE_PUBKEY="$(cat ~/.config/fileforge/release.pub)"
+    requires:
+      vars: [OUT]
+    cmds:
+      - go run ./scripts/releasesign -keygen -out "{{.OUT}}"
+
+  release:sign:
+    desc: Write a detached ed25519 .sig for every release artifact in bin
+    summary: |
+      Signs every existing release artifact with the private key at KEY and
+      writes <artifact>.sig next to it. The key must live outside the
+      repository; the task refuses one that does not.
+
+        task release:sign KEY=~/.config/fileforge/release.key
+    requires:
+      vars: [KEY]
+    cmds:
+      - |
+        set -e
+        artifacts=""
+        for artifact in {{.RELEASE_ARTIFACTS}}; do
+          if [ -f "{{.BIN_DIR}}/$artifact" ]; then
+            artifacts="$artifacts {{.BIN_DIR}}/$artifact"
+          fi
+        done
+        if [ -z "$artifacts" ]; then
+          echo "release:sign: no release artifacts found in {{.BIN_DIR}}/" >&2
+          exit 1
+        fi
+        # Intentional word splitting: the list is built from RELEASE_ARTIFACTS.
+        go run ./scripts/releasesign -sign $artifacts -key "{{.KEY}}"
+
+  release:verify:
+    desc: Verify every release artifact signature in bin
+    summary: |
+      Checks <artifact>.sig against the base64 public key in PUBKEY and exits
+      non-zero on the first mismatch. Run it before publishing.
+
+        task release:verify PUBKEY="$(cat ~/.config/fileforge/release.pub)"
+    requires:
+      vars: [PUBKEY]
+    cmds:
+      - |
+        set -e
+        verified=0
+        for artifact in {{.RELEASE_ARTIFACTS}}; do
+          if [ -f "{{.BIN_DIR}}/$artifact" ]; then
+            go run ./scripts/releasesign \
+              -verify "{{.BIN_DIR}}/$artifact" \
+              -sig "{{.BIN_DIR}}/$artifact.sig" \
+              -pubkey "{{.PUBKEY}}"
+            verified=$((verified + 1))
+          fi
+        done
+        if [ "$verified" -eq 0 ]; then
+          echo "release:verify: no release artifacts found in {{.BIN_DIR}}/" >&2
+          exit 1
+        fi
+
+  release:dist:
+    desc: Assemble signed release assets into dist/<version> for gh release create
+    summary: |
+      Regenerates SHA256SUMS, signs every release artifact, verifies every
+      signature against PUBKEY, then copies the artifacts, their .sig files and
+      SHA256SUMS into dist/<wails.json version>/. The directory is exactly what
+      `gh release create` uploads.
+
+        task release:dist KEY=~/.config/fileforge/release.key \
+          PUBKEY="$(cat ~/.config/fileforge/release.pub)"
+    requires:
+      vars: [KEY, PUBKEY]
+    cmds:
+      - task: checksums
+      - task: release:sign
+        vars:
+          KEY: "{{.KEY}}"
+      - task: release:verify
+        vars:
+          PUBKEY: "{{.PUBKEY}}"
+      - |
+        set -e
+        version=$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' wails.json | head -n 1)
+        if [ -z "$version" ]; then
+          echo "release:dist: could not read the version from wails.json" >&2
+          exit 1
+        fi
+        out="dist/$version"
+        rm -rf "$out"
+        mkdir -p "$out"
+        cp "{{.BIN_DIR}}/SHA256SUMS" "$out/"
+        for artifact in {{.RELEASE_ARTIFACTS}}; do
+          if [ -f "{{.BIN_DIR}}/$artifact" ]; then
+            cp "{{.BIN_DIR}}/$artifact" "{{.BIN_DIR}}/$artifact.sig" "$out/"
+          fi
+        done
+        echo "release assets in $out:"
+        ls -1 "$out"
 
   package:
     summary: Build the optimized Windows installer/portable ZIP and Linux AppImage

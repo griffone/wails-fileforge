@@ -11,6 +11,10 @@
 //	go run ./scripts/versionflags -version   # prints only the version
 //	go run ./scripts/versionflags -commit    # prints only the commit
 //	go run ./scripts/versionflags -built-at  # prints only the build time
+//
+// Set FILEFORGE_UPDATE_PUBKEY to the base64 ed25519 release key to add
+// `-X fileforge-desktop/internal/update.PublicKey=...` to the flags. Without
+// it the binary has no update trust anchor and update checking stays disabled.
 package main
 
 import (
@@ -22,10 +26,19 @@ import (
 	"strings"
 	"time"
 
+	updatepkg "fileforge-desktop/internal/update"
 	appversion "fileforge-desktop/internal/version"
 )
 
-const versionPackage = "fileforge-desktop/internal/version"
+const (
+	versionPackage = "fileforge-desktop/internal/version"
+	updatePackage  = "fileforge-desktop/internal/update"
+
+	// updatePublicKeyEnv carries the base64 ed25519 public key that release
+	// signatures are verified against. It is optional: an empty value leaves
+	// update.PublicKey empty, which disables update checking in the build.
+	updatePublicKeyEnv = "FILEFORGE_UPDATE_PUBKEY"
+)
 
 type buildInfo struct {
 	version string
@@ -43,12 +56,12 @@ func main() {
 
 	switch mode {
 	case "ldflags":
-		fmt.Printf(
-			"-X %s.Version=%s -X %s.Commit=%s -X %s.BuiltAt=%s",
-			versionPackage, info.version,
-			versionPackage, info.commit,
-			versionPackage, info.builtAt,
-		)
+		flags, err := buildLDFlags(info, os.Getenv(updatePublicKeyEnv))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "versionflags: %v\n", err)
+			os.Exit(2)
+		}
+		fmt.Print(flags)
 	case "version":
 		fmt.Println(info.version)
 	case "commit":
@@ -59,6 +72,28 @@ func main() {
 		fmt.Fprintf(os.Stderr, "versionflags: unknown field %q (want ldflags, version, commit or built-at)\n", mode)
 		os.Exit(2)
 	}
+}
+
+// buildLDFlags renders the -X flags for the build identity and, when a public
+// key is supplied, the update trust anchor. A malformed key fails the build
+// instead of producing a binary that trusts an undecodable value.
+func buildLDFlags(info buildInfo, publicKey string) (string, error) {
+	flags := fmt.Sprintf(
+		"-X %s.Version=%s -X %s.Commit=%s -X %s.BuiltAt=%s",
+		versionPackage, info.version,
+		versionPackage, info.commit,
+		versionPackage, info.builtAt,
+	)
+
+	trimmedKey := strings.TrimSpace(publicKey)
+	if trimmedKey == "" {
+		return flags, nil
+	}
+	if _, err := updatepkg.ParsePublicKey(trimmedKey); err != nil {
+		return "", fmt.Errorf("%s: %w", updatePublicKeyEnv, err)
+	}
+
+	return fmt.Sprintf("%s -X %s.PublicKey=%s", flags, updatePackage, trimmedKey), nil
 }
 
 // resolve prefers git, then falls back to the release-facing wails.json for a

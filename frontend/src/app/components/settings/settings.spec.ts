@@ -211,6 +211,7 @@ const APP_INFO: AppInfoResponse = {
   commit: 'a1b2c3d',
   builtAt: '2026-11-26T12:00:00Z',
   release: true,
+  updateKeyConfigured: false,
 };
 
 describe('Settings', () => {

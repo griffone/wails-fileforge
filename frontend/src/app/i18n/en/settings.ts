@@ -161,6 +161,10 @@ export const settingsEn = {
   'settings.aboutInfo.loading': 'Reading the build identity…',
   'settings.aboutInfo.unavailable': 'The build identity is not available.',
   'settings.aboutInfo.devBuild': 'Development build',
+  'settings.aboutInfo.updateKey': 'Update signing key',
+  'settings.aboutInfo.updateKeyConfigured': 'Pinned to this build',
+  'settings.aboutInfo.updateKeyDisabled':
+    'Not pinned · updates disabled because this build has no signing key',
   'settings.aboutInfo.help':
     'Release builds carry a version an updater can compare. Development builds report dev and never check for updates.',
   'settings.about': 'FileForge Desktop · local-first file tools',

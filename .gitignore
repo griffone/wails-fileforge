@@ -1,5 +1,6 @@
 .task
 bin
+dist
 frontend/dist
 frontend/node_modules
 wails_windows_*.syso

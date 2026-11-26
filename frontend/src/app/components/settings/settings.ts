@@ -106,6 +106,11 @@ export class Settings implements OnInit {
     this.aboutValue(this.appInfo()?.builtAt),
   );
   readonly aboutRelease = computed(() => this.appInfo()?.release === true);
+  readonly aboutUpdateKey = computed(() =>
+    this.appInfo()?.updateKeyConfigured
+      ? this.i18n.t('settings.aboutInfo.updateKeyConfigured')
+      : this.i18n.t('settings.aboutInfo.updateKeyDisabled'),
+  );
 
   readonly capabilities = signal<LocalCapabilitiesResponse | null>(null);
   readonly capabilitiesLoading = signal(false);

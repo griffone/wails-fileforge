@@ -14,6 +14,7 @@ import (
 	"fileforge-desktop/internal/media"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/pdf"
+	"fileforge-desktop/internal/update"
 	appversion "fileforge-desktop/internal/version"
 	"fileforge-desktop/internal/video"
 
@@ -44,17 +45,19 @@ func (s *SystemService) GetTranscriptionCapabilities(whisperPath, modelPath stri
 }
 
 // GetAppInfo reports the version, commit and build time injected into this
-// binary. The Settings About panel reads it, and Release tells a future
-// updater whether the build is a stamped release.
+// binary, plus whether the build pinned an update signing key. The Settings
+// About panel reads it, and Release tells a future updater whether the build
+// is a stamped release.
 func (s *SystemService) GetAppInfo() models.AppInfoResponse {
 	info := appversion.Current()
 	return models.AppInfoResponse{
-		Success: true,
-		Message: "app info",
-		Version: info.Version,
-		Commit:  info.Commit,
-		BuiltAt: info.BuiltAt,
-		Release: info.Release,
+		Success:             true,
+		Message:             "app info",
+		Version:             info.Version,
+		Commit:              info.Commit,
+		BuiltAt:             info.BuiltAt,
+		Release:             info.Release,
+		UpdateKeyConfigured: update.Configured(),
 	}
 }
 
