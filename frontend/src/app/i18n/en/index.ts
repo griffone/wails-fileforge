@@ -26,6 +26,7 @@ import { pdfFromImagesEn } from './pdf-from-images';
 import { pdfMergeEn } from './pdf-merge';
 import { pdfOcrEn } from './pdf-ocr';
 import { pdfOptimizeEn } from './pdf-optimize';
+import { pdfPageOpsEn } from './pdf-page-ops';
 import { pdfRendererEn } from './pdf-renderer';
 import { pdfSplitEn } from './pdf-split';
 import { pdfToDocxEn } from './pdf-to-docx';
@@ -69,6 +70,7 @@ export const en = {
   ...pdfMergeEn,
   ...pdfSplitEn,
   ...pdfCropEn,
+  ...pdfPageOpsEn,
   ...pdfOptimizeEn,
   ...pdfOcrEn,
   ...pdfToDocxEn,

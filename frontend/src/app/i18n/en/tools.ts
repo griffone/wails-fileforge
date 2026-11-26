@@ -70,6 +70,26 @@ export const toolsEn = {
   'tools.tool.pdf.ocr.description':
     'Make scanned PDFs searchable with local OCR and a text sidecar.',
 
+  'tools.tool.pdf.rotate.name': 'PDF Rotate',
+  'tools.tool.pdf.rotate.navName': 'Rotate',
+  'tools.tool.pdf.rotate.description':
+    'Rotate all pages or a page selection by 90, 180 or 270 degrees',
+
+  'tools.tool.pdf.remove_pages.name': 'PDF Remove Pages',
+  'tools.tool.pdf.remove_pages.navName': 'Remove pages',
+  'tools.tool.pdf.remove_pages.description':
+    'Delete selected pages and keep the rest of the document',
+
+  'tools.tool.pdf.reorder.name': 'PDF Reorder Pages',
+  'tools.tool.pdf.reorder.navName': 'Reorder',
+  'tools.tool.pdf.reorder.description':
+    'Rewrite the page order from an explicit spec, or reverse the document',
+
+  'tools.tool.pdf.extract_images.name': 'PDF Extract Images',
+  'tools.tool.pdf.extract_images.navName': 'Extract images',
+  'tools.tool.pdf.extract_images.description':
+    'Extract embedded images into a folder with collision-safe names',
+
   'tools.tool.doc.md_to_pdf.name': 'Markdown → PDF',
   'tools.tool.doc.md_to_pdf.navName': 'Markdown',
   'tools.tool.doc.md_to_pdf.description':

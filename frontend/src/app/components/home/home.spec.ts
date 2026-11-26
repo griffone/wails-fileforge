@@ -265,7 +265,7 @@ describe('Home', () => {
   it('renders every workbench tool by default', () => {
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(23);
+    expect(cardNames().length).toBe(27);
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -296,10 +296,10 @@ describe('Home', () => {
     expect(filterChip('Image').getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('shows the seven PDF tools under the PDF category', () => {
+  it('shows the eleven PDF tools under the PDF category', () => {
     fixture.detectChanges();
 
-    expect(component.categoryCounts()['pdf']).toBe(7);
+    expect(component.categoryCounts()['pdf']).toBe(11);
 
     filterChip('PDF').click();
     fixture.detectChanges();
@@ -310,6 +310,10 @@ describe('Home', () => {
       'PDF Crop',
       'PDF Optimize',
       'PDF OCR',
+      'PDF Rotate',
+      'PDF Remove Pages',
+      'PDF Reorder Pages',
+      'PDF Extract Images',
       'Images to PDF',
       'PDF to DOCX',
     ]);
@@ -369,7 +373,7 @@ describe('Home', () => {
     (fixture.nativeElement.querySelector('.empty-state-action') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(23);
+    expect(cardNames().length).toBe(27);
     expect(searchInput().value).toBe('');
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
@@ -428,7 +432,7 @@ describe('Home', () => {
     expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
       'Outcomes, not one tool at a time.',
     );
-    expect(cardNames().length).toBe(23);
+    expect(cardNames().length).toBe(27);
   });
 
   it('hides recipes while a search query is active', () => {
@@ -462,7 +466,7 @@ describe('Home', () => {
     expect(section?.querySelector('a')?.getAttribute('href')).toBe(
       '/automations',
     );
-    expect(cardNames().length).toBe(23);
+    expect(cardNames().length).toBe(27);
   });
 
   it('hides the folder-rule card when there are no rules', async () => {

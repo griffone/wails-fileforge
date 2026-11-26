@@ -27,7 +27,6 @@ import { AudioNormalize } from './components/audio/audio-normalize';
 import { Settings } from './components/settings/settings';
 import { RecipeRun } from './components/recipe-run/recipe-run';
 import { Automations } from './components/automations/automations';
-import { Duplicates } from './components/duplicates/duplicates';
 
 export const routes: Routes = [
   { path: '', component: Home },
@@ -35,7 +34,11 @@ export const routes: Routes = [
   { path: 'tool-catalog', component: ToolCatalog },
   { path: 'settings', component: Settings },
   { path: 'automations', component: Automations },
-  { path: 'duplicates', component: Duplicates },
+  {
+    path: 'duplicates',
+    loadComponent: () =>
+      import('./components/duplicates/duplicates').then((m) => m.Duplicates),
+  },
   { path: 'image-crop', component: ImageCrop },
   { path: 'image-annotate', component: ImageAnnotate },
   { path: 'image-compress', component: ImageCompress },
@@ -47,6 +50,32 @@ export const routes: Routes = [
   { path: 'pdf-crop', component: PdfCrop },
   { path: 'pdf-optimize', component: PdfOptimize },
   { path: 'pdf-ocr', component: PdfOcr },
+  {
+    path: 'pdf-rotate',
+    loadComponent: () =>
+      import('./components/pdf-page-ops/pdf-rotate').then((m) => m.PdfRotate),
+  },
+  {
+    path: 'pdf-remove-pages',
+    loadComponent: () =>
+      import('./components/pdf-page-ops/pdf-remove-pages').then(
+        (m) => m.PdfRemovePages,
+      ),
+  },
+  {
+    path: 'pdf-reorder',
+    loadComponent: () =>
+      import('./components/pdf-page-ops/pdf-reorder').then(
+        (m) => m.PdfReorder,
+      ),
+  },
+  {
+    path: 'pdf-extract-images',
+    loadComponent: () =>
+      import('./components/pdf-page-ops/pdf-extract-images').then(
+        (m) => m.PdfExtractImages,
+      ),
+  },
   { path: 'pdf-to-docx', component: PdfToDocx },
   { path: 'pdf-from-images', component: PdfFromImages },
   { path: 'doc-md-to-pdf', component: DocMdToPdf },

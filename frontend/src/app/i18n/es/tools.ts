@@ -68,6 +68,26 @@ export const toolsEs = {
   'tools.tool.pdf.ocr.description':
     'Haz que los PDF escaneados sean buscables con OCR local y un archivo de texto adjunto.',
 
+  'tools.tool.pdf.rotate.name': 'Rotar PDF',
+  'tools.tool.pdf.rotate.navName': 'Rotar',
+  'tools.tool.pdf.rotate.description':
+    'Rota todas las páginas o una selección 90, 180 o 270 grados',
+
+  'tools.tool.pdf.remove_pages.name': 'Eliminar páginas de PDF',
+  'tools.tool.pdf.remove_pages.navName': 'Eliminar páginas',
+  'tools.tool.pdf.remove_pages.description':
+    'Elimina las páginas seleccionadas y conserva el resto del documento',
+
+  'tools.tool.pdf.reorder.name': 'Reordenar páginas de PDF',
+  'tools.tool.pdf.reorder.navName': 'Reordenar',
+  'tools.tool.pdf.reorder.description':
+    'Reescribe el orden de páginas con una especificación explícita, o invierte el documento',
+
+  'tools.tool.pdf.extract_images.name': 'Extraer imágenes de PDF',
+  'tools.tool.pdf.extract_images.navName': 'Extraer imágenes',
+  'tools.tool.pdf.extract_images.description':
+    'Extrae las imágenes incrustadas a una carpeta con nombres sin colisiones',
+
   'tools.tool.doc.md_to_pdf.name': 'Markdown → PDF',
   'tools.tool.doc.md_to_pdf.navName': 'Markdown',
   'tools.tool.doc.md_to_pdf.description':

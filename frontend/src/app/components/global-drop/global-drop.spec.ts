@@ -78,6 +78,10 @@ describe('GlobalDrop', () => {
       'PDF Split',
       'PDF Crop',
       'PDF Optimize',
+      'PDF Rotate',
+      'PDF Remove Pages',
+      'PDF Reorder Pages',
+      'PDF Extract Images',
       'PDF to DOCX',
     ]);
 
@@ -87,6 +91,10 @@ describe('GlobalDrop', () => {
       'PDF Split',
       'PDF Crop',
       'PDF Optimize',
+      'PDF Rotate',
+      'PDF Remove Pages',
+      'PDF Reorder Pages',
+      'PDF Extract Images',
       'PDF to DOCX',
     ]);
   });
@@ -121,6 +129,10 @@ describe('GlobalDrop', () => {
       'PDF Split',
       'PDF Crop',
       'PDF Optimize',
+      'PDF Rotate',
+      'PDF Remove Pages',
+      'PDF Reorder Pages',
+      'PDF Extract Images',
       'Markdown → PDF',
       'Video Convert',
       'Video Trim',

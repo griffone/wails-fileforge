@@ -29,6 +29,7 @@ import { pdfFromImagesEs } from './pdf-from-images';
 import { pdfMergeEs } from './pdf-merge';
 import { pdfOcrEs } from './pdf-ocr';
 import { pdfOptimizeEs } from './pdf-optimize';
+import { pdfPageOpsEs } from './pdf-page-ops';
 import { pdfRendererEs } from './pdf-renderer';
 import { pdfSplitEs } from './pdf-split';
 import { pdfToDocxEs } from './pdf-to-docx';
@@ -72,6 +73,7 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...pdfMergeEs,
   ...pdfSplitEs,
   ...pdfCropEs,
+  ...pdfPageOpsEs,
   ...pdfOptimizeEs,
   ...pdfOcrEs,
   ...pdfToDocxEs,

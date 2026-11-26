@@ -1,20 +1,24 @@
 import {
   Activity,
   Anvil,
+  ArrowUpDown,
   Captions,
   Combine,
   Crop,
   Eraser,
+  FileMinus,
   FileText,
   FileType,
   Frame,
   Gauge,
   House,
   Image as ImageIcon,
+  Images,
   Layers,
   LayoutGrid,
   Minimize2,
   PenTool,
+  RotateCw,
   ScanText,
   Scissors,
   ScanSearch,
@@ -153,7 +157,7 @@ export const DUPLICATES_TOOL: ToolDefinition = {
   ],
 };
 
-/** The twenty-three conversion tools. Ids mirror the backend toolId contract. */
+/** The twenty-seven conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -344,6 +348,84 @@ export const TOOLS: readonly ToolDefinition[] = [
     keywords: ['pdf', 'ocr', 'scan', 'searchable', 'text', 'tesseract', 'recognize'],
   },
   {
+    id: 'tool.pdf.rotate',
+    name: 'PDF Rotate',
+    navName: 'Rotate',
+    description: 'Rotate all pages or a page selection by 90, 180 or 270 degrees',
+    route: '/pdf-rotate',
+    category: 'pdf',
+    icon: RotateCw,
+    formats: ['PDF'],
+    keywords: [
+      'pdf',
+      'rotate',
+      'rotation',
+      'turn',
+      'pages',
+      'angle',
+      '90',
+      '180',
+      '270',
+    ],
+  },
+  {
+    id: 'tool.pdf.remove_pages',
+    name: 'PDF Remove Pages',
+    navName: 'Remove pages',
+    description: 'Delete selected pages and keep the rest of the document',
+    route: '/pdf-remove-pages',
+    category: 'pdf',
+    icon: FileMinus,
+    formats: ['PDF'],
+    keywords: [
+      'pdf',
+      'pages',
+      'delete',
+      'remove',
+      'remove pages',
+      'delete pages',
+      'drop pages',
+    ],
+  },
+  {
+    id: 'tool.pdf.reorder',
+    name: 'PDF Reorder Pages',
+    navName: 'Reorder',
+    description: 'Rewrite the page order from an explicit spec, or reverse the document',
+    route: '/pdf-reorder',
+    category: 'pdf',
+    icon: ArrowUpDown,
+    formats: ['PDF'],
+    keywords: [
+      'pdf',
+      'reorder',
+      'order',
+      'pages',
+      'reverse',
+      'move pages',
+      'sort pages',
+    ],
+  },
+  {
+    id: 'tool.pdf.extract_images',
+    name: 'PDF Extract Images',
+    navName: 'Extract images',
+    description: 'Extract embedded images into a folder with collision-safe names',
+    route: '/pdf-extract-images',
+    category: 'pdf',
+    icon: Images,
+    formats: ['PNG', 'JPG', 'JPEG', 'TIF', 'TIFF', 'JP2'],
+    keywords: [
+      'pdf',
+      'images',
+      'extract',
+      'extract images',
+      'pictures',
+      'photos',
+      'folder',
+    ],
+  },
+  {
     id: 'tool.doc.md_to_pdf',
     name: 'Markdown → PDF',
     navName: 'Markdown',
@@ -504,7 +586,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status, Automations, Duplicates and Settings: the full 28-entry navigation model. */
+/** Home, every tool, then System Status, Automations, Duplicates and Settings: the full 32-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,
