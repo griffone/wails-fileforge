@@ -43,6 +43,7 @@ import { toolchainEs } from './toolchain';
 import { toolsEs } from './tools';
 import { videoConvertEs } from './video-convert';
 import { videoMergeEs } from './video-merge';
+import { videoTargetEs } from './video-target';
 import { videoTranscribeEs } from './video-transcribe';
 import { videoTrimEs } from './video-trim';
 
@@ -89,6 +90,7 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...videoConvertEs,
   ...videoTrimEs,
   ...videoMergeEs,
+  ...videoTargetEs,
   ...videoTranscribeEs,
   ...pdfRendererEs,
 };

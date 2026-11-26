@@ -40,6 +40,7 @@ import { toolchainEn } from './toolchain';
 import { toolsEn } from './tools';
 import { videoConvertEn } from './video-convert';
 import { videoMergeEn } from './video-merge';
+import { videoTargetEn } from './video-target';
 import { videoTranscribeEn } from './video-transcribe';
 import { videoTrimEn } from './video-trim';
 
@@ -86,6 +87,7 @@ export const en = {
   ...videoConvertEn,
   ...videoTrimEn,
   ...videoMergeEn,
+  ...videoTargetEn,
   ...videoTranscribeEn,
   ...pdfRendererEn,
 } as const;

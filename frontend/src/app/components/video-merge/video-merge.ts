@@ -12,6 +12,11 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue, FileQueueReorder } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
+import { VideoTargetReport } from '../tool-flow/video-target-report';
+import {
+  DESTINATION_PRESETS,
+  DestinationPreset,
+} from '../../config/destination-presets';
 import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
@@ -28,6 +33,12 @@ import {
 } from '../../utils/format';
 import { createToolOptions } from '../../utils/tool-options';
 import { ToolRunController } from '../../utils/tool-run-controller';
+import {
+  VideoTarget,
+  normalizeTargetMb,
+  parseTargetMb,
+} from '../../utils/video-target';
+import type { TranslationKey } from '../../i18n';
 
 const VIDEO_MERGE_TOOL_ID = 'tool.video.merge';
 const PLAN_DEBOUNCE_MS = 200;
@@ -38,22 +49,35 @@ const CROSSFADE_DURATION_MIN = 0.1;
 const CROSSFADE_DURATION_MAX = 3.0;
 
 type VideoTransition = 'none' | 'crossfade';
+type MergeMode = 'auto' | 'copy' | 'reencode';
+
+const MERGE_MODES: readonly MergeMode[] = ['auto', 'copy', 'reencode'];
+
+const MERGE_MODE_HELP_KEYS: Record<MergeMode, TranslationKey> = {
+  auto: 'videoMerge.advanced.mergeModeHelpAuto',
+  copy: 'videoMerge.advanced.mergeModeHelpCopy',
+  reencode: 'videoMerge.advanced.mergeModeHelpReencode',
+};
 
 const SUPPORTED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm']);
 
 type VideoMergeOptions = {
   selectedPresetId: string;
+  mergeMode: MergeMode;
   removeAudio: boolean;
   transition: VideoTransition;
   transitionDuration: string;
+  targetMb: number | null;
 };
 
 function defaultOptions(): VideoMergeOptions {
   return {
     selectedPresetId: VIDEO_PRESETS[0].id,
+    mergeMode: 'auto',
     removeAudio: false,
     transition: 'none',
     transitionDuration: CROSSFADE_DURATION_DEFAULT.toFixed(1),
+    targetMb: null,
   };
 }
 
@@ -70,6 +94,14 @@ function normalizeOptions(
     result.selectedPresetId = presetId;
   }
 
+  const mergeMode = stored['mergeMode'];
+  if (
+    typeof mergeMode === 'string' &&
+    MERGE_MODES.some((mode) => mode === mergeMode)
+  ) {
+    result.mergeMode = mergeMode as MergeMode;
+  }
+
   if (typeof stored['removeAudio'] === 'boolean') {
     result.removeAudio = stored['removeAudio'];
   }
@@ -82,6 +114,11 @@ function normalizeOptions(
   const duration = stored['transitionDuration'];
   if (typeof duration === 'string') {
     result.transitionDuration = duration;
+  }
+
+  const targetMb = normalizeTargetMb(stored['targetMb']);
+  if (targetMb !== undefined) {
+    result.targetMb = targetMb;
   }
 
   return result;
@@ -97,6 +134,7 @@ function normalizeOptions(
     OutputPlanCard,
     ResultCard,
     JobCard,
+    VideoTargetReport,
   ],
   templateUrl: './video-merge.html',
   styleUrl: './video-merge.css',
@@ -106,6 +144,9 @@ export class VideoMerge implements OnDestroy, OnInit {
   private readonly preferences = inject(PreferencesService);
   readonly i18n = inject(I18nService);
   private readonly wailsService = inject(Wails);
+
+  /** Shared target-size state; a target forces a re-encode. */
+  readonly target = new VideoTarget(this.i18n);
 
   private readonly settings = createToolOptions(this.preferences, {
     toolId: VIDEO_MERGE_TOOL_ID,
@@ -125,7 +166,8 @@ export class VideoMerge implements OnDestroy, OnInit {
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) =>
       SUPPORTED_VIDEO_EXTENSIONS.has(fileExtension(path).toLowerCase()),
-    canPlan: () => this.selectedPaths().length >= 2,
+    canPlan: () =>
+      this.selectedPaths().length >= 2 && this.target.valid(),
     canRun: () => this.canRun(),
     alwaysRefreshPlanBeforeRun: false,
     describeFileInfo: (info) => this.describeFileInfo(info),
@@ -157,10 +199,12 @@ export class VideoMerge implements OnDestroy, OnInit {
   readonly alertIcon = TriangleAlert;
 
   readonly presets = VIDEO_PRESETS;
+  readonly destinationPresets = DESTINATION_PRESETS;
 
   readonly selectedPaths = this.job.selectedPaths;
   readonly fileItems = this.job.fileItems;
   readonly selectedPresetId = signal(VIDEO_PRESETS[0].id);
+  readonly mergeMode = signal<MergeMode>('auto');
   readonly removeAudio = signal(false);
   readonly transition = signal<VideoTransition>('none');
   readonly transitionDuration = signal(
@@ -239,6 +283,7 @@ export class VideoMerge implements OnDestroy, OnInit {
     () =>
       this.selectedPaths().length >= 2 &&
       !this.transitionDurationInvalid() &&
+      this.target.valid() &&
       !this.isSubmitting() &&
       !this.isPolling(),
   );
@@ -271,8 +316,26 @@ export class VideoMerge implements OnDestroy, OnInit {
     if (count === 1) {
       return this.i18n.t('videoMerge.helper.addOneMore');
     }
+    if (!this.target.valid()) {
+      return this.target.error() ?? '';
+    }
     return '';
   });
+
+  /**
+   * Copy and auto copy the source streams, so a byte target always plans and
+   * runs as a two-pass re-encode. The select keeps the user's own choice for
+   * when the target is cleared.
+   */
+  readonly effectiveMergeMode = computed<MergeMode>(() =>
+    this.target.hasTarget() ? 'reencode' : this.mergeMode(),
+  );
+
+  readonly mergeModeHelp = computed(() =>
+    this.target.hasTarget()
+      ? this.i18n.t('videoTarget.mode.forced')
+      : this.i18n.t(MERGE_MODE_HELP_KEYS[this.mergeMode()]),
+  );
 
   ngOnInit(): void {
     this.restoreOptions();
@@ -329,6 +392,35 @@ export class VideoMerge implements OnDestroy, OnInit {
     }
     this.selectedPresetId.set(presetId);
     void this.job.refreshPlan();
+  }
+
+  onMergeModeChange(event: Event): void {
+    // A target forces the re-encode, and the select is disabled while it is set.
+    if (this.target.hasTarget()) {
+      return;
+    }
+
+    const value = (event.target as HTMLSelectElement | null)?.value;
+    if (!MERGE_MODES.includes(value as MergeMode)) {
+      return;
+    }
+    this.mergeMode.set(value as MergeMode);
+    this.actionMessage.set('');
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
+  }
+
+  onTargetInput(event: Event): void {
+    const raw = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.target.targetMb.set(parseTargetMb(raw));
+    this.actionMessage.set('');
+    this.schedulePlan();
+  }
+
+  /** A preset writes its exact MB value into the field and re-plans. */
+  selectTargetPreset(preset: DestinationPreset): void {
+    this.target.selectPreset(preset);
+    this.actionMessage.set('');
+    this.schedulePlan();
   }
 
   onRemoveAudioToggle(event: Event): void {
@@ -412,18 +504,31 @@ export class VideoMerge implements OnDestroy, OnInit {
   private currentOptions(): VideoMergeOptions {
     return {
       selectedPresetId: this.selectedPresetId(),
+      mergeMode: this.mergeMode(),
       removeAudio: this.removeAudio(),
       transition: this.transition(),
       transitionDuration: this.transitionDuration(),
+      targetMb: this.target.targetMb(),
     };
   }
 
   private restoreOptions(): void {
     const options = this.settings.restore();
     this.selectedPresetId.set(options.selectedPresetId);
+    this.mergeMode.set(options.mergeMode);
     this.removeAudio.set(options.removeAudio);
     this.transition.set(options.transition);
     this.transitionDuration.set(options.transitionDuration);
+    this.target.restore(options.targetMb);
+  }
+
+  /** An unusable target cannot be planned, so the old plan is dropped now. */
+  private schedulePlan(): void {
+    if (this.selectedPaths().length < 2 || !this.target.valid()) {
+      this.job.clearPlan();
+      return;
+    }
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   private buildRequest(): JobRequest {
@@ -431,7 +536,12 @@ export class VideoMerge implements OnDestroy, OnInit {
     const options: Record<string, unknown> = {
       targetFormat: preset.targetFormat,
       qualityPreset: preset.qualityPreset,
+      mergeMode: this.effectiveMergeMode(),
     };
+    const targetSizeBytes = this.target.sizeBytes();
+    if (targetSizeBytes > 0) {
+      options['targetSizeBytes'] = targetSizeBytes;
+    }
     if (this.removeAudio()) {
       options['removeAudio'] = true;
     }

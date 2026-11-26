@@ -8,7 +8,11 @@ import {
 import { Subject } from 'rxjs';
 
 import { VideoConvert } from './video-convert';
+import { DESTINATION_PRESETS } from '../../config/destination-presets';
 import { I18nService } from '../../services/i18n.service';
+import {
+  toolOptionsStorageKey,
+} from '../../services/preferences.service';
 import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
@@ -80,6 +84,7 @@ describe('VideoConvert', () => {
     jobId: string,
     inputPath: string,
     outputPath: string,
+    details?: Record<string, unknown>,
   ): JobStatusResponse {
     const result: JobResult = {
       jobId,
@@ -100,6 +105,7 @@ describe('VideoConvert', () => {
           outputs: [outputPath],
           success: true,
           message: 'Video conversion successful',
+          ...(details ? { details } : {}),
         },
       ],
       startedAt: 1,
@@ -112,8 +118,35 @@ describe('VideoConvert', () => {
     return { target: { value } } as unknown as Event;
   }
 
+  function inputEvent(value: string): Event {
+    return { target: { value } } as unknown as Event;
+  }
+
   function checkedEvent(checked: boolean): Event {
     return { target: { checked } } as unknown as Event;
+  }
+
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
+  }
+
+  function storedValues(): Record<string, unknown> {
+    const raw = localStorage.getItem(
+      toolOptionsStorageKey('tool.video.convert'),
+    );
+    if (!raw) {
+      return {};
+    }
+    return (
+      (JSON.parse(raw) as { values?: Record<string, unknown> }).values ?? {}
+    );
+  }
+
+  function seedOptions(values: Record<string, unknown>): void {
+    localStorage.setItem(
+      toolOptionsStorageKey('tool.video.convert'),
+      JSON.stringify({ schemaVersion: 1, values }),
+    );
   }
 
   beforeEach(async () => {
@@ -475,6 +508,229 @@ describe('VideoConvert', () => {
     expect(details.open).toBeTrue();
   });
 
+  it('fills the target from a preset chip and re-plans in bytes', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const chip = fixture.nativeElement.querySelector(
+      '[data-preset="discord"]',
+    ) as HTMLButtonElement;
+    chip.click();
+    tick(200);
+    flushMicrotasks();
+
+    expect(component.target.targetMb()).toBe(9.5);
+    expect(component.target.activePresetId()).toBe('discord');
+    expect(component.target.sizeBytes()).toBe(9_961_472);
+    expect(component.target.summary()).toBe('Target 9.5 MB per video');
+    expect(lastPlanRequest().options['targetSizeBytes']).toBe(9_961_472);
+  }));
+
+  it('deselects the chip for a custom target and matches a typed preset value', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+
+    component.onTargetInput(inputEvent('9.5'));
+    tick(200);
+    flushMicrotasks();
+    expect(component.target.activePresetId()).toBe('discord');
+
+    component.onTargetInput(inputEvent('12'));
+    tick(200);
+    flushMicrotasks();
+    expect(component.target.activePresetId()).toBeNull();
+    expect(lastPlanRequest().options['targetSizeBytes']).toBe(12_582_912);
+
+    component.onTargetInput(inputEvent('16'));
+    tick(200);
+    flushMicrotasks();
+    expect(component.target.activePresetId()).toBe('whatsapp');
+    expect(component.target.sizeBytes()).toBe(16_777_216);
+  }));
+
+  it('shows the preset and the target on the plan card', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+
+    component.selectTargetPreset(
+      DESTINATION_PRESETS.find((preset) => preset.id === 'email')!,
+    );
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const row = fixture.nativeElement.querySelector(
+      '.output-plan-target',
+    ) as HTMLElement;
+    expect(row.textContent).toContain('25 MB');
+    expect(row.textContent).toContain('Email');
+  }));
+
+  it('blocks the plan and the run for an unusable target', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJob.calls.count();
+
+    component.onTargetInput(inputEvent('0'));
+    tick(200);
+    flushMicrotasks();
+
+    expect(component.target.valid()).toBeFalse();
+    expect(component.target.hasTarget()).toBeFalse();
+    expect(component.plan()).toBeNull();
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls);
+    expect(component.canRun()).toBeFalse();
+    expect(component.actionHelper()).toBe(
+      'Enter a target size greater than 0 MB.',
+    );
+  }));
+
+  it('disables and clears the bitrate while a target is set', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+
+    component.onBitrateChange(changeEvent('5000'));
+    tick(200);
+    flushMicrotasks();
+    expect(component.bitrateKbps()).toBe(5000);
+    expect(lastPlanRequest().options['bitrateKbps']).toBe(5000);
+
+    component.selectTargetPreset(DESTINATION_PRESETS[0]);
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.bitrateKbps()).toBeNull();
+    expect(lastPlanRequest().options['targetSizeBytes']).toBe(9_961_472);
+    expect('bitrateKbps' in lastPlanRequest().options).toBeFalse();
+    const bitrate = fixture.nativeElement.querySelector(
+      '#video-convert-bitrate',
+    ) as HTMLSelectElement;
+    expect(bitrate.disabled).toBeTrue();
+
+    component.onTargetInput(inputEvent(''));
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.target.hasTarget()).toBeFalse();
+    expect('targetSizeBytes' in lastPlanRequest().options).toBeFalse();
+    expect(bitrate.disabled).toBeFalse();
+  }));
+
+  it('remembers and restores the target with the other options', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+
+    component.onResolutionChange(changeEvent('720p'));
+    component.selectTargetPreset(DESTINATION_PRESETS[0]);
+    tick(200);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(storedValues()['targetMb']).toBe(9.5);
+    expect(storedValues()['resolution']).toBe('720p');
+
+    const recreated = TestBed.createComponent(VideoConvert);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    expect(page.target.targetMb()).toBe(9.5);
+    expect(page.bitrateKbps()).toBeNull();
+
+    page.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    const planned = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
+    expect(planned.options['targetSizeBytes']).toBe(9_961_472);
+
+    recreated.destroy();
+  }));
+
+  it('restores a remembered target and clears a conflicting bitrate', fakeAsync(() => {
+    seedOptions({ targetMb: 16, bitrateKbps: 8000 });
+
+    const recreated = TestBed.createComponent(VideoConvert);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    expect(page.target.targetMb()).toBe(16);
+    expect(page.bitrateKbps()).toBeNull();
+
+    recreated.destroy();
+  }));
+
+  it('renders the target report for a result with details', fakeAsync(() => {
+    const inputPath = '/tmp/in/clip.mov';
+    const outputPath = '/tmp/in/clip_converted.mp4';
+
+    wailsSpy.runJob.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-report',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatus.and.resolveTo(
+      terminalStatus('job-report', inputPath, outputPath, {
+        targetSizeBytes: 9_961_472,
+        actualSizeBytes: 8_900_000,
+        targetBitrateKbps: 1480,
+        floorKbps: 800,
+        floorApplied: false,
+        targetMet: true,
+        attempts: 1,
+      }),
+    );
+
+    component.onPathsSelected([inputPath]);
+    flushMicrotasks();
+    component.selectTargetPreset(DESTINATION_PRESETS[0]);
+    tick(200);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const text =
+      (fixture.nativeElement.querySelector('.video-target-panel') as HTMLElement)
+        ?.textContent ?? '';
+    expect(text).toContain('Target result');
+    expect(text).toContain('8.5 MB of 9.5 MB target · 1480 kbps');
+    expect(text).toContain('Target met');
+  }));
+
+  it('renders no target report when the result has no details', fakeAsync(() => {
+    const inputPath = '/tmp/in/clip.mov';
+    const outputPath = '/tmp/in/clip_converted.mp4';
+
+    wailsSpy.runJob.and.resolveTo({
+      success: true,
+      message: 'queued',
+      jobId: 'job-nodetails',
+      status: 'queued',
+    });
+    wailsSpy.getJobStatus.and.resolveTo(
+      terminalStatus('job-nodetails', inputPath, outputPath),
+    );
+
+    component.onPathsSelected([inputPath]);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('.video-target-panel'),
+    ).toBeNull();
+  }));
+
   it('renders the page copy in Spanish', () => {
     TestBed.inject(I18nService).setLocale('es');
     fixture.detectChanges();
@@ -491,5 +747,11 @@ describe('VideoConvert', () => {
     expect(
       element.querySelector('.toolbar .btn-secondary')?.textContent,
     ).toContain('Elegir vídeos');
+    expect(
+      element.querySelector('label[for="video-convert-target"]')?.textContent,
+    ).toContain('Tamaño objetivo (MB)');
+    expect(
+      element.querySelector('.target-presets')?.getAttribute('aria-label'),
+    ).toContain('Preajustes de destino');
   });
 });

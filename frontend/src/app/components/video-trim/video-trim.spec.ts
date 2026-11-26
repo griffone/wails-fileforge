@@ -8,7 +8,9 @@ import {
 import { Subject } from 'rxjs';
 
 import { VideoTrim } from './video-trim';
+import { DESTINATION_PRESETS } from '../../config/destination-presets';
 import { I18nService } from '../../services/i18n.service';
+import { toolOptionsStorageKey } from '../../services/preferences.service';
 import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
@@ -110,6 +112,24 @@ describe('VideoTrim', () => {
 
   function changeEvent(value: string): Event {
     return { target: { value } } as unknown as Event;
+  }
+
+  function inputEvent(value: string): Event {
+    return { target: { value } } as unknown as Event;
+  }
+
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
+  }
+
+  function storedValues(): Record<string, unknown> {
+    const raw = localStorage.getItem(toolOptionsStorageKey('tool.video.trim'));
+    if (!raw) {
+      return {};
+    }
+    return (
+      (JSON.parse(raw) as { values?: Record<string, unknown> }).values ?? {}
+    );
   }
 
   beforeEach(async () => {
@@ -614,6 +634,107 @@ describe('VideoTrim', () => {
     expect(details.open).toBeTrue();
   });
 
+  it('fills the target from a preset chip and forces a re-encode', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    component.onEndInput(changeEvent('00:30'));
+    tick(200);
+    flushMicrotasks();
+
+    component.onTrimModeChange(changeEvent('copy'));
+    tick(200);
+    flushMicrotasks();
+    expect(component.effectiveTrimMode()).toBe('copy');
+
+    component.selectTargetPreset(DESTINATION_PRESETS[0]);
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.target.targetMb()).toBe(9.5);
+    expect(component.target.sizeBytes()).toBe(9_961_472);
+    expect(component.effectiveTrimMode()).toBe('reencode');
+
+    const request = lastPlanRequest();
+    expect(request.options['targetSizeBytes']).toBe(9_961_472);
+    expect(request.options['trimMode']).toBe('reencode');
+
+    const select = fixture.nativeElement.querySelector(
+      '#video-trim-mode',
+    ) as HTMLSelectElement;
+    expect(select.disabled).toBeTrue();
+    expect(select.value).toBe('reencode');
+  }));
+
+  it('restores the chosen trim mode when the target is cleared', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    component.onEndInput(changeEvent('00:30'));
+    tick(200);
+    flushMicrotasks();
+
+    component.onTrimModeChange(changeEvent('copy'));
+    component.selectTargetPreset(DESTINATION_PRESETS[0]);
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    component.onTargetInput(inputEvent(''));
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.target.hasTarget()).toBeFalse();
+    expect(component.trimMode()).toBe('copy');
+    expect(component.effectiveTrimMode()).toBe('copy');
+    expect('targetSizeBytes' in lastPlanRequest().options).toBeFalse();
+    expect(lastPlanRequest().options['trimMode']).toBe('copy');
+
+    const select = fixture.nativeElement.querySelector(
+      '#video-trim-mode',
+    ) as HTMLSelectElement;
+    expect(select.disabled).toBeFalse();
+    expect(select.value).toBe('copy');
+  }));
+
+  it('keeps the plan and the run blocked for an unusable target', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    component.onEndInput(changeEvent('00:30'));
+    tick(200);
+    flushMicrotasks();
+
+    component.onTargetInput(inputEvent('-3'));
+    tick(200);
+    flushMicrotasks();
+
+    expect(component.target.valid()).toBeFalse();
+    expect(component.plan()).toBeNull();
+    expect(component.canRun()).toBeFalse();
+    expect(component.actionHelper()).toBe(
+      'Enter a target size greater than 0 MB.',
+    );
+  }));
+
+  it('remembers the target with the trim mode', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/clip.mov']);
+    flushMicrotasks();
+    component.onEndInput(changeEvent('00:30'));
+    tick(200);
+    flushMicrotasks();
+
+    component.onTrimModeChange(changeEvent('copy'));
+    component.selectTargetPreset(DESTINATION_PRESETS[2]);
+    tick(200);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(storedValues()['targetMb']).toBe(25);
+    expect(storedValues()['trimMode']).toBe('copy');
+  }));
+
   it('renders the page copy in Spanish', () => {
     TestBed.inject(I18nService).setLocale('es');
     fixture.detectChanges();
@@ -630,5 +751,11 @@ describe('VideoTrim', () => {
     expect(
       element.querySelector('.toolbar .btn-secondary')?.textContent,
     ).toContain('Elegir vídeos');
+    expect(
+      element.querySelector('label[for="video-trim-target"]')?.textContent,
+    ).toContain('Tamaño objetivo (MB)');
+    expect(
+      element.querySelector('.target-presets')?.getAttribute('aria-label'),
+    ).toContain('Preajustes de destino');
   });
 });

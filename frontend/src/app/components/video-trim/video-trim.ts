@@ -24,6 +24,11 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
+import { VideoTargetReport } from '../tool-flow/video-target-report';
+import {
+  DESTINATION_PRESETS,
+  DestinationPreset,
+} from '../../config/destination-presets';
 import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
@@ -46,6 +51,11 @@ import {
 } from '../../utils/format';
 import { createToolOptions } from '../../utils/tool-options';
 import { ToolRunController } from '../../utils/tool-run-controller';
+import {
+  VideoTarget,
+  normalizeTargetMb,
+  parseTargetMb,
+} from '../../utils/video-target';
 import type { TranslationKey } from '../../i18n';
 
 const VIDEO_TRIM_TOOL_ID = 'tool.video.trim';
@@ -82,10 +92,15 @@ const TRIM_MODE_HELP_KEYS: Record<TrimMode, TranslationKey> = {
 type VideoTrimOptions = {
   selectedPresetId: string;
   trimMode: TrimMode;
+  targetMb: number | null;
 };
 
 function defaultOptions(): VideoTrimOptions {
-  return { selectedPresetId: VIDEO_PRESETS[0].id, trimMode: 'auto' };
+  return {
+    selectedPresetId: VIDEO_PRESETS[0].id,
+    trimMode: 'auto',
+    targetMb: null,
+  };
 }
 
 function normalizeOptions(
@@ -106,6 +121,11 @@ function normalizeOptions(
     result.trimMode = trimMode;
   }
 
+  const targetMb = normalizeTargetMb(stored['targetMb']);
+  if (targetMb !== undefined) {
+    result.targetMb = targetMb;
+  }
+
   return result;
 }
 
@@ -119,6 +139,7 @@ function normalizeOptions(
     OutputPlanCard,
     ResultCard,
     JobCard,
+    VideoTargetReport,
   ],
   templateUrl: './video-trim.html',
   styleUrl: './video-trim.css',
@@ -128,6 +149,9 @@ export class VideoTrim implements OnDestroy, OnInit {
   private readonly preferences = inject(PreferencesService);
   readonly i18n = inject(I18nService);
   private readonly wailsService = inject(Wails);
+
+  /** Shared target-size state; a target forces a re-encode. */
+  readonly target = new VideoTarget(this.i18n);
 
   private readonly settings = createToolOptions(this.preferences, {
     toolId: VIDEO_TRIM_TOOL_ID,
@@ -147,7 +171,10 @@ export class VideoTrim implements OnDestroy, OnInit {
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) =>
       SUPPORTED_VIDEO_EXTENSIONS.has(fileExtension(path).toLowerCase()),
-    canPlan: () => this.selectedPaths().length > 0 && this.timeRangeValid(),
+    canPlan: () =>
+      this.selectedPaths().length > 0 &&
+      this.timeRangeValid() &&
+      this.target.valid(),
     canRun: () => this.canRun(),
     alwaysRefreshPlanBeforeRun: false,
     describeFileInfo: (info) => this.describeFileInfo(info),
@@ -185,6 +212,7 @@ export class VideoTrim implements OnDestroy, OnInit {
   readonly videoOffIcon = VideoOff;
 
   readonly presets = VIDEO_PRESETS;
+  readonly destinationPresets = DESTINATION_PRESETS;
 
   readonly selectedPaths = this.job.selectedPaths;
   readonly fileItems = this.job.fileItems;
@@ -403,6 +431,7 @@ export class VideoTrim implements OnDestroy, OnInit {
     () =>
       this.selectedPaths().length > 0 &&
       this.timeRangeValid() &&
+      this.target.valid() &&
       !this.isSubmitting() &&
       !this.isPolling(),
   );
@@ -411,14 +440,28 @@ export class VideoTrim implements OnDestroy, OnInit {
     if (this.selectedPaths().length === 0) {
       return this.i18n.t('videoTrim.helper.addOne');
     }
+    if (!this.target.valid()) {
+      return this.target.error() ?? '';
+    }
     if (!this.endInput().trim()) {
       return this.i18n.t('videoTrim.helper.setEnd');
     }
     return '';
   });
 
+  /**
+   * Copy and auto copy the source stream, so they cannot hit a byte target.
+   * A target therefore always plans (and runs) as a two-pass re-encode, while
+   * the select keeps the user's own choice for when the target is cleared.
+   */
+  readonly effectiveTrimMode = computed<TrimMode>(() =>
+    this.target.hasTarget() ? 'reencode' : this.trimMode(),
+  );
+
   readonly trimModeHelp = computed(() =>
-    this.i18n.t(TRIM_MODE_HELP_KEYS[this.trimMode()]),
+    this.target.hasTarget()
+      ? this.i18n.t('videoTarget.mode.forced')
+      : this.i18n.t(TRIM_MODE_HELP_KEYS[this.trimMode()]),
   );
 
   private mediaRequestToken = 0;
@@ -477,12 +520,30 @@ export class VideoTrim implements OnDestroy, OnInit {
   }
 
   onTrimModeChange(event: Event): void {
+    // A target forces the re-encode, and the select is disabled while it is set.
+    if (this.target.hasTarget()) {
+      return;
+    }
+
     const value = this.readSelect(event);
     if (value !== 'auto' && value !== 'copy' && value !== 'reencode') {
       return;
     }
     this.trimMode.set(value);
     this.job.schedulePlanRefresh(TIME_PLAN_DEBOUNCE_MS);
+  }
+
+  onTargetInput(event: Event): void {
+    this.target.targetMb.set(parseTargetMb(this.readInput(event)));
+    this.actionMessage.set('');
+    this.schedulePlan();
+  }
+
+  /** A preset writes its exact MB value into the field and re-plans. */
+  selectTargetPreset(preset: DestinationPreset): void {
+    this.target.selectPreset(preset);
+    this.actionMessage.set('');
+    this.schedulePlan();
   }
 
   onStartInput(event: Event): void {
@@ -841,6 +902,7 @@ export class VideoTrim implements OnDestroy, OnInit {
     return {
       selectedPresetId: this.selectedPresetId(),
       trimMode: this.trimMode(),
+      targetMb: this.target.targetMb(),
     };
   }
 
@@ -848,6 +910,7 @@ export class VideoTrim implements OnDestroy, OnInit {
     const options = this.settings.restore();
     this.selectedPresetId.set(options.selectedPresetId);
     this.trimMode.set(options.trimMode);
+    this.target.restore(options.targetMb);
   }
 
   private videoElement(): HTMLVideoElement | null {
@@ -1067,23 +1130,34 @@ export class VideoTrim implements OnDestroy, OnInit {
 
   private buildRequest(): JobRequest {
     const paths = this.selectedPaths();
+    const options: Record<string, unknown> = {
+      startTime: this.startSeconds() ?? 0,
+      endTime: this.endSeconds() ?? 0,
+      targetFormat: this.targetFormat(),
+      qualityPreset: this.qualityPreset(),
+      trimMode: this.effectiveTrimMode(),
+    };
+    const targetSizeBytes = this.target.sizeBytes();
+    if (targetSizeBytes > 0) {
+      options['targetSizeBytes'] = targetSizeBytes;
+    }
+
     return {
       toolId: VIDEO_TRIM_TOOL_ID,
       mode: paths.length > 1 ? 'batch' : 'single',
       inputPaths: [...paths],
       outputDir: this.outputDir(),
-      options: {
-        startTime: this.startSeconds() ?? 0,
-        endTime: this.endSeconds() ?? 0,
-        targetFormat: this.targetFormat(),
-        qualityPreset: this.qualityPreset(),
-        trimMode: this.trimMode(),
-      },
+      options,
     };
   }
 
   private onTimeChanged(): void {
-    if (!this.timeRangeValid()) {
+    this.schedulePlan();
+  }
+
+  /** An unusable time range or target cannot be planned, so the plan is dropped. */
+  private schedulePlan(): void {
+    if (!this.timeRangeValid() || !this.target.valid()) {
       this.job.clearPlan();
       return;
     }

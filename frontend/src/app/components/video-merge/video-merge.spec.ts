@@ -8,7 +8,9 @@ import {
 import { Subject } from 'rxjs';
 
 import { VideoMerge } from './video-merge';
+import { DESTINATION_PRESETS } from '../../config/destination-presets';
 import { I18nService } from '../../services/i18n.service';
+import { toolOptionsStorageKey } from '../../services/preferences.service';
 import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
@@ -122,6 +124,27 @@ describe('VideoMerge', () => {
 
   function valueEvent(value: string): Event {
     return { target: { value } } as unknown as Event;
+  }
+
+  function lastPlanRequest(): JobRequest {
+    return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
+  }
+
+  function storedValues(): Record<string, unknown> {
+    const raw = localStorage.getItem(toolOptionsStorageKey('tool.video.merge'));
+    if (!raw) {
+      return {};
+    }
+    return (
+      (JSON.parse(raw) as { values?: Record<string, unknown> }).values ?? {}
+    );
+  }
+
+  function seedOptions(values: Record<string, unknown>): void {
+    localStorage.setItem(
+      toolOptionsStorageKey('tool.video.merge'),
+      JSON.stringify({ schemaVersion: 1, values }),
+    );
   }
 
   beforeEach(async () => {
@@ -513,6 +536,105 @@ describe('VideoMerge', () => {
     expect(wailsSpy.planJob).not.toHaveBeenCalled();
   }));
 
+  it('fills the target from a chip and forces a re-encode', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    component.onMergeModeChange(valueEvent('copy'));
+    tick(200);
+    flushMicrotasks();
+    expect(component.effectiveMergeMode()).toBe('copy');
+
+    const chip = fixture.nativeElement.querySelector(
+      '[data-preset="discord"]',
+    ) as HTMLButtonElement;
+    chip.click();
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.target.targetMb()).toBe(9.5);
+    expect(component.target.sizeBytes()).toBe(9_961_472);
+    expect(component.effectiveMergeMode()).toBe('reencode');
+
+    const request = lastPlanRequest();
+    expect(request.options['targetSizeBytes']).toBe(9_961_472);
+    expect(request.options['mergeMode']).toBe('reencode');
+
+    const select = fixture.nativeElement.querySelector(
+      '#video-merge-mode',
+    ) as HTMLSelectElement;
+    expect(select.disabled).toBeTrue();
+    expect(select.value).toBe('reencode');
+  }));
+
+  it('restores the chosen merge mode when the target is cleared', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+
+    component.onMergeModeChange(valueEvent('copy'));
+    component.selectTargetPreset(DESTINATION_PRESETS[0]);
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    component.onTargetInput(valueEvent(''));
+    tick(200);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.target.hasTarget()).toBeFalse();
+    expect(component.mergeMode()).toBe('copy');
+    expect(component.effectiveMergeMode()).toBe('copy');
+    expect(lastPlanRequest().options['mergeMode']).toBe('copy');
+    expect('targetSizeBytes' in lastPlanRequest().options).toBeFalse();
+
+    const select = fixture.nativeElement.querySelector(
+      '#video-merge-mode',
+    ) as HTMLSelectElement;
+    expect(select.disabled).toBeFalse();
+    expect(select.value).toBe('copy');
+  }));
+
+  it('remembers and restores the target with the merge mode', fakeAsync(() => {
+    seedOptions({ mergeMode: 'copy', targetMb: 16 });
+
+    const recreated = TestBed.createComponent(VideoMerge);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    expect(page.target.targetMb()).toBe(16);
+    expect(page.mergeMode()).toBe('copy');
+    expect(page.effectiveMergeMode()).toBe('reencode');
+
+    page.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+    const request = wailsSpy.planJob.calls.mostRecent()
+      .args[0] as JobRequest;
+    expect(request.options['targetSizeBytes']).toBe(16_777_216);
+    expect(request.options['mergeMode']).toBe('reencode');
+
+    recreated.destroy();
+  }));
+
+  it('saves the target and the chosen merge mode after a run', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.mp4', '/tmp/b.mov']);
+    flushMicrotasks();
+
+    component.onMergeModeChange(valueEvent('copy'));
+    component.selectTargetPreset(DESTINATION_PRESETS[2]);
+    tick(200);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(storedValues()['targetMb']).toBe(25);
+    expect(storedValues()['mergeMode']).toBe('copy');
+  }));
+
   it('renders the page copy in Spanish', () => {
     TestBed.inject(I18nService).setLocale('es');
     fixture.detectChanges();
@@ -527,7 +649,14 @@ describe('VideoMerge', () => {
         ?.textContent,
     ).toContain('Fundido cruzado');
     expect(
+      element.querySelector('#video-merge-mode option[value="copy"]')
+        ?.textContent,
+    ).toContain('Copia');
+    expect(
       element.querySelector('.toolbar .btn-secondary')?.textContent,
     ).toContain('Elegir vídeos');
+    expect(
+      element.querySelector('label[for="video-merge-target"]')?.textContent,
+    ).toContain('Tamaño objetivo (MB)');
   });
 });

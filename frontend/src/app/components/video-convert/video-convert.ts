@@ -13,6 +13,11 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
+import { VideoTargetReport } from '../tool-flow/video-target-report';
+import {
+  DESTINATION_PRESETS,
+  DestinationPreset,
+} from '../../config/destination-presets';
 import { VIDEO_PRESETS, VideoPreset } from '../../config/video-presets';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
@@ -29,6 +34,11 @@ import {
 } from '../../utils/format';
 import { createToolOptions } from '../../utils/tool-options';
 import { ToolRunController } from '../../utils/tool-run-controller';
+import {
+  VideoTarget,
+  normalizeTargetMb,
+  parseTargetMb,
+} from '../../utils/video-target';
 import type { TranslationKey } from '../../i18n';
 
 const VIDEO_CONVERT_TOOL_ID = 'tool.video.convert';
@@ -66,6 +76,7 @@ type VideoConvertOptions = {
   resolution: Resolution;
   bitrateKbps: number | null;
   removeAudio: boolean;
+  targetMb: number | null;
 };
 
 function defaultOptions(): VideoConvertOptions {
@@ -76,6 +87,7 @@ function defaultOptions(): VideoConvertOptions {
     resolution: 'original',
     bitrateKbps: null,
     removeAudio: false,
+    targetMb: null,
   };
 }
 
@@ -132,6 +144,11 @@ function normalizeOptions(
     result.removeAudio = stored['removeAudio'];
   }
 
+  const targetMb = normalizeTargetMb(stored['targetMb']);
+  if (targetMb !== undefined) {
+    result.targetMb = targetMb;
+  }
+
   return result;
 }
 
@@ -145,6 +162,7 @@ function normalizeOptions(
     OutputPlanCard,
     ResultCard,
     JobCard,
+    VideoTargetReport,
   ],
   templateUrl: './video-convert.html',
   styleUrl: './video-convert.css',
@@ -154,6 +172,12 @@ export class VideoConvert implements OnDestroy, OnInit {
   private readonly preferences = inject(PreferencesService);
   readonly i18n = inject(I18nService);
   private readonly wailsService = inject(Wails);
+
+  /**
+   * Shared target-size state. A target overrides `bitrateKbps`, so the field
+   * is optional and only lowers the size when the user asks for it.
+   */
+  readonly target = new VideoTarget(this.i18n);
 
   private readonly settings = createToolOptions(this.preferences, {
     toolId: VIDEO_CONVERT_TOOL_ID,
@@ -173,7 +197,7 @@ export class VideoConvert implements OnDestroy, OnInit {
     buildRequest: () => this.buildRequest(),
     acceptsPath: (path) =>
       SUPPORTED_VIDEO_EXTENSIONS.has(fileExtension(path).toLowerCase()),
-    canPlan: () => this.selectedPaths().length > 0,
+    canPlan: () => this.selectedPaths().length > 0 && this.target.valid(),
     canRun: () => this.canRun(),
     alwaysRefreshPlanBeforeRun: false,
     describeFileInfo: (info) => this.describeFileInfo(info),
@@ -203,6 +227,7 @@ export class VideoConvert implements OnDestroy, OnInit {
   readonly resetIcon = RotateCcw;
 
   readonly presets = VIDEO_PRESETS;
+  readonly destinationPresets = DESTINATION_PRESETS;
 
   readonly selectedPaths = this.job.selectedPaths;
   readonly fileItems = this.job.fileItems;
@@ -317,15 +342,20 @@ export class VideoConvert implements OnDestroy, OnInit {
   readonly canRun = computed(
     () =>
       this.selectedPaths().length > 0 &&
+      this.target.valid() &&
       !this.isSubmitting() &&
       !this.isPolling(),
   );
 
-  readonly actionHelper = computed(() =>
-    this.selectedPaths().length === 0
-      ? this.i18n.t('videoConvert.helper.addOne')
-      : '',
-  );
+  readonly actionHelper = computed(() => {
+    if (this.selectedPaths().length === 0) {
+      return this.i18n.t('videoConvert.helper.addOne');
+    }
+    if (!this.target.valid()) {
+      return this.target.error() ?? '';
+    }
+    return '';
+  });
 
   ngOnInit(): void {
     this.restoreOptions();
@@ -377,6 +407,21 @@ export class VideoConvert implements OnDestroy, OnInit {
     void this.job.refreshPlan();
   }
 
+  onTargetInput(event: Event): void {
+    this.target.targetMb.set(parseTargetMb(this.readInput(event)));
+    this.actionMessage.set('');
+    this.dropBitrateForTarget();
+    this.schedulePlan();
+  }
+
+  /** A preset writes its exact MB value into the field and re-plans. */
+  selectTargetPreset(preset: DestinationPreset): void {
+    this.target.selectPreset(preset);
+    this.actionMessage.set('');
+    this.dropBitrateForTarget();
+    this.schedulePlan();
+  }
+
   onTargetFormatChange(event: Event): void {
     const value = this.readSelect(event);
     if (value !== 'mp4' && value !== 'webm') {
@@ -409,6 +454,11 @@ export class VideoConvert implements OnDestroy, OnInit {
   }
 
   onBitrateChange(event: Event): void {
+    // A target owns the bitrate; the control is disabled while one is set.
+    if (this.target.hasTarget()) {
+      return;
+    }
+
     const value = this.readSelect(event);
     if (value === '') {
       this.bitrateKbps.set(null);
@@ -515,6 +565,7 @@ export class VideoConvert implements OnDestroy, OnInit {
       resolution: this.resolution(),
       bitrateKbps: this.bitrateKbps(),
       removeAudio: this.removeAudio(),
+      targetMb: this.target.targetMb(),
     };
   }
 
@@ -524,8 +575,32 @@ export class VideoConvert implements OnDestroy, OnInit {
     this.targetFormatOverride.set(options.targetFormatOverride);
     this.qualityOverride.set(options.qualityOverride);
     this.resolution.set(options.resolution);
-    this.bitrateKbps.set(options.bitrateKbps);
+    this.bitrateKbps.set(
+      options.targetMb !== null && options.targetMb > 0
+        ? null
+        : options.bitrateKbps,
+    );
     this.removeAudio.set(options.removeAudio);
+    this.target.restore(options.targetMb);
+  }
+
+  /**
+   * A target computes the video bitrate, so a remembered or chosen explicit
+   * bitrate cannot coexist with it. Clearing the target leaves Auto in place.
+   */
+  private dropBitrateForTarget(): void {
+    if (this.target.hasTarget()) {
+      this.bitrateKbps.set(null);
+    }
+  }
+
+  /** An unusable target cannot be planned, so the old plan is dropped now. */
+  private schedulePlan(): void {
+    if (this.selectedPaths().length === 0 || !this.target.valid()) {
+      this.job.clearPlan();
+      return;
+    }
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   private buildRequest(): JobRequest {
@@ -535,8 +610,12 @@ export class VideoConvert implements OnDestroy, OnInit {
       qualityPreset: this.qualityPreset(),
       resolution: this.resolution(),
     };
+    const targetSizeBytes = this.target.sizeBytes();
+    if (targetSizeBytes > 0) {
+      options['targetSizeBytes'] = targetSizeBytes;
+    }
     const bitrateKbps = this.bitrateKbps();
-    if (bitrateKbps !== null) {
+    if (bitrateKbps !== null && targetSizeBytes === 0) {
       options['bitrateKbps'] = bitrateKbps;
     }
     if (this.removeAudio()) {
@@ -597,6 +676,10 @@ export class VideoConvert implements OnDestroy, OnInit {
 
   private readSelect(event: Event): string {
     return (event.target as HTMLSelectElement | null)?.value ?? '';
+  }
+
+  private readInput(event: Event): string {
+    return (event.target as HTMLInputElement | null)?.value ?? '';
   }
 
   private readChecked(event: Event): boolean {
