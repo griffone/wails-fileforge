@@ -22,6 +22,7 @@ const (
 	PhaseStarting    = "starting"
 	PhaseMicromamba  = "micromamba"
 	PhaseEnvironment = "environment"
+	PhaseDownloader  = "downloader"
 	PhaseWhisper     = "whisper"
 	PhaseModel       = "model"
 	PhaseTessdata    = "tessdata"
@@ -40,7 +41,9 @@ const (
 const (
 	micromambaDownloadStartPercent = 0
 	micromambaDownloadEndPercent   = 5
-	environmentEndPercent          = 38
+	environmentEndPercent          = 37
+	downloaderStartPercent         = 37
+	downloaderEndPercent           = 38
 	whisperDownloadStartPercent    = 38
 	whisperDownloadEndPercent      = 45
 	whisperEndPercent              = 48
@@ -101,6 +104,17 @@ var rembgPins = []string{
 	"pooch==1.9.0",
 	"tqdm==4.70.1",
 	"jsonschema==4.26.0",
+}
+
+// downloaderPins is the package set installed into the managed conda Python
+// environment for URL downloads. yt-dlp is deliberately unpinned: YouTube
+// extraction changes constantly and an older release stops returning every
+// format, so the installer always asks pip for the current release. The "deno"
+// extra installs the yt-dlp-ejs challenge scripts and the Deno JavaScript
+// runtime that yt-dlp >= 2025.11 needs; without it YouTube formats are
+// truncated to low resolutions.
+var downloaderPins = []string{
+	"yt-dlp[default,deno]",
 }
 
 // Service owns the managed toolchain: status verification, environment
@@ -474,6 +488,9 @@ func (s *Service) install(ctx context.Context, model string, languages []string,
 	if err := s.installEnvironment(ctx, force); err != nil {
 		return err
 	}
+	if err := s.installDownloader(ctx, force); err != nil {
+		return err
+	}
 	if err := s.installWhisper(ctx, staging, force); err != nil {
 		return err
 	}
@@ -591,6 +608,67 @@ func (s *Service) installEnvironment(ctx context.Context, force bool) error {
 	s.progress(PhaseEnvironment, environmentEndPercent, "FFmpeg, Tesseract, Poppler, Ghostscript and Python installed.", false)
 
 	return nil
+}
+
+// installDownloader installs yt-dlp with its JavaScript runtime into the
+// managed conda Python environment. The packages live in that prefix on
+// purpose: the downloader tool resolves them through the managed PATH, and the
+// prefix is recreated on a forced install, which also upgrades the unpinned
+// yt-dlp release.
+func (s *Service) installDownloader(ctx context.Context, force bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	basePython := managedBasePythonPath(s.root, s.platform.OS)
+	if !fileWithContent(basePython) {
+		return fmt.Errorf("the managed Python is missing; reinstall the toolchain")
+	}
+
+	binaries := []string{"yt-dlp", "deno"}
+	if !force && len(missingManagedBinaries(s.root, s.platform.OS, binaries)) == 0 {
+		s.progress(PhaseDownloader, downloaderEndPercent, "The media downloader is already installed.", false)
+
+		return nil
+	}
+
+	environment := withEnvironment(os.Environ(), map[string]string{
+		"PATH": prependPath(os.Getenv("PATH"), managedPathDirs(s.root, s.platform.OS), pathListSeparatorFor(s.platform.OS)),
+	})
+
+	s.progress(PhaseDownloader, downloaderStartPercent, "Installing the media downloader…", false)
+	pipArgs := append([]string{"-m", "pip", "install", "--no-cache-dir", "--disable-pip-version-check", "--upgrade"}, downloaderPins...)
+	if _, err := s.runner.Run(ctx, basePython, pipArgs, environment); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		return fmt.Errorf("install the media downloader: %w", err)
+	}
+
+	// yt-dlp and Deno are installed by the same pip run, but each one is a
+	// separate managed binary. Name the missing side so a partial install
+	// explains exactly what broke instead of a generic failure.
+	if missing := missingManagedBinaries(s.root, s.platform.OS, binaries); len(missing) > 0 {
+		return fmt.Errorf("the media downloader did not install correctly: missing %s", strings.Join(missing, " and "))
+	}
+
+	s.progress(PhaseDownloader, downloaderEndPercent, "Media downloader is ready.", false)
+
+	return nil
+}
+
+// missingManagedBinaries returns the requested names that do not resolve in the
+// managed prefix binary folders, preserving the caller's order.
+func missingManagedBinaries(root, goos string, names []string) []string {
+	missing := make([]string, 0, len(names))
+	for _, name := range names {
+		if _, found := managedBinaryPath(root, goos, []string{name}); !found {
+			missing = append(missing, name)
+		}
+	}
+
+	return missing
 }
 
 func (s *Service) installWhisper(ctx context.Context, staging string, force bool) error {
@@ -1440,6 +1518,8 @@ var managedBinarySpecs = []managedBinarySpec{
 	{id: "pdftoppm", label: "pdftoppm", names: []string{"pdftoppm"}, required: true, detail: "OCR page rasterizer"},
 	{id: "pdftotext", label: "pdftotext", names: []string{"pdftotext"}, required: false, detail: "PDF text layer extraction"},
 	{id: "ghostscript", label: "Ghostscript", names: []string{"gs", "gswin64c", "gswin32c"}, required: false, detail: "PDF compression for target sizes"},
+	{id: "yt-dlp", label: "yt-dlp", names: []string{"yt-dlp"}, required: false, detail: "Media downloader for URL sources"},
+	{id: "deno", label: "Deno", names: []string{"deno"}, required: false, detail: "JavaScript runtime for YouTube challenge solving"},
 }
 
 var versionArgsByComponent = map[string][]string{
@@ -1447,6 +1527,8 @@ var versionArgsByComponent = map[string][]string{
 	"ffmpeg":      {"-version"},
 	"tesseract":   {"--version"},
 	"ghostscript": {"--version"},
+	"yt-dlp":      {"--version"},
+	"deno":        {"--version"},
 }
 
 func (s *Service) buildComponents(model string, languages []string, probeVersions bool) []models.ToolchainComponent {

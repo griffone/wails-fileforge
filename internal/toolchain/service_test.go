@@ -114,6 +114,9 @@ type fakeRunner struct {
 	// failRembgPip fails only the pip install that targets the shared ONNX
 	// venv, so a forced rebuild can be tested without breaking pdf2docx.
 	failRembgPip bool
+	// omitDownloaderBinaries lists the yt-dlp/deno files the fake pip must not
+	// create, so the post-install verification can be exercised.
+	omitDownloaderBinaries map[string]bool
 }
 
 func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []string) ([]byte, error) {
@@ -122,6 +125,7 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []
 	fail := r.failOn != "" && len(args) > 0 && args[0] == r.failOn
 	failVersion := r.failVersions && len(args) > 0 && (args[0] == "--version" || args[0] == "-version")
 	failRembgPip := r.failRembgPip
+	omitDownloaderBinaries := r.omitDownloaderBinaries
 	r.mu.Unlock()
 
 	if failVersion {
@@ -177,6 +181,23 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []
 			}
 
 			return []byte("Successfully installed rembg-2.0.87\n"), nil
+		case "env":
+			// The media downloader is installed into the managed conda prefix,
+			// so pip publishes yt-dlp and its Deno runtime there.
+			for _, binary := range []string{"yt-dlp", "deno"} {
+				if omitDownloaderBinaries[binary] {
+					continue
+				}
+				path := filepath.Join(venvDir, "bin", binary)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					return nil, err
+				}
+				if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+					return nil, err
+				}
+			}
+
+			return []byte("Successfully installed yt-dlp\n"), nil
 		default:
 			return []byte("Successfully installed pdf2docx-0.5.13\n"), nil
 		}
@@ -259,6 +280,19 @@ func writeFakeCondaEnvironment(prefix string) error {
 	// configs; the installer now uses embedded assets, so the fake prefix
 	// intentionally has no PDF support files.
 	return os.MkdirAll(filepath.Join(prefix, "conda-meta"), 0o755)
+}
+
+// writeFakeManagedBinary publishes one executable inside the managed prefix so
+// status and version probes treat it as installed.
+func writeFakeManagedBinary(t *testing.T, path string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create the fake binary folder: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write the fake binary: %v", err)
+	}
 }
 
 func linuxToolchainPayloads(t *testing.T) map[string][]byte {
@@ -473,9 +507,9 @@ func TestStatusBeforeInstall(t *testing.T) {
 
 	expected := []string{
 		"micromamba", "ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext",
-		"ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa",
-		"tesseract-pdf", "pdf2docx", "rembg", "rembg-model", "upscale", "upscale-model",
-		"upscale-anime-model",
+		"ghostscript", "yt-dlp", "deno", "whisper-cli", "whisper-model",
+		"tesseract-eng", "tesseract-spa", "tesseract-pdf", "pdf2docx", "rembg",
+		"rembg-model", "upscale", "upscale-model", "upscale-anime-model",
 	}
 	if len(status.Components) != len(expected) {
 		t.Fatalf("expected %d components, got %d: %+v", len(expected), len(status.Components), status.Components)
@@ -492,8 +526,8 @@ func TestStatusBeforeInstall(t *testing.T) {
 	if !byID["ffmpeg"].Required || !byID["whisper-model"].Required || !byID["tesseract-eng"].Required || !byID["tesseract-pdf"].Required {
 		t.Fatal("expected ffmpeg, whisper-model, tesseract-eng and tesseract-pdf to be required")
 	}
-	if byID["micromamba"].Required || byID["ghostscript"].Required || byID["pdftotext"].Required || byID["pdf2docx"].Required || byID["rembg"].Required || byID["rembg-model"].Required || byID["upscale"].Required || byID["upscale-model"].Required || byID["upscale-anime-model"].Required {
-		t.Fatal("expected micromamba, ghostscript, pdftotext, pdf2docx, rembg, rembg-model, upscale and the upscale models to be optional")
+	if byID["micromamba"].Required || byID["ghostscript"].Required || byID["pdftotext"].Required || byID["pdf2docx"].Required || byID["rembg"].Required || byID["rembg-model"].Required || byID["upscale"].Required || byID["upscale-model"].Required || byID["upscale-anime-model"].Required || byID["yt-dlp"].Required || byID["deno"].Required {
+		t.Fatal("expected micromamba, ghostscript, pdftotext, pdf2docx, rembg, rembg-model, upscale, the upscale models, yt-dlp and deno to be optional")
 	}
 	// The upscale engine and both models are part of the standard install set
 	// but never gate readiness.
@@ -550,7 +584,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	}
 
 	byID := componentsByID(t, status)
-	for _, id := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa", "pdf2docx", "rembg", "rembg-model", "upscale", "upscale-model"} {
+	for _, id := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "ghostscript", "yt-dlp", "deno", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa", "pdf2docx", "rembg", "rembg-model", "upscale", "upscale-model"} {
 		component := byID[id]
 		if !component.Ready {
 			t.Fatalf("component %q is not ready: %+v", id, component)
@@ -559,7 +593,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 			t.Fatalf("component %q has no path", id)
 		}
 	}
-	for _, id := range []string{"ffmpeg", "tesseract", "ghostscript"} {
+	for _, id := range []string{"ffmpeg", "tesseract", "ghostscript", "yt-dlp", "deno"} {
 		if byID[id].Version == "" {
 			t.Fatalf("expected a detected version for %q", id)
 		}
@@ -571,6 +605,8 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 		filepath.Join(root, "env", "bin", "ffmpeg"),
 		filepath.Join(root, "env", "bin", "tesseract"),
 		filepath.Join(root, "env", "bin", "python"),
+		filepath.Join(root, "env", "bin", "yt-dlp"),
+		filepath.Join(root, "env", "bin", "deno"),
 		filepath.Join(root, "whisper", "whisper-cli"),
 		filepath.Join(root, "models", ModelFileName(DefaultModel)),
 		filepath.Join(root, "tessdata", "eng.traineddata"),
@@ -628,13 +664,25 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 		t.Fatal("an ambient MAMBA_ROOT_PREFIX must not win over the managed root")
 	}
 
+	// The media downloader is installed into the managed conda Python, not a
+	// separate venv, so the downloader tool resolves it through the managed PATH.
+	basePython := filepath.Join(root, "env", "bin", "python")
+	downloaderPipCalls := runnerPipInstallCalls(runner.recordedCalls(), basePython)
+	if len(downloaderPipCalls) != 1 {
+		t.Fatalf("expected one media downloader pip run, got %d in %+v", len(downloaderPipCalls), runner.recordedCalls())
+	}
+	if !containsAll(downloaderPipCalls[0].args, downloaderPins...) || !containsAll(downloaderPipCalls[0].args, "--no-cache-dir", "--disable-pip-version-check", "--upgrade") {
+		t.Fatalf("unexpected media downloader install: %v", downloaderPipCalls[0].args)
+	}
+
 	// The PDF to DOCX venv is created from the managed Python and filled by pip
 	// with the pinned package set.
 	venvCall := findRunnerCallStartingWith(t, runner.recordedCalls(), "-m", "venv")
-	if venvCall.name != filepath.Join(root, "env", "bin", "python") {
+	if venvCall.name != basePython {
 		t.Fatalf("unexpected venv interpreter: %s", venvCall.name)
 	}
-	pipCall := findRunnerCallStartingWith(t, runner.recordedCalls(), "-m", "pip", "install")
+	pdf2docxCalls := runnerCallsForBinary(runner.recordedCalls(), filepath.Join(root, "pdf2docx-venv", "bin", "python"))
+	pipCall := findRunnerCallStartingWith(t, pdf2docxCalls, "-m", "pip", "install")
 	if pipCall.name != filepath.Join(root, "pdf2docx-venv", "bin", "python") {
 		t.Fatalf("pip must run inside the pdf2docx venv, got %s", pipCall.name)
 	}
@@ -763,6 +811,9 @@ func TestInstallSkipsAlreadyPresentComponents(t *testing.T) {
 	if calls := countRunnerCallsForBinary(runner.recordedCalls(), filepath.Join(root, "pdf2docx-venv", "bin", "python")); calls != 1 {
 		t.Fatalf("expected the pdf2docx venv to be reused without Force, got %d pip installs", calls)
 	}
+	if calls := len(runnerPipInstallCalls(runner.recordedCalls(), filepath.Join(root, "env", "bin", "python"))); calls != 1 {
+		t.Fatalf("expected the media downloader to be reused without Force, got %d pip installs", calls)
+	}
 	if calls := countRunnerCallsForBinary(runner.recordedCalls(), filepath.Join(root, "onnx-venv", "bin", "python")); calls != 2 {
 		// One pip install plus one import check on the first run; the repair
 		// run must add nothing because the marker exists.
@@ -811,6 +862,226 @@ func TestInstallForceDownloadsAgain(t *testing.T) {
 	}
 	if createCalls != 2 {
 		t.Fatalf("expected the forced install to recreate the environment, got %d create calls", createCalls)
+	}
+
+	// Force recreates the prefix, so the media downloader is reinstalled there.
+	root := filepath.Join(dataDir, ToolchainDirName)
+	if calls := len(runnerPipInstallCalls(runner.recordedCalls(), filepath.Join(root, "env", "bin", "python"))); calls != 2 {
+		t.Fatalf("expected the forced install to rerun the media downloader pip, got %d installs", calls)
+	}
+}
+
+func TestDownloaderPhasePercentPartition(t *testing.T) {
+	tests := []struct {
+		name string
+		got  int
+		want int
+	}{
+		{name: "environment end", got: environmentEndPercent, want: 37},
+		{name: "downloader start", got: downloaderStartPercent, want: 37},
+		{name: "downloader end", got: downloaderEndPercent, want: 38},
+		{name: "whisper download start", got: whisperDownloadStartPercent, want: 38},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Fatalf("%s = %d, want %d", tt.name, tt.got, tt.want)
+			}
+		})
+	}
+	if environmentEndPercent != downloaderStartPercent {
+		t.Fatalf("the downloader phase must start where the environment ends: %d != %d", downloaderStartPercent, environmentEndPercent)
+	}
+	if downloaderEndPercent != whisperDownloadStartPercent {
+		t.Fatalf("the whisper phase must start where the downloader ends: %d != %d", whisperDownloadStartPercent, downloaderEndPercent)
+	}
+	if downloaderStartPercent >= downloaderEndPercent {
+		t.Fatalf("the downloader phase must have a forward range: %d..%d", downloaderStartPercent, downloaderEndPercent)
+	}
+}
+
+func TestDownloaderPhasePercentStaysBetweenEnvironmentAndWhisper(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	dataDir := t.TempDir()
+	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, &fakeRunner{})
+
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
+	collected := waitForTerminalEvent(t, events)
+
+	lastEnvironment := -1
+	firstWhisper := -1
+	downloaderPercents := make([]int, 0, 2)
+	for _, event := range collected {
+		switch event.Phase {
+		case PhaseEnvironment:
+			lastEnvironment = event.Percent
+		case PhaseDownloader:
+			downloaderPercents = append(downloaderPercents, event.Percent)
+		case PhaseWhisper:
+			if firstWhisper < 0 {
+				firstWhisper = event.Percent
+			}
+		}
+	}
+
+	if lastEnvironment != environmentEndPercent {
+		t.Fatalf("last environment percent = %d, want %d", lastEnvironment, environmentEndPercent)
+	}
+	if firstWhisper != whisperDownloadStartPercent {
+		t.Fatalf("first whisper percent = %d, want %d", firstWhisper, whisperDownloadStartPercent)
+	}
+	if len(downloaderPercents) == 0 {
+		t.Fatal("the install emitted no downloader progress events")
+	}
+	for _, percent := range downloaderPercents {
+		if percent < lastEnvironment || percent > firstWhisper {
+			t.Fatalf("downloader percent %d escapes the environment/whisper range %d..%d", percent, lastEnvironment, firstWhisper)
+		}
+	}
+}
+
+func TestDownloaderReusedWithoutForce(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	dataDir := t.TempDir()
+	runner := &fakeRunner{}
+	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, runner)
+
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
+	waitForTerminalEvent(t, events)
+
+	root := filepath.Join(dataDir, ToolchainDirName)
+	basePython := filepath.Join(root, "env", "bin", "python")
+	installs := len(runnerPipInstallCalls(runner.recordedCalls(), basePython))
+	if installs != 1 {
+		t.Fatalf("expected one media downloader pip run, got %d", installs)
+	}
+
+	// Both managed binaries exist on the second run, so the downloader is
+	// reused without touching pip.
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
+	waitForTerminalEvent(t, events)
+
+	if got := len(runnerPipInstallCalls(runner.recordedCalls(), basePython)); got != installs {
+		t.Fatalf("a skip install reran the media downloader pip: %d runs, want %d", got, installs)
+	}
+}
+
+func TestDownloaderInstallsIntoCondaPython(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	dataDir := t.TempDir()
+	runner := &fakeRunner{}
+	service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, runner)
+
+	service.Start(context.Background(), models.ToolchainInstallOptions{})
+	waitForTerminalEvent(t, events)
+
+	root := filepath.Join(dataDir, ToolchainDirName)
+	basePython := filepath.Join(root, "env", "bin", "python")
+	calls := runnerPipInstallCalls(runner.recordedCalls(), basePython)
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly one media downloader pip run, got %d: %+v", len(calls), runner.recordedCalls())
+	}
+	if !containsAll(calls[0].args, downloaderPins...) {
+		t.Fatalf("the media downloader pip must install %v, got %v", downloaderPins, calls[0].args)
+	}
+	if !containsAll(calls[0].args, "--no-cache-dir", "--disable-pip-version-check", "--upgrade") {
+		t.Fatalf("unexpected media downloader pip flags: %v", calls[0].args)
+	}
+	for _, binary := range []string{"yt-dlp", "deno"} {
+		path := filepath.Join(root, "env", "bin", binary)
+		if info, err := os.Stat(path); err != nil || info.IsDir() {
+			t.Fatalf("expected the managed %s binary at %s: %v", binary, path, err)
+		}
+	}
+}
+
+func TestDownloaderInstallNamesMissingBinary(t *testing.T) {
+	preserveToolchainEnvironment(t)
+
+	tests := []struct {
+		name string
+		omit map[string]bool
+		want string
+	}{
+		{name: "missing deno", omit: map[string]bool{"deno": true}, want: "missing deno"},
+		{name: "missing yt-dlp", omit: map[string]bool{"yt-dlp": true}, want: "missing yt-dlp"},
+		{name: "missing both", omit: map[string]bool{"yt-dlp": true, "deno": true}, want: "missing yt-dlp and deno"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dataDir := t.TempDir()
+			runner := &fakeRunner{omitDownloaderBinaries: tt.omit}
+			service, events := newTestToolchainService(t, dataDir, &fakeDownloader{payloads: linuxToolchainPayloads(t)}, runner)
+
+			service.Start(context.Background(), models.ToolchainInstallOptions{})
+			collected := waitForTerminalEvent(t, events)
+
+			terminal := collected[len(collected)-1]
+			if !strings.Contains(terminal.Error, tt.want) {
+				t.Fatalf("expected %q in the install error, got %q", tt.want, terminal.Error)
+			}
+		})
+	}
+}
+
+func TestDownloaderComponentsStatus(t *testing.T) {
+	tests := []struct {
+		name     string
+		binaries []string
+		ready    map[string]bool
+	}{
+		{name: "both installed", binaries: []string{"yt-dlp", "deno"}, ready: map[string]bool{"yt-dlp": true, "deno": true}},
+		{name: "missing deno", binaries: []string{"yt-dlp"}, ready: map[string]bool{"yt-dlp": true, "deno": false}},
+		{name: "missing yt-dlp", binaries: []string{"deno"}, ready: map[string]bool{"yt-dlp": false, "deno": true}},
+		{name: "both missing", binaries: nil, ready: map[string]bool{"yt-dlp": false, "deno": false}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dataDir := t.TempDir()
+			root := filepath.Join(dataDir, ToolchainDirName)
+			for _, binary := range tt.binaries {
+				writeFakeManagedBinary(t, filepath.Join(root, "env", "bin", binary))
+			}
+
+			service, _ := newTestToolchainService(t, dataDir, &fakeDownloader{}, &fakeRunner{})
+			byID := componentsByID(t, service.Status())
+
+			for _, id := range []string{"yt-dlp", "deno"} {
+				component := byID[id]
+				if component.Required {
+					t.Fatalf("component %q must not gate readiness: %+v", id, component)
+				}
+				if tt.ready[id] {
+					if !component.Ready {
+						t.Fatalf("expected %q to be ready: %+v", id, component)
+					}
+					if component.Path != filepath.Join(root, "env", "bin", id) {
+						t.Fatalf("component %q path = %q", id, component.Path)
+					}
+					if component.Version == "" {
+						t.Fatalf("expected a detected version for %q", id)
+					}
+
+					continue
+				}
+
+				if component.Ready || component.Path != "" {
+					t.Fatalf("expected %q to be missing without a path: %+v", id, component)
+				}
+				if strings.TrimSpace(component.Detail) == "" {
+					t.Fatalf("expected a detail for the missing %q component: %+v", id, component)
+				}
+			}
+			if byID["yt-dlp"].Label != "yt-dlp" || byID["deno"].Label != "Deno" {
+				t.Fatalf("unexpected downloader labels: %+v %+v", byID["yt-dlp"], byID["deno"])
+			}
+		})
 	}
 }
 
@@ -1593,6 +1864,22 @@ func runnerCallsForBinary(calls []fakeRunnerCall, binary string) []fakeRunnerCal
 
 func countRunnerCallsForBinary(calls []fakeRunnerCall, binary string) int {
 	return len(runnerCallsForBinary(calls, binary))
+}
+
+// runnerPipInstallCalls returns the `python -m pip install …` calls for one
+// interpreter, so downloader and venv package installs can be asserted apart.
+func runnerPipInstallCalls(calls []fakeRunnerCall, interpreter string) []fakeRunnerCall {
+	filtered := make([]fakeRunnerCall, 0, len(calls))
+	for _, call := range calls {
+		if call.name != interpreter || len(call.args) < 3 {
+			continue
+		}
+		if call.args[0] == "-m" && call.args[1] == "pip" && call.args[2] == "install" {
+			filtered = append(filtered, call)
+		}
+	}
+
+	return filtered
 }
 
 // runnerCallsForRembgVenvCreation returns the `python -m venv <onnx-venv>`
