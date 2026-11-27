@@ -32,7 +32,7 @@ func backgroundRemoveTestRuntime() backgroundRemoveRuntime {
 	home := filepath.Join("managed", "rembg")
 
 	return backgroundRemoveRuntime{
-		PythonPath: filepath.Join("managed", "rembg-venv", "bin", "python"),
+		PythonPath: filepath.Join("managed", "onnx-venv", "bin", "python"),
 		HomeDir:    home,
 		ModelPath:  filepath.Join(home, "models", model, model+".onnx"),
 		Model:      model,
@@ -429,10 +429,13 @@ func TestResolveBackgroundRemoveRuntimeAt(t *testing.T) {
 	modelPath, _ := toolchain.ManagedRembgModelPath(dataDir, spec.Model)
 	homeDir, _ := toolchain.ManagedRembgHome(dataDir)
 
-	sitePackages := filepath.Join(root, "rembg-venv", "lib", "python3.11", "site-packages")
+	sitePackages := filepath.Join(root, "onnx-venv", "lib", "python3.11", "site-packages")
 	if runtime.GOOS == "windows" {
-		sitePackages = filepath.Join(root, "rembg-venv", "Lib", "site-packages")
+		sitePackages = filepath.Join(root, "onnx-venv", "Lib", "site-packages")
 	}
+	// Both engines share one ONNX venv, so the readiness marker lives next to
+	// it and not inside the background removal home.
+	readyMarker := filepath.Join(root, "onnx-venv.ready")
 
 	if _, runtimeErr := resolveBackgroundRemoveRuntimeAt(dataDir); runtimeErr == nil || runtimeErr.Code != BackgroundRemoveCodeRuntimeUnavailable {
 		t.Fatalf("expected %s without the venv, got %v", BackgroundRemoveCodeRuntimeUnavailable, runtimeErr)
@@ -463,8 +466,8 @@ func TestResolveBackgroundRemoveRuntimeAt(t *testing.T) {
 	}
 	if _, runtimeErr := resolveBackgroundRemoveRuntimeAt(dataDir); runtimeErr == nil || runtimeErr.Code != BackgroundRemoveCodeRuntimeUnavailable {
 		t.Fatalf("expected a venv without packages to be rejected, got %v", runtimeErr)
-	} else if !strings.Contains(runtimeErr.Message, "Open Settings and run Install / repair") {
-		t.Fatalf("expected the Settings hint, got %q", runtimeErr.Message)
+	} else if !strings.Contains(runtimeErr.Message, "Install / repair") {
+		t.Fatalf("expected the repair hint, got %q", runtimeErr.Message)
 	}
 
 	if err := os.MkdirAll(filepath.Join(sitePackages, "rembg"), 0o755); err != nil {
@@ -473,8 +476,10 @@ func TestResolveBackgroundRemoveRuntimeAt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sitePackages, "rembg", "__init__.py"), []byte("# rembg\n"), 0o644); err != nil {
 		t.Fatalf("write rembg package marker: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(sitePackages, "onnxruntime-1.32.0.dist-info"), 0o755); err != nil {
-		t.Fatalf("create onnxruntime dist-info: %v", err)
+	for _, receipt := range []string{"onnxruntime-1.32.0.dist-info", "numpy-2.3.5.dist-info", "pillow-12.3.0.dist-info"} {
+		if err := os.MkdirAll(filepath.Join(sitePackages, receipt), 0o755); err != nil {
+			t.Fatalf("create %s: %v", receipt, err)
+		}
 	}
 	if _, runtimeErr := resolveBackgroundRemoveRuntimeAt(dataDir); runtimeErr == nil || runtimeErr.Code != BackgroundRemoveCodeRuntimeUnavailable {
 		t.Fatalf("expected a missing .ready marker to be rejected, got %v", runtimeErr)
@@ -482,7 +487,7 @@ func TestResolveBackgroundRemoveRuntimeAt(t *testing.T) {
 		t.Fatalf("expected the not-verified reason, got %q", runtimeErr.Message)
 	}
 
-	if err := os.WriteFile(filepath.Join(homeDir, ".ready"), []byte("ready"), 0o644); err != nil {
+	if err := os.WriteFile(readyMarker, []byte("ready"), 0o644); err != nil {
 		t.Fatalf("write the readiness marker: %v", err)
 	}
 	resolved, runtimeErr := resolveBackgroundRemoveRuntimeAt(dataDir)

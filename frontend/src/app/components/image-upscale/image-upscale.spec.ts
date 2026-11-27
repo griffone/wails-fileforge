@@ -1,5 +1,6 @@
 import {
   ComponentFixture,
+  discardPeriodicTasks,
   fakeAsync,
   flushMicrotasks,
   TestBed,
@@ -54,10 +55,19 @@ describe('ImageUpscale', () => {
         },
         {
           id: 'upscale-model',
-          label: 'Upscale model',
+          label: 'Photo upscale model',
           ready: true,
           required: false,
-          detail: 'Local upscale model',
+          standard: true,
+          detail: 'Local photo upscale model',
+        },
+        {
+          id: 'upscale-anime-model',
+          label: 'Illustration upscale model',
+          ready: true,
+          required: false,
+          standard: true,
+          detail: 'Local illustration upscale model',
         },
       ],
       model: 'small',
@@ -81,10 +91,20 @@ describe('ImageUpscale', () => {
         },
         {
           id: 'upscale-model',
-          label: 'Upscale model',
+          label: 'Photo upscale model',
           ready: false,
           required: false,
-          detail: 'Upscale model is not installed. Run Install / repair.',
+          standard: true,
+          detail: 'The photo upscale model is not installed. Run Install / repair to download it.',
+        },
+        {
+          id: 'upscale-anime-model',
+          label: 'Illustration upscale model',
+          ready: false,
+          required: false,
+          standard: true,
+          detail:
+            'The illustration upscale model is not installed. Run Install / repair to download it.',
         },
       ],
       ...overrides,
@@ -176,6 +196,9 @@ describe('ImageUpscale', () => {
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'getToolchainStatus',
+      'getToolchainInstallState',
+      'startToolchainInstall',
+      'cancelToolchainInstall',
       'inspectFiles',
       'getThumbnail',
       'planJob',
@@ -189,11 +212,16 @@ describe('ImageUpscale', () => {
       'verifyJob',
     ]);
     (wailsSpy as unknown as { jobProgress$: unknown }).jobProgress$ = EMPTY;
+    (wailsSpy as unknown as { toolchainInstall$: unknown }).toolchainInstall$ =
+      EMPTY;
     jobStateSubject = new Subject<JobResult>();
     (wailsSpy as unknown as { jobState$: unknown }).jobState$ =
       jobStateSubject.asObservable();
 
     wailsSpy.getToolchainStatus.and.resolveTo(readyToolchain());
+    wailsSpy.getToolchainInstallState.and.resolveTo(readyToolchain());
+    wailsSpy.startToolchainInstall.and.resolveTo(missingToolchain());
+    wailsSpy.cancelToolchainInstall.and.resolveTo(missingToolchain());
     wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
       Promise.resolve({
         success: true,
@@ -281,9 +309,9 @@ describe('ImageUpscale', () => {
     expect(component.packBanner()?.title).toBe(
       'The upscale pack is not installed.',
     );
-    expect(component.packBanner()?.detail).toContain('about 55 MB');
+    expect(component.packBanner()?.detail).toContain('about 73 MB');
 
-    const link = query<HTMLAnchorElement>('.pack-banner a');
+    const link = query<HTMLAnchorElement>('.pack-settings');
     expect(link?.getAttribute('href')).toBe('/settings');
 
     component.onPathsSelected(['/tmp/in/photo.png']);
@@ -293,13 +321,59 @@ describe('ImageUpscale', () => {
     expect(wailsSpy.planJob).not.toHaveBeenCalled();
     expect(component.canRun()).toBeFalse();
     expect(component.actionHelper()).toBe(
-      'The upscale pack is not ready. Install it in Settings first.',
+      'The upscale engine or the selected model is not installed. Use Install upscale pack above.',
     );
     expect(query<HTMLButtonElement>('.action-primary')?.disabled).toBeTrue();
   }));
 
-  it('requires a custom file for the anime model', fakeAsync(() => {
+  it('uses the bundled illustration model without a user file', fakeAsync(() => {
     create();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    component.onModelChange(inputEvent('anime'));
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.modelReady()).toBeTrue();
+    expect(component.packBanner()).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain(
+      'The illustration model is included in the pack.',
+    );
+
+    component.onPathsSelected(['/tmp/in/art.png']);
+    tick(250);
+    flushMicrotasks();
+
+    const request = lastPlanRequest();
+    expect(request.options['model']).toBe('anime');
+    expect(request.options['modelPath']).toBeUndefined();
+    expect(component.canRun()).toBeTrue();
+  }));
+
+  it('reports a missing illustration model only when no override is set', fakeAsync(() => {
+    const status = readyToolchain({
+      components: [
+        {
+          id: 'upscale',
+          label: 'Upscale engine',
+          ready: true,
+          required: false,
+          standard: true,
+          detail: 'Local upscale engine',
+        },
+        {
+          id: 'upscale-anime-model',
+          label: 'Illustration upscale model',
+          ready: false,
+          required: false,
+          standard: true,
+          detail:
+            'The illustration upscale model is not installed. Run Install / repair to download it.',
+        },
+      ],
+    });
+    create(status);
     flushMicrotasks();
     fixture.detectChanges();
 
@@ -309,16 +383,28 @@ describe('ImageUpscale', () => {
 
     expect(component.modelReady()).toBeFalse();
     expect(component.packBanner()?.title).toBe(
-      'The anime model is not configured.',
-    );
-    expect(fixture.nativeElement.textContent).toContain(
-      'No anime model chosen yet.',
+      'The upscale pack needs repair.',
     );
 
-    component.onPathsSelected(['/tmp/in/photo.png']);
+    component.onPathsSelected(['/tmp/in/art.png']);
     tick(250);
     flushMicrotasks();
+    fixture.detectChanges();
     expect(wailsSpy.planJob).not.toHaveBeenCalled();
+    expect(component.actionHelper()).toBe(
+      'The illustration model is missing. Use Install upscale pack above.',
+    );
+
+    // A custom override is an advanced option: it satisfies the choice even
+    // when the managed illustration model is missing.
+    TestBed.inject(PreferencesService).setUpscaleAnimeModelPath(
+      '/models/anime.onnx',
+    );
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.modelReady()).toBeTrue();
+    expect(component.packBanner()).toBeNull();
   }));
 
   it('sends the anime model path and quality for JPEG output', fakeAsync(() => {
@@ -344,6 +430,105 @@ describe('ImageUpscale', () => {
       quality: 85,
       modelPath: '/models/anime.onnx',
     });
+  }));
+
+  it('offers the inline install, shows progress and re-plans afterwards', fakeAsync(() => {
+    const missing = missingToolchain();
+    const installing = missingToolchain({
+      installing: true,
+      percent: 12,
+      phase: 'onnx',
+      detail: 'Installing the shared ONNX engine…',
+    });
+
+    wailsSpy.getToolchainStatus.and.resolveTo(missing);
+    wailsSpy.startToolchainInstall.and.resolveTo(installing);
+    fixture = TestBed.createComponent(ImageUpscale);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.packReady()).toBeFalse();
+
+    component.onPathsSelected(['/tmp/in/photo.png']);
+    tick(250);
+    flushMicrotasks();
+    expect(wailsSpy.planJob).not.toHaveBeenCalled();
+
+    const install = query<HTMLButtonElement>('.pack-install');
+    expect(install?.textContent).toContain(
+      'Install upscale pack (about 22.5 MB of models)',
+    );
+
+    // The install finishes shortly after it starts.
+    wailsSpy.getToolchainStatus.and.resolveTo(readyToolchain());
+    wailsSpy.getToolchainInstallState.and.resolveTo(readyToolchain());
+
+    install?.click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.startToolchainInstall).toHaveBeenCalled();
+    expect(component.packInstalling()).toBeTrue();
+    expect(component.packPercent()).toBe(12);
+    expect(fixture.nativeElement.textContent).toContain(
+      'Installing the shared ONNX engine…',
+    );
+    expect(query<HTMLButtonElement>('.pack-cancel')).not.toBeNull();
+
+    // The service polls the installer, then the page re-plans.
+    tick(1500);
+    flushMicrotasks();
+    tick(500);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.packInstalling()).toBeFalse();
+    expect(component.packReady()).toBeTrue();
+    expect(wailsSpy.planJob).toHaveBeenCalledTimes(1);
+    expect(query<HTMLButtonElement>('.pack-install')).toBeNull();
+    discardPeriodicTasks();
+  }));
+
+  it('cancels the inline install', fakeAsync(() => {
+    const missing = missingToolchain();
+    const installing = missingToolchain({
+      installing: true,
+      percent: 40,
+      phase: 'upscale',
+    });
+
+    wailsSpy.getToolchainStatus.and.resolveTo(missing);
+    wailsSpy.startToolchainInstall.and.resolveTo(installing);
+    wailsSpy.cancelToolchainInstall.and.resolveTo(
+      missingToolchain({ installing: true, cancelling: true }),
+    );
+
+    fixture = TestBed.createComponent(ImageUpscale);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    query<HTMLButtonElement>('.pack-install')?.click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const cancel = query<HTMLButtonElement>('.pack-cancel');
+    expect(cancel).not.toBeNull();
+    cancel?.click();
+    flushMicrotasks();
+
+    expect(wailsSpy.cancelToolchainInstall).toHaveBeenCalled();
+
+    // Settle the background poll so the test leaves no pending timers.
+    wailsSpy.getToolchainInstallState.and.resolveTo(missingToolchain());
+    tick(1500);
+    flushMicrotasks();
+    tick(500);
+    flushMicrotasks();
+    discardPeriodicTasks();
   }));
 
   it('sends batch mode and rejects unsupported files', fakeAsync(() => {

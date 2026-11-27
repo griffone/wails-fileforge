@@ -192,6 +192,32 @@
   text-decoration: none;
 }
 
+.pack-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.pack-progress-meta {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-soft);
+}
+
+.pack-progress-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pack-install-error {
+  margin-top: 4px;
+}
+
 @media (max-width: 1000px) {
   .flow-grid {
     grid-template-columns: minmax(0, 1fr);

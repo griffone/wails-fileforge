@@ -2,7 +2,7 @@
 
 A local-first file workbench for Windows, macOS and Linux. FileForge wraps a growing set of conversion and editing tools in a single desktop app: image convert/crop/annotate/compress/watermark/OCR/background removal, PDF merge/split/crop/optimize/OCR/from-images/to-DOCX, Markdown and DOCX to PDF, and video convert/trim/merge/transcribe, plus curated recipes.
 
-Everything runs on your machine. There are no uploads, accounts, or cloud calls. Background removal and local upscaling are optional packs: Settings → Tools & Models downloads their engines and models into the managed toolchain, and images never leave the machine. The upscale model is a pinned, checksum-verified download; the anime option accepts a user-provided ONNX file. See [docs/upscale.md](docs/upscale.md).
+Everything runs on your machine. There are no uploads, accounts, or cloud calls. Background removal and local upscaling install with the rest of the managed toolchain: the first-run setup (or Settings → Tools & Models) downloads their engines and models, and images never leave the machine. The upscale engine and both pinned models (photo and illustration) are checksum-verified downloads that share one ONNX environment with background removal; the illustration choice has an optional advanced override for your own ONNX file. See [docs/upscale.md](docs/upscale.md).
 
 ## Tools
 
@@ -38,7 +38,7 @@ Closing the window while a job or recipe is running keeps the process alive in t
 - **Run again:** Image Compress, PDF Optimize, DOCX → PDF and Video Transcribe store the last submitted request and offer "Run again with the same settings", which re-plans the same inputs and produces a collision-safe new output.
 - **Drag reorder:** PDF Merge, Video Merge and multi-input recipes accept drag reordering. The move-up/move-down buttons remain as the keyboard-accessible fallback.
 - **Document thumbnails:** DOCX and Markdown inputs render a first-page thumbnail through the same in-process document engines as the conversion tools, then the shared PDF preview pipeline (`pdftoppm`). Oversized or corrupt documents degrade to the typed "no preview" state instead of failing the card.
-- **Capability panel:** Settings → Tools & Models reports every dependency it can detect — `pdftoppm`, `tesseract`, `pdftotext`, `gs`, `ffmpeg`, `ffprobe`, `libvips`, `cwebp`, `pdf2docx`, the background-removal pack, the local upscale pack and Whisper — with install guidance for each missing one.
+- **Capability panel:** Settings → Tools & Models reports every dependency it can detect — `pdftoppm`, `tesseract`, `pdftotext`, `gs`, `ffmpeg`, `ffprobe`, `libvips`, `cwebp`, `pdf2docx`, background removal, the upscale engine and both upscale models, and Whisper — with install guidance for each missing one.
 - **One run pipeline:** all 20 tool pages use `ToolRunController` for plan → run → observe → verify → undo, and one shared status vocabulary (`frontend/src/app/utils/job-status.ts`) renders job states consistently in the job card, activity drawer, result card and Home.
 
 ## Stack

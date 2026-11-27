@@ -12,7 +12,7 @@ import (
 // skipped unless both the interpreter and the ONNX model are provided, because
 // the model is a consent-driven download and never shipped with the tests.
 //
-//	FILEFORGE_UPSCALE_TEST_PYTHON=/path/to/upscale-venv/bin/python \
+//	FILEFORGE_UPSCALE_TEST_PYTHON=/path/to/onnx-venv/bin/python \
 //	FILEFORGE_UPSCALE_TEST_MODEL=/path/to/real_esrgan_general_x4v3.onnx \
 //	go test ./internal/image -run TestUpscaleRealModel -count=1 -v
 func TestUpscaleRealModel(t *testing.T) {

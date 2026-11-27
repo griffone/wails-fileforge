@@ -157,6 +157,8 @@ export const settingsEs = {
   'settings.status.missing': 'Falta',
   'settings.status.optional': 'Opcional',
   'settings.status.required': 'Requerido',
+  'settings.status.standard': 'Incluido',
+  'settings.status.needsInstall': 'Falta instalar',
   'settings.status.notStarted': 'Sin iniciar',
   'settings.status.notFound': 'No encontrado',
   'settings.status.auto': 'Automático',
@@ -257,16 +259,16 @@ export const settingsEs = {
     'Las actualizaciones no son compatibles con esta plataforma. Instala una versión nueva manualmente.',
   'settings.updates.unavailable.generic':
     'Las actualizaciones no están disponibles en esta compilación.',
-  'settings.upscale.title': 'Paquete de ampliación',
+  'settings.upscale.title': 'Motor y modelos de ampliación',
   'settings.upscale.subtitle':
-    'El ampliador opcional descarga su motor y su modelo una sola vez (unos 55 MB) y se ejecuta localmente con ONNX Runtime. Nada se descarga hasta que pulses Instalar / reparar.',
+    'La ampliación se instala con el resto de las herramientas locales: un entorno ONNX compartido y dos modelos fijados, verificados con suma de comprobación. Ejecuta Instalar / reparar para agregarlos o restaurarlos.',
   'settings.upscale.packSize':
-    'Tamaño del paquete: unos 55 MB de descarga. El modelo general está incluido; la aplicación no trae pesos.',
-  'settings.upscale.animeModel': 'Archivo del modelo anime',
-  'settings.upscale.animeModelNotSet': 'No se eligió un modelo anime.',
+    'Descarga: unos 73 MB en total, incluidos unos 22,5 MB de los modelos de fotos e ilustraciones. El motor se comparte con la eliminación de fondo.',
+  'settings.upscale.animeModel': 'Modelo de ilustraciones (reemplazo avanzado)',
+  'settings.upscale.animeModelNotSet': 'Se usa el modelo de ilustraciones incluido.',
   'settings.upscale.chooseModel': 'Elegir archivo .onnx',
-  'settings.upscale.clearModel': 'Quitar',
+  'settings.upscale.clearModel': 'Usar el modelo incluido',
   'settings.upscale.help':
-    'El modelo general lo verifica e instala la cadena de herramientas. La opción anime es una exportación ONNX RealESRGAN x4 anime que aporta el usuario; FileForge nunca la descarga.',
+    'El modelo de ilustraciones incluido (pesos de xinntao/Real-ESRGAN, exportación ONNX de skillsafe-ai) lo descarga y verifica la cadena de herramientas. Usa un archivo propio solo si quieres reemplazarlo por tu exportación ONNX RealESRGAN x4; anime es un ejemplo del contenido que maneja bien.',
   'settings.about': 'FileForge Desktop · herramientas de archivo locales',
 };

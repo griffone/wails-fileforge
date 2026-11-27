@@ -28,10 +28,12 @@ import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
 import { LastRequestService } from '../../services/last-request.service';
 import { ActivityService } from '../../services/activity.service';
+import { ToolchainStateService } from '../../services/toolchain-state.service';
 import {
   FileInfo,
   JobRequest,
   ToolchainComponent,
+  ToolchainInstallOptions,
   ToolchainStatus,
   Wails,
 } from '../../services/wails';
@@ -46,6 +48,9 @@ import { ToolRunController } from '../../utils/tool-run-controller';
 const UPSCALE_TOOL_ID = 'tool.image.upscale';
 const PLAN_DEBOUNCE_MS = 250;
 const OPTIONS_SCHEMA_VERSION = 1;
+const PACK_INSTALL_POLL_MS = 500;
+const PACK_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_OCR_LANGUAGES = ['eng', 'spa'];
 
 const SCALE_OPTIONS = [2, 4] as const;
 const TILE_OPTIONS = [64, 128, 256, 512] as const;
@@ -153,6 +158,9 @@ export class ImageUpscale implements OnDestroy, OnInit {
   readonly i18n = inject(I18nService);
   private readonly wailsService = inject(Wails);
 
+  /** Shared toolchain state: the page installs and repairs the pack inline. */
+  private readonly pack = inject(ToolchainStateService);
+
   private readonly settings = createToolOptions(this.preferences, {
     toolId: UPSCALE_TOOL_ID,
     schemaVersion: OPTIONS_SCHEMA_VERSION,
@@ -220,9 +228,21 @@ export class ImageUpscale implements OnDestroy, OnInit {
   readonly quality = signal(90);
   readonly outputDir = this.job.outputDir;
 
-  readonly toolchain = signal<ToolchainStatus | null>(null);
-  readonly toolchainState = signal<CapabilityStatus>('loading');
+  readonly toolchain = this.pack.status;
+  readonly toolchainEvent = this.pack.event;
   readonly toolchainChecking = signal(false);
+  private readonly toolchainChecked = signal(false);
+
+  /** Progress of an install started from this page. */
+  private readonly packInstallRequested = signal(false);
+  private readonly packInstallFailed = signal('');
+
+  readonly toolchainState = computed<CapabilityStatus>(() => {
+    if (!this.toolchainChecked()) {
+      return 'loading';
+    }
+    return this.toolchain()?.success ? 'ok' : 'error';
+  });
 
   readonly plan = this.job.plan;
   readonly planError = this.job.planError;
@@ -246,6 +266,47 @@ export class ImageUpscale implements OnDestroy, OnInit {
   readonly verificationUnavailable = this.job.verificationUnavailable;
 
   readonly animeModelPath = this.preferences.upscaleAnimeModelPath;
+
+  readonly packInstalling = computed(
+    () =>
+      this.toolchain()?.installing === true || this.packInstallRequested(),
+  );
+
+  readonly packCancelling = computed(
+    () =>
+      this.toolchain()?.cancelling === true ||
+      (this.packInstallRequested() &&
+        this.toolchainEvent()?.phase === 'cancelling'),
+  );
+
+  readonly packPercent = computed(() => {
+    const status = this.toolchain();
+    const event = this.toolchainEvent();
+    const raw =
+      status?.installing && event && !event.done
+        ? event.percent
+        : (status?.percent ?? 0);
+    if (!Number.isFinite(raw)) {
+      return 0;
+    }
+    return Math.min(100, Math.max(0, Math.round(raw)));
+  });
+
+  readonly packProgressMessage = computed(() => {
+    const event = this.toolchainEvent();
+    if (event?.message) {
+      return event.message;
+    }
+    const status = this.toolchain();
+    return status?.detail || status?.message || '';
+  });
+
+  readonly packInstallError = computed(
+    () =>
+      this.packInstallFailed().trim() ||
+      (this.toolchain()?.error ?? '').trim() ||
+      (this.toolchainEvent()?.error ?? '').trim(),
+  );
 
   readonly packComponents = computed<PackComponentState[]>(() => {
     const components = this.toolchain()?.components ?? [];
@@ -271,6 +332,15 @@ export class ImageUpscale implements OnDestroy, OnInit {
       list.push(
         resolve('upscale-model', this.i18n.t('imageUpscale.pack.modelFallback')),
       );
+    } else if (!this.animeModelConfigured()) {
+      // A custom override replaces the managed illustration model, so the
+      // managed file is not a requirement in that case.
+      list.push(
+        resolve(
+          'upscale-anime-model',
+          this.i18n.t('imageUpscale.pack.illustrationModelFallback'),
+        ),
+      );
     }
     return list;
   });
@@ -293,10 +363,17 @@ export class ImageUpscale implements OnDestroy, OnInit {
     () => this.animeModelPath().trim().length > 0,
   );
 
+  readonly illustrationModelReady = computed(
+    () =>
+      (this.toolchain()?.components ?? []).find(
+        (component) => component.id === 'upscale-anime-model',
+      )?.ready === true,
+  );
+
   readonly modelReady = computed(() =>
     this.model() === 'general'
       ? this.managedModelReady()
-      : this.animeModelConfigured(),
+      : this.animeModelConfigured() || this.illustrationModelReady(),
   );
 
   readonly missingPackComponents = computed(() =>
@@ -317,13 +394,6 @@ export class ImageUpscale implements OnDestroy, OnInit {
       return {
         title: this.i18n.t('imageUpscale.pack.checkErrorTitle'),
         detail: this.i18n.t('imageUpscale.pack.checkErrorDetail'),
-      };
-    }
-
-    if (this.model() === 'anime' && !this.animeModelConfigured()) {
-      return {
-        title: this.i18n.t('imageUpscale.pack.animeTitle'),
-        detail: this.i18n.t('imageUpscale.pack.animeDetail'),
       };
     }
 
@@ -422,14 +492,10 @@ export class ImageUpscale implements OnDestroy, OnInit {
     if (this.toolchainState() === 'loading' || this.toolchainChecking()) {
       return this.i18n.t('imageUpscale.helper.checking');
     }
-    if (!this.engineReady()) {
-      return this.i18n.t('imageUpscale.helper.notReady');
-    }
-    if (this.model() === 'anime' && !this.animeModelConfigured()) {
-      return this.i18n.t('imageUpscale.helper.anime');
-    }
-    if (!this.managedModelReady() && this.model() === 'general') {
-      return this.i18n.t('imageUpscale.helper.notReady');
+    if (!this.engineReady() || !this.modelReady()) {
+      return this.model() === 'anime' && this.engineReady()
+        ? this.i18n.t('imageUpscale.helper.anime')
+        : this.i18n.t('imageUpscale.helper.notReady');
     }
     return '';
   });
@@ -563,20 +629,16 @@ export class ImageUpscale implements OnDestroy, OnInit {
   }
 
   /**
-   * Reloads the toolchain snapshot. The pack is optional and never installed
-   * from this page: the banner links to Settings instead.
+   * Reloads the toolchain snapshot through the shared state service. The pack
+   * is part of the standard install; the page can install or repair it inline.
    */
   async refreshToolchain(): Promise<void> {
     this.toolchainChecking.set(true);
     try {
-      const status = await this.wailsService.getToolchainStatus();
-      this.toolchain.set(status);
-      this.toolchainState.set(status.success ? 'ok' : 'error');
-    } catch {
-      this.toolchain.set(null);
-      this.toolchainState.set('error');
+      await this.pack.refresh();
     } finally {
       this.toolchainChecking.set(false);
+      this.toolchainChecked.set(true);
     }
 
     if (this.selectedPaths().length === 0) {
@@ -587,6 +649,41 @@ export class ImageUpscale implements OnDestroy, OnInit {
     } else {
       this.job.clearPlan();
     }
+  }
+
+  /**
+   * Installs or repairs the pack from this page. It names the model download
+   * size, shows live progress and re-plans once the engine and models are in
+   * place.
+   */
+  async installPack(): Promise<void> {
+    if (this.packInstalling()) {
+      return;
+    }
+
+    this.packInstallFailed.set('');
+    this.packInstallRequested.set(true);
+
+    const status = this.toolchain();
+    const response = await this.pack.install(this.packInstallOptions(status));
+    if (!response) {
+      this.packInstallRequested.set(false);
+      this.packInstallFailed.set(
+        this.i18n.t('imageUpscale.pack.installFailed'),
+      );
+      return;
+    }
+
+    if (!response.installing) {
+      await this.finishPackInstall();
+      return;
+    }
+
+    void this.awaitPackInstall();
+  }
+
+  async cancelPackInstall(): Promise<void> {
+    await this.pack.cancel();
   }
 
   async run(): Promise<void> {
@@ -633,6 +730,37 @@ export class ImageUpscale implements OnDestroy, OnInit {
 
   reset(): void {
     this.job.reset();
+  }
+
+  private packInstallOptions(status: ToolchainStatus | null): ToolchainInstallOptions {
+    return {
+      model: status?.model || 'medium',
+      ocrLanguages:
+        status?.ocrLanguages && status.ocrLanguages.length > 0
+          ? [...status.ocrLanguages]
+          : [...DEFAULT_OCR_LANGUAGES],
+    };
+  }
+
+  /**
+   * Waits for the background install to settle. The service polls the installer
+   * while it runs, so this only watches the shared status; the bound stops a
+   * lost status from leaving the page stuck in a "installing" state.
+   */
+  private async awaitPackInstall(): Promise<void> {
+    const deadline = Date.now() + PACK_INSTALL_TIMEOUT_MS;
+    while (this.toolchain()?.installing && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, PACK_INSTALL_POLL_MS));
+    }
+    await this.finishPackInstall();
+  }
+
+  private async finishPackInstall(): Promise<void> {
+    this.packInstallRequested.set(false);
+    await this.refreshToolchain();
+    if (this.selectedPaths().length > 0 && this.packReady()) {
+      this.schedulePlan();
+    }
   }
 
   private currentOptions(): ImageUpscaleOptions {

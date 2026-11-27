@@ -214,3 +214,16 @@ func UpscaleModelArtifact() Artifact {
 		FileName:  spec.ArchiveName,
 	}
 }
+
+// UpscaleAnimeModelArtifact returns the pinned illustration model file. It
+// reads upscaleAnimeModelSpec so tests can substitute a small fake payload.
+func UpscaleAnimeModelArtifact() Artifact {
+	spec := upscaleAnimeModelSpec
+
+	return Artifact{
+		URL:       spec.URL,
+		SHA256:    spec.SHA256,
+		SizeBytes: spec.SizeBytes,
+		FileName:  spec.FileName,
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/toolchain"
 )
 
 // upscaleStubCall records one RunUpscale invocation.
@@ -255,8 +256,8 @@ func TestUpscalePlanReportsMissingRuntime(t *testing.T) {
 	if planErr.Code != "RUNTIME_DEP_MISSING" || planErr.DetailCode != UpscaleCodeRuntimeUnavailable {
 		t.Fatalf("unexpected dependency error: %+v", planErr)
 	}
-	if !strings.Contains(planErr.Message, "upscale pack") {
-		t.Fatalf("expected the runtime message to name the pack, got %q", planErr.Message)
+	if !strings.Contains(planErr.Message, "upscale engine") || !strings.Contains(planErr.Message, "Install the toolchain") {
+		t.Fatalf("expected the runtime message to name the engine and the install action, got %q", planErr.Message)
 	}
 }
 
@@ -287,10 +288,137 @@ func TestUpscalePlanReportsMissingModel(t *testing.T) {
 		"model": "anime",
 	}))
 	if animeErr == nil || animeErr.DetailCode != UpscaleCodeModelUnavailable {
-		t.Fatalf("expected the anime choice to require a custom model: %+v", animeErr)
+		t.Fatalf("expected the illustration model to be reported missing: %+v", animeErr)
 	}
-	if !strings.Contains(animeErr.Message, "anime model") {
-		t.Fatalf("expected the anime guidance, got %q", animeErr.Message)
+	if !strings.Contains(animeErr.Message, "illustration model") {
+		t.Fatalf("expected the illustration guidance, got %q", animeErr.Message)
+	}
+	if !strings.Contains(animeErr.Message, "Reinstall the toolchain") {
+		t.Fatalf("expected the repair action in the message, got %q", animeErr.Message)
+	}
+}
+
+// installManagedUpscalePack writes the pinned model files the installer would
+// place, so plan tests can exercise a fully installed pack without downloads.
+func installManagedUpscalePack(t *testing.T, dataDir string) {
+	t.Helper()
+
+	root := toolchain.ToolchainDir(dataDir)
+	general := toolchain.DefaultUpscaleModelSpec()
+	generalDir := filepath.Join(root, "upscale", "models", general.Model)
+	if err := os.MkdirAll(generalDir, 0o755); err != nil {
+		t.Fatalf("create the photo model folder: %v", err)
+	}
+	for _, file := range general.Files {
+		path := filepath.Join(generalDir, file.Name)
+		if err := os.WriteFile(path, []byte("model"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+		if err := os.Truncate(path, file.SizeBytes); err != nil {
+			t.Fatalf("size %s: %v", path, err)
+		}
+	}
+
+	anime := toolchain.DefaultUpscaleAnimeModelSpec()
+	animeDir := filepath.Join(root, "upscale", "models", anime.Model)
+	if err := os.MkdirAll(animeDir, 0o755); err != nil {
+		t.Fatalf("create the illustration model folder: %v", err)
+	}
+	animePath := filepath.Join(animeDir, anime.FileName)
+	if err := os.WriteFile(animePath, []byte("model"), 0o644); err != nil {
+		t.Fatalf("write %s: %v", animePath, err)
+	}
+	if err := os.Truncate(animePath, anime.SizeBytes); err != nil {
+		t.Fatalf("size %s: %v", animePath, err)
+	}
+}
+
+func TestUpscalePlanAnimeSucceedsAfterInstallWithoutUserSetting(t *testing.T) {
+	dataDir, _ := withUpscaleTestRuntime(t)
+	installManagedUpscalePack(t, dataDir)
+
+	input := filepath.Join(dataDir, "art.png")
+	writeUpscalePNG(t, input, 8, 8)
+
+	tool := NewUpscaleTool()
+	plan, planErr := tool.Plan(context.Background(), upscaleTestRequest("single", []string{input}, map[string]any{
+		"model": "anime",
+	}))
+	if planErr != nil {
+		t.Fatalf("expected model=anime to plan after the pack install, got %+v", planErr)
+	}
+	if !plan.Success || len(plan.Outputs) != 1 {
+		t.Fatalf("unexpected plan: %+v", plan)
+	}
+	if plan.EffectiveOptions["model"] != "anime" {
+		t.Fatalf("effective model = %v", plan.EffectiveOptions["model"])
+	}
+	if _, hasPath := plan.EffectiveOptions["modelPath"]; hasPath {
+		t.Fatalf("a managed illustration model must not send a custom modelPath: %v", plan.EffectiveOptions)
+	}
+
+	animePath, found := toolchain.ManagedUpscaleAnimeModelPath(dataDir)
+	if !found {
+		t.Fatal("expected the managed illustration model to be ready")
+	}
+	if !strings.Contains(animePath, filepath.Join("models", "anime")) {
+		t.Fatalf("unexpected illustration model path: %q", animePath)
+	}
+}
+
+func TestUpscalePlanCustomAnimeOverrideWins(t *testing.T) {
+	dataDir, _ := withUpscaleTestRuntime(t)
+
+	input := filepath.Join(dataDir, "art.png")
+	writeUpscalePNG(t, input, 8, 8)
+	custom := fakeCustomUpscaleModel(t, dataDir)
+
+	tool := NewUpscaleTool()
+
+	// A custom file wins even when the managed illustration model is missing:
+	// the override is an advanced escape hatch, never a requirement.
+	plan, planErr := tool.Plan(context.Background(), upscaleTestRequest("single", []string{input}, map[string]any{
+		"model":     "anime",
+		"modelPath": custom,
+	}))
+	if planErr != nil {
+		t.Fatalf("expected the custom override to satisfy model=anime, got %+v", planErr)
+	}
+	if plan.EffectiveOptions["modelPath"] != custom {
+		t.Fatalf("effective modelPath = %v, want %q", plan.EffectiveOptions["modelPath"], custom)
+	}
+
+	// Install the managed models: the custom path must still take precedence.
+	installManagedUpscalePack(t, dataDir)
+	plan, planErr = tool.Plan(context.Background(), upscaleTestRequest("single", []string{input}, map[string]any{
+		"model":     "anime",
+		"modelPath": custom,
+	}))
+	if planErr != nil {
+		t.Fatalf("expected the custom override to keep planning, got %+v", planErr)
+	}
+	if plan.EffectiveOptions["modelPath"] != custom {
+		t.Fatalf("the custom override must win over the managed model, got %v", plan.EffectiveOptions["modelPath"])
+	}
+}
+
+func TestUpscalePlanCustomOverrideMissingIsActionable(t *testing.T) {
+	dataDir, _ := withUpscaleTestRuntime(t)
+	installManagedUpscalePack(t, dataDir)
+
+	input := filepath.Join(dataDir, "art.png")
+	writeUpscalePNG(t, input, 8, 8)
+
+	tool := NewUpscaleTool()
+	_, planErr := tool.Plan(context.Background(), upscaleTestRequest("single", []string{input}, map[string]any{
+		"model":     "anime",
+		"modelPath": filepath.Join(dataDir, "gone.onnx"),
+	}))
+	if planErr == nil || planErr.DetailCode != UpscaleCodeModelUnavailable {
+		t.Fatalf("expected a missing custom model to be reported, got %+v", planErr)
+	}
+	if planErr.Message != UpscaleCustomModelMissingReason {
+		t.Fatalf("message = %q, want the actionable override guidance", planErr.Message)
 	}
 }
 

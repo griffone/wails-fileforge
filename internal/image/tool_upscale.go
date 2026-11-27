@@ -19,14 +19,15 @@ const ToolIDImageUpscale = "tool.image.upscale"
 const (
 	imageUpscaleAnimatedWarning = "animated input: only the first frame is upscaled"
 	imageUpscalePNGQualityNote  = "quality applies to JPEG and WebP; PNG is always lossless"
-	imageUpscaleFixedTileNote   = "the bundled general model runs on fixed 128 px tiles; tileSize applies to custom models"
+	imageUpscaleFixedTileNote   = "the photo model runs on fixed 128 px tiles; tileSize applies to the illustration model and custom models"
 
-	// UpscaleRuntimeMissingReason and UpscaleModelMissingReason are the
-	// user-facing degraded states. They always point at the only repair path:
-	// the managed toolchain installer.
-	UpscaleRuntimeMissingReason    = "The upscale pack is not installed. Open Settings and run Install / repair."
-	UpscaleModelMissingReason      = "The upscale model is not installed or is incomplete. Open Settings and run Install / repair."
-	UpscaleAnimeModelMissingReason = "The anime model is not configured. Choose a RealESRGAN x4 anime ONNX file in Settings."
+	// UpscaleRuntimeMissingReason and the model reasons are the user-facing
+	// degraded states. They name what is missing and what the repair does; the
+	// tool page offers the install inline.
+	UpscaleRuntimeMissingReason     = "The local upscale engine is not installed. Install the toolchain to download it."
+	UpscaleModelMissingReason       = "The photo upscale model is missing or incomplete. Reinstall the toolchain to download it."
+	UpscaleAnimeModelMissingReason  = "The illustration model is missing or incomplete. Reinstall the toolchain to download it."
+	UpscaleCustomModelMissingReason = "The custom upscale model selected in Settings could not be read. Choose another file or clear the override."
 )
 
 // UpscaleTool upscales images locally with the opt-in ONNX pack. The runner is
@@ -711,8 +712,9 @@ func resolveUpscaleRuntimeAt(dataDir string) (upscaleRuntime, *UpscaleError) {
 }
 
 // resolveUpscaleModel resolves the model path for one request. A custom path
-// always wins; otherwise the anime choice requires a configured custom model
-// and the general choice requires the managed pinned model.
+// always wins; otherwise the illustration choice requires the managed pinned
+// illustration model and the photo choice requires the managed photo model.
+// Both managed models are downloads, so no user file is ever required.
 func resolveUpscaleModel(runtime upscaleRuntime, options upscaleRequestOptions) (string, *UpscaleError) {
 	if custom := strings.TrimSpace(options.ModelPath); custom != "" {
 		if !strings.EqualFold(filepath.Ext(custom), ".onnx") {
@@ -723,18 +725,19 @@ func resolveUpscaleModel(runtime upscaleRuntime, options upscaleRequestOptions) 
 			}
 		}
 		if _, modelErr := validateUpscaleModelPath(custom); modelErr != nil {
-			return "", modelErr
+			return "", &UpscaleError{
+				Code:    UpscaleCodeModelUnavailable,
+				Message: UpscaleCustomModelMissingReason,
+				Details: modelErr.Details,
+				Cause:   modelErr.Cause,
+			}
 		}
 
 		return custom, nil
 	}
 
 	if options.Model == toolchain.UpscaleModelAnime {
-		return "", &UpscaleError{
-			Code:    UpscaleCodeModelUnavailable,
-			Message: UpscaleAnimeModelMissingReason,
-			Details: map[string]any{"model": options.Model},
-		}
+		return resolveManagedUpscaleAnimeModel(runtime)
 	}
 
 	return resolveManagedUpscaleModel(runtime)
@@ -751,6 +754,24 @@ func resolveManagedUpscaleModel(runtime upscaleRuntime) (string, *UpscaleError) 
 			Details: map[string]any{
 				"model":      spec.Model,
 				"modelFiles": spec.Files,
+			},
+		}
+	}
+
+	return modelPath, nil
+}
+
+func resolveManagedUpscaleAnimeModel(runtime upscaleRuntime) (string, *UpscaleError) {
+	modelPath, modelOK := toolchain.ManagedUpscaleAnimeModelPath(runtime.DataDir)
+	if !modelOK {
+		spec := toolchain.DefaultUpscaleAnimeModelSpec()
+
+		return "", &UpscaleError{
+			Code:    UpscaleCodeModelUnavailable,
+			Message: UpscaleAnimeModelMissingReason,
+			Details: map[string]any{
+				"model":      spec.Model,
+				"modelFiles": []toolchain.UpscaleModelFile{{Name: spec.FileName, SizeBytes: spec.SizeBytes, SHA256: spec.SHA256}},
 			},
 		}
 	}

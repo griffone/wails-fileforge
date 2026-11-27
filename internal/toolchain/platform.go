@@ -304,9 +304,10 @@ func RembgModelURL(model string) (string, error) {
 	return rembgModelReleaseBaseURL + RembgModelFileName(normalized), nil
 }
 
-// Supported upscale models. The general model ships with the pack; the anime
-// model is a user-provided ONNX export because no trustworthy anime artifact
-// with a verified licence could be pinned.
+// Supported upscale models. Both models are pinned downloads installed by the
+// standard toolchain; the option values are kept for request and preference
+// compatibility. UpscaleModelAnime is the upstream name of the weight set and
+// is displayed to users as the illustration model.
 const (
 	UpscaleModelGeneral = "general"
 	UpscaleModelAnime   = "anime"
@@ -339,9 +340,63 @@ const (
 	upscaleModelArchiveDir = "real_esrgan_general_x4v3-onnx-float/real_esrgan_general_x4v3_onnx"
 )
 
-// upscalePins is the validated package set installed into the dedicated
-// upscale virtual environment. The array, image and inference pins match the
-// background removal pack so both engines share one tested ONNX stack.
+// Metadata for the pinned illustration (upstream "anime") model. It is the
+// RealESRGAN_x4plus_anime_6B network exported to ONNX by skillsafe-ai. The
+// graph is self-contained and accepts a dynamic input, so the bridge can use
+// the requested tile size instead of the fixed 128 px tile of the general
+// model. Values were captured on 2026-11-27 from the commit-pinned Hugging Face
+// file. The upstream Real-ESRGAN licence is BSD-3-Clause
+// (https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE).
+//
+// The general and illustration hashes stay separate constants: updating one
+// model must never invalidate the other download.
+const (
+	upscaleAnimeModelFileName        = "realesrgan_x4plus_anime_6b.onnx"
+	upscaleAnimeModelURL             = "https://huggingface.co/skillsafe-ai/realesrgan-x4plus-anime-6b/resolve/c001be50fae1c7a2bae8b2b4dec5e6fcbdbcca96/model.onnx"
+	upscaleAnimeModelSizeBytes int64 = 17939975
+	upscaleAnimeModelSHA256          = "9a029dae374b2cd4c3eb2dbbed857e22e6d785687c767aa12828e7356b9fb378"
+)
+
+// UpscaleFileModelSpec describes one pinned upscale model that is downloaded
+// as a single ONNX file, without an archive around it.
+type UpscaleFileModelSpec struct {
+	Model     string
+	FileName  string
+	URL       string
+	SizeBytes int64
+	SHA256    string
+}
+
+// DefaultUpscaleAnimeModelSpec returns the validated metadata of the pinned
+// illustration model.
+func DefaultUpscaleAnimeModelSpec() UpscaleFileModelSpec {
+	return defaultUpscaleAnimeModelSpec()
+}
+
+func defaultUpscaleAnimeModelSpec() UpscaleFileModelSpec {
+	return UpscaleFileModelSpec{
+		Model:     UpscaleModelAnime,
+		FileName:  upscaleAnimeModelFileName,
+		URL:       upscaleAnimeModelURL,
+		SizeBytes: upscaleAnimeModelSizeBytes,
+		SHA256:    upscaleAnimeModelSHA256,
+	}
+}
+
+// upscaleAnimeModelSpec is the model the installer manages. It is a variable so
+// tests can substitute a small fake payload; production never overwrites it.
+var upscaleAnimeModelSpec = defaultUpscaleAnimeModelSpec()
+
+// UpscaleModelsSizeBytes returns the combined download of both pinned upscale
+// models. It is the number the install affordances show to users.
+func UpscaleModelsSizeBytes() int64 {
+	return upscaleModelSpec.SizeBytes + upscaleAnimeModelSpec.SizeBytes
+}
+
+// upscalePins is the validated package set the shared ONNX virtual environment
+// must satisfy for the upscale engine. Every pin here is also present with the
+// same exact version in rembgPins, which is the set actually installed: the
+// shared environment is a superset, so a single venv serves both engines.
 var upscalePins = []string{
 	"onnxruntime==1.32.0",
 	"numpy==2.3.5",

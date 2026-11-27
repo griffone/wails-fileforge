@@ -60,6 +60,8 @@ func managedReadyRuntime() ManagedRuntime {
 		UpscaleReason:      "Local upscale engine",
 		UpscaleModelReady:  true,
 		UpscaleModelReason: "Local upscale model",
+		UpscaleAnimeReady:  true,
+		UpscaleAnimeReason: "Local illustration upscale model",
 		Whisper: engine.TranscriptionCapabilities{
 			WhisperPath:    "/data/fileforge/toolchain/whisper/whisper-cli",
 			WhisperPresent: true,
@@ -172,7 +174,7 @@ func TestDetectWithAllToolsAvailable(t *testing.T) {
 	if got := byID["rembg"].Detail; got != "Background removal engine and model" {
 		t.Fatalf("unexpected rembg detail: %q", got)
 	}
-	if got := byID["upscale"].Detail; got != "Upscale engine and general model" {
+	if got := byID["upscale"].Detail; got != "Upscale engine and both models (photo and illustration)" {
 		t.Fatalf("unexpected upscale detail: %q", got)
 	}
 	if got := byID["whisper"].Detail; got != "Model: ggml-medium.bin" {
@@ -184,7 +186,7 @@ func TestDetectWithAllToolsAvailable(t *testing.T) {
 	if byID["whisper"].Label != "Whisper model" {
 		t.Fatalf("unexpected whisper label: %q", byID["whisper"].Label)
 	}
-	if byID["upscale"].Label != "Local upscale pack" {
+	if byID["upscale"].Label != "Local upscale engine" {
 		t.Fatalf("unexpected upscale label: %q", byID["upscale"].Label)
 	}
 	if len(response.OCRLanguages) != 2 || response.OCRLanguages[0] != "afr" || response.OCRLanguages[1] != "eng" {
@@ -321,6 +323,8 @@ func TestDetectBackgroundRemovalPackStates(t *testing.T) {
 		engineReason   string
 		modelReady     bool
 		modelReason    string
+		animeReady     bool
+		animeReason    string
 		wantAvailable  bool
 		wantDetail     string
 		wantSuggestion string
@@ -392,6 +396,8 @@ func TestDetectUpscalePackStates(t *testing.T) {
 		engineReason   string
 		modelReady     bool
 		modelReason    string
+		animeReady     bool
+		animeReason    string
 		wantAvailable  bool
 		wantDetail     string
 		wantSuggestion string
@@ -399,28 +405,42 @@ func TestDetectUpscalePackStates(t *testing.T) {
 		{
 			name:           "engine missing",
 			engineReady:    false,
-			engineReason:   "The upscale engine is not installed. Open Settings and run Install / repair.",
+			engineReason:   "The local ONNX engine shared by background removal and upscaling is not installed. Run Install / repair to download it.",
 			wantDetail:     "Not installed",
-			wantSuggestion: "The upscale engine is not installed. Open Settings and run Install / repair.",
+			wantSuggestion: "The local ONNX engine shared by background removal and upscaling is not installed. Run Install / repair to download it.",
 		},
 		{
-			name:           "model missing",
+			name:           "photo model missing",
 			engineReady:    true,
 			engineReason:   "Local upscale engine",
 			modelReady:     false,
-			modelReason:    "Upscale model is not installed. Run Install / repair.",
+			modelReason:    "The photo upscale model is not installed. Run Install / repair to download it.",
 			wantAvailable:  false,
-			wantDetail:     "Engine installed, but the model is not ready",
-			wantSuggestion: "Upscale model is not installed. Run Install / repair.",
+			wantDetail:     "Engine installed, but the photo model is not ready",
+			wantSuggestion: "The photo upscale model is not installed. Run Install / repair to download it.",
+		},
+		{
+			name:           "illustration model missing",
+			engineReady:    true,
+			engineReason:   "Local upscale engine",
+			modelReady:     true,
+			modelReason:    "Local photo upscale model",
+			animeReady:     false,
+			animeReason:    "The illustration upscale model is not installed. Run Install / repair to download it.",
+			wantAvailable:  false,
+			wantDetail:     "Engine installed, but the illustration model is not ready",
+			wantSuggestion: "The illustration upscale model is not installed. Run Install / repair to download it.",
 		},
 		{
 			name:          "pack ready",
 			engineReady:   true,
 			engineReason:  "Local upscale engine",
 			modelReady:    true,
-			modelReason:   "Local upscale model",
+			modelReason:   "Local photo upscale model",
+			animeReady:    true,
+			animeReason:   "Local illustration upscale model",
 			wantAvailable: true,
-			wantDetail:    "Upscale engine and general model",
+			wantDetail:    "Upscale engine and both models (photo and illustration)",
 		},
 	}
 
@@ -431,6 +451,8 @@ func TestDetectUpscalePackStates(t *testing.T) {
 			state.UpscaleReason = test.engineReason
 			state.UpscaleModelReady = test.modelReady
 			state.UpscaleModelReason = test.modelReason
+			state.UpscaleAnimeReady = test.animeReady
+			state.UpscaleAnimeReason = test.animeReason
 
 			opts := baseOptions(
 				fakeLookPath(allBinaries...),
@@ -443,7 +465,7 @@ func TestDetectUpscalePackStates(t *testing.T) {
 				t.Fatalf("available = %t, want %t", check.Available, test.wantAvailable)
 			}
 			if check.Required {
-				t.Fatal("the upscale pack must stay optional")
+				t.Fatal("the upscale components must not gate readiness")
 			}
 			if check.Detail != test.wantDetail {
 				t.Fatalf("detail = %q, want %q", check.Detail, test.wantDetail)

@@ -250,11 +250,7 @@
                     <span
                       class="badge badge-neutral settings-capability-scope"
                     >
-                      {{
-                        component.required
-                          ? i18n.t('settings.status.required')
-                          : i18n.t('settings.status.optional')
-                      }}
+                      {{ toolchainComponentScopeLabel(component) }}
                     </span>
                     <span [class]="toolchainComponentBadgeClass(component)">{{
                       toolchainComponentStateLabel(component)

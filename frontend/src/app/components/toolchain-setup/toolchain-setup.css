@@ -165,6 +165,73 @@
   color: var(--muted);
 }
 
+.toolchain-size {
+  margin: 2px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-soft);
+}
+
+.toolchain-component-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.toolchain-component-title {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.toolchain-component-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toolchain-component-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+}
+
+.toolchain-component-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolchain-component-state {
+  color: var(--text-soft);
+  font-size: 0.6875rem;
+}
+
+.toolchain-component-error {
+  grid-column: 2 / -1;
+  color: var(--danger, #d64545);
+  font-size: 0.6875rem;
+  overflow-wrap: anywhere;
+}
+
+.toolchain-component-hint {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--muted);
+}
+
 @keyframes toolchain-fade {
   from {
     opacity: 0;

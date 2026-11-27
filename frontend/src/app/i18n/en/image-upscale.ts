@@ -3,28 +3,33 @@ export const imageUpscaleEn = {
   'imageUpscale.page.titleLead': 'Upscale',
   'imageUpscale.page.titleTail': 'Image',
   'imageUpscale.page.sub':
-    'Enlarge images 2x or 4x with a local ONNX model. The model is a one-time download and every pixel is computed on this machine.',
+    'Enlarge images 2x or 4x with a local ONNX model. The models are a one-time download and every pixel is computed on this machine.',
   'imageUpscale.page.localBadge': 'Local only',
   'imageUpscale.pack.engineFallback': 'Upscale engine',
-  'imageUpscale.pack.modelFallback': 'Upscale model',
+  'imageUpscale.pack.modelFallback': 'Photo upscale model',
+  'imageUpscale.pack.illustrationModelFallback': 'Illustration upscale model',
   'imageUpscale.pack.checkErrorTitle':
     'The upscale pack could not be checked.',
   'imageUpscale.pack.checkErrorDetail':
-    'Open Settings and run Install / repair, then recheck the pack here.',
+    'Recheck the pack, or run Install / repair in Settings.',
   'imageUpscale.pack.needsRepairTitle': 'The upscale pack needs repair.',
   'imageUpscale.pack.missingTitle': 'The upscale pack is not installed.',
   'imageUpscale.pack.detail':
-    'It downloads {size} once and runs entirely on this machine. Open Settings and run Install / repair, then recheck.',
-  'imageUpscale.pack.size': 'about 55 MB',
+    'It downloads the engine and both models once ({size}) and runs entirely on this machine.',
+  'imageUpscale.pack.size': 'about 73 MB',
+  'imageUpscale.pack.modelsSize': 'about 22.5 MB',
+  'imageUpscale.pack.install': 'Install upscale pack ({size} of models)',
+  'imageUpscale.pack.installFailed':
+    'The upscale pack install could not start. Try again or use Settings.',
+  'imageUpscale.pack.cancel': 'Cancel install',
+  'imageUpscale.pack.cancelling': 'Cancelling…',
+  'imageUpscale.pack.progressAria': 'Upscale pack install progress',
   'imageUpscale.pack.badge.checking': 'Checking pack…',
   'imageUpscale.pack.badge.ready': 'Pack ready',
   'imageUpscale.pack.badge.missing': 'Pack missing',
-  'imageUpscale.pack.openSettings': 'Open Settings and run Install / repair',
+  'imageUpscale.pack.openSettings': 'Open Settings',
   'imageUpscale.pack.recheck': 'Recheck',
   'imageUpscale.pack.rechecking': 'Rechecking…',
-  'imageUpscale.pack.animeTitle': 'The anime model is not configured.',
-  'imageUpscale.pack.animeDetail':
-    'The anime model is not shipped. Choose a RealESRGAN x4 anime ONNX file in Settings → Tools & Models, then recheck.',
   'imageUpscale.intake.title': 'Images',
   'imageUpscale.intake.sub': 'Drop images or choose them from your computer.',
   'imageUpscale.intake.dropTitle': 'Drop images here',
@@ -48,17 +53,17 @@ export const imageUpscaleEn = {
   'imageUpscale.field.scaleHelp':
     '2x is produced by downsampling the 4x model output, so both choices share one model.',
   'imageUpscale.field.model': 'Model',
-  'imageUpscale.model.general': 'General (bundled)',
-  'imageUpscale.model.anime': 'Anime (custom file)',
+  'imageUpscale.model.general': 'Photo',
+  'imageUpscale.model.anime': 'Illustration & line art',
   'imageUpscale.field.modelHelp':
-    'The bundled general model handles photos and illustrations. The anime model is optional and you provide the file.',
+    'Photo is for photographs and textured captures. Illustration & line art is for drawings, logos, comics and digital art, and it preserves hard lines and flat colour.',
   'imageUpscale.field.tile': 'Tile size',
   'imageUpscale.tile.64': '64 px',
   'imageUpscale.tile.128': '128 px',
   'imageUpscale.tile.256': '256 px',
   'imageUpscale.tile.512': '512 px',
   'imageUpscale.field.tileHelp':
-    'The bundled model runs on fixed 128 px tiles. Tile size is used by custom models with dynamic input shapes.',
+    'The photo model runs on fixed 128 px tiles. Tile size is used by the illustration model and custom models with dynamic input shapes.',
   'imageUpscale.field.format': 'Format',
   'imageUpscale.format.png': 'PNG (lossless)',
   'imageUpscale.format.jpeg': 'JPEG',
@@ -67,23 +72,24 @@ export const imageUpscaleEn = {
   'imageUpscale.field.qualityAria': 'Output quality',
   'imageUpscale.field.qualityHelp':
     'Applies to JPEG and WebP. PNG is always lossless.',
-  'imageUpscale.field.animeModel': 'Anime model file',
-  'imageUpscale.animeModel.configured': 'Configured: {path}',
-  'imageUpscale.animeModel.missing': 'No anime model chosen yet.',
+  'imageUpscale.field.animeModel': 'Illustration model file',
+  'imageUpscale.animeModel.configured': 'Using your custom file: {path}',
+  'imageUpscale.animeModel.included':
+    'The illustration model is included in the pack.',
   'imageUpscale.animeModel.help':
-    'Use a RealESRGAN x4 anime ONNX export. FileForge never downloads it.',
-  'imageUpscale.animeModel.openSettings': 'Choose the file in Settings',
+    'Advanced: you can point this choice at your own RealESRGAN x4 ONNX export instead. The bundled model is used otherwise.',
+  'imageUpscale.animeModel.advanced': 'Choose a custom file in Settings',
   'imageUpscale.note.title': 'One download, then offline',
   'imageUpscale.note.body':
-    'The pack is downloaded once from Settings → Tools & Models and verified with its checksum. Inference runs locally with ONNX Runtime; nothing is uploaded. Outputs are named <name>_2x or <name>_4x.',
+    'The engine and both models are downloaded once by the setup or from Settings → Tools & Models, and verified with their checksums. Inference runs locally with ONNX Runtime; nothing is uploaded. Outputs are named <name>_2x or <name>_4x.',
   'imageUpscale.note.limit':
     'Outputs are limited to 64 megapixels. For a 4x pass, start from an image under 4000 × 4000 px.',
   'imageUpscale.helper.addImage': 'Add at least one image.',
   'imageUpscale.helper.checking': 'Checking the upscale pack…',
   'imageUpscale.helper.notReady':
-    'The upscale pack is not ready. Install it in Settings first.',
+    'The upscale engine or the selected model is not installed. Use Install upscale pack above.',
   'imageUpscale.helper.anime':
-    'Choose an anime model file in Settings first.',
+    'The illustration model is missing. Use Install upscale pack above.',
   'imageUpscale.action.upscale': 'Upscale image',
   'imageUpscale.action.upscaleOne': 'Upscale 1 image',
   'imageUpscale.action.upscaleMany': 'Upscale {count} images',

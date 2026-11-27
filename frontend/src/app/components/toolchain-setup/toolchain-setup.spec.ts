@@ -107,14 +107,132 @@ describe('ToolchainSetup', () => {
     expect(text).toContain('Installing local tools');
     expect(text).toContain('Downloading the model');
     expect(text).toContain('35%');
-    expect(text).toContain(
-      'Whisper · Tesseract · FFmpeg · Poppler · Ghostscript',
-    );
+    expect(text).toContain('About 73 MB download');
+    expect(text).toContain('about 22.5 MB for the photo and illustration');
 
     const fill = element().querySelector<HTMLElement>('.progress-fill');
     expect(fill?.style.width).toBe('35%');
     expect(fill?.classList.contains('is-indeterminate')).toBeFalse();
     expect(stub.ensureStarted).toHaveBeenCalled();
+  }));
+
+  it('lists the standard upscale engine and models with the shared phases', fakeAsync(() => {
+    stub.status.set(
+      toolchainStatus({
+        installing: true,
+        percent: 94,
+        phase: 'onnx',
+        detail: 'Installing the shared ONNX engine…',
+        components: [
+          {
+            id: 'upscale',
+            label: 'Upscale engine',
+            ready: false,
+            required: false,
+            standard: true,
+            detail: 'The local ONNX engine is not installed.',
+          },
+          {
+            id: 'upscale-model',
+            label: 'Photo upscale model',
+            ready: false,
+            required: false,
+            standard: true,
+          },
+          {
+            id: 'upscale-anime-model',
+            label: 'Illustration upscale model',
+            ready: true,
+            required: false,
+            standard: true,
+          },
+        ],
+      }),
+    );
+
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('Installing the shared ONNX engine');
+    expect(text).toContain('Components');
+    expect(text).toContain('Photo upscale model');
+    expect(text).toContain('Illustration upscale model');
+
+    const ids = Array.from(
+      element().querySelectorAll('.toolchain-component-row'),
+    ).map((row) => row.getAttribute('data-component'));
+    expect(ids).toEqual([
+      'upscale',
+      'upscale-model',
+      'upscale-anime-model',
+    ]);
+    expect(
+      element()
+        .querySelector('[data-component="upscale-anime-model"]')
+        ?.getAttribute('data-ready'),
+    ).toBe('true');
+
+    // Cancellation still works while the standard components install.
+    expect(button('.toolchain-cancel')).toBeTruthy();
+  }));
+
+  it('surfaces a failed standard component and still starts the app', fakeAsync(() => {
+    stub.status.set(
+      toolchainStatus({
+        ready: true,
+        percent: 100,
+        phase: 'ready',
+        components: [
+          {
+            id: 'whisper-cli',
+            label: 'Whisper runtime',
+            ready: true,
+            required: true,
+          },
+          {
+            id: 'upscale',
+            label: 'Upscale engine',
+            ready: true,
+            required: false,
+            standard: true,
+          },
+          {
+            id: 'upscale-model',
+            label: 'Photo upscale model',
+            ready: false,
+            required: false,
+            standard: true,
+            error: 'download the upscale model: network unreachable',
+          },
+          {
+            id: 'upscale-anime-model',
+            label: 'Illustration upscale model',
+            ready: true,
+            required: false,
+            standard: true,
+          },
+        ],
+      }),
+    );
+
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('Photo upscale model');
+    expect(text).toContain('network unreachable');
+    expect(button('.toolchain-retry')).toBeTruthy();
+
+    button('.toolchain-retry').click();
+    expect(stub.install).toHaveBeenCalled();
+
+    // The rest of the toolchain is ready, so Continue returns to the app.
+    button('.toolchain-continue').click();
+    fixture.detectChanges();
+    expect(element().querySelector('.toolchain-backdrop')).toBeNull();
   }));
 
   it('hides the overlay when the toolchain is ready', fakeAsync(() => {
@@ -222,8 +340,9 @@ describe('ToolchainSetup', () => {
     expect(text).toContain('35%');
     expect(text).toContain('Cancelar');
     expect(text).toContain(
-      'FileForge está preparando Whisper, Tesseract, FFmpeg y las herramientas locales de OCR y transcripción.',
+      'FileForge está preparando Whisper, Tesseract, FFmpeg, la eliminación de fondos, la ampliación',
     );
+    expect(text).toContain('Descarga de unos 73 MB');
   }));
 
   it('stays hidden when IPC is unavailable (success: false preview)', fakeAsync(() => {

@@ -319,9 +319,10 @@ The app installs its local tools under the current user's LocalAppData:
     Scripts\python.exe
     Scripts\pdf2docx.exe
     Lib\site-packages\pdf2docx\
-  rembg-venv\
+  onnx-venv\
     Scripts\python.exe
     Lib\site-packages\rembg\
+    Lib\site-packages\onnxruntime\
   whisper\
     whisper-cli.exe
     ...DLLs
@@ -372,9 +373,11 @@ Notes:
   installer bundles neither Python/rembg nor the model. Installed, it is about
   630 MB (roughly 450-550 MB for the venv plus the 171 MB model). A missing pack
   degrades only Remove Background.
-- The `rembg-venv` uses the conda Python 3.11 only as its base interpreter. The
+- The `onnx-venv` uses the conda Python 3.11 only as its base interpreter. The
   pinned `rembg[cpu]==2.0.87`, `onnxruntime==1.32.0` and their transitive pins
-  live only in that venv, never in the conda environment.
+  live only in that venv, never in the conda environment. Background removal
+  and upscaling share it: the upscale pins are a subset of the rembg set with
+  identical versions.
 - Background removal child processes receive `REMBG_HOME` and `U2NET_HOME`
   pointing at the managed `rembg` folder, overriding inherited values. The
   engine forces `CPUExecutionProvider` and refuses to start without the managed
@@ -480,7 +483,7 @@ close it before continuing.
   `rembg` and `rembg-model` component details. Run Install / repair. If the
   engine installs but cannot start, install the Microsoft Visual C++ 2019+
   redistributable and check that antivirus/EDR is not quarantining the
-  `onnxruntime` DLLs under `rembg-venv\Lib\site-packages\onnxruntime\`.
+  `onnxruntime` DLLs under `onnx-venv\Lib\site-packages\onnxruntime\`.
 - **First-run downloads fail**: check the proxy/firewall. The downloads come
   from GitHub, conda-forge and Hugging Face. Re-run Install / repair.
 - **SmartScreen warns**: the build was unsigned, or the certificate has no

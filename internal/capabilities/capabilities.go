@@ -43,6 +43,8 @@ type ManagedRuntime struct {
 	UpscaleReason      string
 	UpscaleModelReady  bool
 	UpscaleModelReason string
+	UpscaleAnimeReady  bool
+	UpscaleAnimeReason string
 	Whisper            engine.TranscriptionCapabilities
 }
 
@@ -138,26 +140,30 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 		rembgDetail = "Background removal engine and model"
 	case !managedState.RembgReady:
 		rembgSuggestion = managedReason(managedState.RembgReason,
-			"Open Settings and run Install / repair to install the background removal pack.")
+			"Run Install / repair to install the background removal engine.")
 	case !managedState.RembgModelReady:
 		rembgDetail = "Engine installed, but the model is not ready"
 		rembgSuggestion = managedReason(managedState.RembgModelReason,
-			"Open Settings and run Install / repair to download the background removal model.")
+			"Run Install / repair to download the background removal model.")
 	}
 
-	upscaleAvailable := managedState.UpscaleReady && managedState.UpscaleModelReady
+	upscaleAvailable := managedState.UpscaleReady && managedState.UpscaleModelReady && managedState.UpscaleAnimeReady
 	upscaleDetail := "Not installed"
 	upscaleSuggestion := ""
 	switch {
 	case upscaleAvailable:
-		upscaleDetail = "Upscale engine and general model"
+		upscaleDetail = "Upscale engine and both models (photo and illustration)"
 	case !managedState.UpscaleReady:
 		upscaleSuggestion = managedReason(managedState.UpscaleReason,
-			"Open Settings and run Install / repair to install the upscale pack.")
+			"Run Install / repair to install the upscale engine.")
 	case !managedState.UpscaleModelReady:
-		upscaleDetail = "Engine installed, but the model is not ready"
+		upscaleDetail = "Engine installed, but the photo model is not ready"
 		upscaleSuggestion = managedReason(managedState.UpscaleModelReason,
-			"Open Settings and run Install / repair to download the upscale model.")
+			"Run Install / repair to download the photo upscale model.")
+	case !managedState.UpscaleAnimeReady:
+		upscaleDetail = "Engine installed, but the illustration model is not ready"
+		upscaleSuggestion = managedReason(managedState.UpscaleAnimeReason,
+			"Run Install / repair to download the illustration upscale model.")
 	}
 
 	whisper := managedState.Whisper
@@ -259,7 +265,7 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 		},
 		{
 			ID:         "upscale",
-			Label:      "Local upscale pack",
+			Label:      "Local upscale engine",
 			Available:  upscaleAvailable,
 			Required:   false,
 			Detail:     upscaleDetail,
@@ -301,6 +307,7 @@ func detectManagedRuntime() ManagedRuntime {
 	state.RembgModelReady, state.RembgModelReason = toolchain.ManagedRembgModelState(dataDir)
 	state.UpscaleReady, state.UpscaleReason = toolchain.ManagedUpscaleRuntimeState(dataDir)
 	state.UpscaleModelReady, state.UpscaleModelReason = toolchain.ManagedUpscaleModelState(dataDir)
+	state.UpscaleAnimeReady, state.UpscaleAnimeReason = toolchain.ManagedUpscaleAnimeModelState(dataDir)
 	state.Whisper = engine.DetectTranscriptionCapabilities("", "")
 
 	return state

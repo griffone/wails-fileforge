@@ -162,6 +162,7 @@ export class Settings implements OnInit {
       'rembg-model',
       'upscale',
       'upscale-model',
+      'upscale-anime-model',
     ]);
 
     return this.toolchainComponents().some(
@@ -425,8 +426,11 @@ export class Settings implements OnInit {
     if (component.ready) {
       return this.i18n.t('settings.status.ready');
     }
-    return component.required
-      ? this.i18n.t('settings.status.missing')
+    if (component.required) {
+      return this.i18n.t('settings.status.missing');
+    }
+    return component.standard
+      ? this.i18n.t('settings.status.needsInstall')
       : this.i18n.t('settings.status.optional');
   }
 
@@ -435,6 +439,15 @@ export class Settings implements OnInit {
       return 'success';
     }
     return component.required ? 'danger' : 'idle';
+  }
+
+  toolchainComponentScopeLabel(component: ToolchainComponent): string {
+    if (component.required) {
+      return this.i18n.t('settings.status.required');
+    }
+    return component.standard
+      ? this.i18n.t('settings.status.standard')
+      : this.i18n.t('settings.status.optional');
   }
 
   /** Version + path when known, otherwise the human detail line. */

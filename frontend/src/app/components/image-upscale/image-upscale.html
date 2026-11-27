@@ -55,14 +55,72 @@
             </ul>
           }
 
+          @if (packInstalling()) {
+            <div
+              class="pack-progress"
+              [attr.aria-label]="i18n.t('imageUpscale.pack.progressAria')"
+            >
+              <div
+                class="progress"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                [attr.aria-valuenow]="packPercent()"
+                [attr.aria-valuetext]="packPercent() + '%'"
+              >
+                <div
+                  class="progress-fill"
+                  [style.width.%]="packPercent()"
+                ></div>
+              </div>
+              <div class="pack-progress-meta">
+                <span class="pack-progress-message">{{
+                  packProgressMessage()
+                }}</span>
+                <span class="mono">{{ packPercent() }}%</span>
+              </div>
+            </div>
+          } @else if (packInstallError(); as error) {
+            <div class="banner banner-danger pack-install-error" role="alert">
+              <span>{{ error }}</span>
+            </div>
+          }
+
           <div class="pack-actions">
-            <a class="btn btn-secondary btn-sm" routerLink="/settings"
+            @if (packInstalling()) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm pack-cancel"
+                [disabled]="packCancelling()"
+                (click)="cancelPackInstall()"
+              >
+                {{
+                  packCancelling()
+                    ? i18n.t('imageUpscale.pack.cancelling')
+                    : i18n.t('imageUpscale.pack.cancel')
+                }}
+              </button>
+            } @else {
+              <button
+                type="button"
+                class="btn btn-primary btn-sm pack-install"
+                [disabled]="toolchainChecking()"
+                (click)="installPack()"
+              >
+                {{
+                  i18n.t('imageUpscale.pack.install', {
+                    size: i18n.t('imageUpscale.pack.modelsSize'),
+                  })
+                }}
+              </button>
+            }
+            <a class="btn btn-secondary btn-sm pack-settings" routerLink="/settings"
               >{{ i18n.t('imageUpscale.pack.openSettings') }}</a
             >
             <button
               type="button"
-              class="btn btn-ghost btn-sm"
-              [disabled]="toolchainChecking()"
+              class="btn btn-ghost btn-sm pack-recheck"
+              [disabled]="toolchainChecking() || packInstalling()"
               (click)="refreshToolchain()"
             >
               <lucide-icon
@@ -253,20 +311,24 @@
           @if (model() === "anime") {
             <div class="field anime-field">
               <span class="label">{{ i18n.t('imageUpscale.field.animeModel') }}</span>
-              <p class="anime-path mono">
-                {{
-                  animeModelConfigured()
-                    ? i18n.t('imageUpscale.animeModel.configured', {
-                        path: animeModelPath(),
-                      })
-                    : i18n.t('imageUpscale.animeModel.missing')
-                }}
-              </p>
+              @if (animeModelConfigured()) {
+                <p class="anime-path mono">
+                  {{
+                    i18n.t('imageUpscale.animeModel.configured', {
+                      path: animeModelPath(),
+                    })
+                  }}
+                </p>
+              } @else {
+                <p class="anime-path">
+                  {{ i18n.t('imageUpscale.animeModel.included') }}
+                </p>
+              }
               <p class="field-help">
                 {{ i18n.t('imageUpscale.animeModel.help') }}
               </p>
               <a class="btn btn-ghost btn-sm anime-link" routerLink="/settings"
-                >{{ i18n.t('imageUpscale.animeModel.openSettings') }}</a
+                >{{ i18n.t('imageUpscale.animeModel.advanced') }}</a
               >
             </div>
           }

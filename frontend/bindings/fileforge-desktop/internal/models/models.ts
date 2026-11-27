@@ -1013,15 +1013,22 @@ export interface ToolWindowResponse {
  * ToolchainComponent is one portable component of the managed local
  * toolchain. Ready means the file was verified on disk; Required components
  * gate ToolchainStatus.Ready.
+ * 
+ * Standard marks a component that the default install always includes even
+ * though a failure must not block the rest of the application. Standard
+ * components report their own Error so the UI can offer a targeted retry
+ * instead of an opaque setup failure.
  */
 export interface ToolchainComponent {
     "id": string;
     "label": string;
     "ready": boolean;
     "required": boolean;
+    "standard"?: boolean;
     "path"?: string;
     "version"?: string;
     "detail"?: string;
+    "error"?: string;
 }
 
 /**

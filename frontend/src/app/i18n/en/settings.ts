@@ -151,6 +151,8 @@ export const settingsEn = {
   'settings.status.missing': 'Missing',
   'settings.status.optional': 'Optional',
   'settings.status.required': 'Required',
+  'settings.status.standard': 'Included',
+  'settings.status.needsInstall': 'Install needed',
   'settings.status.notStarted': 'Not started',
   'settings.status.notFound': 'Not found',
   'settings.status.auto': 'Auto',
@@ -248,16 +250,16 @@ export const settingsEn = {
     'Updates are not supported on this platform. Install a new version manually.',
   'settings.updates.unavailable.generic':
     'Updates are unavailable in this build.',
-  'settings.upscale.title': 'Upscale pack',
+  'settings.upscale.title': 'Upscale engine and models',
   'settings.upscale.subtitle':
-    'The optional upscaler downloads its engine and model once (about 55 MB) and runs locally with ONNX Runtime. Nothing downloads until you press Install / repair.',
+    'Upscaling installs with the rest of the local tools: one shared ONNX environment and two pinned models, verified by checksum. Run Install / repair to add or restore them.',
   'settings.upscale.packSize':
-    'Pack size: about 55 MB download. The general model is included; no weights are bundled with the app.',
-  'settings.upscale.animeModel': 'Anime model file',
-  'settings.upscale.animeModelNotSet': 'No anime model chosen.',
+    'Download: about 73 MB in total, including about 22.5 MB for the photo and illustration models. The engine is shared with background removal.',
+  'settings.upscale.animeModel': 'Illustration model (advanced override)',
+  'settings.upscale.animeModelNotSet': 'Using the bundled illustration model.',
   'settings.upscale.chooseModel': 'Choose .onnx file',
-  'settings.upscale.clearModel': 'Clear',
+  'settings.upscale.clearModel': 'Use bundled model',
   'settings.upscale.help':
-    'The general model is verified and installed by the toolchain. The anime option is a user-provided RealESRGAN x4 anime ONNX export; FileForge never downloads it.',
+    'The bundled illustration model (weights from xinntao/Real-ESRGAN, ONNX export by skillsafe-ai) is downloaded and verified by the toolchain. Only point this at your own RealESRGAN x4 ONNX export if you want to override it; anime is one example of the content it handles well.',
   'settings.about': 'FileForge Desktop · local-first file tools',
 } as const;

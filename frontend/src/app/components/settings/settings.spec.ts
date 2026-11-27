@@ -673,13 +673,13 @@ describe('Settings', () => {
     expect(button('.settings-use-detected-whisper').disabled).toBeFalse();
   }));
 
-  it('persists the optional anime upscale model file', fakeAsync(() => {
+  it('persists the advanced illustration model override', fakeAsync(() => {
     flushMicrotasks();
     fixture.detectChanges();
 
     expect(
       element().querySelector('.settings-upscale-anime-path')?.textContent,
-    ).toContain('No anime model chosen.');
+    ).toContain('Using the bundled illustration model.');
 
     wailsSpy.openFileDialog.and.resolveTo('/models/anime.onnx');
     button('.settings-choose-upscale-anime').click();
@@ -697,7 +697,7 @@ describe('Settings', () => {
 
     expect(
       element().querySelector('.settings-upscale-anime-path')?.textContent,
-    ).toContain('No anime model chosen.');
+    ).toContain('Using the bundled illustration model.');
     expect(button('.settings-clear-upscale-anime').disabled).toBeTrue();
   }));
 
