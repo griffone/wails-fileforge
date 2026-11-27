@@ -3,6 +3,7 @@
 
 import * as AutomationService from "./automationservice.js";
 import * as DuplicatesService from "./duplicatesservice.js";
+import * as MediaService from "./mediaservice.js";
 import * as Notifier from "./notifier.js";
 import * as PreviewService from "./previewservice.js";
 import * as RecipeService from "./recipeservice.js";
@@ -14,6 +15,7 @@ import * as WindowService from "./windowservice.js";
 export {
     AutomationService,
     DuplicatesService,
+    MediaService,
     Notifier,
     PreviewService,
     RecipeService,

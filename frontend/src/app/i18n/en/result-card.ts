@@ -62,6 +62,7 @@ export const resultCardEn = {
   'resultCard.verb.rotated': 'rotated',
   'resultCard.verb.reordered': 'reordered',
   'resultCard.verb.with-pages-removed': 'with pages removed',
+  'resultCard.verb.downloaded': 'downloaded',
   'resultCard.runAgain': 'Run again',
   'resultCard.runAgain.aria': 'Run this job again with the same inputs and settings',
   'resultCard.runAgain.title': 'Run again with the same settings?',

@@ -435,6 +435,21 @@ export type FileInfo = Models.FileInfo;
 
 export type MediaSourceResponse = Models.MediaSourceResponse;
 
+export type DownloadLinkEntry = Models.DownloadLinkEntry;
+export type DownloadVideoOption = Models.DownloadVideoOption;
+export type DownloadAudioOption = Models.DownloadAudioOption;
+
+/**
+ * Probe result for one link. The generated model types every list as
+ * nullable; the UI always iterates, so the facade narrows them here.
+ */
+export interface DownloadLinkInfoResponse
+  extends Models.DownloadLinkInfoResponse {
+  entries: DownloadLinkEntry[];
+  video: DownloadVideoOption[];
+  audio: DownloadAudioOption[];
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -973,6 +988,37 @@ export class Wails {
         success: false,
         url: '',
         message: this.formatMessage('Register media path failed', error),
+      };
+    }
+  }
+
+  /**
+   * Reads the real formats of one link. The backend never throws: a failure is
+   * `success: false` plus a message the row renders verbatim.
+   */
+  async probeDownloadLink(url: string): Promise<DownloadLinkInfoResponse> {
+    try {
+      const response = await this.ipc.probeDownloadLink(url);
+      return {
+        ...response,
+        entries: response.entries ?? [],
+        video: response.video ?? [],
+        audio: response.audio ?? [],
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Probe download link failed', error),
+        url,
+        id: '',
+        title: '',
+        uploader: '',
+        thumbnailUrl: '',
+        durationSeconds: 0,
+        isPlaylist: false,
+        entries: [],
+        video: [],
+        audio: [],
       };
     }
   }

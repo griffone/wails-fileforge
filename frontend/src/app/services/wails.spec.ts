@@ -105,6 +105,37 @@ describe('Wails', () => {
     expect(failed.message).toContain('ipc down');
   });
 
+  it('normalizes a probed link and falls back safely when IPC fails', async () => {
+    const call = spyOn(ipc, 'probeDownloadLink').and.resolveTo({
+      success: true,
+      message: 'ok',
+      url: 'https://example.test/watch',
+      id: 'abc',
+      title: 'Fixture',
+      uploader: 'Uploader',
+      thumbnailUrl: '',
+      durationSeconds: 10,
+      isPlaylist: false,
+      entries: [],
+      video: [],
+      audio: [],
+    });
+
+    const probed = await service.probeDownloadLink('https://example.test/watch');
+    expect(probed.success).toBeTrue();
+    expect(probed.id).toBe('abc');
+    expect(probed.entries).toEqual([]);
+    expect(probed.video).toEqual([]);
+    expect(probed.audio).toEqual([]);
+    expect(call).toHaveBeenCalledWith('https://example.test/watch');
+
+    call.and.rejectWith(new Error('ipc down'));
+    const failed = await service.probeDownloadLink('https://example.test/watch');
+    expect(failed.success).toBeFalse();
+    expect(failed.title).toBe('');
+    expect(failed.message).toContain('ipc down');
+  });
+
   it('returns a data URL thumbnail when the preview succeeds', async () => {
     spyOn(service, 'StartPreview').and.resolveTo({ success: true, jobID: 'preview-1' });
     spyOn(service, 'GetPreviewStatus').and.resolveTo({ status: 'succeeded' });

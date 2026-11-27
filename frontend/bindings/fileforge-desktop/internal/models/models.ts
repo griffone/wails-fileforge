@@ -176,6 +176,64 @@ export interface CancelJobResponse {
 }
 
 /**
+ * DownloadAudioOption is one real audio-only format the link offers. BitrateKbps
+ * is the source bitrate the probe measured, not the MP3 target the user picks.
+ */
+export interface DownloadAudioOption {
+    "ext": string;
+    "acodec": string;
+    "bitrateKbps": number;
+    "sizeBytes": number;
+}
+
+/**
+ * DownloadLinkEntry is one item of an explicit playlist. URL is the item link
+ * the downloader queues; DurationSeconds is the item length when the site
+ * reports it.
+ */
+export interface DownloadLinkEntry {
+    "url": string;
+    "title": string;
+    "durationSeconds": number;
+}
+
+/**
+ * DownloadLinkInfoResponse is the probe result the downloader page renders.
+ * Success is false when the runtime is unavailable, the site is unsupported or
+ * the network failed; Message then carries the reason and the page shows it
+ * verbatim. Entries are empty for a single video and Video/Audio are empty for
+ * a playlist.
+ */
+export interface DownloadLinkInfoResponse {
+    "success": boolean;
+    "message": string;
+    "url": string;
+    "id": string;
+    "title": string;
+    "uploader": string;
+    "thumbnailUrl": string;
+    "durationSeconds": number;
+    "isPlaylist": boolean;
+    "entries": DownloadLinkEntry[] | null;
+    "video": DownloadVideoOption[] | null;
+    "audio": DownloadAudioOption[] | null;
+}
+
+/**
+ * DownloadVideoOption is one real video height the link offers. FPS is zero
+ * when the site does not report it and SizeBytes is zero when the size is
+ * unknown; the UI hides both instead of inventing a value.
+ */
+export interface DownloadVideoOption {
+    "height": number;
+    "ext": string;
+    "vcodec": string;
+    "fps": number;
+    "sizeBytes": number;
+    "hdr": boolean;
+}
+
+/**
  * DuplicateScanActionResponse is the result of cancelling a scan.
  */
 export interface DuplicateScanActionResponse {

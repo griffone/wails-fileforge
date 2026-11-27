@@ -41,6 +41,7 @@ type Services struct {
 	Duplicates *DuplicatesService
 	Update     *UpdateService
 	Windows    *WindowService
+	Media      *MediaService
 }
 
 // App is the composition root. It owns the underlying domain services, the
@@ -116,6 +117,7 @@ func New(notifier *Notifier) *Services {
 		Duplicates: &DuplicatesService{service: duplicatesService, runtime: runtime},
 		Update:     newUpdateService(runtime),
 		Windows:    NewWindowService(toolingService),
+		Media:      NewMediaService(),
 	}
 }
 

@@ -49,6 +49,7 @@ import { videoMergeEn } from './video-merge';
 import { videoTargetEn } from './video-target';
 import { videoTranscribeEn } from './video-transcribe';
 import { videoTrimEn } from './video-trim';
+import { webDownloadEn } from './web-download';
 
 export const en = {
   ...commonEn,
@@ -100,6 +101,7 @@ export const en = {
   ...videoMergeEn,
   ...videoTargetEn,
   ...videoTranscribeEn,
+  ...webDownloadEn,
   ...pdfRendererEn,
   ...windowEn,
 } as const;

@@ -52,6 +52,7 @@ import { videoMergeEs } from './video-merge';
 import { videoTargetEs } from './video-target';
 import { videoTranscribeEs } from './video-transcribe';
 import { videoTrimEs } from './video-trim';
+import { webDownloadEs } from './web-download';
 
 export const es: Record<TranslationKey, DictionaryValue> = {
   ...commonEs,
@@ -103,6 +104,7 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...videoMergeEs,
   ...videoTargetEs,
   ...videoTranscribeEs,
+  ...webDownloadEs,
   ...pdfRendererEs,
   ...windowEs,
 };

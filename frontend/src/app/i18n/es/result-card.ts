@@ -64,6 +64,7 @@ export const resultCardEs = {
   'resultCard.verb.rotated': 'rotados',
   'resultCard.verb.reordered': 'reordenados',
   'resultCard.verb.with-pages-removed': 'con páginas eliminadas',
+  'resultCard.verb.downloaded': 'descargados',
   'resultCard.runAgain': 'Ejecutar de nuevo',
   'resultCard.runAgain.aria':
     'Ejecutar este trabajo otra vez con las mismas entradas y opciones',

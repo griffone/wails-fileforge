@@ -123,6 +123,11 @@ export const toolsEs = {
   'tools.tool.video.transcribe.description':
     'Transcribe video y audio localmente con Whisper. Sin subidas.',
 
+  'tools.tool.web.download.name': 'Descargar contenido',
+  'tools.tool.web.download.navName': 'Descargar',
+  'tools.tool.web.download.description':
+    'Descarga un enlace como video MP4 o como pista de audio MP3.',
+
   'tools.tool.audio.extract.name': 'Extraer audio',
   'tools.tool.audio.extract.navName': 'Extraer',
   'tools.tool.audio.extract.description':

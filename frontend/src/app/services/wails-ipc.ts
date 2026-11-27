@@ -3,6 +3,7 @@ import { Injectable } from '@angular/core';
 import {
   AutomationService,
   DuplicatesService,
+  MediaService,
   PreviewService,
   RecipeService,
   SystemService,
@@ -315,6 +316,11 @@ export class WailsIpc {
 
   registerMediaPath(path: string): Promise<Models.MediaSourceResponse> {
     return SystemService.RegisterMediaPath(path);
+  }
+
+  // Media metadata. Read-only: it never downloads or writes anything.
+  probeDownloadLink(url: string): Promise<Models.DownloadLinkInfoResponse> {
+    return MediaService.ProbeLink(url);
   }
 
   startPreview(

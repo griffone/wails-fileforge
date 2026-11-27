@@ -38,6 +38,7 @@ func main() {
 			application.NewService(bundle.Duplicates),
 			application.NewService(bundle.Update),
 			application.NewService(bundle.Windows),
+			application.NewService(bundle.Media),
 		},
 		Assets: application.AssetOptions{
 			// The SPA fallback turns an extension-less navigation such as
