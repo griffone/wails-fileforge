@@ -51,3 +51,31 @@ func (s *RecipeService) ListRecipeRuns(limit int) []models.RecipeResult {
 func (s *RecipeService) CancelRecipe(jobID string) models.RecipeStatusResponse {
 	return s.service.Cancel(jobID)
 }
+
+// SaveUserRecipe creates or updates a duplicate-and-edit recipe. The overrides
+// are validated against the base recipe schema before they are persisted.
+func (s *RecipeService) SaveUserRecipe(req models.SaveUserRecipeRequest) models.UserRecipeResponse {
+	return s.service.SaveUserRecipe(req)
+}
+
+// RenameUserRecipe changes the display name of a saved user recipe.
+func (s *RecipeService) RenameUserRecipe(id, name string) models.UserRecipeResponse {
+	return s.service.RenameUserRecipe(id, name)
+}
+
+// DeleteUserRecipe permanently removes a saved user recipe. Run history is a
+// separate store and is unaffected.
+func (s *RecipeService) DeleteUserRecipe(id string) models.UserRecipeResponse {
+	return s.service.DeleteUserRecipe(id)
+}
+
+// ExportUserRecipes writes the selected user recipes to one shareable file.
+func (s *RecipeService) ExportUserRecipes(path string, ids []string) models.ExportUserRecipesResponse {
+	return s.service.ExportUserRecipes(path, ids)
+}
+
+// ImportUserRecipes validates and applies a shared recipe file, reporting
+// imported, skipped and invalid entries without partially applying a bad one.
+func (s *RecipeService) ImportUserRecipes(path string, overwrite bool) models.ImportUserRecipesResponse {
+	return s.service.ImportUserRecipes(path, overwrite)
+}

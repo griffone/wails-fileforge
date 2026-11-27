@@ -42,8 +42,8 @@ func TestListToolsContract(t *testing.T) {
 	if !response.Success {
 		t.Fatalf("ListTools failed: %s", response.Message)
 	}
-	if len(response.Tools) != 20 {
-		t.Fatalf("listed tools = %d, want 20", len(response.Tools))
+	if len(response.Tools) != 28 {
+		t.Fatalf("listed tools = %d, want 28", len(response.Tools))
 	}
 
 	ids := make([]string, 0, len(response.Tools))
@@ -65,8 +65,8 @@ func TestListRecipesContract(t *testing.T) {
 	if !response.Success {
 		t.Fatalf("ListRecipes failed: %s", response.Message)
 	}
-	if len(response.Recipes) != 5 {
-		t.Fatalf("listed recipes = %d, want 5", len(response.Recipes))
+	if len(response.Recipes) != 6 {
+		t.Fatalf("listed recipes = %d, want 6", len(response.Recipes))
 	}
 
 	// The built-in order is part of the contract (Email PDF first).
@@ -90,6 +90,18 @@ func TestGetLocalCapabilitiesContract(t *testing.T) {
 	}
 	if len(response.Checks) == 0 {
 		t.Fatal("GetLocalCapabilities returned no checks")
+	}
+}
+
+func TestGetAppInfoContract(t *testing.T) {
+	a := newTestApp(t)
+
+	response := a.System.GetAppInfo()
+	if !response.Success {
+		t.Fatalf("GetAppInfo failed: %s", response.Message)
+	}
+	if response.Version == "" || response.Commit == "" || response.BuiltAt == "" {
+		t.Fatalf("GetAppInfo returned an incomplete identity: %+v", response)
 	}
 }
 

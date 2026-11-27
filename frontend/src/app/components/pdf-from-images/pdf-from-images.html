@@ -16,6 +16,7 @@
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
         {{ i18n.t('pdfFromImages.page.localBadge') }}
       </span>
+      <app-open-window-action />
     </div>
   </header>
 
@@ -420,12 +421,16 @@
       <app-result-card
         [job]="job"
         [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
         toolLabel="PDF"
         verbPast="created"
         (open)="onOpen($event)"
         (reveal)="onReveal($event)"
         (retryFailed)="retry()"
         (reset)="reset()"
+        (runAgainStarted)="onRunAgainStarted($event)"
       ></app-result-card>
     }
   </div>

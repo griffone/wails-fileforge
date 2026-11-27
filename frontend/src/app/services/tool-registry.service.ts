@@ -30,10 +30,10 @@ import { I18nService } from './i18n.service';
 export class ToolRegistryService {
   private readonly i18n = inject(I18nService);
 
-  /** The twenty conversion tools, without Home or System Status. */
+  /** The twenty-eight conversion tools, without Home or System Status. */
   readonly tools: readonly ToolDefinition[] = TOOLS;
 
-  /** Home + twenty tools + System Status + Automations + Settings (24 entries). */
+  /** Home + twenty-eight tools + System Status + Automations + Duplicates + Settings (33 entries). */
   readonly navigation: readonly ToolDefinition[] = NAVIGATION;
 
   /** Navigation grouped for the sidebar rail, with Recipes after Workspace. */

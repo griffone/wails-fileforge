@@ -3,6 +3,7 @@ package video
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,7 +18,24 @@ const (
 
 	videoDefaultTargetFormat  = engine.TargetFormatMP4
 	videoDefaultQualityPreset = engine.QualityPresetMedium
+
+	// jobProgressTotal turns a percentage into the job progress contract, which
+	// only carries a current/total pair.
+	jobProgressTotal = 100
 )
+
+// jobProgressPercent clamps an ffmpeg percentage into 0..100 for the job
+// progress contract.
+func jobProgressPercent(percent float64) int {
+	if math.IsNaN(percent) || percent <= 0 {
+		return 0
+	}
+	if percent >= 100 {
+		return 100
+	}
+
+	return int(math.Round(percent))
+}
 
 // resolveVideoOutputOptions applies the shared preset defaults. The UI can rely
 // on these values being present even when the request omits them.

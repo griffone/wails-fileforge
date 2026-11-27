@@ -180,6 +180,27 @@
           </div>
 
           <div class="field">
+            <label class="label" for="automation-action">{{
+              i18n.t('automations.form.action')
+            }}</label>
+            <select
+              id="automation-action"
+              class="select automation-action"
+              (change)="onActionChange($event)"
+            >
+              <option value="recipe" [selected]="formAction() === 'recipe'">
+                {{ i18n.t('automations.form.actionRecipe') }}
+              </option>
+              <option value="organize" [selected]="formAction() === 'organize'">
+                {{ i18n.t('automations.form.actionOrganize') }}
+              </option>
+            </select>
+            <p class="field-help">
+              {{ i18n.t('automations.form.actionHelp') }}
+            </p>
+          </div>
+
+          <div class="field">
             <span class="label">{{ i18n.t('automations.form.watchFolder') }}</span>
             <div class="automation-path-row">
               <span
@@ -214,37 +235,54 @@
           </div>
 
           <div class="field">
-            <label class="label" for="automation-recipe">{{
-              i18n.t('automations.form.recipe')
-            }}</label>
-            <select
-              id="automation-recipe"
-              class="select"
-              (change)="onRecipeChange($event)"
-            >
-              <option value="" [selected]="formRecipeId() === ''">
-                {{ i18n.t('automations.form.chooseRecipe') }}
-              </option>
-              @for (recipe of recipes(); track recipe.id) {
-                <option
-                  [value]="recipe.id"
-                  [selected]="formRecipeId() === recipe.id"
-                >
-                  {{ recipeLabel(recipe) }}
-                </option>
-              }
-            </select>
-            @if (acceptedExtensionsHelp(); as help) {
-              <p class="field-help">
-                {{ i18n.t('automations.form.accepts', { extensions: help }) }}
-              </p>
-            }
-            @if (recipeInvalid()) {
-              <p class="field-help field-error">
-                {{ i18n.t('automations.validation.recipe') }}
-              </p>
-            }
+            <label class="check-row" for="automation-recursive">
+              <input
+                id="automation-recursive"
+                type="checkbox"
+                [checked]="formRecursive()"
+                (change)="onRecursiveToggle($event)"
+              />
+              {{ i18n.t('automations.form.recursive') }}
+            </label>
+            <p class="field-help">
+              {{ i18n.t('automations.form.recursiveHelp') }}
+            </p>
           </div>
+
+          @if (!isOrganize()) {
+            <div class="field">
+              <label class="label" for="automation-recipe">{{
+                i18n.t('automations.form.recipe')
+              }}</label>
+              <select
+                id="automation-recipe"
+                class="select"
+                (change)="onRecipeChange($event)"
+              >
+                <option value="" [selected]="formRecipeId() === ''">
+                  {{ i18n.t('automations.form.chooseRecipe') }}
+                </option>
+                @for (recipe of recipes(); track recipe.id) {
+                  <option
+                    [value]="recipe.id"
+                    [selected]="formRecipeId() === recipe.id"
+                  >
+                    {{ recipeLabel(recipe) }}
+                  </option>
+                }
+              </select>
+              @if (acceptedExtensionsHelp(); as help) {
+                <p class="field-help">
+                  {{ i18n.t('automations.form.accepts', { extensions: help }) }}
+                </p>
+              }
+              @if (recipeInvalid()) {
+                <p class="field-help field-error">
+                  {{ i18n.t('automations.validation.recipe') }}
+                </p>
+              }
+            </div>
+          }
 
           <div class="field">
             <label class="label" for="automation-extensions">{{
@@ -256,84 +294,407 @@
               type="text"
               autocomplete="off"
               spellcheck="false"
-              [placeholder]="extensionsPlaceholder()"
+              [placeholder]="extensionsPlaceholderText()"
               [value]="formExtensionsText()"
               aria-describedby="automation-extensions-help"
               (input)="onExtensionsInput($event)"
             />
             <p id="automation-extensions-help" class="field-help">
-              {{ i18n.t('automations.form.extensionsHelp') }}
+              {{ i18n.t(extensionsHelpKey()) }}
             </p>
           </div>
 
           <div class="field">
-            <span class="label">{{
-              i18n.t('automations.form.outputFolder')
-            }}</span>
-            <div class="automation-path-row">
-              <span
-                class="automation-path mono"
-                [class.is-empty]="!formOutputDir()"
-                [title]="formOutputDir()"
-              >
-                {{
-                  formOutputDir() || i18n.t('automations.form.nextToSource')
-                }}
-              </span>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm automation-output-folder"
-                (click)="chooseOutputFolder()"
-              >
-                <lucide-icon
-                  [img]="folderIcon"
-                  [size]="14"
-                  [strokeWidth]="1.75"
-                  aria-hidden="true"
-                ></lucide-icon>
-                {{ i18n.t('automations.form.chooseFolder') }}
-              </button>
-              @if (formOutputDir()) {
+            <label class="label" for="automation-patterns">{{
+              i18n.t('automations.form.patterns')
+            }}</label>
+            <input
+              id="automation-patterns"
+              class="input mono"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              [placeholder]="i18n.t('automations.form.patternsPlaceholder')"
+              [value]="formPatternsText()"
+              [attr.aria-invalid]="patternsInvalid() ? 'true' : null"
+              aria-describedby="automation-patterns-help"
+              (input)="onPatternsInput($event)"
+            />
+            <p id="automation-patterns-help" class="field-help">
+              {{ i18n.t('automations.form.patternsHelp') }}
+            </p>
+            @if (patternsInvalid()) {
+              <p class="field-help field-error automation-patterns-error">
+                {{ patternsError() }}
+              </p>
+            }
+          </div>
+
+          @if (!isOrganize()) {
+            <div class="field">
+              <span class="label">{{
+                i18n.t('automations.form.outputFolder')
+              }}</span>
+              <div class="automation-path-row">
+                <span
+                  class="automation-path mono"
+                  [class.is-empty]="!formOutputDir()"
+                  [title]="formOutputDir()"
+                >
+                  {{
+                    formOutputDir() || i18n.t('automations.form.nextToSource')
+                  }}
+                </span>
                 <button
                   type="button"
-                  class="btn btn-ghost btn-sm automation-clear-output"
-                  (click)="clearOutputFolder()"
+                  class="btn btn-secondary btn-sm automation-output-folder"
+                  (click)="chooseOutputFolder()"
                 >
-                  {{ i18n.t('automations.form.useSourceFolder') }}
+                  <lucide-icon
+                    [img]="folderIcon"
+                    [size]="14"
+                    [strokeWidth]="1.75"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                  {{ i18n.t('automations.form.chooseFolder') }}
                 </button>
+                @if (formOutputDir()) {
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm automation-clear-output"
+                    (click)="clearOutputFolder()"
+                  >
+                    {{ i18n.t('automations.form.useSourceFolder') }}
+                  </button>
+                }
+              </div>
+              <p class="field-help">
+                {{ i18n.t('automations.form.outputFolderHelp') }}
+              </p>
+            </div>
+          } @else {
+            <div class="field">
+              <span class="label">{{
+                i18n.t('automations.form.targetFolder')
+              }}</span>
+              <div class="automation-path-row">
+                <span
+                  class="automation-path mono automation-target-path"
+                  [class.is-empty]="!formTargetDir()"
+                  [title]="formTargetDir()"
+                >
+                  {{ formTargetDir() || i18n.t('automations.form.noFolder') }}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm automation-target-folder"
+                  (click)="chooseTargetFolder()"
+                >
+                  <lucide-icon
+                    [img]="folderIcon"
+                    [size]="14"
+                    [strokeWidth]="1.75"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                  {{ i18n.t('automations.form.chooseFolder') }}
+                </button>
+              </div>
+              <p class="field-help">
+                {{ i18n.t('automations.form.targetFolderHelp') }}
+              </p>
+              @if (targetDirInvalid()) {
+                <p class="field-help field-error">
+                  {{ i18n.t('automations.validation.targetFolder') }}
+                </p>
               }
             </div>
-            <p class="field-help">
-              {{ i18n.t('automations.form.outputFolderHelp') }}
-            </p>
-          </div>
+
+            <div class="field">
+              <label class="label" for="automation-folder-template">{{
+                i18n.t('automations.form.folderTemplate')
+              }}</label>
+              <input
+                id="automation-folder-template"
+                class="input mono"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                [placeholder]="i18n.t('automations.form.folderTemplatePlaceholder')"
+                [value]="formFolderTemplate()"
+                [attr.aria-invalid]="folderTemplateInvalid() ? 'true' : null"
+                aria-describedby="automation-folder-template-help"
+                (input)="onFolderTemplateInput($event)"
+              />
+              <p id="automation-folder-template-help" class="field-help">
+                {{ i18n.t('automations.form.folderTemplateHelp') }}
+              </p>
+              @if (folderTemplateInvalid()) {
+                <p class="field-help field-error automation-folder-template-error">
+                  {{ folderTemplateError() }}
+                </p>
+              }
+            </div>
+
+            <div class="field">
+              <label class="label" for="automation-name-template">{{
+                i18n.t('automations.form.nameTemplate')
+              }}</label>
+              <input
+                id="automation-name-template"
+                class="input mono"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                [placeholder]="i18n.t('automations.form.nameTemplatePlaceholder')"
+                [value]="formNameTemplate()"
+                [attr.aria-invalid]="nameTemplateInvalid() ? 'true' : null"
+                aria-describedby="automation-name-template-help"
+                (input)="onNameTemplateInput($event)"
+              />
+              <p id="automation-name-template-help" class="field-help">
+                {{ i18n.t('automations.form.nameTemplateHelp') }}
+              </p>
+              @if (nameTemplateInvalid()) {
+                <p class="field-help field-error automation-name-template-error">
+                  {{ nameTemplateError() }}
+                </p>
+              }
+            </div>
+
+            <div class="field">
+              <label class="label" for="automation-collision">{{
+                i18n.t('automations.form.collisionPolicy')
+              }}</label>
+              <select
+                id="automation-collision"
+                class="select automation-collision"
+                (change)="onCollisionChange($event)"
+              >
+                <option value="skip" [selected]="formCollisionPolicy() === 'skip'">
+                  {{ i18n.t('automations.form.collisionSkip') }}
+                </option>
+                <option
+                  value="suffix"
+                  [selected]="formCollisionPolicy() === 'suffix'"
+                >
+                  {{ i18n.t('automations.form.collisionSuffix') }}
+                </option>
+              </select>
+              <p class="field-help">
+                {{ i18n.t('automations.form.collisionHelp') }}
+              </p>
+            </div>
+
+            <div class="organize-tokens">
+              <p class="label">{{ i18n.t('automations.organize.tokensTitle') }}</p>
+              <ul class="organize-token-list">
+                @for (item of tokenHelp(); track item.token) {
+                  <li class="organize-token">
+                    <code class="mono">{{ item.token }}</code>
+                    <span>{{ item.help }}</span>
+                  </li>
+                }
+              </ul>
+            </div>
+
+            <section
+              class="organize-preview"
+              aria-labelledby="automation-preview-title"
+            >
+              <div class="organize-preview-head">
+                <h3 id="automation-preview-title" class="organize-preview-title">
+                  {{ i18n.t('automations.organize.previewTitle') }}
+                </h3>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm automation-preview"
+                  [disabled]="previewLoading() || saving()"
+                  (click)="preview()"
+                >
+                  <lucide-icon
+                    [img]="previewIcon"
+                    [size]="14"
+                    [strokeWidth]="1.75"
+                    aria-hidden="true"
+                  ></lucide-icon>
+                  {{
+                    previewLoading()
+                      ? i18n.t('automations.organize.previewing')
+                      : i18n.t('automations.organize.preview')
+                  }}
+                </button>
+              </div>
+              <p class="field-help">
+                {{ i18n.t('automations.organize.previewHelp') }}
+              </p>
+
+              @if (previewError(); as message) {
+                <p
+                  class="field-error automation-preview-error"
+                  role="alert"
+                >
+                  {{ message }}
+                </p>
+              }
+
+              @if (previewVisible()) {
+                @if (previewStored()) {
+                  <p
+                    class="field-help organize-preview-status is-ready automation-preview-stored"
+                    role="status"
+                  >
+                    {{ i18n.t('automations.organize.previewStored') }}
+                  </p>
+                } @else {
+                  <p
+                    class="field-help organize-preview-status is-pending automation-preview-not-stored"
+                    role="status"
+                  >
+                    {{ i18n.t('automations.organize.previewNotStored') }}
+                  </p>
+                }
+
+                <div class="organize-preview-totals">
+                  <span class="badge badge-success automation-preview-planned">
+                    {{
+                      i18n.t('automations.organize.totalMoves', {
+                        count: previewTotals().planned,
+                      })
+                    }}
+                  </span>
+                  <span class="badge badge-neutral automation-preview-skipped">
+                    {{
+                      i18n.t('automations.organize.totalSkips', {
+                        count: previewTotals().skipped,
+                      })
+                    }}
+                  </span>
+                  @if (previewTotals().bytes > 0) {
+                    <span class="badge badge-neutral automation-preview-size">
+                      {{
+                        i18n.t('automations.organize.totalSize', {
+                          size: previewSizeLabel(),
+                        })
+                      }}
+                    </span>
+                  }
+                </div>
+
+                @if (previewMoves().length === 0) {
+                  <p class="organize-preview-empty automation-preview-empty">
+                    {{ i18n.t('automations.organize.previewEmpty') }}
+                  </p>
+                } @else {
+                  <ul
+                    class="organize-preview-list"
+                    [attr.aria-label]="i18n.t('automations.organize.previewListAria')"
+                  >
+                    @for (
+                      move of visiblePreviewMoves();
+                      track move.source + '|' + move.destination
+                    ) {
+                      <li
+                        class="organize-preview-row"
+                        [class.is-skip]="move.action !== 'move'"
+                      >
+                        <span [class]="previewActionClass(move)">{{
+                          previewActionLabel(move)
+                        }}</span>
+                        <div class="organize-preview-paths">
+                          <span
+                            class="organize-preview-source mono"
+                            [title]="move.source"
+                          >
+                            {{ move.source }}
+                          </span>
+                          @if (move.action === 'move') {
+                            <span
+                              class="organize-preview-destination mono"
+                              [title]="move.destination"
+                            >
+                              <lucide-icon
+                                [img]="arrowIcon"
+                                [size]="12"
+                                [strokeWidth]="1.75"
+                                aria-hidden="true"
+                              ></lucide-icon>
+                              {{ move.destination }}
+                            </span>
+                          } @else if (move.reason) {
+                            <span class="organize-preview-reason">
+                              {{ move.reason }}
+                            </span>
+                          }
+                        </div>
+                      </li>
+                    }
+                  </ul>
+
+                  @if (hasMorePreviewMoves()) {
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm automation-preview-toggle"
+                      [attr.aria-expanded]="previewExpanded()"
+                      (click)="togglePreviewList()"
+                    >
+                      {{
+                        previewExpanded()
+                          ? i18n.t('automations.organize.showLess')
+                          : i18n.t('automations.organize.showAll', {
+                              count: previewMoves().length,
+                            })
+                      }}
+                    </button>
+                  }
+                }
+              } @else if (previewStale()) {
+                <p
+                  class="field-help organize-preview-status is-stale automation-preview-stale"
+                  role="status"
+                >
+                  {{ i18n.t('automations.organize.previewStale') }}
+                </p>
+              }
+            </section>
+          }
 
           <div class="field">
             <label class="check-row" for="automation-enabled">
               <input
                 id="automation-enabled"
                 type="checkbox"
-                [checked]="formEnabled()"
+                [checked]="formEnabled() && !enableGateActive()"
+                [disabled]="enableGateActive()"
                 (change)="onEnabledToggle($event)"
               />
               {{ i18n.t('automations.form.enabled') }}
             </label>
+            @if (enableGateActive()) {
+              <p
+                class="field-help field-warning automation-enable-gate"
+                role="status"
+              >
+                {{ enableGateHint() }}
+              </p>
+            }
           </div>
 
-          <div class="field">
-            <label class="check-row" for="automation-delete-source">
-              <input
-                id="automation-delete-source"
-                type="checkbox"
-                [checked]="formDeleteSource()"
-                (change)="onDeleteSourceToggle($event)"
-              />
-              {{ i18n.t('automations.form.deleteSource') }}
-            </label>
-            <p class="field-help field-warning">
-              {{ i18n.t('automations.form.deleteSourceHelp') }}
-            </p>
-          </div>
+          @if (!isOrganize()) {
+            <div class="field">
+              <label class="check-row" for="automation-delete-source">
+                <input
+                  id="automation-delete-source"
+                  type="checkbox"
+                  [checked]="formDeleteSource()"
+                  (change)="onDeleteSourceToggle($event)"
+                />
+                {{ i18n.t('automations.form.deleteSource') }}
+              </label>
+              <p class="field-help field-warning">
+                {{ i18n.t('automations.form.deleteSourceHelp') }}
+              </p>
+            </div>
+          }
 
           @if (formError(); as message) {
             <p
@@ -415,6 +776,14 @@
               ></span>
               {{ runtimeLabel(rule) }}
             </span>
+            <span class="badge badge-info automation-rule-action">{{
+              actionLabel(rule.action)
+            }}</span>
+            @if (ruleNeedsPreview(rule)) {
+              <span class="badge badge-warning automation-rule-preview-needed">
+                {{ i18n.t('automations.rule.previewNeeded') }}
+              </span>
+            }
           </div>
 
           <div class="automation-rule-actions">
@@ -427,7 +796,12 @@
                   ? i18n.t('automations.rule.disableAria', { name: rule.name })
                   : i18n.t('automations.rule.enableAria', { name: rule.name })
               "
-              [disabled]="saving()"
+              [attr.title]="
+                toggleBlocked(rule)
+                  ? i18n.t('automations.organize.gateCard')
+                  : null
+              "
+              [disabled]="saving() || toggleBlocked(rule)"
               (click)="toggleRule(rule)"
             >
               {{
@@ -482,23 +856,97 @@
             </div>
           }
 
+          @if (toggleBlocked(rule)) {
+            <p
+              class="field-help field-warning automation-rule-gate"
+              role="status"
+            >
+              {{ i18n.t('automations.organize.gateCard') }}
+            </p>
+          }
+
+          @if (isOrganizeRule(rule)) {
+            <p class="automation-rule-summary">
+              <span class="automation-rule-summary-action">{{
+                actionLabel(rule.action)
+              }}</span>
+              <lucide-icon
+                [img]="arrowIcon"
+                [size]="12"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span
+                class="automation-rule-summary-target mono"
+                [title]="targetFolderLabel(rule)"
+              >
+                {{ targetFolderLabel(rule) }}
+              </span>
+              <span
+                class="automation-rule-summary-template mono"
+                [title]="folderTemplateLabel(rule)"
+              >
+                {{ folderTemplateLabel(rule) }}
+              </span>
+              <span
+                class="automation-rule-summary-template mono"
+                [title]="nameTemplateLabel(rule)"
+              >
+                {{ nameTemplateLabel(rule) }}
+              </span>
+            </p>
+          }
+
           <dl class="automation-meta">
             <div class="automation-meta-row">
               <dt>{{ i18n.t('automations.form.watchFolder') }}</dt>
               <dd class="mono" [title]="rule.watchDir">{{ rule.watchDir }}</dd>
             </div>
-            <div class="automation-meta-row">
-              <dt>{{ i18n.t('automations.form.recipe') }}</dt>
-              <dd>{{ recipeName(rule) }}</dd>
-            </div>
-            <div class="automation-meta-row">
-              <dt>{{ i18n.t('automations.form.outputFolder') }}</dt>
-              <dd class="mono">{{ outputFolderLabel(rule) }}</dd>
-            </div>
+            @if (isOrganizeRule(rule)) {
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.targetFolder') }}</dt>
+                <dd class="mono" [title]="targetFolderLabel(rule)">
+                  {{ targetFolderLabel(rule) }}
+                </dd>
+              </div>
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.folderTemplate') }}</dt>
+                <dd class="mono">{{ folderTemplateLabel(rule) }}</dd>
+              </div>
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.nameTemplate') }}</dt>
+                <dd class="mono">{{ nameTemplateLabel(rule) }}</dd>
+              </div>
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.collisionPolicy') }}</dt>
+                <dd>{{ collisionLabel(rule) }}</dd>
+              </div>
+            } @else {
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.recipe') }}</dt>
+                <dd>{{ recipeName(rule) }}</dd>
+              </div>
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.outputFolder') }}</dt>
+                <dd class="mono">{{ outputFolderLabel(rule) }}</dd>
+              </div>
+            }
             <div class="automation-meta-row">
               <dt>{{ i18n.t('automations.form.extensions') }}</dt>
-              <dd class="mono">{{ extensionsLabel(rule) }}</dd>
+              <dd class="mono">{{ extensionsLabelFor(rule) }}</dd>
             </div>
+            @if (rule.recursive) {
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.recursive') }}</dt>
+                <dd>{{ i18n.t('automations.rule.subfoldersIncluded') }}</dd>
+              </div>
+            }
+            @if (rule.patterns?.length) {
+              <div class="automation-meta-row">
+                <dt>{{ i18n.t('automations.form.patterns') }}</dt>
+                <dd class="mono">{{ patternsLabel(rule) }}</dd>
+              </div>
+            }
           </dl>
 
           <div class="automation-last">
@@ -646,7 +1094,7 @@
                     statusLabel(run.status)
                   }}</span>
                   <span class="automation-run-rule">{{
-                    run.ruleName || run.ruleId
+                    runRuleLabel(run)
                   }}</span>
                   <span class="automation-run-time mono">{{
                     relativeTime(run.at)

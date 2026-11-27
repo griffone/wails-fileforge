@@ -36,6 +36,13 @@ func (s *AutomationService) GetAutomationStatus() models.AutomationStatusRespons
 	return s.service.Status()
 }
 
+// PreviewAutomationRule returns the planned organize moves for a rule without
+// moving, creating or recording anything. A successful preview of the saved
+// configuration is what allows an organize rule to be enabled.
+func (s *AutomationService) PreviewAutomationRule(rule models.AutomationRule) models.AutomationOrganizePreviewResponse {
+	return s.service.PreviewOrganize(rule)
+}
+
 // ListAutomationRuns returns the persisted terminal automation runs, newest
 // first. A zero limit uses the service default.
 func (s *AutomationService) ListAutomationRuns(limit int) models.ListAutomationRunsResponse {

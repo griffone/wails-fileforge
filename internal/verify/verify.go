@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -24,11 +25,13 @@ const (
 	checkVideoDims   = "video_dimensions"
 	checkVideoCodec  = "video_codec"
 	checkAudioCodec  = "audio_codec"
+	checkAudioLength = "audio_duration"
 	checkTargetSize  = "target_size"
 
 	kindImage = "image"
 	kindPDF   = "pdf"
 	kindVideo = "video"
+	kindAudio = "audio"
 )
 
 // VerifyPaths verifies every path without a size target.
@@ -52,6 +55,7 @@ func VerifyPathsWithTarget(paths []string, targetBytes int64) models.Verificatio
 
 	totalChecks := 0
 	failedChecks := 0
+	advisoryFailures := 0
 	for _, path := range paths {
 		output := verifyOutput(path, targetBytes)
 		report.Outputs = append(report.Outputs, output)
@@ -59,9 +63,14 @@ func VerifyPathsWithTarget(paths []string, targetBytes int64) models.Verificatio
 
 		for _, check := range output.Checks {
 			totalChecks++
-			if !check.Passed {
-				failedChecks++
+			if check.Passed {
+				continue
 			}
+			if check.Advisory {
+				advisoryFailures++
+				continue
+			}
+			failedChecks++
 		}
 	}
 
@@ -72,6 +81,9 @@ func VerifyPathsWithTarget(paths []string, targetBytes int64) models.Verificatio
 	}
 
 	report.Message = fmt.Sprintf("verified %d %s", len(report.Outputs), pluralize("output", len(report.Outputs)))
+	if advisoryFailures > 0 {
+		report.Message = fmt.Sprintf("%s with %d advisory %s", report.Message, advisoryFailures, pluralize("warning", advisoryFailures))
+	}
 	return report
 }
 
@@ -142,12 +154,19 @@ func verifyOutput(path string, targetBytes int64) models.VerifiedOutput {
 
 	if targetBytes > 0 {
 		targetMet := info.SizeBytes <= targetBytes
+		output.ActualBytes = info.SizeBytes
+		output.TargetBytes = targetBytes
 		output.Checks = append(output.Checks, models.VerificationCheck{
-			Key:    checkTargetSize,
-			Label:  "Target size",
-			Passed: targetMet,
-			Value:  fmt.Sprintf("%s / %s", formatByteSize(info.SizeBytes), formatByteSize(targetBytes)),
-			Detail: checkDetail(!targetMet, "output exceeds the requested target size"),
+			Key:      checkTargetSize,
+			Label:    "Target size",
+			Passed:   targetMet,
+			Advisory: true,
+			Value:    fmt.Sprintf("%s / %s", formatByteSize(info.SizeBytes), formatByteSize(targetBytes)),
+			Detail: checkDetail(!targetMet, fmt.Sprintf(
+				"output is %s; target is %s",
+				formatByteSize(info.SizeBytes),
+				formatByteSize(targetBytes),
+			)),
 		})
 		if !targetMet {
 			output.Warnings = append(output.Warnings, fmt.Sprintf(
@@ -177,6 +196,8 @@ func mediaChecks(info models.FileInfo, output *models.VerifiedOutput) []models.V
 		}}
 	case kindVideo:
 		return videoChecks(info, output)
+	case kindAudio:
+		return audioChecks(info, output)
 	default:
 		return nil
 	}
@@ -250,6 +271,41 @@ func videoChecks(info models.FileInfo, output *models.VerifiedOutput) []models.V
 		displayPath(info.Path),
 	))
 	return nil
+}
+
+func audioChecks(info models.FileInfo, output *models.VerifiedOutput) []models.VerificationCheck {
+	metadata, ok := inspect.ProbeVideoMetadata(context.Background(), info.Path)
+	duration := 0.0
+	codec := ""
+	if ok {
+		duration = metadata.DurationSeconds
+		codec = strings.ToLower(strings.TrimSpace(metadata.AudioCodec))
+	} else {
+		output.Warnings = append(output.Warnings, fmt.Sprintf(
+			"%s: audio metadata could not be read (ffprobe is unavailable or the file is truncated)",
+			displayPath(info.Path),
+		))
+	}
+
+	durationPassed := duration > 0
+	codecPassed := codec != ""
+
+	return []models.VerificationCheck{
+		{
+			Key:    checkAudioLength,
+			Label:  "Duration",
+			Passed: durationPassed,
+			Value:  fmt.Sprintf("%.1f s", duration),
+			Detail: checkDetail(!durationPassed, "audio duration is zero or missing"),
+		},
+		{
+			Key:    checkAudioCodec,
+			Label:  "Audio codec",
+			Passed: codecPassed,
+			Value:  codec,
+			Detail: checkDetail(!codecPassed, "no audio stream was found"),
+		},
+	}
 }
 
 func regularFile(path string) (bool, string) {

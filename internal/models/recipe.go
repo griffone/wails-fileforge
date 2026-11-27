@@ -10,20 +10,114 @@ type RecipeStep struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// RecipeOptionKind is the control type declared by a recipe option field.
+type RecipeOptionKind string
+
+const (
+	// RecipeOptionInteger is a whole number, optionally bounded and scaled.
+	RecipeOptionInteger RecipeOptionKind = "integer"
+	// RecipeOptionBoolean is a checkbox.
+	RecipeOptionBoolean RecipeOptionKind = "boolean"
+	// RecipeOptionEnum is a fixed set of allowed string values.
+	RecipeOptionEnum RecipeOptionKind = "enum"
+	// RecipeOptionText is a free-form string.
+	RecipeOptionText RecipeOptionKind = "text"
+)
+
+// RecipeOptionChoice is one allowed value of an enum option.
+type RecipeOptionChoice struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// RecipeOptionField declares one editable option a recipe can honour. It
+// carries enough metadata for the UI to render and validate the control
+// without recipe-specific code.
+//
+// Scale converts the canonical stored value to the unit shown to the user. For
+// example an integer field stored in bytes with Unit "MB" and Scale 1048576 is
+// rendered as a whole number of megabytes. Min and Max are expressed in the
+// canonical stored unit.
+type RecipeOptionField struct {
+	Key     string               `json:"key"`
+	Label   string               `json:"label"`
+	Kind    RecipeOptionKind     `json:"kind"`
+	Unit    string               `json:"unit,omitempty"`
+	Min     *float64             `json:"min,omitempty"`
+	Max     *float64             `json:"max,omitempty"`
+	Scale   float64              `json:"scale,omitempty"`
+	Values  []RecipeOptionChoice `json:"values,omitempty"`
+	Default any                  `json:"default"`
+	Help    string               `json:"help,omitempty"`
+}
+
 // Recipe is a curated outcome: one input kind, a chain of tools and one
-// verified result set. Recipes are built-in Go definitions, not user files.
-// MaxInputs is 0 when the recipe accepts any number of inputs.
+// verified result set. Built-in recipes are Go definitions; user recipes are
+// stored overrides applied on top of a built-in base recipe. MaxInputs is 0
+// when the recipe accepts any number of inputs.
 type Recipe struct {
-	ID                     string       `json:"id"`
-	Name                   string       `json:"name"`
-	Description            string       `json:"description"`
-	Category               string       `json:"category"`
-	InputKind              string       `json:"inputKind"`
-	AcceptExtensions       []string     `json:"acceptExtensions"`
-	MaxInputs              int          `json:"maxInputs,omitempty"`
-	Highlights             []string     `json:"highlights,omitempty"`
-	Steps                  []RecipeStep `json:"steps"`
-	DefaultTargetSizeBytes int64        `json:"defaultTargetSizeBytes"`
+	ID                     string              `json:"id"`
+	Name                   string              `json:"name"`
+	Description            string              `json:"description"`
+	Category               string              `json:"category"`
+	InputKind              string              `json:"inputKind"`
+	AcceptExtensions       []string            `json:"acceptExtensions"`
+	MaxInputs              int                 `json:"maxInputs,omitempty"`
+	Highlights             []string            `json:"highlights,omitempty"`
+	Steps                  []RecipeStep        `json:"steps"`
+	DefaultTargetSizeBytes int64               `json:"defaultTargetSizeBytes"`
+	OptionSchema           []RecipeOptionField `json:"optionSchema,omitempty"`
+	OptionOverrides        map[string]any      `json:"optionOverrides,omitempty"`
+	UserDefined            bool                `json:"userDefined,omitempty"`
+	BaseRecipeID           string              `json:"baseRecipeId,omitempty"`
+	Duplicable             bool                `json:"duplicable"`
+}
+
+// SaveUserRecipeRequest is the duplicate/edit payload for a user recipe. An
+// empty ID creates a new recipe; a non-empty ID updates the stored one. The
+// options are validated against the base recipe schema before they are kept.
+type SaveUserRecipeRequest struct {
+	ID           string         `json:"id,omitempty"`
+	Name         string         `json:"name"`
+	BaseRecipeID string         `json:"baseRecipeId"`
+	Options      map[string]any `json:"options"`
+}
+
+// UserRecipeResponse returns the saved, renamed or deleted user recipe.
+type UserRecipeResponse struct {
+	Success bool      `json:"success"`
+	Message string    `json:"message"`
+	Recipe  *Recipe   `json:"recipe,omitempty"`
+	Error   *JobError `json:"error,omitempty"`
+}
+
+// ExportUserRecipesResponse reports where the preset file was written and how
+// many recipes it contains.
+type ExportUserRecipesResponse struct {
+	Success  bool      `json:"success"`
+	Message  string    `json:"message"`
+	Path     string    `json:"path,omitempty"`
+	Exported int       `json:"exported"`
+	Error    *JobError `json:"error,omitempty"`
+}
+
+// ImportUserRecipeIssue names one recipe entry that could not be imported and
+// why. Invalid entries are reported, never silently skipped.
+type ImportUserRecipeIssue struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// ImportUserRecipesResponse is the typed import summary: how many recipes were
+// applied, how many were skipped because their name already existed, and every
+// entry that failed validation.
+type ImportUserRecipesResponse struct {
+	Success  bool                    `json:"success"`
+	Message  string                  `json:"message"`
+	Imported int                     `json:"imported"`
+	Skipped  int                     `json:"skipped"`
+	Invalid  []ImportUserRecipeIssue `json:"invalid"`
+	Error    *JobError               `json:"error,omitempty"`
 }
 
 // RecipeRequest is the plan/run payload for a recipe. Options carries recipe
@@ -79,8 +173,9 @@ type RecipeResult struct {
 	EndedAt         int64               `json:"endedAt,omitempty"`
 }
 
-// RunRecipeResponse acknowledges a recipe submission. Recipe jobs live in
-// memory only for now, so a restart loses in-flight recipe runs.
+// RunRecipeResponse acknowledges a recipe submission. Run snapshots are
+// persisted when the service is configured with a store path, so a restart
+// keeps finished runs and reports in-flight runs as interrupted.
 type RunRecipeResponse struct {
 	Success bool      `json:"success"`
 	Message string    `json:"message"`

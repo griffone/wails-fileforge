@@ -45,6 +45,11 @@ export const toolsEn = {
   'tools.tool.image.background.description':
     'Remove image backgrounds locally and save a transparent PNG or a chosen color.',
 
+  'tools.tool.image.upscale.name': 'Upscale Image',
+  'tools.tool.image.upscale.navName': 'Upscale',
+  'tools.tool.image.upscale.description':
+    'Enlarge images 2x or 4x locally with an optional ONNX model pack.',
+
   'tools.tool.pdf.merge.name': 'PDF Merge',
   'tools.tool.pdf.merge.navName': 'Merge',
   'tools.tool.pdf.merge.description':
@@ -69,6 +74,26 @@ export const toolsEn = {
   'tools.tool.pdf.ocr.navName': 'OCR',
   'tools.tool.pdf.ocr.description':
     'Make scanned PDFs searchable with local OCR and a text sidecar.',
+
+  'tools.tool.pdf.rotate.name': 'PDF Rotate',
+  'tools.tool.pdf.rotate.navName': 'Rotate',
+  'tools.tool.pdf.rotate.description':
+    'Rotate all pages or a page selection by 90, 180 or 270 degrees',
+
+  'tools.tool.pdf.remove_pages.name': 'PDF Remove Pages',
+  'tools.tool.pdf.remove_pages.navName': 'Remove pages',
+  'tools.tool.pdf.remove_pages.description':
+    'Delete selected pages and keep the rest of the document',
+
+  'tools.tool.pdf.reorder.name': 'PDF Reorder Pages',
+  'tools.tool.pdf.reorder.navName': 'Reorder',
+  'tools.tool.pdf.reorder.description':
+    'Rewrite the page order from an explicit spec, or reverse the document',
+
+  'tools.tool.pdf.extract_images.name': 'PDF Extract Images',
+  'tools.tool.pdf.extract_images.navName': 'Extract images',
+  'tools.tool.pdf.extract_images.description':
+    'Extract embedded images into a folder with collision-safe names',
 
   'tools.tool.doc.md_to_pdf.name': 'Markdown → PDF',
   'tools.tool.doc.md_to_pdf.navName': 'Markdown',
@@ -100,6 +125,21 @@ export const toolsEn = {
   'tools.tool.video.transcribe.description':
     'Transcribe video and audio locally with Whisper. No uploads.',
 
+  'tools.tool.audio.extract.name': 'Extract Audio',
+  'tools.tool.audio.extract.navName': 'Extract',
+  'tools.tool.audio.extract.description':
+    'Extract the audio track from a video or audio file as mp3, m4a, opus, wav or flac',
+
+  'tools.tool.audio.convert.name': 'Audio Convert',
+  'tools.tool.audio.convert.navName': 'Convert',
+  'tools.tool.audio.convert.description':
+    'Convert audio files between mp3, m4a, opus, wav and flac',
+
+  'tools.tool.audio.normalize.name': 'Normalize Audio',
+  'tools.tool.audio.normalize.navName': 'Normalize',
+  'tools.tool.audio.normalize.description':
+    'Two-pass EBU R128 loudness normalization to streaming, broadcast or podcast targets',
+
   'tools.tool.pdf.images.name': 'Images to PDF',
   'tools.tool.pdf.images.navName': 'Images to PDF',
   'tools.tool.pdf.images.description':
@@ -119,6 +159,11 @@ export const toolsEn = {
   'tools.system.automations.navName': 'Automations',
   'tools.system.automations.description':
     'Watch a folder and run a recipe when a file arrives.',
+
+  'tools.system.duplicates.name': 'Duplicates',
+  'tools.system.duplicates.navName': 'Duplicates',
+  'tools.system.duplicates.description':
+    'Scan folders for identical files and see how much space they waste.',
 
   'tools.system.settings.name': 'Settings',
   'tools.system.settings.navName': 'Settings',
@@ -149,4 +194,9 @@ export const toolsEn = {
   'tools.recipe.burned_subtitles.navName': 'Burned-in subtitles',
   'tools.recipe.burned_subtitles.description':
     'Transcribe a video locally and burn synchronized subtitles into a new MP4.',
+
+  'tools.recipe.archive_document.name': 'Archive document',
+  'tools.recipe.archive_document.navName': 'Archive document',
+  'tools.recipe.archive_document.description':
+    'Turn a DOCX into a PDF/A-2 file and report its SHA-256 for long-term storage.',
 } as const;

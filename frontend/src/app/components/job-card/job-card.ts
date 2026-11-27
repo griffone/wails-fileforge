@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, Input, inject } from '@angular/core';
 import { I18nService } from '../../services/i18n.service';
 import { JobResult } from '../../services/wails';
+import { jobStatusDefinition } from '../../utils/job-status';
 
 @Component({
   selector: 'app-job-card',
@@ -21,6 +22,13 @@ export class JobCard {
 
   stageLabel(): string {
     const s = this.currentStage();
+    // Statuses come from the shared vocabulary; the cases below are the
+    // progress stages that have no job status of their own.
+    const statusKey = jobStatusDefinition(s)?.labels.jobCard;
+    if (statusKey) {
+      return this.i18n.t(statusKey);
+    }
+
     switch (s) {
       case 'uploading':
         return this.i18n.t('jobCard.stage.uploading');
@@ -30,16 +38,7 @@ export class JobCard {
         return this.i18n.t('jobCard.stage.finalizing');
       case 'done':
       case 'transcribe.done':
-      case 'success':
         return this.i18n.t('jobCard.stage.done');
-      case 'failed':
-        return this.i18n.t('jobCard.stage.failed');
-      case 'cancelled':
-        return this.i18n.t('jobCard.stage.cancelled');
-      case 'queued':
-        return this.i18n.t('jobCard.stage.queued');
-      case 'running':
-        return this.i18n.t('jobCard.stage.running');
       case 'ocr':
         return this.i18n.t('jobCard.stage.ocr');
       case 'extract':
@@ -48,10 +47,6 @@ export class JobCard {
         return this.i18n.t('jobCard.stage.transcribe');
       case 'publish':
         return this.i18n.t('jobCard.stage.publish');
-      case 'partial_success':
-        return this.i18n.t('jobCard.stage.partial');
-      case 'interrupted':
-        return this.i18n.t('jobCard.stage.interrupted');
       default:
         return s;
     }

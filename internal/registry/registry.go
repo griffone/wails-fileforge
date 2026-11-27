@@ -119,6 +119,9 @@ func (r *Registry) SafeRegisterTool(tool tools.Tool) {
 	}
 }
 
+// GetTool resolves one tool. A failed or duplicate registration only removes
+// that tool id; it never blocks lookups of every other tool. Registration
+// errors stay available through GetInitializationErrors for startup logging.
 func (r *Registry) GetTool(toolID string) (tools.Tool, error) {
 	if !r.IsInitialized() {
 		r.WaitForInitialization()
@@ -126,10 +129,6 @@ func (r *Registry) GetTool(toolID string) (tools.Tool, error) {
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	if len(r.initErrors) > 0 {
-		return nil, fmt.Errorf("registry has initialization errors: %v", r.initErrors)
-	}
 
 	tool, ok := r.tools[toolID]
 	if !ok {

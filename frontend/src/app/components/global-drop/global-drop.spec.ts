@@ -66,6 +66,7 @@ describe('GlobalDrop', () => {
       'Image Watermark',
       'Image OCR',
       'Remove Background',
+      'Upscale Image',
       'Images to PDF',
     ]);
     expect(text('.drop-files-count')).toBe('2 files');
@@ -78,6 +79,10 @@ describe('GlobalDrop', () => {
       'PDF Split',
       'PDF Crop',
       'PDF Optimize',
+      'PDF Rotate',
+      'PDF Remove Pages',
+      'PDF Reorder Pages',
+      'PDF Extract Images',
       'PDF to DOCX',
     ]);
 
@@ -87,6 +92,10 @@ describe('GlobalDrop', () => {
       'PDF Split',
       'PDF Crop',
       'PDF Optimize',
+      'PDF Rotate',
+      'PDF Remove Pages',
+      'PDF Reorder Pages',
+      'PDF Extract Images',
       'PDF to DOCX',
     ]);
   });
@@ -118,9 +127,14 @@ describe('GlobalDrop', () => {
       'Image Watermark',
       'Image OCR',
       'Remove Background',
+      'Upscale Image',
       'PDF Split',
       'PDF Crop',
       'PDF Optimize',
+      'PDF Rotate',
+      'PDF Remove Pages',
+      'PDF Reorder Pages',
+      'PDF Extract Images',
       'Markdown → PDF',
       'Video Convert',
       'Video Trim',

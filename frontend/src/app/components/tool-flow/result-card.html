@@ -23,7 +23,14 @@
       @if (outputRows().length > 0) {
         <ul class="result-list" [attr.aria-label]="i18n.t('resultCard.convertedAria')">
           @for (row of outputRows(); track row.path) {
-            <li class="result-row" [class.result-row-grouped]="row.grouped">
+            <li
+              class="result-row"
+              tabindex="0"
+              aria-haspopup="menu"
+              [class.result-row-grouped]="row.grouped"
+              (contextmenu)="onOutputContextMenu($event, row)"
+              (keydown)="onOutputRowKeydown($event, row)"
+            >
               <span class="result-file">
                 <span class="result-name" [title]="row.path">{{ row.name }}</span>
                 @if (row.grouped) {
@@ -82,10 +89,33 @@
         </ul>
       }
 
+      @if (showAllToggleVisible()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm result-toggle-outputs"
+          [attr.aria-expanded]="showAllOutputs"
+          (click)="toggleAllOutputs()"
+        >
+          {{
+            showAllOutputs
+              ? i18n.t('resultCard.showFewerOutputs')
+              : i18n.t('resultCard.showAllOutputs', {
+                  count: totalOutputCount(),
+                })
+          }}
+        </button>
+      }
+
       @if (failedRows().length > 0) {
         <ul class="result-list result-failures" [attr.aria-label]="i18n.t('resultCard.failedAria')">
           @for (row of failedRows(); track row.path) {
-            <li class="result-row result-row-failed">
+            <li
+              class="result-row result-row-failed"
+              tabindex="0"
+              aria-haspopup="menu"
+              (contextmenu)="onFailedRowContextMenu($event, row)"
+              (keydown)="onFailedRowKeydown($event, row)"
+            >
               <lucide-icon
                 [img]="alertIcon"
                 [size]="16"
@@ -101,15 +131,25 @@
         </ul>
       }
 
+      @if (copyMessage(); as message) {
+        <div
+          [class]="'result-copy-banner banner banner-' + message.tone"
+          role="status"
+          aria-live="polite"
+        >
+          <span>{{ message.text }}</span>
+        </div>
+      }
+
       @if (showVerifyBlock()) {
         <section
           class="verify-block"
           [attr.aria-label]="i18n.t('resultCard.verificationAria')"
           aria-live="polite"
         >
-          @if (verifyLoading) {
+          @if (verifyStateLoading()) {
             <p class="verify-state">{{ i18n.t('resultCard.checking') }}</p>
-          } @else if (verifyUnavailable) {
+          } @else if (verifyStateUnavailable()) {
             <p class="verify-state">{{ i18n.t('resultCard.verifyUnavailable') }}</p>
           } @else if (verifyReport) {
             <div class="verify-head">
@@ -159,6 +199,15 @@
                           · {{ output.warning }}
                         }
                       </span>
+                      @if (output.targetLimit) {
+                        <span
+                          class="verify-output-target mono"
+                          [class.verify-output-target-failed]="!output.targetPassed"
+                        >
+                          {{ i18n.t('resultCard.targetComparison', { actual: output.targetActual ?? '', target: output.targetLimit ?? '' }) }}
+                          · {{ output.targetPassed ? i18n.t('resultCard.targetMet') : i18n.t('resultCard.targetMissed') }}
+                        </span>
+                      }
                     </span>
                   </li>
                 }
@@ -203,6 +252,73 @@
         </section>
       }
 
+      @if (showRunAgainConfirmation()) {
+        <section
+          class="run-again-block"
+          [attr.aria-label]="i18n.t('resultCard.runAgain.aria')"
+        >
+          <p class="run-again-title">{{ i18n.t('resultCard.runAgain.title') }}</p>
+          <p class="run-again-meta">{{ runAgainMeta() }}</p>
+          <div class="run-again-destinations">
+            <span class="run-again-label">{{ i18n.t('resultCard.runAgain.destinations') }}</span>
+            <ul class="run-again-list mono">
+              @for (destination of runAgainDestinations(); track destination) {
+                <li>{{ destination }}</li>
+              }
+              @if (runAgainDestinationOverflow() > 0) {
+                <li class="run-again-more">
+                  {{ i18n.t('resultCard.runAgain.more', { count: runAgainDestinationOverflow() }) }}
+                </li>
+              }
+            </ul>
+          </div>
+          <div class="actions run-again-actions">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm result-run-again-confirm"
+              [disabled]="runAgainBusy"
+              [attr.aria-busy]="runAgainBusy"
+              (click)="confirmRunAgain()"
+            >
+              {{ runAgainBusy ? i18n.t('resultCard.runAgain.starting') : i18n.t('resultCard.runAgain.confirm') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm result-run-again-cancel"
+              [disabled]="runAgainBusy"
+              (click)="cancelRunAgain()"
+            >
+              {{ i18n.t('resultCard.runAgain.cancel') }}
+            </button>
+          </div>
+        </section>
+      } @else if (runAgainErrorCopy(); as error) {
+        <section
+          class="run-again-block"
+          [attr.aria-label]="i18n.t('resultCard.runAgain.aria')"
+        >
+          <div class="banner banner-danger run-again-error" role="alert">
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <div class="banner-copy">
+              <strong>{{ error.title }}</strong>
+              <span>{{ error.description }}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm result-run-again-dismiss"
+            (click)="cancelRunAgain()"
+          >
+            {{ i18n.t('resultCard.runAgain.dismiss') }}
+          </button>
+        </section>
+      }
+
       <div class="actions result-footer">
         @if (hasFailedRows()) {
           <button
@@ -217,6 +333,22 @@
               aria-hidden="true"
             ></lucide-icon>
             {{ i18n.t('resultCard.retryFailed') }}
+          </button>
+        }
+        @if (canRunAgain()) {
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm result-run-again"
+            [attr.aria-label]="i18n.t('resultCard.runAgain.aria')"
+            (click)="startRunAgain()"
+          >
+            <lucide-icon
+              [img]="retryIcon"
+              [size]="14"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            {{ i18n.t('resultCard.runAgain') }}
           </button>
         }
         @if (canUndoAction()) {
@@ -291,5 +423,16 @@
         }
       </details>
     </div>
+
+    <app-context-menu
+      [open]="menuOpen()"
+      [x]="menuX()"
+      [y]="menuY()"
+      [items]="menuItems()"
+      [opener]="menuOpener()"
+      [label]="i18n.t('contextMenu.label')"
+      (select)="onMenuSelect($event)"
+      (closed)="onMenuClosed()"
+    ></app-context-menu>
   </section>
 }

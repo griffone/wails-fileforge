@@ -7,7 +7,6 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Subscription } from 'rxjs';
 import {
   FolderOpen,
   LucideAngularModule,
@@ -21,28 +20,16 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
-import { ResultCard } from '../tool-flow/result-card';
-import { FileQueueItem } from '../tool-flow/tool-flow.types';
-import {
-  describeToolError,
-  localizeToolError,
-  ToolErrorCopy,
-} from '../../services/tool-error';
+import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
+import { OpenWindowAction } from '../open-window-action/open-window-action';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { LastRequestService } from '../../services/last-request.service';
 import { ActivityService } from '../../services/activity.service';
 import {
   FileInfo,
-  InspectFilesResponse,
-  JobError,
-  JobExecutionStatus,
-  JobProgressEvent,
   JobRequest,
-  JobResult,
-  JobStatusResponse,
-  PlanJobResponse,
-  RunJobResponse,
   ToolchainComponent,
   ToolchainStatus,
   Wails,
@@ -53,12 +40,12 @@ import {
   formatBytes,
   formatCount,
 } from '../../utils/format';
-import { observeJob } from '../../utils/job-stream';
-import { resumeToolJob } from '../../utils/resume-task';
+import { createToolOptions } from '../../utils/tool-options';
+import { ToolRunController } from '../../utils/tool-run-controller';
 
 const BACKGROUND_TOOL_ID = 'tool.image.background';
 const PLAN_DEBOUNCE_MS = 250;
-const THUMBNAIL_SIZE = 160;
+const OPTIONS_SCHEMA_VERSION = 1;
 const DEFAULT_BACKGROUND_COLOR = '#ffffff';
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
@@ -72,21 +59,8 @@ const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'gif',
 ]);
 
-const TERMINAL_STATUSES = new Set<string>([
-  'success',
-  'failed',
-  'partial_success',
-  'cancelled',
-  'interrupted',
-]);
-
 type BackgroundMode = 'transparent' | 'color';
 type CapabilityStatus = 'loading' | 'ok' | 'error';
-
-interface Notice {
-  tone: 'warning' | 'danger';
-  text: string;
-}
 
 export interface PackBanner {
   title: string;
@@ -100,11 +74,35 @@ export interface PackComponentState {
   detail: string;
 }
 
+type ImageBackgroundOptions = {
+  backgroundMode: BackgroundMode;
+  color: string;
+};
+
+function defaultOptions(): ImageBackgroundOptions {
+  return { backgroundMode: 'transparent', color: DEFAULT_BACKGROUND_COLOR };
+}
+
 /** `#A1B2C3` and `a1b2c3` both normalise to `#a1b2c3`; invalid stays empty. */
 function normalizeHexColor(raw: string): string {
   const trimmed = (raw ?? '').trim();
   const withHash = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
   return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toLowerCase() : '';
+}
+
+function normalizeOptions(
+  stored: Record<string, unknown>,
+): Partial<ImageBackgroundOptions> {
+  const result: Partial<ImageBackgroundOptions> = {};
+  const mode = stored['backgroundMode'];
+  if (mode === 'transparent' || mode === 'color') {
+    result.backgroundMode = mode;
+  }
+  const color = stored['color'];
+  if (typeof color === 'string') {
+    result.color = color;
+  }
+  return result;
 }
 
 @Component({
@@ -113,6 +111,7 @@ function normalizeHexColor(raw: string): string {
   imports: [
     RouterLink,
     LucideAngularModule,
+    OpenWindowAction,
     FileDrop,
     FileQueue,
     OutputPlanCard,
@@ -125,8 +124,54 @@ function normalizeHexColor(raw: string): string {
 export class ImageBackground implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
-  private readonly activity = inject(ActivityService);
   readonly i18n = inject(I18nService);
+  private readonly wailsService = inject(Wails);
+
+  private readonly settings = createToolOptions(this.preferences, {
+    toolId: BACKGROUND_TOOL_ID,
+    schemaVersion: OPTIONS_SCHEMA_VERSION,
+    defaults: defaultOptions,
+    normalize: normalizeOptions,
+  });
+
+  private readonly job: ToolRunController = new ToolRunController({
+    toolId: BACKGROUND_TOOL_ID,
+    wails: this.wailsService,
+    i18n: this.i18n,
+    activity: inject(ActivityService),
+    dropIntake: this.dropIntake,
+    lastRequests: inject(LastRequestService),
+    initialOutputDir: this.preferences.defaultOutputDir(),
+    buildRequest: () => this.buildRequest(),
+    acceptsPath: (path) =>
+      SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase()),
+    canPlan: () =>
+      this.selectedPaths().length > 0 &&
+      this.packReady() &&
+      this.colorValid(),
+    canRun: () => this.canRun(),
+    extraBlocked: () => this.planBlocked(),
+    describeFileInfo: (info) => this.describeFileInfo(info),
+    afterPathsChanged: () =>
+      this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS),
+    noticeText: (rejected) =>
+      rejected.length > 0
+        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
+        : null,
+    messages: {
+      start: 'imageBackground.error.start',
+      planFailed: 'imageBackground.error.plan',
+      waiting: 'imageBackground.status.waiting',
+      inspectFailed: 'imageBackground.error.inspect',
+      statusMissing: 'imageBackground.error.status',
+      cancelFailed: 'imageBackground.error.cancel',
+      openFileFailed: 'imageBackground.error.openFile',
+      revealFailed: 'imageBackground.error.openFolder',
+    },
+    onRunAccepted: () => {
+      this.settings.save(this.currentOptions());
+    },
+  });
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -134,31 +179,37 @@ export class ImageBackground implements OnDestroy, OnInit {
   readonly alertIcon = TriangleAlert;
   readonly recheckIcon = RefreshCw;
 
-  readonly selectedPaths = signal<string[]>([]);
-  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly selectedPaths = this.job.selectedPaths;
+  readonly fileItems = this.job.fileItems;
 
   readonly backgroundMode = signal<BackgroundMode>('transparent');
   readonly color = signal(DEFAULT_BACKGROUND_COLOR);
-  readonly outputDir = signal(this.preferences.defaultOutputDir());
+  readonly outputDir = this.job.outputDir;
 
   readonly toolchain = signal<ToolchainStatus | null>(null);
   readonly toolchainState = signal<CapabilityStatus>('loading');
   readonly toolchainChecking = signal(false);
 
-  readonly plan = signal<PlanJobResponse | null>(null);
-  readonly planError = signal<JobError | null>(null);
-  readonly planLoading = signal(false);
+  readonly plan = this.job.plan;
+  readonly planError = this.job.planError;
+  readonly planLoading = this.job.planLoading;
 
-  readonly jobResult = signal<JobResult | null>(null);
-  readonly jobError = signal<JobError | null>(null);
-  readonly outputInfos = signal<Record<string, FileInfo>>({});
+  readonly jobResult = this.job.jobResult;
+  readonly jobError = this.job.jobError;
+  readonly outputInfos = this.job.outputInfos;
 
-  readonly isSubmitting = signal(false);
-  readonly isPolling = signal(false);
-  readonly activeJobId = signal('');
+  readonly isSubmitting = this.job.isSubmitting;
+  readonly isPolling = this.job.isPolling;
+  readonly activeJobId = this.job.activeJobId;
 
-  readonly notice = signal<Notice | null>(null);
-  readonly actionMessage = signal('');
+  readonly notice = this.job.notice;
+  readonly actionMessage = this.job.actionMessage;
+  readonly terminalJob = this.job.terminalJob;
+  readonly showProgress = this.job.showProgress;
+  readonly jobErrorCopy = this.job.jobErrorCopy;
+  readonly verification = this.job.verification;
+  readonly verificationLoading = this.job.verificationLoading;
+  readonly verificationUnavailable = this.job.verificationUnavailable;
 
   readonly packComponents = computed<PackComponentState[]>(() => {
     const components = this.toolchain()?.components ?? [];
@@ -290,16 +341,6 @@ export class ImageBackground implements OnDestroy, OnInit {
     return '';
   });
 
-  readonly terminalJob = computed<JobResult | null>(() => {
-    const job = this.jobResult();
-    return job && this.isTerminalStatus(job.status) ? job : null;
-  });
-
-  readonly showProgress = computed(() => {
-    const job = this.jobResult();
-    return !!job && !this.isTerminalStatus(job.status);
-  });
-
   /**
    * The tool reports what it produced per image (`transparent PNG WxH` or
    * `background #rrggbb, WxH`). Show the first successful message above the
@@ -317,39 +358,16 @@ export class ImageBackground implements OnDestroy, OnInit {
     return item ? item.message.trim() : null;
   });
 
-  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
-    const error = this.jobError();
-    return error
-      ? localizeToolError(
-          (key) => this.i18n.t(key),
-          describeToolError(
-            error,
-            this.i18n.t('imageBackground.error.start'),
-          ),
-        )
-      : null;
-  });
-
-  private jobSubscription: Subscription | null = null;
-  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private planToken = 0;
-  private fileItemsGeneration = 0;
-
-  constructor(private readonly wailsService: Wails) {}
-
   ngOnInit(): void {
+    this.restoreOptions();
     void this.refreshToolchain();
 
-    const pending = this.dropIntake.take('/image-background');
-    if (pending.length > 0) {
-      this.onPathsSelected(pending);
-    }
-    this.resumeBackgroundJob();
+    this.job.takePendingDrop('/image-background');
+    this.job.resume();
   }
 
   ngOnDestroy(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
+    this.job.dispose();
   }
 
   fileCountLabel(): string {
@@ -361,75 +379,22 @@ export class ImageBackground implements OnDestroy, OnInit {
   }
 
   onPathsSelected(paths: string[]): void {
-    const incoming = (Array.isArray(paths) ? paths : [])
-      .map((path) => path.trim())
-      .filter((path) => path.length > 0);
-    if (incoming.length === 0) {
-      return;
-    }
-
-    const supported: string[] = [];
-    const rejected: string[] = [];
-    for (const path of incoming) {
-      if (SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase())) {
-        supported.push(path);
-      } else {
-        rejected.push(path);
-      }
-    }
-
-    const selected = new Set(this.selectedPaths());
-    const added: string[] = [];
-    for (const path of supported) {
-      if (selected.has(path)) {
-        continue;
-      }
-      selected.add(path);
-      added.push(path);
-    }
-
-    this.notice.set(
-      rejected.length > 0
-        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
-        : null,
-    );
-
-    if (added.length === 0) {
-      return;
-    }
-
-    this.actionMessage.set('');
-    this.selectedPaths.set([...this.selectedPaths(), ...added]);
-    this.syncFileItems();
-    this.schedulePlanRefresh();
+    this.job.onPathsSelected(paths);
   }
 
   async chooseFiles(): Promise<void> {
     const paths = await this.wailsService.openMultipleFilesDialog();
     if (paths.length > 0) {
-      this.onPathsSelected(paths);
+      this.job.onPathsSelected(paths);
     }
   }
 
   clear(): void {
-    if (this.selectedPaths().length === 0) {
-      return;
-    }
-    this.selectedPaths.set([]);
-    this.notice.set(null);
-    this.actionMessage.set('');
-    this.syncFileItems();
-    this.schedulePlanRefresh();
+    this.job.clear();
   }
 
   removeFile(path: string): void {
-    const next = this.selectedPaths().filter((candidate) => candidate !== path);
-    if (next.length === this.selectedPaths().length) {
-      return;
-    }
-    this.selectedPaths.set(next);
-    this.syncFileItems();
-    this.schedulePlanRefresh();
+    this.job.removeFile(path);
   }
 
   onModeChange(event: Event): void {
@@ -442,7 +407,7 @@ export class ImageBackground implements OnDestroy, OnInit {
     }
     this.backgroundMode.set(value);
     this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.schedulePlan();
   }
 
   onColorInput(event: Event): void {
@@ -451,7 +416,7 @@ export class ImageBackground implements OnDestroy, OnInit {
         DEFAULT_BACKGROUND_COLOR,
     );
     this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.schedulePlan();
   }
 
   async chooseOutputFolder(): Promise<void> {
@@ -461,7 +426,7 @@ export class ImageBackground implements OnDestroy, OnInit {
     }
     this.outputDir.set(directory);
     this.actionMessage.set('');
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   useOriginalFolders(): void {
@@ -469,7 +434,7 @@ export class ImageBackground implements OnDestroy, OnInit {
       return;
     }
     this.outputDir.set('');
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   /**
@@ -493,107 +458,31 @@ export class ImageBackground implements OnDestroy, OnInit {
       return;
     }
     if (this.packReady()) {
-      this.schedulePlanRefresh();
+      this.schedulePlan();
     } else {
-      this.clearPlanState();
+      this.job.clearPlan();
     }
   }
 
   async run(): Promise<void> {
-    if (!this.canRun() || this.planBlocked()) {
-      return;
-    }
+    await this.job.run();
+  }
 
-    this.clearPlanRefreshTimer();
-    this.actionMessage.set('');
-
-    // The plan is the source of truth for output names and destinations, so it
-    // is always refreshed with the current inputs before starting the job.
-    const planned = await this.refreshPlan();
-    if (!planned) {
-      return;
-    }
-
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(true);
-
-    const response: RunJobResponse = await this.wailsService
-      .runJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageBackground.error.start'),
-        jobId: '',
-        status: 'failed' as const,
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message: this.i18n.t('imageBackground.error.start'),
-        },
-      }));
-    if (!response.success || !response.jobId) {
-      this.jobError.set(
-        response.error ?? {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message:
-            response.message || this.i18n.t('imageBackground.error.start'),
-        },
-      );
-      this.isSubmitting.set(false);
-      return;
-    }
-
-    const total = this.selectedPaths().length;
-    this.activeJobId.set(response.jobId);
-    this.jobResult.set({
-      jobId: response.jobId,
-      success: false,
-      message: this.i18n.t('imageBackground.status.waiting'),
-      toolId: BACKGROUND_TOOL_ID,
-      status: 'queued',
-      progress: {
-        current: 0,
-        total,
-        stage: 'queued',
-        message: this.i18n.t('imageBackground.status.waiting'),
-      },
-      items: [],
-      startedAt: Date.now(),
-    });
-    this.isSubmitting.set(false);
-    this.isPolling.set(true);
-    this.startObserving();
+  /** Adopts a job the result card planned and started with the same request. */
+  onRunAgainStarted(event: RunAgainStartedEvent): void {
+    this.job.adoptRunAgain(event);
   }
 
   async cancel(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-    const response = await this.wailsService.cancelJob(jobId);
-    if (!response.success) {
-      this.actionMessage.set(
-        response.message || this.i18n.t('imageBackground.error.cancel'),
-      );
-    }
+    await this.job.cancel();
   }
 
   async onOpen(path: string): Promise<void> {
-    const response = await this.wailsService.openPath(path);
-    this.actionMessage.set(
-      response.success ? '' : response.message || this.i18n.t('imageBackground.error.openFile'),
-    );
+    await this.job.openPath(path);
   }
 
   async onReveal(path: string): Promise<void> {
-    const response = await this.wailsService.revealInFolder(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('imageBackground.error.openFolder'),
-    );
+    await this.job.revealPath(path);
   }
 
   async retryFailed(): Promise<void> {
@@ -606,35 +495,45 @@ export class ImageBackground implements OnDestroy, OnInit {
       return;
     }
 
-    this.selectedPaths.set([...new Set(failed)]);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.actionMessage.set('');
-    this.syncFileItems();
+    this.job.replacePaths([...new Set(failed)], { notify: false });
+    this.job.clearRunOutcome();
 
-    await this.refreshPlan();
-    await this.run();
+    const planned = await this.job.refreshPlan();
+    if (!planned) {
+      return;
+    }
+
+    await this.job.run();
   }
 
   reset(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
-    this.planToken += 1;
-    this.fileItemsGeneration += 1;
+    this.job.reset();
+  }
 
-    this.selectedPaths.set([]);
-    this.fileItems.set([]);
-    this.plan.set(null);
-    this.planError.set(null);
-    this.planLoading.set(false);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(false);
-    this.activeJobId.set('');
-    this.notice.set(null);
-    this.actionMessage.set('');
+  private currentOptions(): ImageBackgroundOptions {
+    return { backgroundMode: this.backgroundMode(), color: this.color() };
+  }
+
+  private restoreOptions(): void {
+    const options = this.settings.restore();
+    this.backgroundMode.set(options.backgroundMode);
+    this.color.set(options.color);
+  }
+
+  /**
+   * Drops the plan at once when the page cannot plan (no inputs, pack not
+   * ready or an invalid colour) instead of leaving a stale plan on screen.
+   */
+  private schedulePlan(): void {
+    if (
+      this.selectedPaths().length === 0 ||
+      !this.packReady() ||
+      !this.colorValid()
+    ) {
+      this.job.clearPlan();
+      return;
+    }
+    this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS);
   }
 
   private buildRequest(): JobRequest {
@@ -656,316 +555,6 @@ export class ImageBackground implements OnDestroy, OnInit {
     };
   }
 
-  private async refreshPlan(): Promise<boolean> {
-    this.clearPlanRefreshTimer();
-
-    if (
-      this.selectedPaths().length === 0 ||
-      !this.packReady() ||
-      !this.colorValid()
-    ) {
-      this.clearPlanState();
-      return false;
-    }
-
-    const token = (this.planToken += 1);
-    this.planLoading.set(true);
-    this.plan.set(null);
-    this.planError.set(null);
-
-    const response: PlanJobResponse = await this.wailsService
-      .planJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageBackground.error.plan'),
-        outputs: [],
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'PLAN_JOB_FAILED',
-          message: this.i18n.t('imageBackground.error.plan'),
-        },
-      }));
-    if (token !== this.planToken) {
-      return false;
-    }
-
-    this.planLoading.set(false);
-
-    if (response.success && !response.error) {
-      this.plan.set(response);
-      return true;
-    }
-
-    const error: JobError = response.error ?? {
-      code: 'VALIDATION_INVALID_INPUT',
-      detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || this.i18n.t('imageBackground.error.plan'),
-    };
-    // Keep the failed plan so the shared plan card shows the reason next to
-    // the destination it belongs to.
-    this.plan.set({ ...response, success: false, error });
-    this.planError.set(error);
-    return false;
-  }
-
-  private clearPlanState(): void {
-    this.planToken += 1;
-    this.plan.set(null);
-    this.planError.set(null);
-    this.planLoading.set(false);
-    this.clearPlanRefreshTimer();
-  }
-
-  private schedulePlanRefresh(): void {
-    this.clearPlanRefreshTimer();
-    if (
-      this.selectedPaths().length === 0 ||
-      !this.packReady() ||
-      !this.colorValid()
-    ) {
-      this.clearPlanState();
-      return;
-    }
-    this.planRefreshTimer = setTimeout(() => {
-      this.planRefreshTimer = null;
-      void this.refreshPlan();
-    }, PLAN_DEBOUNCE_MS);
-  }
-
-  private clearPlanRefreshTimer(): void {
-    if (this.planRefreshTimer) {
-      clearTimeout(this.planRefreshTimer);
-      this.planRefreshTimer = null;
-    }
-  }
-
-  private resumeBackgroundJob(): void {
-    resumeToolJob({
-      activity: this.activity,
-      toolId: BACKGROUND_TOOL_ID,
-      activeJobId: this.activeJobId,
-      jobResult: this.jobResult,
-      jobError: this.jobError,
-      startObserving: () => this.startObserving(),
-    });
-  }
-
-  private startObserving(): void {
-    this.stopObserving();
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    this.isPolling.set(true);
-    this.jobSubscription = observeJob(this.wailsService, jobId, {
-      onProgress: (event) => this.applyJobProgress(event),
-      onState: (result) => this.applyJobStatus(result),
-      onMissing: (response) => this.handleMissingJob(response),
-    });
-  }
-
-  private stopObserving(): void {
-    if (this.jobSubscription) {
-      this.jobSubscription.unsubscribe();
-      this.jobSubscription = null;
-    }
-    this.isPolling.set(false);
-  }
-
-  private applyJobProgress(event: JobProgressEvent): void {
-    if (!event) {
-      return;
-    }
-
-    const current = this.jobResult();
-    if (!current) {
-      return;
-    }
-
-    this.jobResult.set({
-      ...current,
-      message: event.progress.message,
-      progress: event.progress,
-      // The terminal snapshot arrives on jobs/state; a progress event can
-      // overtake the complete result, so the current status is kept.
-      status: this.isTerminalStatus(event.status)
-        ? current.status
-        : (event.status as JobExecutionStatus),
-    });
-
-    if (this.isTerminalStatus(event.status)) {
-      void this.reconcileJobStatus();
-    }
-  }
-
-  private applyJobStatus(result: JobResult): void {
-    if (!result) {
-      return;
-    }
-
-    this.jobResult.set(result);
-    if (this.isTerminalStatus(result.status)) {
-      this.stopObserving();
-      this.activeJobId.set('');
-      void this.loadOutputInfos();
-    }
-  }
-
-  /** The backend no longer tracks the adopted job (restart or retention). */
-  private handleMissingJob(response: JobStatusResponse): void {
-    if (!this.activeJobId()) {
-      return;
-    }
-
-    this.stopObserving();
-    this.activeJobId.set('');
-    this.jobError.set(
-      response.error ?? {
-        code: 'EXEC_IO_TRANSIENT',
-        detail_code: 'JOB_STATUS_MISSING',
-        message: response.message || this.i18n.t('imageBackground.error.status'),
-      },
-    );
-  }
-
-  /**
-   * One-shot recovery when a terminal progress event arrives before its
-   * jobs/state snapshot. This is never a timer, and it is a no-op once the
-   * page has already settled the job.
-   */
-  private async reconcileJobStatus(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    const response = await this.wailsService
-      .getJobStatus(jobId)
-      .catch(() => null);
-    if (!response || this.activeJobId() !== jobId) {
-      return;
-    }
-
-    if (!response.found || !response.result) {
-      this.handleMissingJob(response);
-      return;
-    }
-
-    this.applyJobStatus(response.result);
-  }
-
-  private async loadOutputInfos(): Promise<void> {
-    const paths = this.collectOutputPaths();
-    if (paths.length === 0) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const response: InspectFilesResponse = await this.wailsService
-      .inspectFiles(paths)
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageBackground.error.inspect'),
-        files: [],
-      }));
-    if (!response.success) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const infos: Record<string, FileInfo> = {};
-    for (const info of response.files) {
-      if (info.path) {
-        infos[info.path] = info;
-      }
-    }
-    this.outputInfos.set(infos);
-  }
-
-  private collectOutputPaths(): string[] {
-    const paths = new Set<string>();
-    for (const item of this.jobResult()?.items ?? []) {
-      if (!item.success) {
-        continue;
-      }
-
-      const outputs =
-        item.outputs && item.outputs.length > 0
-          ? item.outputs
-          : item.outputPath
-            ? [item.outputPath]
-            : [];
-      for (const output of outputs) {
-        if (output) {
-          paths.add(output);
-        }
-      }
-    }
-    return [...paths];
-  }
-
-  private syncFileItems(): void {
-    const paths = this.selectedPaths();
-    const generation = (this.fileItemsGeneration += 1);
-    this.fileItems.set(paths.map((path) => ({ path, name: fileName(path) })));
-
-    if (paths.length > 0) {
-      void this.enrichFileItems(paths, generation);
-    }
-  }
-
-  private async enrichFileItems(
-    paths: string[],
-    generation: number,
-  ): Promise<void> {
-    try {
-      const response = await this.wailsService.inspectFiles(paths);
-      if (generation === this.fileItemsGeneration && response.success) {
-        const infos = new Map<string, FileInfo>();
-        for (const info of response.files) {
-          infos.set(info.path, info);
-        }
-
-        this.fileItems.update((items) =>
-          items.map((item) => {
-            const info = infos.get(item.path);
-            const meta = info ? this.describeFileInfo(info) : '';
-            return meta ? { ...item, meta } : item;
-          }),
-        );
-      }
-    } catch {
-      // Inspection is optional: the queue keeps the file name and path.
-    }
-
-    if (generation !== this.fileItemsGeneration) {
-      return;
-    }
-
-    for (const path of paths) {
-      this.loadThumbnail(path, generation);
-    }
-  }
-
-  private loadThumbnail(path: string, generation: number): void {
-    void this.wailsService
-      .getThumbnail(path, THUMBNAIL_SIZE)
-      .then((thumbnailUrl) => {
-        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
-          return;
-        }
-        this.fileItems.update((items) =>
-          items.map((item) =>
-            item.path === path ? { ...item, thumbnailUrl } : item,
-          ),
-        );
-      })
-      .catch(() => {
-        // Thumbnails are optional; keep the placeholder icon.
-      });
-  }
-
   private describeFileInfo(info: FileInfo): string {
     const parts: string[] = [];
     if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
@@ -977,7 +566,7 @@ export class ImageBackground implements OnDestroy, OnInit {
     return parts.join(' · ');
   }
 
-  private rejectionNotice(rejected: string[]): string {
+  private rejectionNotice(rejected: readonly string[]): string {
     const extensions = [
       ...new Set(
         rejected.map((path) => fileExtension(path).toUpperCase() || 'UNKNOWN'),
@@ -1007,9 +596,5 @@ export class ImageBackground implements OnDestroy, OnInit {
     }
 
     return `${filesCopy} ${extensionsCopy}`;
-  }
-
-  private isTerminalStatus(status: string): boolean {
-    return TERMINAL_STATUSES.has(status);
   }
 }

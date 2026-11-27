@@ -43,6 +43,11 @@ export const toolsEs = {
   'tools.tool.image.background.description':
     'Elimina fondos de imágenes localmente y guarda un PNG transparente o un color elegido.',
 
+  'tools.tool.image.upscale.name': 'Ampliar imagen',
+  'tools.tool.image.upscale.navName': 'Ampliar',
+  'tools.tool.image.upscale.description':
+    'Amplía imágenes 2x o 4x localmente con un paquete opcional de modelos ONNX.',
+
   'tools.tool.pdf.merge.name': 'Unir PDF',
   'tools.tool.pdf.merge.navName': 'Unir',
   'tools.tool.pdf.merge.description':
@@ -67,6 +72,26 @@ export const toolsEs = {
   'tools.tool.pdf.ocr.navName': 'OCR',
   'tools.tool.pdf.ocr.description':
     'Haz que los PDF escaneados sean buscables con OCR local y un archivo de texto adjunto.',
+
+  'tools.tool.pdf.rotate.name': 'Rotar PDF',
+  'tools.tool.pdf.rotate.navName': 'Rotar',
+  'tools.tool.pdf.rotate.description':
+    'Rota todas las páginas o una selección 90, 180 o 270 grados',
+
+  'tools.tool.pdf.remove_pages.name': 'Eliminar páginas de PDF',
+  'tools.tool.pdf.remove_pages.navName': 'Eliminar páginas',
+  'tools.tool.pdf.remove_pages.description':
+    'Elimina las páginas seleccionadas y conserva el resto del documento',
+
+  'tools.tool.pdf.reorder.name': 'Reordenar páginas de PDF',
+  'tools.tool.pdf.reorder.navName': 'Reordenar',
+  'tools.tool.pdf.reorder.description':
+    'Reescribe el orden de páginas con una especificación explícita, o invierte el documento',
+
+  'tools.tool.pdf.extract_images.name': 'Extraer imágenes de PDF',
+  'tools.tool.pdf.extract_images.navName': 'Extraer imágenes',
+  'tools.tool.pdf.extract_images.description':
+    'Extrae las imágenes incrustadas a una carpeta con nombres sin colisiones',
 
   'tools.tool.doc.md_to_pdf.name': 'Markdown → PDF',
   'tools.tool.doc.md_to_pdf.navName': 'Markdown',
@@ -98,6 +123,21 @@ export const toolsEs = {
   'tools.tool.video.transcribe.description':
     'Transcribe video y audio localmente con Whisper. Sin subidas.',
 
+  'tools.tool.audio.extract.name': 'Extraer audio',
+  'tools.tool.audio.extract.navName': 'Extraer',
+  'tools.tool.audio.extract.description':
+    'Extrae la pista de audio de un vídeo o archivo de audio como mp3, m4a, opus, wav o flac',
+
+  'tools.tool.audio.convert.name': 'Convertir audio',
+  'tools.tool.audio.convert.navName': 'Convertir',
+  'tools.tool.audio.convert.description':
+    'Convierte archivos de audio entre mp3, m4a, opus, wav y flac',
+
+  'tools.tool.audio.normalize.name': 'Normalizar audio',
+  'tools.tool.audio.normalize.navName': 'Normalizar',
+  'tools.tool.audio.normalize.description':
+    'Normalización de sonoridad EBU R128 en dos pasadas para objetivos de streaming, difusión o pódcast',
+
   'tools.tool.pdf.images.name': 'Imágenes a PDF',
   'tools.tool.pdf.images.navName': 'Imágenes a PDF',
   'tools.tool.pdf.images.description':
@@ -117,6 +157,11 @@ export const toolsEs = {
   'tools.system.automations.navName': 'Automatizaciones',
   'tools.system.automations.description':
     'Vigila una carpeta y ejecuta una receta cuando llega un archivo.',
+
+  'tools.system.duplicates.name': 'Duplicados',
+  'tools.system.duplicates.navName': 'Duplicados',
+  'tools.system.duplicates.description':
+    'Busca archivos idénticos en tus carpetas y muestra cuánto espacio ocupan de más.',
 
   'tools.system.settings.name': 'Configuración',
   'tools.system.settings.navName': 'Ajustes',
@@ -147,4 +192,9 @@ export const toolsEs = {
   'tools.recipe.burned_subtitles.navName': 'Subtítulos',
   'tools.recipe.burned_subtitles.description':
     'Transcribe un video localmente e incrusta subtítulos sincronizados en un nuevo MP4.',
+
+  'tools.recipe.archive_document.name': 'Documento de archivo',
+  'tools.recipe.archive_document.navName': 'Archivo',
+  'tools.recipe.archive_document.description':
+    'Convierte un DOCX en un archivo PDF/A-2 e informa su SHA-256 para guardarlo a largo plazo.',
 };

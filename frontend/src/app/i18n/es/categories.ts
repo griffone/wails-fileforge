@@ -4,6 +4,7 @@ export const categoriesEs = {
   'categories.pdf': 'PDF',
   'categories.docs': 'Documentos',
   'categories.video': 'Video',
+  'categories.audio': 'Audio',
   'categories.system': 'Sistema',
   'categories.recipes': 'Recetas',
 };

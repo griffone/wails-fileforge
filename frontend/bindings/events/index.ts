@@ -14,6 +14,16 @@ import "../github.com/wailsapp/wails/v3/internal/eventcreate.js";
 export const AutomationRun = "automation/run";
 
 /**
+ * Name of the custom event "duplicates/progress".
+ */
+export const DuplicatesProgress = "duplicates/progress";
+
+/**
+ * Name of the custom event "duplicates/state".
+ */
+export const DuplicatesState = "duplicates/state";
+
+/**
  * Name of the custom event "jobs/progress".
  */
 export const JobsProgress = "jobs/progress";
@@ -37,4 +47,19 @@ export const RecipesState = "recipes/state";
  * Name of the custom event "toolchain/install".
  */
 export const ToolchainInstall = "toolchain/install";
+
+/**
+ * Name of the custom event "update/error".
+ */
+export const UpdateError = "update/error";
+
+/**
+ * Name of the custom event "update/progress".
+ */
+export const UpdateProgress = "update/progress";
+
+/**
+ * Name of the custom event "update/state".
+ */
+export const UpdateState = "update/state";
 

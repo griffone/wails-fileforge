@@ -131,21 +131,82 @@ func (s *Store) configured() bool {
 // snapshots and jobs without existing outputs are ignored. A job id is
 // recorded at most once.
 func (s *Store) RecordJob(job models.JobResult) {
+	s.RecordJobWithTarget(job, 0)
+}
+
+// RecordJobWithTarget records a terminal job and the target size it requested.
+// Persisting the target next to the outputs keeps a finished job verifiable
+// after a restart, when the engine no longer holds the original request.
+func (s *Store) RecordJobWithTarget(job models.JobResult, targetBytes int64) {
 	if !isTerminalStatus(job.Status) {
 		return
 	}
 
-	s.record(job.JobID, job.ToolID, successfulOutputs(job), job.EndedAt)
+	s.record(job.JobID, job.ToolID, successfulOutputs(job), job.EndedAt, targetBytes)
 }
 
 // RecordOutputs records explicit outputs for jobs that do not run through the
 // job engine, such as recipe runs. The same fingerprint and dedupe rules as
 // RecordJob apply.
 func (s *Store) RecordOutputs(jobID, toolID string, outputs []string) {
-	s.record(jobID, toolID, outputs, time.Now().UnixMilli())
+	s.record(jobID, toolID, outputs, time.Now().UnixMilli(), 0)
 }
 
-func (s *Store) record(jobID, toolID string, outputs []string, createdAt int64) {
+// MoveRecord is one file an operation moved without producing a new output,
+// such as an organize rule. Destination is where the file is now; Source is
+// where it must go back on restore.
+type MoveRecord struct {
+	Source      string
+	Destination string
+}
+
+// RecordMoves records successful moves so the existing undo workflow can revert
+// them: Undo moves the destination to the app trash, and Restore puts the file
+// back at its original source path. The destination fingerprint is captured
+// now, so a file modified after the move is never trashed by undo.
+func (s *Store) RecordMoves(jobID, toolID string, moves []MoveRecord) {
+	if !s.configured() {
+		return
+	}
+
+	records := make([]models.JobOutputRecord, 0, len(moves))
+	seen := make(map[string]struct{}, len(moves))
+	for _, move := range moves {
+		destination := strings.TrimSpace(move.Destination)
+		source := strings.TrimSpace(move.Source)
+		if destination == "" || source == "" {
+			continue
+		}
+		path := filepath.Clean(destination)
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		records = append(records, models.JobOutputRecord{
+			Path:        path,
+			SizeBytes:   info.Size(),
+			ModifiedAt:  info.ModTime().UnixMilli(),
+			RestorePath: filepath.Clean(source),
+		})
+	}
+	if len(records) == 0 {
+		return
+	}
+
+	s.insertEntry(models.JobHistoryEntry{
+		JobID:     strings.TrimSpace(jobID),
+		ToolID:    toolID,
+		CreatedAt: time.Now().UnixMilli(),
+		Outputs:   records,
+	})
+}
+
+func (s *Store) record(jobID, toolID string, outputs []string, createdAt, targetBytes int64) {
 	if !s.configured() {
 		return
 	}
@@ -163,6 +224,24 @@ func (s *Store) record(jobID, toolID string, outputs []string, createdAt int64) 
 		createdAt = time.Now().UnixMilli()
 	}
 
+	s.insertEntry(models.JobHistoryEntry{
+		JobID:       jobID,
+		ToolID:      toolID,
+		CreatedAt:   createdAt,
+		TargetBytes: targetBytes,
+		Outputs:     records,
+	})
+}
+
+// insertEntry prepends one entry unless its job id is already recorded, then
+// persists the snapshot. A job id is recorded at most once.
+func (s *Store) insertEntry(entry models.JobHistoryEntry) {
+	jobID := strings.TrimSpace(entry.JobID)
+	if jobID == "" || len(entry.Outputs) == 0 {
+		return
+	}
+	entry.JobID = jobID
+
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
@@ -172,12 +251,6 @@ func (s *Store) record(jobID, toolID string, outputs []string, createdAt int64) 
 		return
 	}
 
-	entry := models.JobHistoryEntry{
-		JobID:     jobID,
-		ToolID:    toolID,
-		CreatedAt: createdAt,
-		Outputs:   records,
-	}
 	s.entries = append([]models.JobHistoryEntry{entry}, s.entries...)
 	s.pruneLocked()
 	snapshot := s.snapshotEntriesLocked()
@@ -364,9 +437,10 @@ func (s *Store) Undo(jobID string) models.UndoResult {
 	return result
 }
 
-// Restore moves trashed outputs back to their original paths. A destination
-// that already exists is never overwritten; the trashed copy stays in place
-// and the conflict is reported.
+// Restore moves trashed outputs back to their original paths. For a moved file
+// recorded with a RestorePath, the original path is where the file came from,
+// not where the move put it. A destination that already exists is never
+// overwritten; the trashed copy stays in place and the conflict is reported.
 //
 // Like Undo, file I/O runs outside the data lock and the entry is re-found
 // before its snapshot is persisted.
@@ -413,8 +487,9 @@ func (s *Store) Restore(jobID string) models.UndoResult {
 	}
 
 	type restoredOutput struct {
-		path      string
-		trashPath string
+		recordPath string
+		restoredTo string
+		trashPath  string
 	}
 	restored := make([]restoredOutput, 0, len(entry.Outputs))
 
@@ -425,12 +500,17 @@ func (s *Store) Restore(jobID string) models.UndoResult {
 			continue
 		}
 
-		if _, err := os.Stat(output.Path); err == nil {
-			result.Skipped = append(result.Skipped, models.UndoSkipped{Path: output.Path, Reason: "destination already exists"})
+		restorePath := strings.TrimSpace(output.RestorePath)
+		if restorePath == "" {
+			restorePath = output.Path
+		}
+
+		if _, err := os.Stat(restorePath); err == nil {
+			result.Skipped = append(result.Skipped, models.UndoSkipped{Path: restorePath, Reason: "destination already exists"})
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
 			result.Skipped = append(result.Skipped, models.UndoSkipped{
-				Path:   output.Path,
+				Path:   restorePath,
 				Reason: fmt.Sprintf("destination cannot be checked: %v", err),
 			})
 			continue
@@ -441,27 +521,31 @@ func (s *Store) Restore(jobID string) models.UndoResult {
 			if !errors.Is(err, os.ErrNotExist) {
 				reason = fmt.Sprintf("trashed file cannot be accessed: %v", err)
 			}
-			result.Skipped = append(result.Skipped, models.UndoSkipped{Path: output.Path, Reason: reason})
+			result.Skipped = append(result.Skipped, models.UndoSkipped{Path: restorePath, Reason: reason})
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(output.Path), dirPermissions); err != nil {
+		if err := os.MkdirAll(filepath.Dir(restorePath), dirPermissions); err != nil {
 			result.Skipped = append(result.Skipped, models.UndoSkipped{
-				Path:   output.Path,
+				Path:   restorePath,
 				Reason: fmt.Sprintf("could not create destination folder: %v", err),
 			})
 			continue
 		}
-		if err := moveFile(trashPath, output.Path, s.rename); err != nil {
+		if err := moveFile(trashPath, restorePath, s.rename); err != nil {
 			result.Skipped = append(result.Skipped, models.UndoSkipped{
-				Path:   output.Path,
+				Path:   restorePath,
 				Reason: fmt.Sprintf("could not restore file: %v", err),
 			})
 			continue
 		}
 
-		restored = append(restored, restoredOutput{path: output.Path, trashPath: trashPath})
-		result.Moved = append(result.Moved, output.Path)
+		restored = append(restored, restoredOutput{
+			recordPath: output.Path,
+			restoredTo: restorePath,
+			trashPath:  trashPath,
+		})
+		result.Moved = append(result.Moved, restorePath)
 	}
 
 	if len(restored) == 0 {
@@ -481,7 +565,7 @@ func (s *Store) Restore(jobID string) models.UndoResult {
 
 	liveEntry := &s.entries[liveIndex]
 	for _, item := range restored {
-		targetIndex := findOutputIndex(liveEntry, item.path)
+		targetIndex := findOutputIndex(liveEntry, item.recordPath)
 		if targetIndex < 0 {
 			continue
 		}
@@ -558,6 +642,55 @@ func (s *Store) EmptyTrash() error {
 	}
 
 	return nil
+}
+
+// TrashStats counts the regular files currently in the app trash and sums
+// their sizes. It walks the trash root instead of reading history, so files
+// whose history entry was pruned are still counted. A missing trash directory
+// is an empty trash, not an error.
+func (s *Store) TrashStats() (int, int64, error) {
+	root := strings.TrimSpace(s.trashRoot)
+	if root == "" {
+		return 0, 0, nil
+	}
+
+	files := 0
+	var bytes int64
+	err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if errors.Is(walkErr, os.ErrNotExist) {
+				return nil
+			}
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			if errors.Is(infoErr, os.ErrNotExist) {
+				return nil
+			}
+			return infoErr
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+
+		files++
+		bytes += info.Size()
+
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("count trash files: %w", err)
+	}
+
+	return files, bytes, nil
 }
 
 func (s *Store) load() {

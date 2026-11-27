@@ -5,6 +5,7 @@ import (
 
 	"fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/outputname"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/services"
 )
@@ -78,6 +79,12 @@ func (s *ToolService) EmptyTrash() models.PathActionResponse {
 	return s.tooling.EmptyTrash()
 }
 
+// TrashInfo reports the real file count and total size of the app trash so the
+// empty confirmation can state the exact numbers that will be deleted.
+func (s *ToolService) TrashInfo() (models.TrashInfo, error) {
+	return s.tooling.TrashInfo()
+}
+
 func (s *ToolService) GetImagePreviewSource(inputPath string) models.ImagePreviewSourceResponse {
 	tool, ok := s.imageCropTool()
 	if !ok {
@@ -104,6 +111,21 @@ func (s *ToolService) GetImageCropPreview(req models.ImageCropPreviewRequest) mo
 	return tool.GetImageCropPreview(req)
 }
 
+// GetImageCropSuggestion returns a suggested crop rectangle for a uniform
+// border. The user still accepts or adjusts it; nothing is cropped here.
+func (s *ToolService) GetImageCropSuggestion(inputPath string) models.ImageCropSuggestionResponse {
+	tool, ok := s.imageCropTool()
+	if !ok {
+		return models.ImageCropSuggestionResponse{
+			Success: false,
+			Message: "Image crop tool is unavailable.",
+			Error:   models.NewCanonicalJobError("TOOL_NOT_FOUND", "tool.image.crop is not registered", nil),
+		}
+	}
+
+	return tool.GetImageCropSuggestion(strings.TrimSpace(inputPath))
+}
+
 func (s *ToolService) GetImageAnnotatePreview(req models.ImageAnnotatePreviewRequest) models.ImageAnnotatePreviewResponse {
 	tool, ok := s.imageAnnotateTool()
 	if !ok {
@@ -115,6 +137,60 @@ func (s *ToolService) GetImageAnnotatePreview(req models.ImageAnnotatePreviewReq
 	}
 
 	return tool.GetImageAnnotatePreview(req)
+}
+
+// SuggestOutputName derives a better output base name from document metadata:
+// the PDF title, the DOCX core title or first heading, the Markdown first
+// heading, or a cleaned input name. It only suggests; the page applies the name
+// after the user confirms it and the plan is rebuilt.
+func (s *ToolService) SuggestOutputName(toolID, inputPath string) models.OutputNameSuggestionResponse {
+	suggestion, suggestionErr := outputname.Suggest(strings.TrimSpace(toolID), strings.TrimSpace(inputPath))
+	if suggestionErr != nil {
+		return models.OutputNameSuggestionResponse{
+			Success: false,
+			Message: "Cannot suggest an output name.",
+			Error: models.NewCanonicalJobError(
+				suggestionErr.Code,
+				suggestionErr.Error(),
+				suggestionErr.Details,
+			),
+		}
+	}
+
+	if !suggestion.Found {
+		return models.OutputNameSuggestionResponse{
+			Success: true,
+			Message: suggestion.Reason,
+			Found:   false,
+			Reason:  suggestion.Reason,
+		}
+	}
+
+	return models.OutputNameSuggestionResponse{
+		Success:       true,
+		Message:       suggestionReason(suggestion),
+		Found:         true,
+		SuggestedName: suggestion.SuggestedName,
+		Source:        suggestion.Source,
+		Reason:        suggestion.Reason,
+	}
+}
+
+// suggestionReason describes where the name came from, so logs and non-UI
+// callers can explain the suggestion without mapping source codes.
+func suggestionReason(suggestion outputname.Suggestion) string {
+	switch suggestion.Source {
+	case outputname.SourcePDFTitle:
+		return "Suggested the PDF document title."
+	case outputname.SourceDOCXTitle:
+		return "Suggested the DOCX document title."
+	case outputname.SourceDOCXHeading:
+		return "Suggested the first DOCX heading."
+	case outputname.SourceMDHeading:
+		return "Suggested the first Markdown heading."
+	default:
+		return "Suggested the cleaned input file name."
+	}
 }
 
 func (s *ToolService) imageCropTool() (*image.CropTool, bool) {

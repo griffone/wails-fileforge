@@ -24,10 +24,16 @@ describe('Home', () => {
       'openPath',
       'revealInFolder',
       'getAutomationStatus',
+      'listRecipes',
     ]);
     wailsSpy.listTools.and.returnValue(
       Promise.resolve({ success: true, message: 'ok', tools: [] }),
     );
+    wailsSpy.listRecipes.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [],
+    });
     wailsSpy.isRuntimeAvailable.and.returnValue(false);
     wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
     wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
@@ -218,7 +224,7 @@ describe('Home', () => {
               supportsBatch: true,
               inputExtensions: ['docx'],
               outputExtensions: ['pdf'],
-              runtimeDependencies: ['libreoffice', 'pandoc'],
+              runtimeDependencies: [],
               tags: ['doc'],
             },
             state: { status: 'enabled', healthy: true },
@@ -259,7 +265,7 @@ describe('Home', () => {
   it('renders every workbench tool by default', () => {
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(20);
+    expect(cardNames().length).toBe(28);
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -277,7 +283,7 @@ describe('Home', () => {
     filterChip('Image').click();
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(7);
+    expect(cardNames().length).toBe(8);
     expect(cardNames()).toEqual([
       'Image Convert',
       'Image Crop',
@@ -286,14 +292,15 @@ describe('Home', () => {
       'Image Watermark',
       'Image OCR',
       'Remove Background',
+      'Upscale Image',
     ]);
     expect(filterChip('Image').getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('shows the seven PDF tools under the PDF category', () => {
+  it('shows the eleven PDF tools under the PDF category', () => {
     fixture.detectChanges();
 
-    expect(component.categoryCounts()['pdf']).toBe(7);
+    expect(component.categoryCounts()['pdf']).toBe(11);
 
     filterChip('PDF').click();
     fixture.detectChanges();
@@ -304,6 +311,10 @@ describe('Home', () => {
       'PDF Crop',
       'PDF Optimize',
       'PDF OCR',
+      'PDF Rotate',
+      'PDF Remove Pages',
+      'PDF Reorder Pages',
+      'PDF Extract Images',
       'Images to PDF',
       'PDF to DOCX',
     ]);
@@ -322,6 +333,21 @@ describe('Home', () => {
       'Video Trim',
       'Video Merge',
       'Video Transcribe',
+    ]);
+  });
+
+  it('shows the three audio tools under the Audio category', () => {
+    fixture.detectChanges();
+
+    expect(component.categoryCounts()['audio']).toBe(3);
+
+    filterChip('Audio').click();
+    fixture.detectChanges();
+
+    expect(cardNames()).toEqual([
+      'Extract Audio',
+      'Audio Convert',
+      'Normalize Audio',
     ]);
   });
 
@@ -348,7 +374,7 @@ describe('Home', () => {
     (fixture.nativeElement.querySelector('.empty-state-action') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    expect(cardNames().length).toBe(20);
+    expect(cardNames().length).toBe(28);
     expect(searchInput().value).toBe('');
     expect(filterChip('All').getAttribute('aria-pressed')).toBe('true');
   });
@@ -369,22 +395,22 @@ describe('Home', () => {
 
     const cards = fixture.nativeElement.querySelectorAll(
       '.home-recipe-card',
-    ) as NodeListOf<HTMLAnchorElement>;
-    expect(cards.length).toBe(5);
+    ) as NodeListOf<HTMLElement>;
+    expect(cards.length).toBe(6);
 
     expect(cards[0].textContent).toContain('Email PDF');
     expect(cards[0].textContent).toContain('Target size');
     expect(cards[0].textContent).toContain('Use recipe');
-    expect(cards[0].getAttribute('href')).toBe('/recipe/email-pdf');
+    expect(cards[0].querySelector('a')?.getAttribute('href')).toBe('/recipe/email-pdf');
 
     expect(cards[1].textContent).toContain('Web image set');
     expect(cards[1].textContent).toContain('ZIP + srcset');
-    expect(cards[1].getAttribute('href')).toBe('/recipe/web-image-set');
+    expect(cards[1].querySelector('a')?.getAttribute('href')).toBe('/recipe/web-image-set');
 
     expect(cards[2].textContent).toContain('Social clip');
     expect(cards[2].textContent).toContain('MP4 + WebM');
     expect(cards[2].textContent).toContain('Use recipe');
-    expect(cards[2].getAttribute('href')).toBe('/recipe/social-clip');
+    expect(cards[2].querySelector('a')?.getAttribute('href')).toBe('/recipe/social-clip');
 
     expect(cards[3].textContent).toContain('Clean scan');
     expect(cards[3].textContent).toContain('Local OCR');
@@ -393,7 +419,7 @@ describe('Home', () => {
     expect(cards[3].textContent).toContain('PDF');
     expect(cards[3].textContent).toContain('TXT');
     expect(cards[3].textContent).toContain('Use recipe');
-    expect(cards[3].getAttribute('href')).toBe('/recipe/clean-scan');
+    expect(cards[3].querySelector('a')?.getAttribute('href')).toBe('/recipe/clean-scan');
 
     expect(cards[4].textContent).toContain('Burned-in subtitles');
     expect(cards[4].textContent).toContain('Local Whisper');
@@ -402,12 +428,19 @@ describe('Home', () => {
     expect(cards[4].textContent).toContain('MP4');
     expect(cards[4].textContent).toContain('SRT');
     expect(cards[4].textContent).toContain('Use recipe');
-    expect(cards[4].getAttribute('href')).toBe('/recipe/burned-subtitles');
+    expect(cards[4].querySelector('a')?.getAttribute('href')).toBe('/recipe/burned-subtitles');
+
+    expect(cards[5].textContent).toContain('Archive document');
+    expect(cards[5].textContent).toContain('PDF/A-2');
+    expect(cards[5].textContent).toContain('SHA-256 checksum');
+    expect(cards[5].textContent).toContain('Optional sidecar');
+    expect(cards[5].textContent).toContain('Use recipe');
+    expect(cards[5].querySelector('a')?.getAttribute('href')).toBe('/recipe/archive-document');
 
     expect(query<HTMLElement>('.home-recipes')?.textContent).toContain(
       'Outcomes, not one tool at a time.',
     );
-    expect(cardNames().length).toBe(20);
+    expect(cardNames().length).toBe(28);
   });
 
   it('hides recipes while a search query is active', () => {
@@ -441,7 +474,7 @@ describe('Home', () => {
     expect(section?.querySelector('a')?.getAttribute('href')).toBe(
       '/automations',
     );
-    expect(cardNames().length).toBe(20);
+    expect(cardNames().length).toBe(28);
   });
 
   it('hides the folder-rule card when there are no rules', async () => {

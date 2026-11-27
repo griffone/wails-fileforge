@@ -9,7 +9,8 @@
   padding: 14px 18px 16px;
 }
 
-.output-plan-destination {
+.output-plan-destination,
+.output-plan-target {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -146,6 +147,33 @@
   font-size: 0.75rem;
   line-height: 1.5;
   color: var(--warning);
+}
+
+.output-plan-suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.output-plan-suggestion-name {
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.output-plan-suggestion-use {
+  flex: none;
 }
 
 .output-plan-warnings {

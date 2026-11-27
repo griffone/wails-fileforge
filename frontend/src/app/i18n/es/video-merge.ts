@@ -39,6 +39,16 @@ export const videoMergeEs = {
   'videoMerge.preset.webm-balanced.hint': 'Para la web',
   'videoMerge.advanced.title': 'Avanzado',
   'videoMerge.advanced.hint': 'Transición y audio',
+  'videoMerge.advanced.mergeMode': 'Modo de unión',
+  'videoMerge.advanced.mergeModeAuto': 'Automático',
+  'videoMerge.advanced.mergeModeCopy': 'Copia',
+  'videoMerge.advanced.mergeModeReencode': 'Recodificar',
+  'videoMerge.advanced.mergeModeHelpAuto':
+    'Intenta primero una copia rápida y recodifica solo cuando los clips son distintos.',
+  'videoMerge.advanced.mergeModeHelpCopy':
+    'El más rápido. Solo funciona cuando todos los clips comparten códec y resolución.',
+  'videoMerge.advanced.mergeModeHelpReencode':
+    'El más compatible. Más lento y produce un archivo más grande.',
   'videoMerge.advanced.transition': 'Transición',
   'videoMerge.advanced.transitionNone': 'Ninguna',
   'videoMerge.advanced.transitionCrossfade': 'Fundido cruzado',

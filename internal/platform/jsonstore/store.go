@@ -57,6 +57,7 @@ type Store struct {
 
 	mu         sync.Mutex
 	pending    []byte
+	produce    func() ([]byte, error)
 	hasPending bool
 	timer      *time.Timer
 	generation uint64
@@ -127,6 +128,43 @@ func (s *Store) Save(payload []byte) error {
 	}
 
 	s.pending = append([]byte(nil), payload...)
+	s.produce = nil
+	s.hasPending = true
+	s.generation++
+	generation := s.generation
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	s.timer = time.AfterFunc(s.opts.Debounce, func() {
+		s.writePending(generation)
+	})
+
+	return nil
+}
+
+// SaveFunc queues a payload producer and schedules a write after the debounce
+// interval. The producer runs only when a write actually happens, so a caller
+// whose payload is expensive to build (a full registry snapshot) pays that cost
+// at most once per write instead of once per call. Rapid saves coalesce: only
+// the last producer runs. Errors from the producer are reported like write
+// errors, through Options.OnError, and the failed payload is dropped.
+//
+// The producer runs while the store holds its writer lock but never while it
+// holds its own mutex, so it may take locks of its own. It must not call back
+// into the store.
+func (s *Store) SaveFunc(produce func() ([]byte, error)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrClosed
+	}
+	if s.path == "" {
+		return errNoPath
+	}
+
+	s.pending = nil
+	s.produce = produce
 	s.hasPending = true
 	s.generation++
 	generation := s.generation
@@ -155,6 +193,7 @@ func (s *Store) SaveNow(payload []byte) error {
 		s.timer.Stop()
 	}
 	s.pending = nil
+	s.produce = nil
 	s.hasPending = false
 	s.mu.Unlock()
 
@@ -185,13 +224,19 @@ func (s *Store) Flush(ctx context.Context) error {
 		s.timer.Stop()
 	}
 	payload := s.pending
+	produce := s.produce
 	hasPending := s.hasPending
 	s.pending = nil
+	s.produce = nil
 	s.hasPending = false
 	s.mu.Unlock()
 
 	if !hasPending {
 		return nil
+	}
+	payload, resolveErr := resolvePayload(payload, produce)
+	if resolveErr != nil {
+		return resolveErr
 	}
 
 	return s.writeLocked(payload)
@@ -223,13 +268,19 @@ func (s *Store) Close(ctx context.Context) error {
 		s.timer.Stop()
 	}
 	payload := s.pending
+	produce := s.produce
 	hasPending := s.hasPending
 	s.pending = nil
+	s.produce = nil
 	s.hasPending = false
 	s.mu.Unlock()
 
 	if !hasPending {
 		return nil
+	}
+	payload, resolveErr := resolvePayload(payload, produce)
+	if resolveErr != nil {
+		return resolveErr
 	}
 
 	return s.writeLocked(payload)
@@ -254,11 +305,29 @@ func (s *Store) writePendingLocked(generation uint64) error {
 		return nil
 	}
 	payload := s.pending
+	produce := s.produce
 	s.pending = nil
+	s.produce = nil
 	s.hasPending = false
 	s.mu.Unlock()
 
+	payload, resolveErr := resolvePayload(payload, produce)
+	if resolveErr != nil {
+		return resolveErr
+	}
+
 	return s.writeLocked(payload)
+}
+
+// resolvePayload turns detached pending work into bytes. A nil producer yields
+// the copied payload; otherwise the producer runs now, immediately before the
+// write. The caller holds writeMu and never holds s.mu.
+func resolvePayload(payload []byte, produce func() ([]byte, error)) ([]byte, error) {
+	if produce == nil {
+		return payload, nil
+	}
+
+	return produce()
 }
 
 // writeLocked writes payload atomically. The caller holds writeMu, so disk I/O

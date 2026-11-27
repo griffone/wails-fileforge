@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	_ "fileforge-desktop/internal/audio"
 	"fileforge-desktop/internal/automation"
 	_ "fileforge-desktop/internal/doc"
+	"fileforge-desktop/internal/duplicates"
 	_ "fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/media"
 	"fileforge-desktop/internal/models"
@@ -35,6 +37,9 @@ type Services struct {
 	Preview    *PreviewService
 	System     *SystemService
 	Notifier   *Notifier
+	Duplicates *DuplicatesService
+	Update     *UpdateService
+	Windows    *WindowService
 }
 
 // App is the composition root. It owns the underlying domain services, the
@@ -47,6 +52,7 @@ type App struct {
 	automationService *automation.Service
 	previewService    *preview.PreviewService
 	toolchainService  *toolchain.Service
+	duplicatesService *duplicates.Service
 }
 
 // New builds the full service graph and returns the bound-service bundle.
@@ -55,9 +61,10 @@ func New(notifier *Notifier) *Services {
 	runtime := &Runtime{}
 	toolingService := services.NewToolingServiceWithBus(reg, WailsBus{})
 
-	recipeService := recipes.NewService(reg, toolingService.JobHistory(), func(evt models.RecipeProgressEvent) {
+	recipeService := recipes.NewServiceWithPersistence(reg, toolingService.JobHistory(), func(evt models.RecipeProgressEvent) {
 		WailsBus{}.Emit(recipes.ProgressEventName, evt)
-	})
+	}, recipes.DefaultPath())
+	recipeService.SetUserRecipesPath(recipes.DefaultUserRecipesPath())
 	// Recipe steps run on the same engine as direct tool jobs so one scheduler
 	// governs queueing, cancellation, and resource classes.
 	recipeService.SetEngine(toolingService.Engine())
@@ -69,6 +76,9 @@ func New(notifier *Notifier) *Services {
 		WailsBus{}.Emit(automation.RunEventName, evt)
 	})
 	automationService.SetRunStore(automation.NewRunStore(automation.DefaultRunPath()))
+	// Organize moves are recorded in the same undo history as tool jobs, so the
+	// existing Undo and Restore path can bring a moved file back.
+	automationService.SetMoveHistory(toolingService.JobHistory())
 	// initialize preview service with sensible defaults; AllowedRoots: $HOME + TMP
 	home, _ := os.UserHomeDir()
 	allowed := []string{}
@@ -81,6 +91,7 @@ func New(notifier *Notifier) *Services {
 	media.SetAllowedRoots(allowed)
 	previewService := preview.NewPreviewService(preview.Config{AllowedRoots: allowed, MaxQueue: 1024})
 	toolchainService := newToolchainService()
+	duplicatesService := duplicates.NewService(duplicates.Config{Bus: WailsBus{}})
 
 	lifecycle := &App{
 		runtime:           runtime,
@@ -89,6 +100,7 @@ func New(notifier *Notifier) *Services {
 		automationService: automationService,
 		previewService:    previewService,
 		toolchainService:  toolchainService,
+		duplicatesService: duplicatesService,
 	}
 
 	return &Services{
@@ -100,6 +112,9 @@ func New(notifier *Notifier) *Services {
 		Preview:    &PreviewService{service: previewService, runtime: runtime},
 		System:     &SystemService{runtime: runtime, notifier: notifier},
 		Notifier:   notifier,
+		Duplicates: &DuplicatesService{service: duplicatesService, runtime: runtime},
+		Update:     newUpdateService(runtime),
+		Windows:    NewWindowService(toolingService),
 	}
 }
 
@@ -166,6 +181,13 @@ func (a *App) shutdown(ctx context.Context) error {
 	}
 	if a.recipeService != nil {
 		a.recipeService.Shutdown()
+	}
+	// Scans are read-only and in-memory: cancel them before any file store is
+	// flushed so shutdown never waits on a folder walk.
+	if a.duplicatesService != nil {
+		if err := a.duplicatesService.Shutdown(ctx); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("app duplicates: %w", err)
+		}
 	}
 	// shutdown preview service
 	if a.previewService != nil {

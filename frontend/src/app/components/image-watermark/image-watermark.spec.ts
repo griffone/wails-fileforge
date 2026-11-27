@@ -10,6 +10,7 @@ import { Subject } from 'rxjs';
 import { ImageWatermark } from './image-watermark';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   ImagePreviewSourceResponse,
@@ -118,6 +119,7 @@ describe('ImageWatermark', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -223,6 +225,7 @@ describe('ImageWatermark', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('starts with the documented defaults', () => {

@@ -11,6 +11,7 @@ import { Subject } from 'rxjs';
 import { PdfSplit } from './pdf-split';
 import { PdfSplitPreview } from './pdf-split-preview';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobProgressEvent,
@@ -105,6 +106,7 @@ describe('PdfSplit', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -183,6 +185,7 @@ describe('PdfSplit', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('plans one PDF as single and two PDFs as batch', fakeAsync(() => {

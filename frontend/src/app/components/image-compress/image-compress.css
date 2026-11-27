@@ -72,6 +72,26 @@
   line-height: 1.5;
 }
 
+.target-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.target-chip-size {
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.target-chip.is-active .target-chip-size {
+  color: inherit;
+  opacity: 0.75;
+}
+
+.presets-help {
+  margin-top: -4px;
+}
+
 .target-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -4,7 +4,7 @@ import { LucideAngularModule, TriangleAlert, Wrench } from 'lucide-angular';
 
 import { I18nService } from '../../services/i18n.service';
 import { ToolchainStateService } from '../../services/toolchain-state.service';
-import { ToolchainInstallOptions } from '../../services/wails';
+import { ToolchainComponent, ToolchainInstallOptions } from '../../services/wails';
 
 const FALLBACK_OCR_LANGUAGES = ['eng', 'spa'];
 
@@ -37,14 +37,39 @@ export class ToolchainSetup implements OnInit {
 
   readonly dismissed = signal(false);
 
+  /**
+   * The engine and both upscale models ship with the standard install, so they
+   * are always part of this list. A failure on one of them is surfaced here
+   * without gating readiness: the app can still start with the rest.
+   */
+  readonly components = computed<ToolchainComponent[]>(
+    () => this.status()?.components ?? [],
+  );
+
+  readonly failedComponents = computed(() =>
+    this.components().filter((component) => !component.ready),
+  );
+
+  readonly componentFailure = computed(() =>
+    this.components().some(
+      (component) => !component.ready && Boolean(component.error?.trim()),
+    ),
+  );
+
   readonly visible = computed(() => {
     if (this.dismissed()) {
       return false;
     }
 
     const status = this.status();
-    if (!status || status.ready) {
+    if (!status) {
       return false;
+    }
+
+    // The required toolchain is ready; only a standard component that failed in
+    // this session keeps the panel visible, with a targeted retry.
+    if (status.ready) {
+      return this.componentFailure();
     }
 
     if (status.success) {
@@ -55,6 +80,16 @@ export class ToolchainSetup implements OnInit {
     // status (no components, no error) must never block the app.
     return Boolean(status.error?.trim()) || status.components.length > 0;
   });
+
+  componentStateLabel(component: ToolchainComponent): string {
+    if (component.ready) {
+      return this.i18n.t('toolchain.components.ready');
+    }
+    if (this.installing() && !component.error) {
+      return this.i18n.t('toolchain.components.installing');
+    }
+    return this.i18n.t('toolchain.components.missing');
+  }
 
   readonly installing = computed(() => this.status()?.installing === true);
 
@@ -80,6 +115,12 @@ export class ToolchainSetup implements OnInit {
         return this.i18n.t('toolchain.phase.downloadingModel');
       case 'tessdata':
         return this.i18n.t('toolchain.phase.installingLanguages');
+      case 'onnx':
+        return this.i18n.t('toolchain.phase.installingOnnx');
+      case 'rembg':
+        return this.i18n.t('toolchain.phase.installingBackgroundRemoval');
+      case 'upscale':
+        return this.i18n.t('toolchain.phase.installingUpscale');
       case 'finalize':
         return this.i18n.t('toolchain.phase.verifying');
       case 'ready':
@@ -118,7 +159,16 @@ export class ToolchainSetup implements OnInit {
     if (statusError) {
       return statusError;
     }
-    return (this.event()?.error ?? '').trim();
+    const eventError = (this.event()?.error ?? '').trim();
+    if (eventError) {
+      return eventError;
+    }
+    // A standard component can fail while the rest installs: report it as that
+    // component's failure instead of an opaque setup error.
+    const failed = this.components().find(
+      (component) => !component.ready && component.error?.trim(),
+    );
+    return failed?.error?.trim() ?? '';
   });
 
   readonly cancelling = computed(

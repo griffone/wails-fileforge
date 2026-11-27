@@ -245,6 +245,43 @@ describe('OutputPlanCard', () => {
     );
   });
 
+  it('shows the active target preset next to the destination', () => {
+    component.destinationLabel = '/tmp/out';
+    component.isDefaultDestination = false;
+    component.targetLabel = 'Discord';
+    component.targetValue = '10 MB';
+    fixture.detectChanges();
+
+    const targetRow = fixture.nativeElement.querySelector(
+      '.output-plan-target',
+    ) as HTMLElement;
+    expect(targetRow.textContent).toContain('Target');
+    expect(targetRow.textContent).toContain('10 MB');
+    expect(targetRow.textContent).toContain('Discord');
+    expect(fixture.nativeElement.textContent).toContain('/tmp/out');
+  });
+
+  it('hides the target row when no target is set', () => {
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-target'),
+    ).toBeNull();
+  });
+
+  it('renders the target row copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    component.targetLabel = 'Correo';
+    component.targetValue = '25 MB';
+    fixture.detectChanges();
+
+    const targetRow = fixture.nativeElement.querySelector(
+      '.output-plan-target',
+    ) as HTMLElement;
+    expect(targetRow.textContent).toContain('Objetivo');
+    expect(targetRow.textContent).toContain('Correo');
+  });
+
   it('emits changeDestination from the Change button', () => {
     const spy = jasmine.createSpy('changeDestination');
     component.changeDestination.subscribe(spy);
@@ -253,5 +290,42 @@ describe('OutputPlanCard', () => {
     (fixture.nativeElement.querySelector('.output-plan-change') as HTMLButtonElement).click();
 
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a metadata suggestion and emits it when used', () => {
+    const spy = jasmine.createSpy('applySuggestedName');
+    component.applySuggestedName.subscribe(spy);
+    component.suggestedName = 'Quarterly Report';
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Suggested name');
+    expect(text).toContain('Quarterly Report');
+    expect(text).toContain('Use');
+
+    const button = fixture.nativeElement.querySelector(
+      '.output-plan-suggestion-use',
+    ) as HTMLButtonElement;
+    button.click();
+
+    expect(spy).toHaveBeenCalledOnceWith('Quarterly Report');
+  });
+
+  it('hides the suggestion row without a suggested name', () => {
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-suggestion'),
+    ).toBeNull();
+  });
+
+  it('renders the suggestion copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    component.suggestedName = 'Informe trimestral';
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Nombre sugerido');
+    expect(text).toContain('Usar');
   });
 });

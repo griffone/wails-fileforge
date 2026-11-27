@@ -49,4 +49,16 @@ export const recipesEs = {
   'recipes.burned_subtitles.step.verify.name': 'Verificar sincronía',
   'recipes.burned_subtitles.step.verify.detail':
     'Se revisan duración, señales y fotogramas renderizados',
+  'recipes.archive_document.inputLabel': '1 DOCX',
+  'recipes.archive_document.highlights': [
+    'PDF/A-2',
+    'Suma SHA-256',
+    'Archivo adjunto opcional',
+  ],
+  'recipes.archive_document.step.render.name': 'Generar PDF/A-2',
+  'recipes.archive_document.step.render.detail':
+    'El renderizador DOCX incluido y Ghostscript generan el PDF',
+  'recipes.archive_document.step.verify.name': 'Calcular y verificar',
+  'recipes.archive_document.step.verify.detail':
+    'Firma PDF, marcador PDF/A, número de páginas y SHA-256',
 };

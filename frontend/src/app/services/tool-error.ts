@@ -17,6 +17,7 @@ export type ToolErrorKind =
   | 'dependencyMissing'
   | 'cancelled'
   | 'noBookmarks'
+  | 'unclassified'
   | 'generic';
 
 export interface ToolErrorCopy {
@@ -80,6 +81,19 @@ const NO_BOOKMARKS: ToolErrorSeed = {
   action: 'none',
 };
 
+/**
+ * The backend returns ERROR_UNCLASSIFIED when no canonical family applies. It is
+ * explicitly deterministic: never promise a retry, because the job engine will
+ * not try again automatically.
+ */
+const UNCLASSIFIED: ToolErrorSeed = {
+  kind: 'unclassified',
+  title: 'This error was not classified.',
+  description:
+    'Open Details for the technical cause. FileForge will not retry it automatically.',
+  action: 'none',
+};
+
 const GENERIC_DESCRIPTION =
   'Try again. If it keeps happening, open Details.';
 
@@ -119,6 +133,8 @@ const CANCELLED_CODES = [
   '*CANCELED*',
 ];
 
+const UNCLASSIFIED_CODES = ['ERROR_UNCLASSIFIED'];
+
 function globMatch(value: string, pattern: string): boolean {
   if (pattern.startsWith('*') && pattern.endsWith('*') && pattern.length > 2) {
     return value.includes(pattern.slice(1, -1));
@@ -137,6 +153,9 @@ function matchesAny(value: string, patterns: string[]): boolean {
 }
 
 function seedForCode(code: string): ToolErrorSeed | null {
+  if (matchesAny(code, UNCLASSIFIED_CODES)) {
+    return UNCLASSIFIED;
+  }
   if (matchesAny(code, OUTPUT_EXISTS_CODES)) {
     return OUTPUT_EXISTS;
   }
@@ -186,7 +205,7 @@ function seedForMessage(message: string): ToolErrorSeed | null {
     return CANCELLED;
   }
   if (
-    /runtime|dependenc|not installed|ffmpeg not found|libreoffice not found/i.test(
+    /runtime|dependenc|not installed|ffmpeg not found/i.test(
       message,
     )
   ) {
@@ -203,7 +222,7 @@ export function looksTechnicalMessage(message: string): boolean {
   if (!message) {
     return false;
   }
-  if (/\b(exec|execve|exit status|ffmpeg|libreoffice|soffice|panic|goroutine)\b/i.test(message)) {
+  if (/\b(exec|execve|exit status|ffmpeg|ghostscript|panic|goroutine)\b/i.test(message)) {
     return true;
   }
   if (/(^|[\s("'`])(?:\/(?:[^\s/]+\/)+|[a-zA-Z]:\\[^\s]*)/.test(message)) {

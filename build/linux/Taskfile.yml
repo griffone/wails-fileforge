@@ -16,14 +16,24 @@ tasks:
             ref: .PRODUCTION
       - task: common:generate:icons
     cmds:
-      - go build {{.BUILD_FLAGS}} -o {{.BIN_DIR}}/{{.APP_NAME}}
+      - go build {{.BUILD_FLAGS}} {{if eq .PRODUCTION "true"}}-ldflags="-w -s {{.VERSION_LDFLAGS}}"{{end}} -o {{.BIN_DIR}}/{{.APP_NAME}}
     vars:
-      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production -trimpath -buildvcs=false -ldflags="-w -s"{{else}}-buildvcs=false -gcflags=all="-l"{{end}}'
+      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production -trimpath -buildvcs=false{{else}}-buildvcs=false -gcflags=all="-l"{{end}}'
+      VERSION_LDFLAGS:
+        sh: GOOS= GOARCH= CGO_ENABLED=0 go run {{.ROOT_DIR}}/scripts/versionflags
     env:
       GOOS: linux
       CGO_ENABLED: 1
       GOARCH: "{{.ARCH | default ARCH}}"
       PRODUCTION: '{{.PRODUCTION | default "false"}}'
+
+  cli:
+    summary: Builds the headless CLI for Linux into bin/fileforge-cli
+    cmds:
+      - go build -trimpath -buildvcs=false -ldflags="-w -s {{.VERSION_LDFLAGS}}" -o {{.BIN_DIR}}/fileforge-cli {{.CLI_SOURCE}}
+    vars:
+      VERSION_LDFLAGS:
+        sh: GOOS= GOARCH= CGO_ENABLED=0 go run {{.ROOT_DIR}}/scripts/versionflags
 
   package:
     summary: Packages a production build of the application for Linux
@@ -44,6 +54,7 @@ tasks:
       - task: build
         vars:
           PRODUCTION: "true"
+      - task: cli
       - task: generate:dotdesktop
     cmds:
       - cp {{.APP_BINARY}} {{.APP_NAME}}
@@ -65,6 +76,7 @@ tasks:
       - task: build
         vars:
           PRODUCTION: "true"
+      - task: cli
     cmds:
       - task: generate:dotdesktop
       - task: generate:deb
@@ -75,6 +87,7 @@ tasks:
       - task: build
         vars:
           PRODUCTION: "true"
+      - task: cli
     cmds:
       - task: generate:dotdesktop
       - task: generate:rpm
@@ -85,6 +98,7 @@ tasks:
       - task: build
         vars:
           PRODUCTION: "true"
+      - task: cli
     cmds:
       - task: generate:dotdesktop
       - task: generate:aur

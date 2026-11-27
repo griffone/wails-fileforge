@@ -35,6 +35,14 @@ export function GetImageCropPreview(req: models$0.ImageCropPreviewRequest): $Can
     return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImageCropPreview", req);
 }
 
+/**
+ * GetImageCropSuggestion returns a suggested crop rectangle for a uniform
+ * border. The user still accepts or adjusts it; nothing is cropped here.
+ */
+export function GetImageCropSuggestion(inputPath: string): $CancellablePromise<models$0.ImageCropSuggestionResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImageCropSuggestion", inputPath);
+}
+
 export function GetImagePreviewSource(inputPath: string): $CancellablePromise<models$0.ImagePreviewSourceResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.ToolService.GetImagePreviewSource", inputPath);
 }
@@ -77,6 +85,24 @@ export function RestoreJob(jobID: string): $CancellablePromise<models$0.UndoResu
 
 export function RunJob(req: models$0.JobRequest): $CancellablePromise<models$0.RunJobResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.ToolService.RunJob", req);
+}
+
+/**
+ * SuggestOutputName derives a better output base name from document metadata:
+ * the PDF title, the DOCX core title or first heading, the Markdown first
+ * heading, or a cleaned input name. It only suggests; the page applies the name
+ * after the user confirms it and the plan is rebuilt.
+ */
+export function SuggestOutputName(toolID: string, inputPath: string): $CancellablePromise<models$0.OutputNameSuggestionResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.SuggestOutputName", toolID, inputPath);
+}
+
+/**
+ * TrashInfo reports the real file count and total size of the app trash so the
+ * empty confirmation can state the exact numbers that will be deleted.
+ */
+export function TrashInfo(): $CancellablePromise<models$0.TrashInfo> {
+    return $Call.ByName("fileforge-desktop/internal/app.ToolService.TrashInfo");
 }
 
 /**

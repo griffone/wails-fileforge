@@ -504,14 +504,14 @@ func TestRembgModelMetadata(t *testing.T) {
 func TestRembgLayoutPaths(t *testing.T) {
 	root := filepath.Join("tmp", "fileforge", ToolchainDirName)
 
-	if got := rembgVenvDir(root); got != filepath.Join(root, "rembg-venv") {
-		t.Fatalf("rembg venv dir = %q", got)
+	if got := onnxVenvDir(root); got != filepath.Join(root, "onnx-venv") {
+		t.Fatalf("shared ONNX venv dir = %q", got)
 	}
-	if got := rembgVenvPythonPath(root, "linux"); got != filepath.Join(root, "rembg-venv", "bin", "python") {
-		t.Fatalf("unix rembg interpreter = %q", got)
+	if got := onnxVenvPythonPath(root, "linux"); got != filepath.Join(root, "onnx-venv", "bin", "python") {
+		t.Fatalf("unix shared ONNX interpreter = %q", got)
 	}
-	if got := rembgVenvPythonPath(root, "windows"); got != filepath.Join(root, "rembg-venv", "Scripts", "python.exe") {
-		t.Fatalf("windows rembg interpreter = %q", got)
+	if got := onnxVenvPythonPath(root, "windows"); got != filepath.Join(root, "onnx-venv", "Scripts", "python.exe") {
+		t.Fatalf("windows shared ONNX interpreter = %q", got)
 	}
 	if got := rembgHomeDir(root); got != filepath.Join(root, "rembg") {
 		t.Fatalf("rembg home = %q", got)
@@ -520,15 +520,15 @@ func TestRembgLayoutPaths(t *testing.T) {
 	if got := rembgModelPath(root, "isnet-general-use"); got != wantModel {
 		t.Fatalf("rembg model path = %q, want %q", got, wantModel)
 	}
-	if got := rembgReadyFilePath(root); got != filepath.Join(root, "rembg", ".ready") {
-		t.Fatalf("rembg ready marker = %q", got)
+	if got := onnxReadyFilePath(root); got != filepath.Join(root, "onnx-venv.ready") {
+		t.Fatalf("shared ONNX ready marker = %q", got)
 	}
 }
 
 func TestManagedRembgPathsOnDisk(t *testing.T) {
 	dataDir := t.TempDir()
 	root := ToolchainDir(dataDir)
-	python := rembgVenvPythonPath(root, runtime.GOOS)
+	python := onnxVenvPythonPath(root, runtime.GOOS)
 	model := rembgModelPath(root, DefaultRembgModel)
 
 	if _, found := ManagedRembgPythonPath(dataDir); found {
@@ -560,12 +560,14 @@ func TestManagedRembgPathsOnDisk(t *testing.T) {
 
 func TestRembgRuntimeStateWindowsLayout(t *testing.T) {
 	root := t.TempDir()
-	venv := filepath.Join(root, "rembg-venv")
+	venv := filepath.Join(root, "onnx-venv")
 	writeLayoutFixture(t, filepath.Join(venv, "Scripts", "python.exe"))
 	sitePackages := filepath.Join(venv, "Lib", "site-packages")
 	writeLayoutFixture(t, filepath.Join(sitePackages, "rembg", "__init__.py"))
-	if err := os.MkdirAll(filepath.Join(sitePackages, "onnxruntime-1.32.0.dist-info"), 0o755); err != nil {
-		t.Fatalf("create the onnxruntime dist-info directory: %v", err)
+	for _, receipt := range []string{"onnxruntime-1.32.0.dist-info", "numpy-2.3.5.dist-info", "pillow-12.3.0.dist-info"} {
+		if err := os.MkdirAll(filepath.Join(sitePackages, receipt), 0o755); err != nil {
+			t.Fatalf("create the %s directory: %v", receipt, err)
+		}
 	}
 
 	if ready, detail := rembgRuntimeState(root, "windows"); ready {
@@ -577,11 +579,11 @@ func TestRembgRuntimeStateWindowsLayout(t *testing.T) {
 		t.Fatal("the Unix layout must not accept the Windows tree")
 	}
 
-	writeLayoutFixture(t, rembgReadyFilePath(root))
+	writeLayoutFixture(t, onnxReadyFilePath(root))
 	if ready, detail := rembgRuntimeState(root, "windows"); !ready {
 		t.Fatalf("expected the Windows-shaped engine to be ready, got %q", detail)
 	}
-	if got, found := rembgSitePackagesDir(root, "windows"); !found || got != sitePackages {
+	if got, found := onnxSitePackagesDir(root, "windows"); !found || got != sitePackages {
 		t.Fatalf("windows site-packages = %q, %t, want %q", got, found, sitePackages)
 	}
 	if ready, _ := rembgRuntimeState(root, "linux"); ready {
@@ -592,8 +594,8 @@ func TestRembgRuntimeStateWindowsLayout(t *testing.T) {
 func TestManagedRembgRuntimeState(t *testing.T) {
 	dataDir := t.TempDir()
 	root := ToolchainDir(dataDir)
-	venv := filepath.Join(root, "rembg-venv")
-	python := rembgVenvPythonPath(root, runtime.GOOS)
+	venv := filepath.Join(root, "onnx-venv")
+	python := onnxVenvPythonPath(root, runtime.GOOS)
 	sitePackages := filepath.Join(venv, "Lib", "site-packages")
 	if runtime.GOOS != "windows" {
 		sitePackages = filepath.Join(venv, "lib", "python3.11", "site-packages")
@@ -603,7 +605,7 @@ func TestManagedRembgRuntimeState(t *testing.T) {
 	if ready {
 		t.Fatal("a missing engine must not be ready")
 	}
-	if !strings.Contains(reason, "not installed") || !strings.Contains(reason, "Open Settings and run Install / repair") {
+	if !strings.Contains(reason, "not installed") || !strings.Contains(reason, "Install / repair") {
 		t.Fatalf("expected an installed/Settings reason, got %q", reason)
 	}
 
@@ -612,23 +614,25 @@ func TestManagedRembgRuntimeState(t *testing.T) {
 	if ready {
 		t.Fatal("a venv without packages must not be ready")
 	}
-	if !strings.Contains(reason, "incomplete") || !strings.Contains(reason, "Open Settings and run Install / repair") {
+	if !strings.Contains(reason, "incomplete") || !strings.Contains(reason, "Install / repair") {
 		t.Fatalf("expected an incomplete/Settings reason, got %q", reason)
 	}
 
 	writeLayoutFixture(t, filepath.Join(sitePackages, "rembg", "__init__.py"))
-	if err := os.MkdirAll(filepath.Join(sitePackages, "onnxruntime-1.32.0.dist-info"), 0o755); err != nil {
-		t.Fatalf("create the onnxruntime dist-info directory: %v", err)
+	for _, receipt := range []string{"onnxruntime-1.32.0.dist-info", "numpy-2.3.5.dist-info", "pillow-12.3.0.dist-info"} {
+		if err := os.MkdirAll(filepath.Join(sitePackages, receipt), 0o755); err != nil {
+			t.Fatalf("create the %s directory: %v", receipt, err)
+		}
 	}
 	ready, reason = ManagedRembgRuntimeState(dataDir)
 	if ready {
 		t.Fatal("an unverified venv must not be ready")
 	}
-	if !strings.Contains(reason, "not verified") || !strings.Contains(reason, "Open Settings and run Install / repair") {
-		t.Fatalf("expected a not-verified/Settings reason, got %q", reason)
+	if !strings.Contains(reason, "not verified") || !strings.Contains(reason, "Install / repair") {
+		t.Fatalf("expected a not-verified/repair reason, got %q", reason)
 	}
 
-	writeLayoutFixture(t, rembgReadyFilePath(root))
+	writeLayoutFixture(t, onnxReadyFilePath(root))
 	ready, reason = ManagedRembgRuntimeState(dataDir)
 	if !ready {
 		t.Fatalf("expected the verified engine to be ready, got %q", reason)

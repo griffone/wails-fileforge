@@ -92,6 +92,41 @@
           </div>
         }
 
+        @if (components().length > 0) {
+          <div class="toolchain-component-block">
+            <p class="toolchain-component-title">
+              {{ i18n.t('toolchain.components.title') }}
+            </p>
+            <ul class="toolchain-component-list">
+              @for (component of components(); track component.id) {
+                <li
+                  class="toolchain-component-row"
+                  [attr.data-component]="component.id"
+                  [attr.data-ready]="component.ready"
+                >
+                  <span
+                    class="status-dot"
+                    [attr.data-state]="component.ready ? 'success' : (component.error ? 'danger' : 'idle')"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="toolchain-component-label">{{ component.label }}</span>
+                  <span class="toolchain-component-state mono">{{
+                    componentStateLabel(component)
+                  }}</span>
+                  @if (!component.ready && component.error) {
+                    <span class="toolchain-component-error">{{
+                      component.error
+                    }}</span>
+                  }
+                </li>
+              }
+            </ul>
+            <p class="toolchain-component-hint">
+              {{ i18n.t('toolchain.components.retryHint') }}
+            </p>
+          </div>
+        }
+
         @if (cancelled()) {
           <p class="toolchain-cancelled" role="status">
             {{ i18n.t('toolchain.cancelled') }}
@@ -153,8 +188,8 @@
         </div>
       }
 
-      <p class="toolchain-components mono">
-        Whisper · Tesseract · FFmpeg · Poppler · Ghostscript
+      <p class="toolchain-size">
+        {{ i18n.t('toolchain.size') }}
       </p>
     </section>
   </div>

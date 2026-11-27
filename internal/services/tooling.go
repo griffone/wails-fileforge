@@ -54,6 +54,14 @@ func NewToolingServiceWithBus(reg *registry.Registry, bus eventbus.Bus) *Tooling
 	return newToolingServiceWithBus(reg, jobhistory.NewStore(jobhistory.DefaultPath()), bus)
 }
 
+// NewHeadlessToolingService builds a tooling service for a command-line run.
+// Job persistence stays disabled (nothing calls SetContext) and the undo
+// history is disabled too, so a CLI run can never read, prune or write the
+// app's job stores.
+func NewHeadlessToolingService(reg *registry.Registry) *ToolingService {
+	return newToolingService(reg, jobhistory.NewStore(""))
+}
+
 func newToolingService(reg *registry.Registry, history *jobhistory.Store) *ToolingService {
 	return newToolingServiceWithBus(reg, history, nil)
 }
@@ -342,12 +350,20 @@ func (s *ToolingService) VerifyJob(jobID string) models.VerificationReport {
 
 	job, found := s.engine.Get(trimmedID)
 	if found {
-		return s.verifyJobOutputs(trimmedID, jobOutputPaths(job))
+		targetBytes := s.requestedTargetBytes(trimmedID)
+		// A job recovered after a restart has no live request; its history
+		// entry keeps the target so verification stays comparable.
+		if targetBytes <= 0 && s.history != nil {
+			if entry, historyFound := s.history.Get(trimmedID); historyFound {
+				targetBytes = entry.TargetBytes
+			}
+		}
+		return s.verifyJobOutputs(trimmedID, jobOutputPaths(job), targetBytes)
 	}
 
 	if s.history != nil {
 		if entry, historyFound := s.history.Get(trimmedID); historyFound {
-			return s.verifyJobOutputs(trimmedID, historyOutputPaths(entry))
+			return s.verifyJobOutputs(trimmedID, historyOutputPaths(entry), entry.TargetBytes)
 		}
 	}
 
@@ -359,7 +375,21 @@ func (s *ToolingService) VerifyJob(jobID string) models.VerificationReport {
 	}
 }
 
-func (s *ToolingService) verifyJobOutputs(jobID string, paths []string) models.VerificationReport {
+// requestedTargetBytes returns the target size the live job requested, or zero
+// when the job is unknown or did not ask for one.
+func (s *ToolingService) requestedTargetBytes(jobID string) int64 {
+	if s.engine == nil {
+		return 0
+	}
+	targetBytes, ok := s.engine.RequestedTargetBytes(jobID)
+	if !ok {
+		return 0
+	}
+
+	return targetBytes
+}
+
+func (s *ToolingService) verifyJobOutputs(jobID string, paths []string, targetBytes int64) models.VerificationReport {
 	if len(paths) == 0 {
 		return models.VerificationReport{
 			Success: false,
@@ -368,7 +398,7 @@ func (s *ToolingService) verifyJobOutputs(jobID string, paths []string) models.V
 		}
 	}
 
-	report := verify.VerifyPaths(paths)
+	report := verify.VerifyPathsWithTarget(paths, targetBytes)
 	if !report.Success {
 		log.Printf("tooling.verify.failed jobId=%s outputs=%d message=%s", jobID, len(report.Outputs), report.Message)
 	}
@@ -440,7 +470,8 @@ func (s *ToolingService) recordTerminalJob(job models.JobResult) {
 		return
 	}
 
-	s.history.RecordJob(job)
+	targetBytes := s.requestedTargetBytes(job.JobID)
+	s.history.RecordJobWithTarget(job, targetBytes)
 	log.Printf("tooling.history.completed jobId=%s toolId=%s status=%s", job.JobID, job.ToolID, job.Status)
 }
 
@@ -502,4 +533,17 @@ func (s *ToolingService) EmptyTrash() models.PathActionResponse {
 		Success: true,
 		Message: "trash emptied",
 	}
+}
+
+// TrashInfo reports the real file count and total size of the app trash. The
+// confirmation dialog uses it so destructive copy matches what will be deleted,
+// including files whose history entry is no longer retained.
+func (s *ToolingService) TrashInfo() (models.TrashInfo, error) {
+	files, bytes, err := s.history.TrashStats()
+	if err != nil {
+		log.Printf("tooling.trash.info_failed err=%v", err)
+		return models.TrashInfo{}, err
+	}
+
+	return models.TrashInfo{Files: files, Bytes: bytes}, nil
 }

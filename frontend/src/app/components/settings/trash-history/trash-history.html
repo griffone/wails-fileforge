@@ -1,0 +1,298 @@
+<section
+  class="panel settings-panel trash-history"
+  aria-labelledby="trash-history-title"
+>
+  <div class="panel-head">
+    <div class="trash-history-heading">
+      <h2 id="trash-history-title" class="panel-title">
+        {{ i18n.t('settings.trashHistory.title') }}
+      </h2>
+      <p class="trash-history-sub">
+        {{ i18n.t('settings.trashHistory.subtitle') }}
+      </p>
+    </div>
+    <button
+      type="button"
+      class="icon-btn trash-history-refresh"
+      [attr.aria-label]="i18n.t('settings.trashHistory.refreshAria')"
+      [disabled]="loading()"
+      [attr.aria-busy]="loading()"
+      (click)="refresh()"
+    >
+      <lucide-icon
+        [img]="refreshIcon"
+        [size]="15"
+        [strokeWidth]="1.75"
+        [class.is-spinning]="loading()"
+        aria-hidden="true"
+      ></lucide-icon>
+    </button>
+  </div>
+
+  <div class="trash-history-body">
+    <section
+      class="trash-block"
+      [attr.aria-label]="i18n.t('settings.trash.aria')"
+      aria-labelledby="trash-block-title"
+    >
+      <div class="trash-block-head">
+        <h3 id="trash-block-title" class="trash-block-title">
+          <lucide-icon
+            [img]="trashIcon"
+            [size]="15"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+          {{ i18n.t('settings.trash.title') }}
+        </h3>
+        @if (trashFiles() > 0) {
+          <span class="badge badge-warning">{{ trashFilesLabel() }}</span>
+        }
+      </div>
+
+      @if (loading() && !trashError() && trashFiles() === 0) {
+        <p class="trash-history-loading" role="status" aria-live="polite">
+          {{ i18n.t('settings.trashHistory.loading') }}
+        </p>
+      } @else if (trashError(); as message) {
+        <div class="banner banner-warning trash-error" role="alert">
+          <lucide-icon
+            [img]="alertIcon"
+            [size]="16"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+          <span class="trash-error-text">{{ message }}</span>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm trash-retry"
+            [disabled]="loading()"
+            (click)="refresh()"
+          >
+            {{ i18n.t('common.retry') }}
+          </button>
+        </div>
+      } @else if (trashFiles() === 0) {
+        <div class="empty-state trash-empty">
+          <lucide-icon
+            [img]="trashIcon"
+            [size]="22"
+            [strokeWidth]="1.5"
+            aria-hidden="true"
+          ></lucide-icon>
+          <span>{{ i18n.t('settings.trash.empty') }}</span>
+        </div>
+      } @else {
+        <div class="trash-row">
+          <div class="trash-row-text">
+            <p class="trash-summary mono">{{ trashSummary() }}</p>
+            <p class="trash-derived">{{ i18n.t('settings.trash.derived') }}</p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-danger btn-sm trash-empty-action"
+            (click)="requestEmptyTrash()"
+          >
+            <lucide-icon
+              [img]="trashIcon"
+              [size]="14"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            {{ i18n.t('settings.trash.emptyAction') }}
+          </button>
+        </div>
+      }
+    </section>
+
+    <section
+      class="job-history-block"
+      [attr.aria-busy]="loading()"
+      aria-labelledby="job-history-title"
+    >
+      <div class="job-history-head">
+        <h3 id="job-history-title" class="trash-block-title">
+          <lucide-icon
+            [img]="historyIcon"
+            [size]="15"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+          {{ i18n.t('settings.jobHistory.title') }}
+        </h3>
+        @if (rows().length > 0) {
+          <span class="job-history-count mono">{{ rows().length }}</span>
+        }
+      </div>
+
+      @if (loading() && !loadError() && entries().length === 0) {
+        <p class="trash-history-loading" role="status" aria-live="polite">
+          {{ i18n.t('settings.trashHistory.loading') }}
+        </p>
+      } @else if (loadError(); as message) {
+        <div class="banner banner-warning job-history-error" role="alert">
+          <lucide-icon
+            [img]="alertIcon"
+            [size]="16"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+          <span class="job-history-error-text">{{ message }}</span>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm job-history-retry"
+            [disabled]="loading()"
+            (click)="refresh()"
+          >
+            {{ i18n.t('common.retry') }}
+          </button>
+        </div>
+      } @else if (rows().length === 0) {
+        <div class="empty-state job-history-empty">
+          <lucide-icon
+            [img]="historyIcon"
+            [size]="22"
+            [strokeWidth]="1.5"
+            aria-hidden="true"
+          ></lucide-icon>
+          <strong>{{ i18n.t('settings.jobHistory.empty') }}</strong>
+          <span>{{ i18n.t('settings.jobHistory.emptyHint') }}</span>
+        </div>
+      } @else {
+        <ul
+          class="job-history-list"
+          [attr.aria-label]="i18n.t('settings.jobHistory.listAria')"
+        >
+          @for (row of rows(); track row.entry.jobId) {
+            <li class="job-history-row">
+              <div class="job-history-main">
+                <span class="job-history-name">{{ row.toolName }}</span>
+                <span class="job-history-meta">
+                  @if (row.relativeDate) {
+                    <span>{{ row.relativeDate }}</span>
+                    <span aria-hidden="true">·</span>
+                  }
+                  <span>{{ row.outputLabel }}</span>
+                  <span aria-hidden="true">·</span>
+                  <span class="mono">{{ row.totalSize }}</span>
+                </span>
+              </div>
+
+              <span [class]="row.stateClass">{{ row.stateLabel }}</span>
+
+              <div class="job-history-actions">
+                @if (row.canReveal) {
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm job-history-reveal"
+                    [disabled]="busyJobId() !== null"
+                    [attr.aria-label]="
+                      i18n.t('settings.jobHistory.revealAria', {
+                        name: row.toolName,
+                      })
+                    "
+                    (click)="reveal(row)"
+                  >
+                    <lucide-icon
+                      [img]="folderIcon"
+                      [size]="14"
+                      [strokeWidth]="1.75"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                    {{ i18n.t('settings.jobHistory.reveal') }}
+                  </button>
+                }
+                @if (row.canUndo) {
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm job-history-undo"
+                    [disabled]="busyJobId() !== null"
+                    [attr.aria-label]="
+                      i18n.t('settings.jobHistory.undoAria', {
+                        name: row.toolName,
+                      })
+                    "
+                    (click)="undo(row)"
+                  >
+                    <lucide-icon
+                      [img]="undoIcon"
+                      [size]="14"
+                      [strokeWidth]="1.75"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                    {{ i18n.t('settings.jobHistory.undo') }}
+                  </button>
+                }
+                @if (row.canRestore) {
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm job-history-restore"
+                    [disabled]="busyJobId() !== null"
+                    [attr.aria-label]="
+                      i18n.t('settings.jobHistory.restoreAria', {
+                        name: row.toolName,
+                      })
+                    "
+                    (click)="restore(row)"
+                  >
+                    <lucide-icon
+                      [img]="restoreIcon"
+                      [size]="14"
+                      [strokeWidth]="1.75"
+                      aria-hidden="true"
+                    ></lucide-icon>
+                    {{ i18n.t('settings.jobHistory.restore') }}
+                  </button>
+                }
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    @if (message()) {
+      <p class="trash-history-message" role="status" aria-live="polite" aria-atomic="true">
+        {{ message() }}
+      </p>
+    }
+  </div>
+</section>
+
+@if (confirmOpen()) {
+  <div class="trash-confirm-backdrop" aria-hidden="true"></div>
+  <div
+    #dialog
+    class="trash-confirm-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="trash-confirm-title"
+    aria-describedby="trash-confirm-body"
+  >
+    <h2 id="trash-confirm-title" class="trash-confirm-title">
+      {{ i18n.t('settings.trash.confirmTitle') }}
+    </h2>
+    <p id="trash-confirm-body" class="trash-confirm-body">
+      {{ confirmBody() }}
+    </p>
+    <div class="trash-confirm-actions">
+      <button
+        #cancelButton
+        type="button"
+        class="btn btn-secondary btn-sm trash-confirm-cancel"
+        [disabled]="emptying()"
+        (click)="cancelEmptyTrash()"
+      >
+        {{ i18n.t('settings.trash.cancel') }}
+      </button>
+      <button
+        type="button"
+        class="btn btn-danger btn-sm trash-confirm-submit"
+        [disabled]="emptying()"
+        (click)="confirmEmptyTrash()"
+      >
+        {{ i18n.t('settings.trash.confirmAction') }}
+      </button>
+    </div>
+  </div>
+}

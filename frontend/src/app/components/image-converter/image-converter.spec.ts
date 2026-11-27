@@ -9,9 +9,12 @@ import { Subject } from 'rxjs';
 
 import { ImageConverter } from './image-converter';
 import { IMAGE_PRESETS } from '../../config/image-presets';
+import { clearToolStorage } from '../../../testing/tool-storage';
+import { ActivityService, ActivityTask } from '../../services/activity.service';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { ShortcutService } from '../../services/shortcut.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -132,6 +135,7 @@ describe('ImageConverter', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -211,6 +215,14 @@ describe('ImageConverter', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
+  });
+
+  it('registers its controller as the active page for shortcuts', () => {
+    // Every page gets the page shortcuts by constructing its controller inside
+    // the component, without passing anything extra.
+    const shortcuts = TestBed.inject(ShortcutService);
+    expect(shortcuts.activePageTarget()?.toolId).toBe('tool.image.convert');
   });
 
   it('plans a single image with the default WebP preset', fakeAsync(() => {
@@ -571,6 +583,65 @@ describe('ImageConverter', () => {
     queuedFixture.destroy();
   }));
 
+  it('remembers the last options and reapplies them on a fresh page', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    component.onFormatChange(inputEvent('jpeg'));
+    component.onRotateChange(inputEvent('90'));
+    component.onStripMetadataToggle(checkedEvent(true));
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    const recreated = TestBed.createComponent(ImageConverter);
+    recreated.detectChanges();
+    flushMicrotasks();
+
+    const page = recreated.componentInstance;
+    expect(page.format()).toBe('jpeg');
+    expect(page.rotate()).toBe(90);
+    expect(page.stripMetadata()).toBeTrue();
+
+    recreated.destroy();
+  }));
+
+  it('resumes an active job after navigation', fakeAsync(() => {
+    const task: ActivityTask = {
+      id: 'job-resumed',
+      kind: 'tool',
+      title: 'Image Convert',
+      route: '/image-converter',
+      toolId: 'tool.image.convert',
+      status: 'running',
+      stage: 'convert',
+      message: 'Converting 1 of 2',
+      current: 1,
+      total: 2,
+      percent: 50,
+      startedAt: 1,
+      endedAt: null,
+      etaSeconds: 3,
+      inputCount: 2,
+      outputCount: 0,
+      errorMessage: '',
+    };
+    const activity = TestBed.inject(ActivityService);
+    spyOn(activity, 'activeJobForTool').and.returnValue(task);
+
+    const resumedFixture = TestBed.createComponent(ImageConverter);
+    resumedFixture.detectChanges();
+    flushMicrotasks();
+
+    const resumed = resumedFixture.componentInstance;
+    expect(resumed.activeJobId()).toBe('job-resumed');
+    expect(resumed.jobResult()?.status).toBe('running');
+    expect(resumed.isPolling()).toBeTrue();
+
+    resumedFixture.destroy();
+  }));
+
   it('renders the page copy in Spanish', () => {
     TestBed.inject(I18nService).setLocale('es');
     fixture.detectChanges();
@@ -586,5 +657,88 @@ describe('ImageConverter', () => {
     expect(
       element.querySelector('.toolbar .btn-secondary')?.textContent,
     ).toContain('Elegir archivos');
+  });
+
+  it('offers run again after a run and repeats the same request once confirmed', fakeAsync(() => {
+    const inputPath = '/tmp/in/photo.png';
+    const outputPath = '/tmp/in/photo.webp';
+    let runs = 0;
+
+    wailsSpy.runJob.and.callFake(() => {
+      runs += 1;
+      return Promise.resolve({
+        success: true,
+        message: 'queued',
+        jobId: runs === 1 ? 'job-first' : 'job-again',
+        status: 'queued',
+      });
+    });
+    wailsSpy.getJobStatus.and.callFake((jobId: string) =>
+      Promise.resolve(
+        jobId === 'job-first'
+          ? terminalStatus('job-first', inputPath, outputPath)
+          : runningStatus(jobId),
+      ),
+    );
+
+    component.onPathsSelected([inputPath]);
+    flushMicrotasks();
+    const planned = lastPlanRequest();
+
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('.result-run-again'),
+    ).toBeNull();
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const runAgain = fixture.nativeElement.querySelector(
+      '.result-run-again',
+    ) as HTMLButtonElement;
+    expect(runAgain).not.toBeNull();
+
+    runAgain.click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planJob).toHaveBeenCalledWith(planned);
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+
+    (fixture.nativeElement.querySelector(
+      '.result-run-again-confirm',
+    ) as HTMLButtonElement).click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.runJob.calls.mostRecent().args[0]).toEqual(planned);
+    expect(component.activeJobId()).toBe('job-again');
+    expect(component.isPolling()).toBeTrue();
+    expect(component.selectedPaths()).toEqual([inputPath]);
+  }));
+
+  it('round-trips the advanced disclosure state', () => {
+    const element = fixture.nativeElement as HTMLElement;
+    const details = element.querySelector(
+      'details.advanced',
+    ) as HTMLDetailsElement;
+    expect(details).toBeTruthy();
+    expect(details.open).toBeFalse();
+    expect(component.advancedOpen()).toBeFalse();
+
+    details.open = true;
+    details.dispatchEvent(new Event('toggle'));
+    fixture.detectChanges();
+    expect(component.advancedOpen()).toBeTrue();
+
+    component.advancedOpen.set(false);
+    fixture.detectChanges();
+    expect(details.open).toBeFalse();
+
+    component.advancedOpen.set(true);
+    fixture.detectChanges();
+    expect(details.open).toBeTrue();
   });
 });

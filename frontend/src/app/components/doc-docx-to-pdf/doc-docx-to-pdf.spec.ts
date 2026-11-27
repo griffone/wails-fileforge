@@ -10,6 +10,11 @@ import { Subject } from 'rxjs';
 import { DocDocxToPdf } from './doc-docx-to-pdf';
 import { I18nService } from '../../services/i18n.service';
 import {
+  TOOL_OPTIONS_STORAGE_PREFIX,
+  toolOptionsStorageKey,
+} from '../../services/preferences.service';
+import { LAST_REQUEST_STORAGE_PREFIX } from '../../services/last-request.service';
+import {
   FileInfo,
   JobProgressEvent,
   JobRequest,
@@ -124,6 +129,38 @@ describe('DocDocxToPdf', () => {
     return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
+  function clearToolStorage(): void {
+    const prefixes = [
+      TOOL_OPTIONS_STORAGE_PREFIX,
+      LAST_REQUEST_STORAGE_PREFIX,
+    ];
+    const keys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && prefixes.some((prefix) => key.startsWith(prefix))) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) {
+      localStorage.removeItem(key);
+    }
+  }
+
+  function seedOptions(values: Record<string, unknown>): void {
+    localStorage.setItem(
+      toolOptionsStorageKey('tool.doc.docx_to_pdf'),
+      JSON.stringify({ schemaVersion: 1, values }),
+    );
+  }
+
+  function storedOptions(): Record<string, unknown> {
+    return JSON.parse(
+      localStorage.getItem(
+        toolOptionsStorageKey('tool.doc.docx_to_pdf'),
+      ) ?? '{}',
+    );
+  }
+
   function partialStatus(jobId: string): JobStatusResponse {
     return result(jobId, 'partial_success', [
       {
@@ -149,6 +186,7 @@ describe('DocDocxToPdf', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
@@ -224,6 +262,7 @@ describe('DocDocxToPdf', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('plans single for one file and batch automatically for two', fakeAsync(() => {
@@ -249,6 +288,23 @@ describe('DocDocxToPdf', () => {
       'a.docx',
       'b.docx',
     ]);
+  }));
+
+  it('loads the document first-page thumbnail into the queue', fakeAsync(() => {
+    wailsSpy.getThumbnail.and.resolveTo('data:image/jpeg;base64,abc');
+
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.getThumbnail).toHaveBeenCalledWith('/tmp/a.docx', 160);
+    expect(component.fileItems()[0].thumbnailUrl).toBe(
+      'data:image/jpeg;base64,abc',
+    );
+    const image = fixture.nativeElement.querySelector(
+      '.file-queue-image',
+    ) as HTMLImageElement;
+    expect(image?.getAttribute('src')).toBe('data:image/jpeg;base64,abc');
   }));
 
   it('rejects non-DOCX files and ignores duplicates with a notice', fakeAsync(() => {
@@ -420,7 +476,7 @@ describe('DocDocxToPdf', () => {
     expect(lastPlanRequest().options['pageSelection']).toBe('1-2');
   }));
 
-  it('renders the archival toggle with the LibreOffice requirement', fakeAsync(() => {
+  it('renders the archival toggle with the Ghostscript requirement', fakeAsync(() => {
     component.onPathsSelected(['/tmp/a.docx']);
     flushMicrotasks();
     fixture.detectChanges();
@@ -432,9 +488,9 @@ describe('DocDocxToPdf', () => {
     const helper = fixture.nativeElement.querySelector(
       '#docx-pdfa-help',
     ) as HTMLElement;
-    expect(helper.textContent).toContain('Requires LibreOffice.');
+    expect(helper.textContent).toContain('Requires Ghostscript.');
     expect(helper.textContent).toContain(
-      'the conversion fails instead of producing a non-archival PDF',
+      'the export fails instead of producing a non-archival PDF',
     );
     expect(fixture.nativeElement.querySelector('.archival-note')).toBeNull();
 
@@ -541,12 +597,12 @@ describe('DocDocxToPdf', () => {
       if (request.options['pdfa'] === true) {
         return Promise.resolve({
           success: false,
-          message: 'libreoffice binary not found in PATH',
+          message: 'Ghostscript (gs) is required for PDF/A export but is not installed.',
           outputs: [],
           error: {
-            code: 'DOC_DOCX_TO_PDF_RUNTIME_LIBREOFFICE_MISSING',
-            detail_code: 'DOC_DOCX_TO_PDF_RUNTIME_LIBREOFFICE_MISSING',
-            message: 'libreoffice binary not found in PATH',
+            code: 'RUNTIME_DEP_MISSING',
+            detail_code: 'DOC_DOCX_TO_PDF_RUNTIME_GHOSTSCRIPT_MISSING',
+            message: 'Ghostscript (gs) is required for PDF/A export but is not installed.',
           },
         });
       }
@@ -657,5 +713,73 @@ describe('DocDocxToPdf', () => {
     expect(
       element.querySelector('.action-primary')?.textContent,
     ).toContain('Convertir a PDF');
+  }));
+
+  it('restores the remembered options on init', fakeAsync(() => {
+    seedOptions({ pageSelection: '1-2', pdfa: true });
+
+    const recreated = TestBed.createComponent(DocDocxToPdf);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    expect(page.pageSelection()).toBe('1-2');
+    expect(page.pdfa()).toBeTrue();
+
+    recreated.destroy();
+  }));
+
+  it('saves the options and the submitted request after a successful run', fakeAsync(() => {
+    component.onPageSelectionInput(inputEvent('1-2'));
+    component.onPdfaToggle({ target: { checked: true } } as unknown as Event);
+    tick(250);
+    flushMicrotasks();
+
+    component.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(storedOptions()).toEqual({
+      schemaVersion: 1,
+      values: { pageSelection: '1-2', pdfa: true },
+    });
+
+    const request = JSON.parse(
+      localStorage.getItem(
+        `${LAST_REQUEST_STORAGE_PREFIX}tool.doc.docx_to_pdf`,
+      ) ?? '{}',
+    );
+    expect(request.request.inputPaths).toEqual(['/tmp/a.docx']);
+    expect(request.request.options).toEqual({
+      pageSelection: '1-2',
+      pdfa: true,
+    });
+  }));
+
+  it('keeps the remembered options when reset clears the form', fakeAsync(() => {
+    seedOptions({ pageSelection: '1-2', pdfa: true });
+
+    const recreated = TestBed.createComponent(DocDocxToPdf);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    page.onPathsSelected(['/tmp/a.docx']);
+    flushMicrotasks();
+    void page.run();
+    flushMicrotasks();
+
+    page.reset();
+    flushMicrotasks();
+
+    expect(page.selectedPaths()).toEqual([]);
+    expect(page.jobResult()).toBeNull();
+    expect(page.pageSelection()).toBe('1-2');
+    expect(page.pdfa()).toBeTrue();
+    expect(storedOptions()['schemaVersion']).toBe(1);
+
+    recreated.destroy();
   }));
 });

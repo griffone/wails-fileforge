@@ -3,10 +3,16 @@ package models
 // JobOutputRecord records one output file produced by a terminal job. The
 // size and modification time are the fingerprint used by undo: a file whose
 // fingerprint no longer matches is never moved.
+//
+// RestorePath is optional. It is set by operations that move an existing file
+// instead of creating one, such as an organize rule: Path is where the file is
+// now and RestorePath is where it came from. Undo trashes Path; Restore puts
+// the trashed file back at RestorePath when it is set, otherwise at Path.
 type JobOutputRecord struct {
 	Path        string `json:"path"`
 	SizeBytes   int64  `json:"sizeBytes"`
 	ModifiedAt  int64  `json:"modifiedAt"`
+	RestorePath string `json:"restorePath,omitempty"`
 	TrashedPath string `json:"trashedPath,omitempty"`
 	Undone      bool   `json:"undone,omitempty"`
 }
@@ -16,9 +22,17 @@ type JobHistoryEntry struct {
 	JobID        string            `json:"jobId"`
 	ToolID       string            `json:"toolId"`
 	CreatedAt    int64             `json:"createdAt"`
+	TargetBytes  int64             `json:"targetBytes,omitempty"`
 	Undone       bool              `json:"undone,omitempty"`
 	TrashEmptied bool              `json:"trashEmptied,omitempty"`
 	Outputs      []JobOutputRecord `json:"outputs"`
+}
+
+// TrashInfo reports the real contents of the app trash directory. It is not
+// derived from history: files whose history entry was pruned are still counted.
+type TrashInfo struct {
+	Files int   `json:"files"`
+	Bytes int64 `json:"bytes"`
 }
 
 // UndoSkipped reports one output that undo or restore refused to touch.

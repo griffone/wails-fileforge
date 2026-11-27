@@ -12,6 +12,7 @@ import (
 
 	// Importing the domain packages runs their init functions, which register
 	// every tool in the global registry.
+	"fileforge-desktop/internal/audio"
 	"fileforge-desktop/internal/doc"
 	"fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/models"
@@ -33,6 +34,7 @@ var toolIDs = []string{
 	image.ToolIDImageWatermark,
 	image.ToolIDImageOCR,
 	image.ToolIDImageBackground,
+	image.ToolIDImageUpscale,
 	pdf.ToolIDPDFMerge,
 	pdf.ToolIDPDFSplit,
 	pdf.ToolIDPDFCrop,
@@ -40,10 +42,17 @@ var toolIDs = []string{
 	pdf.ToolIDPDFOCR,
 	pdf.ToolIDPDFImages,
 	pdf.ToolIDPDFToDOCX,
+	pdf.ToolIDPDFRotate,
+	pdf.ToolIDPDFRemovePages,
+	pdf.ToolIDPDFReorder,
+	pdf.ToolIDPDFExtractImages,
 	video.ToolIDVideoConvert,
 	video.ToolIDVideoTrim,
 	video.ToolIDVideoMerge,
 	video.ToolIDVideoTranscribe,
+	audio.ToolIDAudioExtract,
+	audio.ToolIDAudioConvert,
+	audio.ToolIDAudioNormalize,
 	doc.ToolIDDocMDToPDF,
 	doc.ToolIDDocDOCXToPDF,
 }
@@ -56,8 +65,8 @@ func TestToolRegistryContract(t *testing.T) {
 	}
 
 	catalog := reg.ListTools(context.Background())
-	if len(catalog) != 20 {
-		t.Fatalf("registered tools = %d, want 20", len(catalog))
+	if len(catalog) != 28 {
+		t.Fatalf("registered tools = %d, want 28", len(catalog))
 	}
 
 	seen := make(map[string]struct{}, len(catalog))

@@ -132,7 +132,17 @@ export const imageAnnotateEn = {
     'Draw on the image or add an annotation to run.',
   'imageAnnotate.error.textRequired':
     'Enter the text for the text annotation.',
-  'imageAnnotate.error.promptText': 'Enter annotation text',
+  'imageAnnotate.textDialog.title': 'Add annotation text',
+  'imageAnnotate.textDialog.body':
+    'Type the text for this annotation. Enter adds it, Escape cancels.',
+  'imageAnnotate.textDialog.label': 'Annotation text',
+  'imageAnnotate.textDialog.confirm': 'Add text',
+  'imageAnnotate.textDialog.cancel': 'Cancel',
+  'imageAnnotate.redactDialog.title': 'Redaction is permanent',
+  'imageAnnotate.redactDialog.body':
+    'This request contains at least one redaction. Redaction permanently replaces the covered area in the output image and cannot be undone. Continue?',
+  'imageAnnotate.redactDialog.confirm': 'Redact and continue',
+  'imageAnnotate.redactDialog.cancel': 'Cancel',
   'imageAnnotate.progress.aria': 'Annotation progress',
   'imageAnnotate.destination.original': 'Next to each image',
   'imageAnnotate.status.waiting': 'Waiting to start',

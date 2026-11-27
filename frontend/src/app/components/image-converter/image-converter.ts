@@ -1,5 +1,4 @@
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { Subscription } from 'rxjs';
 import {
   FolderOpen,
   LucideAngularModule,
@@ -13,48 +12,32 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
-import { ResultCard } from '../tool-flow/result-card';
-import { FileQueueItem } from '../tool-flow/tool-flow.types';
+import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
+import { OpenWindowAction } from '../open-window-action/open-window-action';
 import {
   IMAGE_FORMAT_OPTIONS,
   IMAGE_PRESETS,
   ImageOutputFormat,
   ImagePreset,
 } from '../../config/image-presets';
-import {
-  describeToolError,
-  localizeToolError,
-  ToolErrorCopy,
-} from '../../services/tool-error';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { LastRequestService } from '../../services/last-request.service';
 import { ActivityService } from '../../services/activity.service';
-import {
-  FileInfo,
-  InspectFilesResponse,
-  JobError,
-  JobExecutionStatus,
-  JobProgressEvent,
-  JobRequest,
-  JobResult,
-  JobStatusResponse,
-  PlanJobResponse,
-  RunJobResponse,
-  Wails,
-} from '../../services/wails';
+import { FileInfo, JobRequest, Wails } from '../../services/wails';
 import {
   fileExtension,
   fileName,
   formatBytes,
   formatCount,
 } from '../../utils/format';
-import { observeJob } from '../../utils/job-stream';
-import { resumeToolJob } from '../../utils/resume-task';
+import { createToolOptions } from '../../utils/tool-options';
+import { ToolRunController } from '../../utils/tool-run-controller';
 
 const IMAGE_TOOL_ID = 'tool.image.convert';
 const ADVANCED_PLAN_DEBOUNCE_MS = 200;
-const THUMBNAIL_SIZE = 160;
+const OPTIONS_SCHEMA_VERSION = 1;
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'jpg',
@@ -66,19 +49,6 @@ const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   'tiff',
   'tif',
 ]);
-
-const TERMINAL_STATUSES = new Set<string>([
-  'success',
-  'failed',
-  'partial_success',
-  'cancelled',
-  'interrupted',
-]);
-
-interface Notice {
-  tone: 'warning' | 'danger';
-  text: string;
-}
 
 type ResizeMode = 'none' | 'longestEdge' | 'width';
 
@@ -100,11 +70,113 @@ const ROTATE_OPTIONS: readonly SelectOption<number>[] = [
   { value: 270, label: '270°' },
 ];
 
+type ImageConverterOptions = {
+  selectedPresetId: string;
+  format: ImageOutputFormat;
+  quality: number | null;
+  resizeMode: ResizeMode;
+  longestEdge: number | null;
+  width: number | null;
+  stripMetadata: boolean;
+  rotate: number;
+  flipH: boolean;
+  flipV: boolean;
+};
+
+function defaultOptions(): ImageConverterOptions {
+  return {
+    selectedPresetId: 'webp',
+    format: 'webp',
+    quality: null,
+    resizeMode: 'none',
+    longestEdge: null,
+    width: null,
+    stripMetadata: false,
+    rotate: 0,
+    flipH: false,
+    flipV: false,
+  };
+}
+
+function isOutputFormat(value: unknown): value is ImageOutputFormat {
+  return IMAGE_FORMAT_OPTIONS.some((option) => option.value === value);
+}
+
+function isResizeMode(value: unknown): value is ResizeMode {
+  return RESIZE_MODES.some((option) => option.value === value);
+}
+
+function isPresetId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    IMAGE_PRESETS.some((preset) => preset.id === value)
+  );
+}
+
+function isRotate(value: unknown): value is number {
+  return ROTATE_OPTIONS.some((option) => option.value === value);
+}
+
+function positiveIntegerOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : null;
+}
+
+function qualityOrNull(value: unknown): number | null {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= 100
+    ? value
+    : null;
+}
+
+function normalizeOptions(
+  stored: Record<string, unknown>,
+): Partial<ImageConverterOptions> {
+  const result: Partial<ImageConverterOptions> = {};
+
+  if (isPresetId(stored['selectedPresetId'])) {
+    result.selectedPresetId = stored['selectedPresetId'];
+  }
+  if (isOutputFormat(stored['format'])) {
+    result.format = stored['format'];
+  }
+  if ('quality' in stored) {
+    result.quality = qualityOrNull(stored['quality']);
+  }
+  if (isResizeMode(stored['resizeMode'])) {
+    result.resizeMode = stored['resizeMode'];
+  }
+  if ('longestEdge' in stored) {
+    result.longestEdge = positiveIntegerOrNull(stored['longestEdge']);
+  }
+  if ('width' in stored) {
+    result.width = positiveIntegerOrNull(stored['width']);
+  }
+  if (typeof stored['stripMetadata'] === 'boolean') {
+    result.stripMetadata = stored['stripMetadata'];
+  }
+  if (isRotate(stored['rotate'])) {
+    result.rotate = stored['rotate'];
+  }
+  if (typeof stored['flipH'] === 'boolean') {
+    result.flipH = stored['flipH'];
+  }
+  if (typeof stored['flipV'] === 'boolean') {
+    result.flipV = stored['flipV'];
+  }
+
+  return result;
+}
+
 @Component({
   selector: 'app-image-converter',
   standalone: true,
   imports: [
     LucideAngularModule,
+    OpenWindowAction,
     FileDrop,
     FileQueue,
     OutputPlanCard,
@@ -117,8 +189,56 @@ const ROTATE_OPTIONS: readonly SelectOption<number>[] = [
 export class ImageConverter implements OnDestroy, OnInit {
   private readonly dropIntake = inject(DropIntakeService);
   private readonly preferences = inject(PreferencesService);
-  private readonly activity = inject(ActivityService);
   readonly i18n = inject(I18nService);
+  private readonly wailsService = inject(Wails);
+
+  private readonly settings = createToolOptions(this.preferences, {
+    toolId: IMAGE_TOOL_ID,
+    schemaVersion: OPTIONS_SCHEMA_VERSION,
+    defaults: defaultOptions,
+    normalize: normalizeOptions,
+  });
+
+  private readonly job: ToolRunController = new ToolRunController({
+    toolId: IMAGE_TOOL_ID,
+    wails: this.wailsService,
+    i18n: this.i18n,
+    activity: inject(ActivityService),
+    dropIntake: this.dropIntake,
+    lastRequests: inject(LastRequestService),
+    initialOutputDir: this.preferences.defaultOutputDir(),
+    buildRequest: () => this.buildRequest(),
+    acceptsPath: (path) =>
+      SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase()),
+    canPlan: () => this.selectedPaths().length > 0,
+    canRun: () => this.canRun(),
+    alwaysRefreshPlanBeforeRun: false,
+    describeFileInfo: (info) => this.describeFileInfo(info),
+    afterPathsChanged: (_previous, paths) => {
+      if (paths.length === 0) {
+        this.inputInfos.set({});
+      }
+      void this.job.refreshPlan();
+    },
+    onFilesInspected: (infos) => this.applyInputInfos(infos),
+    noticeText: (rejected) =>
+      rejected.length > 0
+        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
+        : null,
+    messages: {
+      start: 'imageConverter.error.start',
+      planFailed: 'imageConverter.error.plan',
+      waiting: 'imageConverter.status.waiting',
+      inspectFailed: 'imageConverter.error.inspect',
+      statusMissing: 'imageConverter.error.status',
+      cancelFailed: 'imageConverter.error.cancel',
+      openFileFailed: 'imageConverter.error.openFile',
+      revealFailed: 'imageConverter.error.openFolder',
+    },
+    onRunAccepted: () => {
+      this.settings.save(this.currentOptions());
+    },
+  });
 
   readonly shieldIcon = ShieldCheck;
   readonly folderIcon = FolderOpen;
@@ -131,11 +251,11 @@ export class ImageConverter implements OnDestroy, OnInit {
   readonly resizeModes = RESIZE_MODES;
   readonly rotateOptions = ROTATE_OPTIONS;
 
-  readonly selectedPaths = signal<string[]>([]);
-  readonly fileItems = signal<FileQueueItem[]>([]);
+  readonly selectedPaths = this.job.selectedPaths;
+  readonly fileItems = this.job.fileItems;
+  readonly outputDir = this.job.outputDir;
   readonly selectedPresetId = signal('webp');
   readonly format = signal<ImageOutputFormat>('webp');
-  readonly outputDir = signal(this.preferences.defaultOutputDir());
   readonly advancedOpen = signal(false);
   readonly quality = signal<number | null>(null);
   readonly resizeMode = signal<ResizeMode>('none');
@@ -147,20 +267,26 @@ export class ImageConverter implements OnDestroy, OnInit {
   readonly flipV = signal(false);
   readonly inputInfos = signal<Record<string, FileInfo>>({});
 
-  readonly plan = signal<PlanJobResponse | null>(null);
-  readonly planError = signal<JobError | null>(null);
-  readonly planLoading = signal(false);
+  readonly plan = this.job.plan;
+  readonly planError = this.job.planError;
+  readonly planLoading = this.job.planLoading;
 
-  readonly jobResult = signal<JobResult | null>(null);
-  readonly jobError = signal<JobError | null>(null);
-  readonly outputInfos = signal<Record<string, FileInfo>>({});
+  readonly jobResult = this.job.jobResult;
+  readonly jobError = this.job.jobError;
+  readonly outputInfos = this.job.outputInfos;
 
-  readonly isSubmitting = signal(false);
-  readonly isPolling = signal(false);
-  readonly activeJobId = signal('');
+  readonly isSubmitting = this.job.isSubmitting;
+  readonly isPolling = this.job.isPolling;
+  readonly activeJobId = this.job.activeJobId;
 
-  readonly notice = signal<Notice | null>(null);
-  readonly actionMessage = signal('');
+  readonly notice = this.job.notice;
+  readonly actionMessage = this.job.actionMessage;
+  readonly terminalJob = this.job.terminalJob;
+  readonly showProgress = this.job.showProgress;
+  readonly jobErrorCopy = this.job.jobErrorCopy;
+  readonly verification = this.job.verification;
+  readonly verificationLoading = this.job.verificationLoading;
+  readonly verificationUnavailable = this.job.verificationUnavailable;
 
   readonly selectedPreset = computed<ImagePreset>(
     () =>
@@ -254,47 +380,14 @@ export class ImageConverter implements OnDestroy, OnInit {
       !this.isPolling(),
   );
 
-  readonly terminalJob = computed<JobResult | null>(() => {
-    const job = this.jobResult();
-    return job && this.isTerminalStatus(job.status) ? job : null;
-  });
-
-  readonly showProgress = computed(() => {
-    const job = this.jobResult();
-    return !!job && !this.isTerminalStatus(job.status);
-  });
-
-  readonly jobErrorCopy = computed<ToolErrorCopy | null>(() => {
-    const error = this.jobError();
-    return error
-      ? localizeToolError(
-          (key) => this.i18n.t(key),
-          describeToolError(
-            error,
-            this.i18n.t('imageConverter.error.start'),
-          ),
-        )
-      : null;
-  });
-
-  private jobSubscription: Subscription | null = null;
-  private planRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private planToken = 0;
-  private fileItemsGeneration = 0;
-
-  constructor(private readonly wailsService: Wails) {}
-
-  ngOnDestroy(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
+  ngOnInit(): void {
+    this.restoreOptions();
+    this.job.takePendingDrop('/image-converter');
+    this.job.resume();
   }
 
-  ngOnInit(): void {
-    const pending = this.dropIntake.take('/image-converter');
-    if (pending.length > 0) {
-      this.onPathsSelected(pending);
-    }
-    this.resumeBackgroundJob();
+  ngOnDestroy(): void {
+    this.job.dispose();
   }
 
   fileCountLabel(): string {
@@ -336,76 +429,22 @@ export class ImageConverter implements OnDestroy, OnInit {
   }
 
   onPathsSelected(paths: string[]): void {
-    const incoming = (Array.isArray(paths) ? paths : [])
-      .map((path) => path.trim())
-      .filter((path) => path.length > 0);
-    if (incoming.length === 0) {
-      return;
-    }
-
-    const supported: string[] = [];
-    const rejected: string[] = [];
-    for (const path of incoming) {
-      if (SUPPORTED_IMAGE_EXTENSIONS.has(fileExtension(path).toLowerCase())) {
-        supported.push(path);
-      } else {
-        rejected.push(path);
-      }
-    }
-
-    const selected = new Set(this.selectedPaths());
-    const added: string[] = [];
-    for (const path of supported) {
-      if (selected.has(path)) {
-        continue;
-      }
-      selected.add(path);
-      added.push(path);
-    }
-
-    this.notice.set(
-      rejected.length > 0
-        ? { tone: 'warning', text: this.rejectionNotice(rejected) }
-        : null,
-    );
-
-    if (added.length === 0) {
-      return;
-    }
-
-    this.actionMessage.set('');
-    this.selectedPaths.set([...this.selectedPaths(), ...added]);
-    this.syncFileItems();
-    void this.refreshPlan();
+    this.job.onPathsSelected(paths);
   }
 
   async chooseFiles(): Promise<void> {
     const paths = await this.wailsService.openMultipleFilesDialog();
     if (paths.length > 0) {
-      this.onPathsSelected(paths);
+      this.job.onPathsSelected(paths);
     }
   }
 
   clear(): void {
-    if (this.selectedPaths().length === 0) {
-      return;
-    }
-    this.selectedPaths.set([]);
-    this.notice.set(null);
-    this.actionMessage.set('');
-    this.inputInfos.set({});
-    this.syncFileItems();
-    void this.refreshPlan();
+    this.job.clear();
   }
 
   removeFile(path: string): void {
-    const next = this.selectedPaths().filter((candidate) => candidate !== path);
-    if (next.length === this.selectedPaths().length) {
-      return;
-    }
-    this.selectedPaths.set(next);
-    this.syncFileItems();
-    void this.refreshPlan();
+    this.job.removeFile(path);
   }
 
   selectPreset(presetId: string): void {
@@ -419,7 +458,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     this.selectedPresetId.set(presetId);
     this.format.set(preset.format);
     this.quality.set(null);
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   isPresetActive(preset: ImagePreset): boolean {
@@ -433,7 +472,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     }
     this.outputDir.set(directory);
     this.actionMessage.set('');
-    await this.refreshPlan();
+    await this.job.refreshPlan();
   }
 
   useOriginalFolders(): void {
@@ -441,7 +480,7 @@ export class ImageConverter implements OnDestroy, OnInit {
       return;
     }
     this.outputDir.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onAdvancedToggle(event: Event): void {
@@ -457,7 +496,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     this.quality.set(
       value === null ? null : Math.min(100, Math.max(1, Math.round(value))),
     );
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   onFormatChange(event: Event): void {
@@ -470,7 +509,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     }
     this.format.set(value);
     this.actionMessage.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onResizeModeChange(event: Event): void {
@@ -480,23 +519,23 @@ export class ImageConverter implements OnDestroy, OnInit {
     }
     this.resizeMode.set(value);
     this.actionMessage.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onLongestEdgeInput(event: Event): void {
     this.longestEdge.set(this.readPositiveInteger(event));
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   onWidthInput(event: Event): void {
     this.width.set(this.readPositiveInteger(event));
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   onStripMetadataToggle(event: Event): void {
     this.stripMetadata.set(this.readChecked(event));
     this.actionMessage.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onRotateChange(event: Event): void {
@@ -506,7 +545,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     }
     this.rotate.set(value);
     this.actionMessage.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   onFlipToggle(axis: 'h' | 'v', event: Event): void {
@@ -516,7 +555,7 @@ export class ImageConverter implements OnDestroy, OnInit {
       this.flipV.set(this.readChecked(event));
     }
     this.actionMessage.set('');
-    void this.refreshPlan();
+    void this.job.refreshPlan();
   }
 
   resetAdvanced(): void {
@@ -529,105 +568,28 @@ export class ImageConverter implements OnDestroy, OnInit {
     this.rotate.set(0);
     this.flipH.set(false);
     this.flipV.set(false);
-    this.schedulePlanRefresh();
+    this.job.schedulePlanRefresh(ADVANCED_PLAN_DEBOUNCE_MS);
   }
 
   async run(): Promise<void> {
-    if (!this.canRun()) {
-      return;
-    }
+    await this.job.run();
+  }
 
-    this.actionMessage.set('');
-
-    if (this.planLoading() || !this.plan()?.success) {
-      const planned = await this.refreshPlan();
-      if (!planned) {
-        return;
-      }
-    }
-
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.isSubmitting.set(true);
-
-    const response: RunJobResponse = await this.wailsService
-      .runJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageConverter.error.start'),
-        jobId: '',
-        status: 'failed' as const,
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message: this.i18n.t('imageConverter.error.start'),
-        },
-      }));
-    if (!response.success || !response.jobId) {
-      this.jobError.set(
-        response.error ?? {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'RUN_JOB_FAILED',
-          message:
-            response.message || this.i18n.t('imageConverter.error.start'),
-        },
-      );
-      this.isSubmitting.set(false);
-      return;
-    }
-
-    const total = this.selectedPaths().length;
-    this.activeJobId.set(response.jobId);
-    this.jobResult.set({
-      jobId: response.jobId,
-      success: false,
-      message: this.i18n.t('imageConverter.status.waiting'),
-      toolId: IMAGE_TOOL_ID,
-      status: 'queued',
-      progress: {
-        current: 0,
-        total,
-        stage: 'queued',
-        message: this.i18n.t('imageConverter.status.waiting'),
-      },
-      items: [],
-      startedAt: Date.now(),
-    });
-    this.isSubmitting.set(false);
-    this.isPolling.set(true);
-    this.startObserving();
+  /** Adopts a job the result card planned and started with the same request. */
+  onRunAgainStarted(event: RunAgainStartedEvent): void {
+    this.job.adoptRunAgain(event);
   }
 
   async cancel(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-    const response = await this.wailsService.cancelJob(jobId);
-    if (!response.success) {
-      this.actionMessage.set(
-        response.message || this.i18n.t('imageConverter.error.cancel'),
-      );
-    }
+    await this.job.cancel();
   }
 
   async onOpen(path: string): Promise<void> {
-    const response = await this.wailsService.openPath(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('imageConverter.error.openFile'),
-    );
+    await this.job.openPath(path);
   }
 
   async onReveal(path: string): Promise<void> {
-    const response = await this.wailsService.revealInFolder(path);
-    this.actionMessage.set(
-      response.success
-        ? ''
-        : response.message || this.i18n.t('imageConverter.error.openFolder'),
-    );
+    await this.job.revealPath(path);
   }
 
   async retryFailed(): Promise<void> {
@@ -640,36 +602,59 @@ export class ImageConverter implements OnDestroy, OnInit {
       return;
     }
 
-    this.selectedPaths.set([...new Set(failed)]);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
-    this.actionMessage.set('');
-    this.syncFileItems();
+    this.job.replacePaths([...new Set(failed)], { notify: false });
+    this.job.clearRunOutcome();
 
-    await this.refreshPlan();
-    await this.run();
+    const planned = await this.job.refreshPlan();
+    if (!planned) {
+      return;
+    }
+
+    await this.job.run();
   }
 
   reset(): void {
-    this.stopObserving();
-    this.clearPlanRefreshTimer();
-    this.planToken += 1;
-    this.fileItemsGeneration += 1;
-
-    this.selectedPaths.set([]);
-    this.fileItems.set([]);
-    this.plan.set(null);
-    this.planError.set(null);
-    this.planLoading.set(false);
-    this.jobResult.set(null);
-    this.jobError.set(null);
-    this.outputInfos.set({});
+    this.job.reset();
     this.inputInfos.set({});
-    this.isSubmitting.set(false);
-    this.activeJobId.set('');
-    this.notice.set(null);
-    this.actionMessage.set('');
+  }
+
+  private currentOptions(): ImageConverterOptions {
+    return {
+      selectedPresetId: this.selectedPresetId(),
+      format: this.format(),
+      quality: this.quality(),
+      resizeMode: this.resizeMode(),
+      longestEdge: this.longestEdge(),
+      width: this.width(),
+      stripMetadata: this.stripMetadata(),
+      rotate: this.rotate(),
+      flipH: this.flipH(),
+      flipV: this.flipV(),
+    };
+  }
+
+  private restoreOptions(): void {
+    const options = this.settings.restore();
+    this.selectedPresetId.set(options.selectedPresetId);
+    this.format.set(options.format);
+    this.quality.set(options.quality);
+    this.resizeMode.set(options.resizeMode);
+    this.longestEdge.set(options.longestEdge);
+    this.width.set(options.width);
+    this.stripMetadata.set(options.stripMetadata);
+    this.rotate.set(options.rotate);
+    this.flipH.set(options.flipH);
+    this.flipV.set(options.flipV);
+  }
+
+  private applyInputInfos(infos: FileInfo[]): void {
+    const inputInfos: Record<string, FileInfo> = {};
+    for (const info of infos) {
+      if (info.path) {
+        inputInfos[info.path] = info;
+      }
+    }
+    this.inputInfos.set(inputInfos);
   }
 
   private buildRequest(): JobRequest {
@@ -713,304 +698,6 @@ export class ImageConverter implements OnDestroy, OnInit {
     };
   }
 
-  private async refreshPlan(): Promise<boolean> {
-    if (this.selectedPaths().length === 0) {
-      this.planToken += 1;
-      this.plan.set(null);
-      this.planError.set(null);
-      this.planLoading.set(false);
-      return false;
-    }
-
-    const token = (this.planToken += 1);
-    this.planLoading.set(true);
-    this.plan.set(null);
-    this.planError.set(null);
-
-    const response: PlanJobResponse = await this.wailsService
-      .planJob(this.buildRequest())
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageConverter.error.plan'),
-        outputs: [],
-        error: {
-          code: 'EXEC_IO_TRANSIENT',
-          detail_code: 'PLAN_JOB_FAILED',
-          message: this.i18n.t('imageConverter.error.plan'),
-        },
-      }));
-    if (token !== this.planToken) {
-      return false;
-    }
-
-    this.planLoading.set(false);
-
-    if (response.success && !response.error) {
-      this.plan.set(response);
-      return true;
-    }
-
-    const error: JobError = response.error ?? {
-      code: 'VALIDATION_INVALID_INPUT',
-      detail_code: 'PLAN_JOB_FAILED',
-      message: response.message || this.i18n.t('imageConverter.error.plan'),
-    };
-    // Keep the failed plan so the shared plan card can show the error in
-    // context, next to the destination it belongs to.
-    this.plan.set({ ...response, success: false, error });
-    this.planError.set(error);
-    return false;
-  }
-
-  private schedulePlanRefresh(): void {
-    this.clearPlanRefreshTimer();
-    this.planRefreshTimer = setTimeout(() => {
-      this.planRefreshTimer = null;
-      void this.refreshPlan();
-    }, ADVANCED_PLAN_DEBOUNCE_MS);
-  }
-
-  private clearPlanRefreshTimer(): void {
-    if (this.planRefreshTimer) {
-      clearTimeout(this.planRefreshTimer);
-      this.planRefreshTimer = null;
-    }
-  }
-
-  private resumeBackgroundJob(): void {
-    resumeToolJob({
-      activity: this.activity,
-      toolId: IMAGE_TOOL_ID,
-      activeJobId: this.activeJobId,
-      jobResult: this.jobResult,
-      jobError: this.jobError,
-      startObserving: () => this.startObserving(),
-    });
-  }
-
-  private startObserving(): void {
-    this.stopObserving();
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    this.isPolling.set(true);
-    this.jobSubscription = observeJob(this.wailsService, jobId, {
-      onProgress: (event) => this.applyJobProgress(event),
-      onState: (result) => this.applyJobStatus(result),
-      onMissing: (response) => this.handleMissingJob(response),
-    });
-  }
-
-  private stopObserving(): void {
-    if (this.jobSubscription) {
-      this.jobSubscription.unsubscribe();
-      this.jobSubscription = null;
-    }
-    this.isPolling.set(false);
-  }
-
-  private applyJobProgress(event: JobProgressEvent): void {
-    if (!event) {
-      return;
-    }
-
-    const current = this.jobResult();
-    if (!current) {
-      return;
-    }
-
-    this.jobResult.set({
-      ...current,
-      message: event.progress.message,
-      progress: event.progress,
-      // The terminal snapshot arrives on jobs/state; a progress event can
-      // overtake the complete result, so the current status is kept.
-      status: this.isTerminalStatus(event.status)
-        ? current.status
-        : (event.status as JobExecutionStatus),
-    });
-
-    if (this.isTerminalStatus(event.status)) {
-      void this.reconcileJobStatus();
-    }
-  }
-
-  private applyJobStatus(result: JobResult): void {
-    if (!result) {
-      return;
-    }
-
-    this.jobResult.set(result);
-    if (this.isTerminalStatus(result.status)) {
-      this.stopObserving();
-      this.activeJobId.set('');
-      void this.loadOutputInfos();
-    }
-  }
-
-  /** The backend no longer tracks the adopted job (restart or retention). */
-  private handleMissingJob(response: JobStatusResponse): void {
-    if (!this.activeJobId()) {
-      return;
-    }
-
-    this.stopObserving();
-    this.activeJobId.set('');
-    this.jobError.set(
-      response.error ?? {
-        code: 'EXEC_IO_TRANSIENT',
-        detail_code: 'JOB_STATUS_MISSING',
-        message:
-          response.message || this.i18n.t('imageConverter.error.status'),
-      },
-    );
-  }
-
-  /**
-   * One-shot recovery when a terminal progress event arrives before its
-   * jobs/state snapshot. This is never a timer, and it is a no-op once the
-   * page has already settled the job.
-   */
-  private async reconcileJobStatus(): Promise<void> {
-    const jobId = this.activeJobId();
-    if (!jobId) {
-      return;
-    }
-
-    const response = await this.wailsService
-      .getJobStatus(jobId)
-      .catch(() => null);
-    if (!response || this.activeJobId() !== jobId) {
-      return;
-    }
-
-    if (!response.found || !response.result) {
-      this.handleMissingJob(response);
-      return;
-    }
-
-    this.applyJobStatus(response.result);
-  }
-
-  private async loadOutputInfos(): Promise<void> {
-    const paths = this.collectOutputPaths();
-    if (paths.length === 0) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const response: InspectFilesResponse = await this.wailsService
-      .inspectFiles(paths)
-      .catch(() => ({
-        success: false,
-        message: this.i18n.t('imageConverter.error.inspect'),
-        files: [],
-      }));
-    if (!response.success) {
-      this.outputInfos.set({});
-      return;
-    }
-
-    const infos: Record<string, FileInfo> = {};
-    for (const info of response.files) {
-      if (info.path) {
-        infos[info.path] = info;
-      }
-    }
-    this.outputInfos.set(infos);
-  }
-
-  private collectOutputPaths(): string[] {
-    const paths = new Set<string>();
-    for (const item of this.jobResult()?.items ?? []) {
-      if (!item.success) {
-        continue;
-      }
-      const outputs =
-        item.outputs && item.outputs.length > 0
-          ? item.outputs
-          : item.outputPath
-            ? [item.outputPath]
-            : [];
-      for (const output of outputs) {
-        if (output) {
-          paths.add(output);
-        }
-      }
-    }
-    return [...paths];
-  }
-
-  private syncFileItems(): void {
-    const paths = this.selectedPaths();
-    const generation = (this.fileItemsGeneration += 1);
-    this.fileItems.set(
-      paths.map((path) => ({ path, name: fileName(path) })),
-    );
-
-    if (paths.length > 0) {
-      void this.enrichFileItems(paths, generation);
-    }
-  }
-
-  private async enrichFileItems(
-    paths: string[],
-    generation: number,
-  ): Promise<void> {
-    try {
-      const response = await this.wailsService.inspectFiles(paths);
-      if (generation === this.fileItemsGeneration && response.success) {
-        const infos = new Map<string, FileInfo>();
-        const inputInfos: Record<string, FileInfo> = {};
-        for (const info of response.files) {
-          infos.set(info.path, info);
-          if (info.path) {
-            inputInfos[info.path] = info;
-          }
-        }
-        this.inputInfos.set(inputInfos);
-
-        this.fileItems.update((items) =>
-          items.map((item) => {
-            const info = infos.get(item.path);
-            const meta = info ? this.describeFileInfo(info) : '';
-            return meta ? { ...item, meta } : item;
-          }),
-        );
-      }
-    } catch {
-      // Inspection is optional: the queue keeps the file name and path.
-    }
-
-    if (generation !== this.fileItemsGeneration) {
-      return;
-    }
-
-    for (const path of paths) {
-      this.loadThumbnail(path, generation);
-    }
-  }
-
-  private loadThumbnail(path: string, generation: number): void {
-    void this.wailsService
-      .getThumbnail(path, THUMBNAIL_SIZE)
-      .then((thumbnailUrl) => {
-        if (!thumbnailUrl || generation !== this.fileItemsGeneration) {
-          return;
-        }
-        this.fileItems.update((items) =>
-          items.map((item) =>
-            item.path === path ? { ...item, thumbnailUrl } : item,
-          ),
-        );
-      })
-      .catch(() => {
-        // Thumbnails are optional; keep the placeholder icon.
-      });
-  }
-
   private describeFileInfo(info: FileInfo): string {
     const parts: string[] = [];
     if (typeof info.sizeBytes === 'number' && info.sizeBytes >= 0) {
@@ -1022,7 +709,7 @@ export class ImageConverter implements OnDestroy, OnInit {
     return parts.join(' · ');
   }
 
-  private rejectionNotice(rejected: string[]): string {
+  private rejectionNotice(rejected: readonly string[]): string {
     const extensions = [
       ...new Set(
         rejected.map(
@@ -1077,9 +764,5 @@ export class ImageConverter implements OnDestroy, OnInit {
 
   private formatLabel(format: ImageOutputFormat): string {
     return this.formatOptionLabel(format);
-  }
-
-  private isTerminalStatus(status: string): boolean {
-    return TERMINAL_STATUSES.has(status);
   }
 }

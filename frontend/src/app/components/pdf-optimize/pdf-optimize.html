@@ -16,6 +16,7 @@
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
         {{ i18n.t('pdfOptimize.page.localBadge') }}
       </span>
+      <app-open-window-action />
     </div>
   </header>
 
@@ -94,11 +95,77 @@
         </div>
 
         <div class="panel-body">
+          <div class="field">
+            <label class="label" for="pdf-optimize-target">{{ i18n.t('pdfOptimize.field.target') }}</label>
+            <div
+              class="target-presets"
+              role="group"
+              [attr.aria-label]="i18n.t('pdfOptimize.presets.label')"
+            >
+              @for (preset of destinationPresets; track preset.id) {
+                <button
+                  type="button"
+                  class="chip target-chip"
+                  [attr.data-preset]="preset.id"
+                  [attr.aria-pressed]="preset.id === activeTargetPresetId()"
+                  (click)="selectTargetPreset(preset)"
+                >
+                  <span>{{ presetLabel(preset) }}</span>
+                  <span class="target-chip-size mono">{{ presetSizeLabel(preset) }}</span>
+                </button>
+              }
+            </div>
+            <div class="target-row">
+              <input
+                id="pdf-optimize-target"
+                class="input"
+                type="number"
+                min="0.1"
+                step="0.1"
+                inputmode="decimal"
+                aria-describedby="pdf-optimize-target-help"
+                [value]="targetMb() ?? ''"
+                [attr.aria-invalid]="targetValid() ? null : 'true'"
+                (input)="onTargetInput($event)"
+              />
+              <span class="target-unit mono">MB</span>
+            </div>
+            @if (!targetValid()) {
+              <p
+                id="pdf-optimize-target-help"
+                class="field-help field-help-error"
+                role="alert"
+              >
+                {{ targetError() }}
+              </p>
+            } @else if (targetRequiresCompression()) {
+              <p
+                id="pdf-optimize-target-help"
+                class="field-help field-help-error"
+                role="alert"
+              >
+                {{ i18n.t('pdfOptimize.helper.targetNeedsCompression') }}
+              </p>
+            } @else {
+              <p id="pdf-optimize-target-help" class="field-help">
+                {{ i18n.t('pdfOptimize.target.help') }}
+              </p>
+              @if (hasTarget()) {
+                <p class="field-help target-summary" role="status">
+                  {{ targetSummary() }}
+                </p>
+              }
+            }
+            <p class="field-help">{{ i18n.t('pdfOptimize.target.unitHelp') }}</p>
+          </div>
+
           <app-output-plan-card
             [plan]="plan()"
             [loading]="planLoading()"
             [destinationLabel]="destinationLabel()"
             [isDefaultDestination]="isDefaultDestination()"
+            [targetLabel]="planTargetLabel()"
+            [targetValue]="planTargetValue()"
             (changeDestination)="chooseOutputFolder()"
           ></app-output-plan-card>
 
@@ -232,12 +299,16 @@
       <app-result-card
         [job]="job"
         [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
         toolLabel="PDF"
         verbPast="optimized"
         (open)="onOpen($event)"
         (reveal)="onReveal($event)"
         (retryFailed)="retryFailed()"
         (reset)="reset()"
+        (runAgainStarted)="onRunAgainStarted($event)"
       ></app-result-card>
     }
   </div>

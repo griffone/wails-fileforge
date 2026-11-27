@@ -2,14 +2,18 @@ import { Injectable } from '@angular/core';
 
 import {
   AutomationService,
+  DuplicatesService,
   PreviewService,
   RecipeService,
   SystemService,
   ToolService,
   ToolchainService,
+  UpdateService,
+  WindowService,
 } from '../../../bindings/fileforge-desktop/internal/app';
 import type * as Models from '../../../bindings/fileforge-desktop/internal/models';
 import type * as PreviewModels from '../../../bindings/fileforge-desktop/internal/preview/models';
+import type * as UpdateModels from '../../../bindings/fileforge-desktop/internal/update';
 
 /**
  * Typed adapter over the generated Wails bindings.
@@ -71,6 +75,10 @@ export class WailsIpc {
     return ToolService.EmptyTrash();
   }
 
+  trashInfo(): Promise<Models.TrashInfo> {
+    return ToolService.TrashInfo();
+  }
+
   // Recipes.
   listRecipes(): Promise<Models.ListRecipesResponse> {
     return RecipeService.ListRecipes();
@@ -100,6 +108,37 @@ export class WailsIpc {
     return RecipeService.CancelRecipe(jobId);
   }
 
+  saveUserRecipe(
+    request: Models.SaveUserRecipeRequest,
+  ): Promise<Models.UserRecipeResponse> {
+    return RecipeService.SaveUserRecipe(request);
+  }
+
+  renameUserRecipe(
+    id: string,
+    name: string,
+  ): Promise<Models.UserRecipeResponse> {
+    return RecipeService.RenameUserRecipe(id, name);
+  }
+
+  deleteUserRecipe(id: string): Promise<Models.UserRecipeResponse> {
+    return RecipeService.DeleteUserRecipe(id);
+  }
+
+  exportUserRecipes(
+    path: string,
+    ids: string[],
+  ): Promise<Models.ExportUserRecipesResponse> {
+    return RecipeService.ExportUserRecipes(path, ids);
+  }
+
+  importUserRecipes(
+    path: string,
+    overwrite: boolean,
+  ): Promise<Models.ImportUserRecipesResponse> {
+    return RecipeService.ImportUserRecipes(path, overwrite);
+  }
+
   // Automation.
   listAutomationRules(): Promise<Models.ListAutomationRulesResponse> {
     return AutomationService.ListAutomationRules();
@@ -115,6 +154,12 @@ export class WailsIpc {
     id: string,
   ): Promise<Models.AutomationRuleActionResponse> {
     return AutomationService.DeleteAutomationRule(id);
+  }
+
+  previewAutomationRule(
+    rule: Models.AutomationRule,
+  ): Promise<Models.AutomationOrganizePreviewResponse> {
+    return AutomationService.PreviewAutomationRule(rule);
   }
 
   setAutomationRuleEnabled(
@@ -138,6 +183,27 @@ export class WailsIpc {
     return AutomationService.ClearAutomationRuns();
   }
 
+  // Duplicate scans (read-only).
+  startDuplicateScan(
+    request: Models.DuplicateScanRequest,
+  ): Promise<Models.DuplicateStartResponse> {
+    return DuplicatesService.StartScan(request);
+  }
+
+  getDuplicateScan(scanId: string): Promise<Models.DuplicateScanStatusResponse> {
+    return DuplicatesService.GetScan(scanId);
+  }
+
+  cancelDuplicateScan(
+    scanId: string,
+  ): Promise<Models.DuplicateScanActionResponse> {
+    return DuplicatesService.CancelScan(scanId);
+  }
+
+  listDuplicateScans(): Promise<Models.DuplicateScanListResponse> {
+    return DuplicatesService.ListScans();
+  }
+
   // Capabilities and toolchain.
   getOcrCapabilities(): Promise<Models.OCRCapabilitiesResponse> {
     return SystemService.GetOCRCapabilities();
@@ -152,6 +218,31 @@ export class WailsIpc {
 
   getLocalCapabilities(): Promise<Models.LocalCapabilitiesResponse> {
     return SystemService.GetLocalCapabilities();
+  }
+
+  getAppInfo(): Promise<Models.AppInfoResponse> {
+    return SystemService.GetAppInfo();
+  }
+
+  // Updates. The backend owns gating and consent; these are pass-throughs.
+  getUpdateStatus(): Promise<UpdateModels.Status> {
+    return UpdateService.GetUpdateStatus();
+  }
+
+  checkForUpdates(): Promise<UpdateModels.Status> {
+    return UpdateService.CheckForUpdates();
+  }
+
+  downloadUpdate(): Promise<UpdateModels.Status> {
+    return UpdateService.DownloadUpdate();
+  }
+
+  grantInstallConsent(): Promise<UpdateModels.Status> {
+    return UpdateService.GrantInstallConsent();
+  }
+
+  installUpdate(): Promise<UpdateModels.Status> {
+    return UpdateService.InstallUpdate();
   }
 
   getToolchainStatus(): Promise<Models.ToolchainStatus> {
@@ -170,6 +261,12 @@ export class WailsIpc {
 
   cancelToolchainInstall(): Promise<Models.ToolchainStatus> {
     return ToolchainService.CancelToolchainInstall();
+  }
+
+  // Secondary windows. The backend owns route validation and de-duplication by
+  // route, so the frontend only forwards the route it wants opened.
+  openToolWindow(route: string): Promise<Models.ToolWindowResponse> {
+    return WindowService.OpenToolWindow(route);
   }
 
   // Inspection, dialogs, and system actions.
@@ -199,6 +296,14 @@ export class WailsIpc {
 
   openDirectoryDialog(): Promise<string> {
     return SystemService.OpenDirectoryDialog();
+  }
+
+  openImportFileDialog(): Promise<string> {
+    return SystemService.OpenImportFileDialog();
+  }
+
+  saveFileDialog(defaultFilename: string): Promise<string> {
+    return SystemService.SaveFileDialog(defaultFilename);
   }
 
   // Preview and media.
@@ -240,6 +345,19 @@ export class WailsIpc {
     request: Models.ImageCropPreviewRequest,
   ): Promise<Models.ImageCropPreviewResponse> {
     return ToolService.GetImageCropPreview(request);
+  }
+
+  getImageCropSuggestion(
+    inputPath: string,
+  ): Promise<Models.ImageCropSuggestionResponse> {
+    return ToolService.GetImageCropSuggestion(inputPath);
+  }
+
+  suggestOutputName(
+    toolId: string,
+    inputPath: string,
+  ): Promise<Models.OutputNameSuggestionResponse> {
+    return ToolService.SuggestOutputName(toolId, inputPath);
   }
 
   getImageAnnotatePreview(

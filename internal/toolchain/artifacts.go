@@ -17,6 +17,8 @@ import (
 //   - rembg: SHA-256 computed from the v0.0.0 release asset (the release
 //     predates GitHub asset digests); the legacy MD5 still matches
 //     fc16ebd8b0c10d971d3513d564d01e29.
+//   - upscale: SHA-256 computed on 2026-11-27 from the Qualcomm AI Hub Models
+//     v0.67.0 ONNX float archive and its extracted files.
 
 const (
 	// MicromambaReleaseTag pins the micromamba release. The previous code used
@@ -191,6 +193,32 @@ func TessdataArtifact(language string) (Artifact, error) {
 // reads rembgModelSpec so tests can substitute a small fake payload.
 func RembgModelArtifact() Artifact {
 	spec := rembgModelSpec
+
+	return Artifact{
+		URL:       spec.URL,
+		SHA256:    spec.SHA256,
+		SizeBytes: spec.SizeBytes,
+		FileName:  spec.FileName,
+	}
+}
+
+// UpscaleModelArtifact returns the pinned upscale model archive. It reads
+// upscaleModelSpec so tests can substitute a small fake archive.
+func UpscaleModelArtifact() Artifact {
+	spec := upscaleModelSpec
+
+	return Artifact{
+		URL:       spec.URL,
+		SHA256:    spec.SHA256,
+		SizeBytes: spec.SizeBytes,
+		FileName:  spec.ArchiveName,
+	}
+}
+
+// UpscaleAnimeModelArtifact returns the pinned illustration model file. It
+// reads upscaleAnimeModelSpec so tests can substitute a small fake payload.
+func UpscaleAnimeModelArtifact() Artifact {
+	spec := upscaleAnimeModelSpec
 
 	return Artifact{
 		URL:       spec.URL,

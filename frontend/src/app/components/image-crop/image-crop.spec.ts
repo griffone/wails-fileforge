@@ -9,8 +9,10 @@ import { Subject } from 'rxjs';
 
 import { ImageCrop } from './image-crop';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
+  ImageCropSuggestionResponse,
   JobProgressEvent,
   JobRequest,
   JobResultItem,
@@ -138,12 +140,14 @@ describe('ImageCrop', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
       'inspectFiles',
       'getThumbnail',
       'getImagePreviewSource',
       'getImageCropPreview',
+      'getImageCropSuggestion',
       'runJob',
       'getJobStatus',
       'cancelJob',
@@ -186,6 +190,15 @@ describe('ImageCrop', () => {
       mimeType: 'image/png',
       width: 20,
       height: 20,
+    });
+    wailsSpy.getImageCropSuggestion.and.resolveTo({
+      success: true,
+      message: 'No uniform border was found.',
+      found: false,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
     });
     wailsSpy.runJob.and.resolveTo({
       success: true,
@@ -235,6 +248,7 @@ describe('ImageCrop', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('plans one image as single with the default crop options', fakeAsync(() => {
@@ -692,6 +706,126 @@ describe('ImageCrop', () => {
       'a.png is already in the queue.',
     );
     expect(component.fileItems().length).toBe(1);
+  }));
+
+  it('fills the crop fields from the border suggestion and refreshes the preview', fakeAsync(() => {
+    wailsSpy.getImageCropSuggestion.and.resolveTo({
+      success: true,
+      message: 'Detected a uniform border on all four edges.',
+      found: true,
+      x: 10,
+      y: 12,
+      width: 70,
+      height: 50,
+      reason: 'Detected a uniform border on all four edges.',
+      confidence: 'high',
+    });
+
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    const previewCalls = wailsSpy.getImageCropPreview.calls.count();
+    const planCalls = wailsSpy.planJob.calls.count();
+
+    void component.detectBorders();
+    flushMicrotasks();
+
+    expect(wailsSpy.getImageCropSuggestion).toHaveBeenCalledOnceWith(
+      '/tmp/photo.png',
+    );
+    expect(component.bounds()).toEqual({
+      x: '10',
+      y: '12',
+      width: '70',
+      height: '50',
+    });
+    expect(component.suggestionNotice()).toBe('');
+    expect(wailsSpy.getImageCropPreview.calls.count()).toBe(previewCalls + 1);
+
+    const previewRequest = wailsSpy.getImageCropPreview.calls.mostRecent()
+      .args[0];
+    expect(previewRequest).toEqual(
+      jasmine.objectContaining({ x: 10, y: 12, width: 70, height: 50 }),
+    );
+
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls + 1);
+    const request = lastPlanRequest();
+    expect(request.options['x']).toBe(10);
+    expect(request.options['y']).toBe(12);
+    expect(request.options['width']).toBe(70);
+    expect(request.options['height']).toBe(50);
+  }));
+
+  it('shows a notice when no border suggestion is found', fakeAsync(() => {
+    wailsSpy.getImageCropSuggestion.and.resolveTo({
+      success: true,
+      message: 'No uniform border was found.',
+      found: false,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      reason: 'No uniform border was found.',
+    });
+
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+
+    void component.detectBorders();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.bounds()).toEqual({
+      x: '0',
+      y: '0',
+      width: '100',
+      height: '80',
+    });
+    expect(component.suggestionNotice()).toContain('No uniform border');
+    expect(
+      fixture.nativeElement.querySelector('.suggestion-notice')?.textContent,
+    ).toContain('No uniform border was found');
+  }));
+
+  it('disables the border action while detection is running', fakeAsync(() => {
+    let resolveSuggestion!: (value: ImageCropSuggestionResponse) => void;
+    wailsSpy.getImageCropSuggestion.and.returnValue(
+      new Promise<ImageCropSuggestionResponse>((resolve) => {
+        resolveSuggestion = resolve;
+      }),
+    );
+
+    component.onPathsSelected(['/tmp/photo.png']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector(
+      '.suggestion-action',
+    ) as HTMLButtonElement;
+    expect(button.disabled).toBeFalse();
+    expect(button.textContent).toContain('Auto-detect borders');
+
+    void component.detectBorders();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.suggestionLoading()).toBeTrue();
+    expect(button.disabled).toBeTrue();
+    expect(button.textContent).toContain('Detecting');
+
+    resolveSuggestion({
+      success: true,
+      message: 'No uniform border was found.',
+      found: false,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+    });
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.suggestionLoading()).toBeFalse();
+    expect(button.disabled).toBeFalse();
   }));
 
   it('renders the file-first page without the legacy mode and path controls', () => {

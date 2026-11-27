@@ -16,6 +16,16 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as models$0 from "../models/models.js";
 
 /**
+ * GetAppInfo reports the version, commit and build time injected into this
+ * binary, plus whether the build pinned an update signing key. The Settings
+ * About panel reads it, and Release tells a future updater whether the build
+ * is a stamped release.
+ */
+export function GetAppInfo(): $CancellablePromise<models$0.AppInfoResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.GetAppInfo");
+}
+
+/**
  * GetLocalCapabilities reports every external tool the local tools rely on,
  * with availability, required/optional state and guidance, plus the installed
  * OCR languages. It never fails: a missing tool is reported, not an error.
@@ -76,6 +86,14 @@ export function OpenFileDialog(): $CancellablePromise<string> {
 }
 
 /**
+ * OpenImportFileDialog opens a native file dialog filtered to JSON so the user
+ * can pick a shared recipe file. It returns an empty path when they cancel.
+ */
+export function OpenImportFileDialog(): $CancellablePromise<string> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.OpenImportFileDialog");
+}
+
+/**
  * OpenMultipleFilesDialog opens a native file dialog and returns multiple selected file paths
  */
 export function OpenMultipleFilesDialog(): $CancellablePromise<string[] | null> {
@@ -104,4 +122,12 @@ export function RegisterMediaPath(path: string): $CancellablePromise<models$0.Me
  */
 export function RevealInFolder(path: string): $CancellablePromise<models$0.PathActionResponse> {
     return $Call.ByName("fileforge-desktop/internal/app.SystemService.RevealInFolder", path);
+}
+
+/**
+ * SaveFileDialog opens a native save dialog for a shareable recipe file. It
+ * returns the chosen path, or an empty string when the user cancels.
+ */
+export function SaveFileDialog(defaultFilename: string): $CancellablePromise<string> {
+    return $Call.ByName("fileforge-desktop/internal/app.SystemService.SaveFileDialog", defaultFilename);
 }

@@ -22,28 +22,47 @@ pipeline:
 3. Builds the Angular frontend.
 4. Generates the Windows resources (`.syso`) and cross-compiles the `.exe` with
    cgo enabled.
-5. Computes the libvips DLL closure from the executable and copies only the
+5. Builds the headless CLI (`fileforge-cli.exe`) with the same cross environment
+   and stages it next to the desktop executable.
+6. Computes the libvips DLL closure from the executable and copies only the
    reachable DLLs next to it (`scripts/prune-windows-dlls.py`); the
    `vips-modules-*` directories are not bundled.
-6. Generates the WebView2 bootstrapper when missing and builds the NSIS
-   installer with the committed branded bitmaps.
-7. Creates a portable ZIP with the same exe and DLLs (`zip -9`).
+7. Signs the staged desktop and CLI executables with `scripts/sign-windows.sh`
+   when a certificate is configured. Without one the step warns and continues,
+   so the build stays usable for local testing.
+8. Generates the WebView2 bootstrapper when missing and builds the NSIS
+   installer with the committed branded bitmaps. The installer packages the
+   already-signed executables.
+9. Signs the generated installer, then creates a portable ZIP with the same
+   signed executables and DLLs (`zip -9`). The ZIP itself is not signed.
+10. `task package-windows` regenerates `bin/SHA256SUMS` as its last step.
 
 Artifacts:
 
 ```text
-bin/fileforge-desktop-amd64-installer.exe   (~18.9 MiB)
-bin/fileforge-desktop-windows-amd64.zip     (~23.0 MiB)
+bin/fileforge-desktop-amd64-installer.exe   (~22.1 MiB)
+bin/fileforge-desktop-windows-amd64.zip     (~33.2 MiB)
+bin/SHA256SUMS                              (generated, not committed)
 ```
 
-The staged bundle is about 57 MiB: a 27.6 MiB executable plus 48 libvips DLLs
-(29.8 MiB). The sizes above are the optimized ones: the installer uses a 64 MB
-LZMA dictionary and the ZIP is written with maximum deflate. The ZIP contains a
-`FileForge Desktop/` folder with the exe and the pruned DLL set. The optional
-libvips modules are not bundled because the app only uses the core loaders
-(JPEG, PNG, WebP, GIF, TIFF, BMP); JXL, ImageMagick, Poppler and OpenSlide are
-unnecessary. The version metadata comes from `build/windows/info.json` and the
-`INFO_PRODUCTVERSION` define in `build/windows/nsis/project.nsi`. The libvips
+`bin/SHA256SUMS` holds the SHA-256 of the installer, the portable ZIP and the
+Linux AppImage. Generate it with `task checksums` **after** signing: signing
+rewrites the file bytes, so a checksum taken before signing is wrong. The
+`bin/` directory is gitignored; checksums are release output, not source.
+
+The staged bundle is about 83 MiB: the desktop executable, the 20.4 MiB CLI and
+48 libvips DLLs (29.8 MiB). The sizes above are the optimized ones: the
+installer uses a 64 MB LZMA dictionary and the ZIP is written with maximum
+deflate. The ZIP contains a `FileForge Desktop/` folder with both executables
+and the pruned DLL set. The optional libvips modules are not bundled because the
+app only uses the core loaders (JPEG, PNG, WebP, GIF, TIFF, BMP); JXL,
+ImageMagick, Poppler and OpenSlide are unnecessary. The version metadata comes
+from `build/windows/info.json` and the `INFO_PRODUCTVERSION` define in
+`build/windows/nsis/project.nsi`; the running binary's identity is injected from
+`git describe` by `scripts/versionflags` (see the README's version identity
+section). That helper falls back to `wails.json` in a source tarball, so keep
+`wails.json`, `build/config.yml` and `build/windows/info.json` on the same
+version. The libvips
 cache lives in `~/.cache/fileforge-windows`; override it with
 `FILEFORGE_WINDOWS_CACHE`. The Wails CLI is resolved from `PATH`, then
 `$HOME/go/bin/wails3`; override it with `WAILS3_BIN`.
@@ -74,6 +93,7 @@ has already loaded its imports.
 The installer bundles:
 
 - `fileforge-desktop.exe`
+- `fileforge-cli.exe` (the headless CLI, installed in the same folder)
 - libvips DLLs (the pruned set reachable from the exe)
 - the WebView2 bootstrapper
 - shortcuts and the uninstaller
@@ -96,13 +116,156 @@ build is also possible with:
   `build/windows/nsis/project.nsi` from this repository.
 
 Build the frontend, generate the `.syso`, run `go build -tags production` with
-the libvips cgo flags, run `scripts/prune-windows-dlls.py` to stage the
+the libvips cgo flags, build `./cmd/fileforge-cli` into `bin/fileforge-cli.exe`
+with the same environment, run `scripts/prune-windows-dlls.py` to stage the
 reachable DLLs, generate the WebView2 bootstrapper and run `makensis` with
-`-DLIBVIPS_DIR=<pruned stage>`. The script contains the exact commands and is
-the reference implementation.
+`-DLIBVIPS_DIR=<pruned stage>` and `-DFILEFORGE_CLI_BINARY=<cli exe>`. The script
+contains the exact commands and is the reference implementation; the native
+`build/windows/Taskfile.yml` performs the same two `go build` steps so
+`task package-native` on Windows also produces an installer with the CLI.
 
 Do **not** run `wails3 update build-assets` without re-applying the NSIS
 changes: it regenerates template files and would drop the libvips bundling.
+
+## Code signing
+
+`scripts/sign-windows.sh` adds an Authenticode signature with SHA-256 and an
+RFC 3161 timestamp. `scripts/build-windows.sh` calls it twice:
+
+1. After staging, before `makensis`, for `fileforge-desktop.exe` and
+   `fileforge-cli.exe`. The installer therefore packages signed binaries.
+2. After `makensis`, for the generated installer `.exe`.
+
+The portable ZIP is written after both steps, so it already contains the signed
+executables. The ZIP is not signed.
+
+Signing is optional for local builds. With no certificate configured the script
+prints one warning and exits 0, so `task package-windows` keeps working. Set
+`REQUIRE_SIGNING=1` to make a missing certificate or signing tool fail the
+build instead.
+
+### Environment
+
+| Variable | Meaning |
+| --- | --- |
+| `WINDOWS_CERT_PFX` | PKCS#12 (`.pfx`/`.p12`) file with the code-signing key. |
+| `WINDOWS_CERT_PASSWORD` | PFX password. It is never printed and never placed on a command line; the tool-specific sections below show how each signer receives it. |
+| `WINDOWS_CERT_PASSWORD_FILE` | File containing the PFX password. It takes precedence over `WINDOWS_CERT_PASSWORD` and is passed to osslsigncode as a file. |
+| `WINDOWS_CERT_THUMBPRINT` | `signtool` only. SHA-1 thumbprint of a certificate already in `Cert:\CurrentUser\My`; no password is needed. |
+| `WINDOWS_TIMESTAMP_URL` | RFC 3161 timestamp endpoint. Defaults to `http://timestamp.digicert.com`. |
+| `SIGN_WINDOWS=0` | Skip signing on purpose. Combining it with `REQUIRE_SIGNING=1` is an error. |
+| `SIGN_WINDOWS_TOOL` | `auto` (default), `osslsigncode` or `signtool`. |
+| `REQUIRE_SIGNING=1` | Missing certificate or signing tool becomes a fatal error. |
+
+The password never reaches `argv`:
+
+- `osslsigncode` reads it with `-readpass -` from stdin, or with
+  `-readpass <password-file>` when `WINDOWS_CERT_PASSWORD_FILE` is set. The
+  script never expands it into a command line and disables `set -x`.
+- `signtool` has no stdin password option. The script therefore imports the PFX
+  into `Cert:\CurrentUser\My` with PowerShell, reading the password from the
+  environment, signs with `/sha1 <thumbprint>`, and removes the imported
+  certificate when the run ends. `signtool /p` is never used.
+  Setting `WINDOWS_CERT_THUMBPRINT` skips the import entirely and is the
+  recommended Windows setup.
+
+For an unencrypted PFX, export `WINDOWS_CERT_PASSWORD` as an empty string.
+
+### Linux: osslsigncode with an exported PFX
+
+Export the code-signing certificate and key from the Windows certificate store
+as a PFX (certlm.msc → Personal → Certificates → All Tasks → Export, include
+the private key, protect it with a password). Copy the file to the Linux build
+host and keep it outside the repository.
+
+```bash
+export WINDOWS_CERT_PFX="$HOME/.config/fileforge/codesign.pfx"
+export WINDOWS_CERT_PASSWORD_FILE="$HOME/.config/fileforge/codesign.pass"
+chmod 600 "$WINDOWS_CERT_PFX" "$WINDOWS_CERT_PASSWORD_FILE"
+
+./scripts/sign-windows.sh --check       # validate, print the plan
+./scripts/build-windows.sh              # sign during the build
+```
+
+The per-file commands are:
+
+```bash
+osslsigncode sign -pkcs12 cert.pfx -readpass - -h sha256 \
+  -ts http://timestamp.digicert.com -in file.exe -out file.exe.signed
+osslsigncode verify -in file.exe
+```
+
+`-ts` requests an RFC 3161 timestamp. Install the tool with your package
+manager (`apt install osslsigncode`, `pacman -S osslsigncode`, `brew install
+osslsigncode`).
+
+Verification normally checks the digest, the certificate chain, the timestamp
+signature and revocation. If the local CA store cannot validate the timestamp
+or the CRL endpoints (for example on an offline builder), the script retries
+with `-ignore-timestamp -ignore-cdp -ignore-crl` and warns that the signature
+and digest were verified but the timestamp signature and revocation status were
+not checked locally.
+
+### Windows: signtool
+
+Install the Windows SDK so `signtool` is on `PATH`, then either import the PFX
+once and use its thumbprint:
+
+```powershell
+$sec = ConvertTo-SecureString -String $env:WINDOWS_CERT_PASSWORD -AsPlainText -Force
+$cert = Import-PfxCertificate -FilePath $env:WINDOWS_CERT_PFX `
+  -CertStoreLocation Cert:\CurrentUser\My -Password $sec
+$env:WINDOWS_CERT_THUMBPRINT = $cert.Thumbprint
+```
+
+or let `scripts/sign-windows.sh` do the temporary import itself. The script
+uses:
+
+```text
+signtool sign /sha1 <thumbprint> /fd sha256 /tr http://timestamp.digicert.com /td sha256 file.exe
+signtool verify /pa /all file.exe
+```
+
+### Checking and previewing
+
+```bash
+./scripts/sign-windows.sh --check
+./scripts/sign-windows.sh --dry-run bin/fileforge-desktop-amd64-installer.exe
+```
+
+`--check` validates the environment and prints the plan without touching a
+file. `--dry-run` prints the exact commands. When the certificate or tool is
+missing, both respect `REQUIRE_SIGNING`: warn and exit 0, or fail.
+
+Verify a signed file at any time with:
+
+```bash
+osslsigncode verify -in file.exe                    # Linux
+signtool verify /pa /all file.exe                   # Windows
+Get-AuthenticodeSignature .\file.exe | Format-List  # PowerShell
+```
+
+### SmartScreen expectations
+
+Code signing is not a switch that removes every warning on day one.
+
+- An **OV (organization validation)** certificate makes Windows show the
+  verified publisher instead of "Unknown publisher" in the UAC prompt. It
+  removes the unknown-publisher warning, but SmartScreen reputation is built
+  per certificate over downloads and time. A brand-new OV certificate can still
+  trigger "Windows protected your PC" until enough users download the file.
+- **EV (extended validation)** certificates and **Azure Trusted Signing** start
+  with established reputation, so they usually avoid the SmartScreen warning
+  immediately.
+
+Do not promise users that the first signed build is warning-free. The honest
+baseline is: signed binaries identify the publisher, and SmartScreen reputation
+accrues over time unless an EV or Azure Trusted Signing certificate is used.
+
+The NSIS-generated `uninstall.exe` is not signed by this hook. Signing it would
+need the `!finalize`/`!uninstfinalize` hooks in `build/windows/nsis/project.nsi`,
+which run inside `makensis`; those hooks stay commented out so the signing flow
+remains one explicit step in the build script.
 
 ## Windows install paths
 
@@ -113,6 +276,7 @@ The NSIS installer defaults to a per-machine install:
 ```text
 %ProgramFiles%\FileForge\FileForge Desktop\
   fileforge-desktop.exe
+  fileforge-cli.exe
   libvips-42.dll + dependencies
   uninstall.exe
 ```
@@ -155,9 +319,10 @@ The app installs its local tools under the current user's LocalAppData:
     Scripts\python.exe
     Scripts\pdf2docx.exe
     Lib\site-packages\pdf2docx\
-  rembg-venv\
+  onnx-venv\
     Scripts\python.exe
     Lib\site-packages\rembg\
+    Lib\site-packages\onnxruntime\
   whisper\
     whisper-cli.exe
     ...DLLs
@@ -191,6 +356,11 @@ Notes:
   PDF; the installer and the toolchain readiness check now guarantee them.
 - The default Whisper model is medium (`ggml-medium.bin`, about 1.5 GB). Small
   and large-v3 can be installed from Settings → Tools & Models.
+- DOCX to PDF uses a renderer bundled in the application binary (pure Go, no
+  office suite). Ghostscript, already present in the managed toolchain, is used
+  only for PDF/A post-processing. Complex desktop-publishing layouts, exact
+  floating-shape wrapping and some SmartArt diagrams may differ from Word; the
+  tool advertises standard fidelity, not pixel-identical output.
 - The PDF to DOCX engine uses the conda Python 3.11 only as its base
   interpreter. pdf2docx and its dependencies live in the isolated
   `pdf2docx-venv` (about 350 MB) with pinned versions; they are never installed
@@ -203,9 +373,11 @@ Notes:
   installer bundles neither Python/rembg nor the model. Installed, it is about
   630 MB (roughly 450-550 MB for the venv plus the 171 MB model). A missing pack
   degrades only Remove Background.
-- The `rembg-venv` uses the conda Python 3.11 only as its base interpreter. The
+- The `onnx-venv` uses the conda Python 3.11 only as its base interpreter. The
   pinned `rembg[cpu]==2.0.87`, `onnxruntime==1.32.0` and their transitive pins
-  live only in that venv, never in the conda environment.
+  live only in that venv, never in the conda environment. Background removal
+  and upscaling share it: the upscale pins are a subset of the rembg set with
+  identical versions.
 - Background removal child processes receive `REMBG_HOME` and `U2NET_HOME`
   pointing at the managed `rembg` folder, overriding inherited values. The
   engine forces `CPUExecutionProvider` and refuses to start without the managed
@@ -225,6 +397,7 @@ Notes:
 ```text
 %APPDATA%\fileforge\job_history.json
 %APPDATA%\fileforge\jobs.json
+%APPDATA%\fileforge\recipe_runs.json
 %APPDATA%\fileforge\automation_rules.json
 %APPDATA%\fileforge\automation_runs.json
 ```
@@ -265,7 +438,7 @@ Uninstall from **Settings → Apps → Installed apps → FileForge Desktop** or
 following data for the current Windows user is removed:
 
 ```text
-%ProgramFiles%\FileForge\FileForge Desktop\    app, libvips DLLs, uninstaller
+%ProgramFiles%\FileForge\FileForge Desktop\    app, CLI, libvips DLLs, uninstaller
 %LOCALAPPDATA%\FileForge                        managed toolchain and models
 %LOCALAPPDATA%\fileforge                        local cache fallback
 %APPDATA%\fileforge                             settings, job history, automation, trash
@@ -278,7 +451,7 @@ following data for the current Windows user is removed:
 Shortcuts and the uninstall registry key are removed as well. The managed
 toolchain covers FFmpeg, Tesseract, Poppler, Ghostscript, Python, Whisper, the
 Whisper models and the optional background-removal pack. App data covers the
-settings, job history, automation rules and runs, and the app trash.
+settings, job history, recipe runs, automation rules and runs, and the app trash.
 
 Converted files are never touched: they live wherever you saved them. The
 Microsoft Edge WebView2 runtime is shared with other applications and stays
@@ -290,6 +463,10 @@ close it before continuing.
 - **The exe does not start / missing libvips DLL**: use the installer or the
   portable ZIP, not the bare `fileforge-desktop.exe`. The DLLs must be in the
   same folder.
+- **`fileforge-cli.exe` does not start / missing libvips DLL**: run it from the
+  install folder or the extracted portable ZIP. It links the same libvips stack
+  and loads `libvips-42.dll` from its own folder, so it cannot be copied out on
+  its own.
 - **WebView2 missing**: the installer runs the WebView2 bootstrapper. On an
   offline machine, install the Evergreen WebView2 Runtime first.
 - **OCR fails with a merge error**: open Settings → Tools & Models and run
@@ -306,12 +483,14 @@ close it before continuing.
   `rembg` and `rembg-model` component details. Run Install / repair. If the
   engine installs but cannot start, install the Microsoft Visual C++ 2019+
   redistributable and check that antivirus/EDR is not quarantining the
-  `onnxruntime` DLLs under `rembg-venv\Lib\site-packages\onnxruntime\`.
+  `onnxruntime` DLLs under `onnx-venv\Lib\site-packages\onnxruntime\`.
 - **First-run downloads fail**: check the proxy/firewall. The downloads come
   from GitHub, conda-forge and Hugging Face. Re-run Install / repair.
-- **SmartScreen warns**: the installer is unsigned. Code signing is a release
-  follow-up: sign the exe, installer and uninstaller with `signtool` (the NSIS
-  script has commented `!finalize`/`!uninstfinalize` hooks). Unsigned builds are
-  fine for local testing and internal distribution.
+- **SmartScreen warns**: the build was unsigned, or the certificate has no
+  reputation yet. Configure code signing as described in
+  [Code signing](#code-signing). An OV certificate removes the
+  unknown-publisher warning, but SmartScreen reputation accrues over time; EV
+  or Azure Trusted Signing start with reputation. Unsigned builds are fine for
+  local testing and internal distribution.
 - **Windows ARM64**: not built. The toolchain currently supports
   `windows/amd64`.

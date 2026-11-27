@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"fileforge-desktop/internal/platform/fsx"
+	"fileforge-desktop/internal/toolchain"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
@@ -39,10 +39,9 @@ const (
 	ghostscriptPresetScreen = "screen"
 )
 
-// GhostscriptBinaryNames is the Ghostscript binary search order: gs on Unix and
-// the Windows console builds, which is what the managed conda environment
-// installs on Windows.
-var GhostscriptBinaryNames = []string{"gs", "gswin64c", "gswin32c"}
+// GhostscriptBinaryNames aliases the shared search order in internal/toolchain
+// so every Ghostscript caller resolves the same executable.
+var GhostscriptBinaryNames = toolchain.GhostscriptBinaryNames
 
 // GhostscriptRunner runs Ghostscript PDF compression with one PDFSETTINGS
 // preset. It is a package-level variable so tests can replace the external
@@ -52,14 +51,9 @@ var GhostscriptRunner = runGhostscript
 // ResolveGhostscriptPath returns the first Ghostscript binary found in PATH.
 // The bool is false when no supported name exists.
 func ResolveGhostscriptPath() (string, bool) {
-	for _, name := range GhostscriptBinaryNames {
-		path, err := exec.LookPath(name)
-		if err == nil && strings.TrimSpace(path) != "" {
-			return path, true
-		}
-	}
+	binary, found := toolchain.ResolveGhostscript(nil)
 
-	return "", false
+	return binary.Path, found
 }
 
 // GhostscriptLookPath reports whether a supported Ghostscript binary is

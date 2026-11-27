@@ -13,6 +13,7 @@ type Class string
 const (
 	ClassCPU      Class = "cpu"
 	ClassExternal Class = "external"
+	ClassAudio    Class = "audio"
 	ClassIO       Class = "io"
 )
 
@@ -31,6 +32,7 @@ type Limits struct {
 	Total    int
 	CPU      int
 	External int
+	Audio    int
 	IO       int
 }
 
@@ -39,6 +41,7 @@ type Limits struct {
 //	Total    = clamp(NumCPU, 2, 6)
 //	CPU      = clamp(NumCPU/2, 1, 4)
 //	External = 1
+//	Audio    = clamp(NumCPU/2, 1, 2)
 //	IO       = 2
 //
 // Total is raised when needed so it is never smaller than any class capacity.
@@ -48,9 +51,10 @@ func DefaultLimits() Limits {
 		Total:    clampInt(cpus, 2, 6),
 		CPU:      clampInt(cpus/2, 1, 4),
 		External: 1,
+		Audio:    clampInt(cpus/2, 1, 2),
 		IO:       2,
 	}
-	limits.Total = max(limits.Total, limits.CPU, limits.External, limits.IO)
+	limits.Total = max(limits.Total, limits.CPU, limits.External, limits.Audio, limits.IO)
 
 	return limits
 }
@@ -83,10 +87,13 @@ func normalizeLimits(limits Limits) Limits {
 	if limits.External <= 0 {
 		limits.External = defaults.External
 	}
+	if limits.Audio <= 0 {
+		limits.Audio = defaults.Audio
+	}
 	if limits.IO <= 0 {
 		limits.IO = defaults.IO
 	}
-	limits.Total = max(limits.Total, limits.CPU, limits.External, limits.IO)
+	limits.Total = max(limits.Total, limits.CPU, limits.External, limits.Audio, limits.IO)
 
 	return limits
 }
@@ -97,6 +104,8 @@ func (l Limits) capacity(class Class) int {
 	switch class {
 	case ClassExternal:
 		return max(1, l.External)
+	case ClassAudio:
+		return max(1, l.Audio)
 	case ClassIO:
 		return max(1, l.IO)
 	default:
@@ -105,21 +114,27 @@ func (l Limits) capacity(class Class) int {
 }
 
 // classForTool maps a stable tool ID to its resource class. The mapping is
-// intentionally conservative: anything that spawns an external process
-// (LibreOffice, pandoc, ffmpeg, tesseract) is External, PDF rewrite work is
-// CPU, and unknown tools default to CPU.
+// intentionally conservative: tools that spawn an external process (ffmpeg,
+// tesseract, Ghostscript) or run a bundled Python engine are External, PDF
+// rewrite work is CPU, and unknown tools default to CPU.
 func classForTool(toolID string) Class {
 	id := strings.ToLower(strings.TrimSpace(toolID))
 
 	switch {
 	case id == "tool.pdf.ocr", id == "tool.pdf.to_docx":
 		return ClassExternal
-	case id == "tool.pdf.merge", id == "tool.pdf.split", id == "tool.pdf.crop", id == "tool.pdf.optimize", id == "tool.pdf.images":
+	case id == "tool.pdf.merge", id == "tool.pdf.split", id == "tool.pdf.crop", id == "tool.pdf.optimize", id == "tool.pdf.images",
+		id == "tool.pdf.rotate", id == "tool.pdf.remove_pages", id == "tool.pdf.reorder", id == "tool.pdf.extract_images":
 		return ClassCPU
 	case strings.HasPrefix(id, "tool.image."):
 		return ClassCPU
 	case strings.HasPrefix(id, "tool.video."):
 		return ClassExternal
+	case strings.HasPrefix(id, "tool.audio."):
+		// Audio encodes run in ffmpeg but are much lighter than video; a small
+		// dedicated class keeps two audio jobs moving without competing with
+		// video and document renders for the single external slot.
+		return ClassAudio
 	case strings.HasPrefix(id, "tool.doc."):
 		return ClassExternal
 	default:

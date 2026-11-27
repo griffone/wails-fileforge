@@ -120,6 +120,43 @@ describe('CommandPalette', () => {
     expect(optionNames()[0]).toBe('PDF Merge');
   });
 
+  describe('open-in-new-window action', () => {
+    it('offers the action on a tool route', () => {
+      fixture.componentRef.setInput('currentRoute', '/image-crop');
+
+      openPalette();
+
+      expect(groupLabels()[0]).toBe('Actions');
+      expect(optionNames()[0]).toBe('Open in new window');
+    });
+
+    it('is absent on Home, Settings and recipe routes', () => {
+      for (const route of ['/', '/settings', '/tool-catalog', '/recipe/email-pdf']) {
+        fixture.componentRef.setInput('currentRoute', route);
+        openPalette();
+
+        expect(groupLabels()).not.toContain('Actions');
+        expect(optionNames()).not.toContain('Open in new window');
+      }
+    });
+
+    it('emits the current tool route when chosen', () => {
+      fixture.componentRef.setInput('currentRoute', '/image-crop');
+      const routes: string[] = [];
+      component.openWindow.subscribe((route) => routes.push(route));
+      const closed = jasmine.createSpy('closed');
+      component.closed.subscribe(closed);
+
+      openPalette();
+      const first = fixture.nativeElement.querySelector('.palette-option') as HTMLElement;
+      first.click();
+      fixture.detectChanges();
+
+      expect(routes).toEqual(['/image-crop']);
+      expect(closed).toHaveBeenCalled();
+    });
+  });
+
   it('searches translated labels in Spanish mode', () => {
     TestBed.inject(I18nService).setLocale('es');
 

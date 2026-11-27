@@ -15,6 +15,7 @@ import (
 	"github.com/jung-kurt/gofpdf"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 
+	"fileforge-desktop/internal/doc"
 	"fileforge-desktop/internal/image"
 	"fileforge-desktop/internal/jobhistory"
 	"fileforge-desktop/internal/jobs"
@@ -385,8 +386,25 @@ func TestRunEmailPDFTinyTargetReturnsPartialSuccess(t *testing.T) {
 	if !strings.Contains(strings.ToLower(result.Message), "best effort") {
 		t.Fatalf("expected a best-effort message, got %q", result.Message)
 	}
-	if result.Verification == nil || result.Verification.Success {
-		t.Fatalf("expected a failed verification report, got %+v", result.Verification)
+	if result.Verification == nil {
+		t.Fatal("expected a verification report")
+	}
+	if !result.Verification.Success {
+		t.Fatalf("expected the output verification to stay successful, got %+v", result.Verification)
+	}
+	if len(result.Verification.Warnings) == 0 {
+		t.Fatalf("expected an advisory target warning, got %+v", result.Verification)
+	}
+	advisoryMiss := false
+	for _, output := range result.Verification.Outputs {
+		for _, check := range output.Checks {
+			if check.Key == "target_size" && check.Advisory && !check.Passed {
+				advisoryMiss = true
+			}
+		}
+	}
+	if !advisoryMiss {
+		t.Fatalf("expected a failed advisory target_size check, got %+v", result.Verification.Outputs)
 	}
 
 	wantOutput := filepath.Join(dir, "report_email.pdf")
@@ -630,8 +648,8 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	service, _, _ := newTestService(t)
 
 	recipes := service.List()
-	if len(recipes) != 5 {
-		t.Fatalf("expected five built-in recipes, got %+v", recipes)
+	if len(recipes) != 6 {
+		t.Fatalf("expected six built-in recipes, got %+v", recipes)
 	}
 
 	email := recipes[0]
@@ -779,6 +797,41 @@ func TestListRecipesReturnsCuratedRecipesInOrder(t *testing.T) {
 	}
 	if burned.Steps[0].Detail == "" || burned.Steps[1].Detail == "" || burned.Steps[2].Detail == "" {
 		t.Fatalf("expected step details for every Burned-in subtitles step, got %+v", burned.Steps)
+	}
+
+	archive := recipes[5]
+	if archive.ID != RecipeIDArchiveDocument || archive.Name != "Archive document" {
+		t.Fatalf("expected Archive document sixth, got %+v", archive)
+	}
+	if archive.Category != "documents" || archive.InputKind != "document" {
+		t.Fatalf("unexpected Archive document input metadata: %+v", archive)
+	}
+	if archive.MaxInputs != 1 {
+		t.Fatalf("expected Archive document to accept one input, got %d", archive.MaxInputs)
+	}
+	if len(archive.AcceptExtensions) != 1 || archive.AcceptExtensions[0] != "docx" {
+		t.Fatalf("unexpected Archive document accepted extensions: %+v", archive.AcceptExtensions)
+	}
+	if archive.DefaultTargetSizeBytes != 0 {
+		t.Fatalf("expected no default target size, got %d", archive.DefaultTargetSizeBytes)
+	}
+	if !archive.Duplicable || len(archive.OptionSchema) != 1 || archive.OptionSchema[0].Key != archiveSidecarOptionKey {
+		t.Fatalf("expected one duplicable sidecar option, got %+v", archive.OptionSchema)
+	}
+	if archive.OptionSchema[0].Kind != models.RecipeOptionBoolean || archive.OptionSchema[0].Default != false {
+		t.Fatalf("expected a boolean sidecar option defaulting to off, got %+v", archive.OptionSchema[0])
+	}
+	if len(archive.Steps) != 2 {
+		t.Fatalf("expected two Archive document steps, got %+v", archive.Steps)
+	}
+	if archive.Steps[0].ID != archiveStepRender || archive.Steps[0].ToolID != doc.ToolIDDocDOCXToPDF {
+		t.Fatalf("unexpected render step: %+v", archive.Steps[0])
+	}
+	if archive.Steps[1].ID != archiveStepVerify || archive.Steps[1].ToolID != "" {
+		t.Fatalf("unexpected verify step: %+v", archive.Steps[1])
+	}
+	if archive.Steps[0].Detail == "" || archive.Steps[1].Detail == "" {
+		t.Fatalf("expected step details for every Archive document step, got %+v", archive.Steps)
 	}
 }
 

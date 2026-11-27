@@ -10,6 +10,7 @@ import { EMPTY, Subject } from 'rxjs';
 import { ImageOcr } from './image-ocr';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobRequest,
@@ -150,6 +151,7 @@ describe('ImageOcr', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'getOCRCapabilities',
@@ -218,6 +220,7 @@ describe('ImageOcr', () => {
     fixture?.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('is available without pdftoppm and selects the recommended language', fakeAsync(() => {

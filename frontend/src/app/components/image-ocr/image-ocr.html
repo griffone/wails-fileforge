@@ -21,6 +21,7 @@
         ></lucide-icon>
         {{ i18n.t('imageOcr.page.localBadge') }}
       </span>
+      <app-open-window-action />
     </div>
   </header>
 
@@ -346,12 +347,16 @@
       <app-result-card
         [job]="job"
         [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
         toolLabel="image"
         verbPast="recognized"
         (open)="onOpen($event)"
         (reveal)="onReveal($event)"
         (retryFailed)="retryFailed()"
         (reset)="reset()"
+        (runAgainStarted)="onRunAgainStarted($event)"
       ></app-result-card>
     }
   </div>

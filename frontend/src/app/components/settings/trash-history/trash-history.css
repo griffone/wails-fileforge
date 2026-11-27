@@ -1,0 +1,275 @@
+:host {
+  display: block;
+}
+
+.trash-history {
+  overflow: hidden;
+}
+
+.trash-history-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trash-history-sub {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.trash-history-refresh {
+  width: 30px;
+  height: 30px;
+}
+
+.trash-history-refresh .is-spinning {
+  animation: trash-history-spin 900ms linear infinite;
+}
+
+@keyframes trash-history-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.trash-history-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px 18px 18px;
+}
+
+.trash-history-loading {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.trash-error,
+.job-history-error {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.trash-error-text,
+.job-history-error-text {
+  flex: 1;
+  min-width: 12ch;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* ---- Trash --------------------------------------------------------------- */
+
+.trash-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.trash-block-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trash-block-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.trash-empty {
+  padding: 1.25rem 1rem;
+}
+
+.trash-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.trash-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trash-summary {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.trash-derived {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ---- Job history --------------------------------------------------------- */
+
+.job-history-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-history-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.job-history-count {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.job-history-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.job-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.job-history-row + .job-history-row {
+  border-top: 1px solid var(--border);
+}
+
+.job-history-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.job-history-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.job-history-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 0.6875rem;
+  color: var(--muted);
+}
+
+.job-history-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.job-history-actions .btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.trash-history-message {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-soft);
+}
+
+/* ---- Confirmation dialog ------------------------------------------------- */
+
+.trash-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(6, 8, 11, 0.5);
+  backdrop-filter: blur(3px) saturate(104%);
+  -webkit-backdrop-filter: blur(3px) saturate(104%);
+}
+
+.trash-confirm-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 81;
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  transform: translate(-50%, -50%);
+}
+
+.trash-confirm-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.trash-confirm-body {
+  margin: 0 0 18px;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.trash-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .job-history-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .job-history-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trash-history-refresh .is-spinning {
+    animation: none;
+  }
+}

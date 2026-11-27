@@ -41,16 +41,15 @@ type TrimRequest struct {
 	TargetFormat  string
 	QualityPreset string
 	TrimMode      string
+	// TargetSizeBytes forces a two-pass re-encode sized to the requested
+	// bytes. Copy mode cannot honour it, so the engine always re-encodes.
+	TargetSizeBytes int64
 }
 
 type TrimProgressEvent struct {
 	Percent float64
 	Stage   string
 	Message string
-}
-
-type TrimProgressRunner interface {
-	RunWithProgress(ctx context.Context, name string, args []string, onProgress func(percent float64, rawMessage string)) error
 }
 
 func ValidateTrimRequest(req TrimRequest) *VideoError {
@@ -84,6 +83,10 @@ func ValidateTrimRequest(req TrimRequest) *VideoError {
 
 	if req.StartTime < 0 {
 		return &VideoError{Code: ErrorCodeVideoTrimInvalidTimeRange, Message: "startTime must be >= 0"}
+	}
+
+	if req.TargetSizeBytes < 0 {
+		return &VideoError{Code: ErrorCodeVideoTargetInvalid, Message: "targetSizeBytes must be >= 0"}
 	}
 
 	if req.EndTime <= req.StartTime {
@@ -161,11 +164,139 @@ func BuildTrimReencodeArgs(req TrimRequest) ([]string, *VideoError) {
 	return args, nil
 }
 
+// buildTrimTargetPassArgs builds one pass of the trim two-pass re-encode.
+func buildTrimTargetPassArgs(req TrimRequest, bitrateKbps, pass int, passLogPrefix, outputPath string) ([]string, *VideoError) {
+	encoding, encodingErr := resolveVideoEncoding(req.TargetFormat, req.QualityPreset)
+	if encodingErr != nil {
+		return nil, &VideoError{Code: ErrorCodeVideoTrimValidation, Message: encodingErr.Error()}
+	}
+	audioKbps := TargetAudioKbps(req.TargetFormat, true)
+	encoding = encoding.withBitrateOnly(bitrateKbps).withTargetAudio(audioKbps)
+
+	args := withFFmpegGlobalArgs([]string{
+		"-y",
+		"-ss", fmt.Sprintf("%.3f", req.StartTime),
+		"-to", fmt.Sprintf("%.3f", req.EndTime),
+		"-i", strings.TrimSpace(req.InputPath),
+	})
+
+	return appendTargetPassArgs(args, encoding, false, pass, passLogPrefix, outputPath), nil
+}
+
 func Trim(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req TrimRequest) *VideoError {
 	return TrimWithProgress(ctx, probe, runner, req, nil)
 }
 
+// TrimWithProgress keeps the historical trim progress contract while the
+// target path is shared with convert and merge.
 func TrimWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req TrimRequest, onProgress func(TrimProgressEvent)) *VideoError {
+	_, trimErr := TrimWithOutcome(ctx, probe, runner, req, onProgress)
+	return trimErr
+}
+
+// TrimWithOutcome is TrimWithProgress plus the target-size outcome. A target
+// always forces a re-encode, even when copy or auto was requested.
+func TrimWithOutcome(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req TrimRequest, onProgress func(TrimProgressEvent)) (TargetEncodeOutcome, *VideoError) {
+	var outcome TargetEncodeOutcome
+	if req.TargetSizeBytes <= 0 {
+		return outcome, trimWithProgressLegacy(ctx, probe, runner, req, onProgress)
+	}
+
+	if probe == nil {
+		probe = NewFFmpegRuntimeProbe()
+	}
+	if runner == nil {
+		runner = &ExecCommandRunner{}
+	}
+	if runtimeErr := probe.Check(ctx); runtimeErr != nil {
+		var vErr *VideoError
+		if errors.As(runtimeErr, &vErr) {
+			if vErr.Code == ErrorCodeRuntimeFFmpegNotFound || vErr.Code == ErrorCodeRuntimeFFprobeNotFound {
+				return outcome, &VideoError{Code: ErrorCodeRuntimeUnavailable, Message: "ffmpeg/ffprobe runtime is unavailable", Cause: vErr}
+			}
+			return outcome, vErr
+		}
+		return outcome, &VideoError{Code: ErrorCodeRuntimeUnavailable, Message: ErrFFmpegNotFound.Error(), Cause: runtimeErr}
+	}
+
+	if onProgress != nil {
+		onProgress(TrimProgressEvent{Percent: 5, Stage: "trim.prepare", Message: "Preparing target-size trim"})
+	}
+
+	if validationErr := ValidateTrimRequest(req); validationErr != nil {
+		return outcome, validationErr
+	}
+
+	media, mediaOK := ProbeTargetMediaOrDuration(ctx, req.InputPath)
+	if !mediaOK {
+		return outcome, &VideoError{
+			Code:    ErrorCodeVideoTargetDurationUnavailable,
+			Message: "the source duration could not be read; a size target cannot be computed",
+		}
+	}
+	outputDuration := req.EndTime - req.StartTime
+	if media.DurationSeconds > 0 && req.EndTime > media.DurationSeconds {
+		outputDuration = media.DurationSeconds - req.StartTime
+	}
+	if outputDuration <= 0 {
+		return outcome, &VideoError{
+			Code:    ErrorCodeVideoTargetDurationUnavailable,
+			Message: "the trimmed output duration could not be determined; a size target cannot be computed",
+		}
+	}
+
+	tempPath, tempErr := tempOutputPath(req.OutputPath)
+	if tempErr != nil {
+		return outcome, &VideoError{Code: ErrorCodeVideoTrimOutputWriteFailed, Message: "video trim output could not be prepared", Cause: tempErr}
+	}
+	published := false
+	defer func() {
+		if !published {
+			removeTempOutput(tempPath)
+		}
+	}()
+
+	spec := TargetEncodeSpec{
+		TargetBytes:     req.TargetSizeBytes,
+		DurationSeconds: outputDuration,
+		AudioKbps:       TargetAudioKbps(req.TargetFormat, media.HasAudio),
+		FloorKbps:       MinVideoBitrateKbps(ResolutionOriginal, media.Height),
+		OutputPath:      tempPath,
+		BuildPassArgs: func(bitrateKbps, pass int, passLogPrefix, outputPath string) ([]string, *VideoError) {
+			return buildTrimTargetPassArgs(req, bitrateKbps, pass, passLogPrefix, outputPath)
+		},
+		MapRunError: mapTrimExecutionError,
+		OnEvent: func(evt TargetProgressEvent) {
+			if onProgress == nil {
+				return
+			}
+			message := strings.TrimSpace(evt.Message)
+			if message == "" {
+				message = evt.Stage
+			}
+			onProgress(TrimProgressEvent{Percent: clampPercent(evt.Percent), Stage: evt.Stage, Message: message})
+		},
+	}
+	targetOutcome, targetErr := TargetEncode(ctx, runner, spec)
+	if targetErr != nil {
+		return targetOutcome, targetErr
+	}
+
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return targetOutcome, mapTrimExecutionError(ctxErr)
+	}
+	if publishErr := publishOutput(tempPath, req.OutputPath); publishErr != nil {
+		return targetOutcome, &VideoError{Code: ErrorCodeVideoTrimOutputWriteFailed, Message: "video trim output could not be published", Cause: publishErr}
+	}
+	published = true
+	if onProgress != nil {
+		onProgress(TrimProgressEvent{Percent: 100, Stage: "trim.done", Message: "Trim completed (target-size re-encode)"})
+	}
+
+	return targetOutcome, nil
+}
+
+func trimWithProgressLegacy(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req TrimRequest, onProgress func(TrimProgressEvent)) *VideoError {
 	if probe == nil {
 		probe = NewFFmpegRuntimeProbe()
 	}
@@ -222,6 +353,13 @@ func TrimWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRun
 		trimMode = TrimModeAuto
 	}
 
+	// ffmpeg resets the output timeline to zero after an input -ss, so the
+	// trimmed span is the expected output length used for percentage reporting.
+	trimDuration := req.EndTime - req.StartTime
+	if trimDuration < 0 {
+		trimDuration = 0
+	}
+
 	switch trimMode {
 	case TrimModeCopy:
 		if onProgress != nil {
@@ -231,7 +369,7 @@ func TrimWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRun
 		if argsErr != nil {
 			return argsErr
 		}
-		if runErr := runTrimCommand(ctx, runner, args, onProgress, 20, 95, "trim.copy"); runErr != nil {
+		if runErr := runTrimCommand(ctx, runner, args, trimDuration, onProgress, 20, 95, "trim.copy"); runErr != nil {
 			mapped := mapTrimExecutionError(runErr)
 			return &VideoError{Code: ErrorCodeVideoTrimCopyFailed, Message: "ffmpeg trim copy execution failed", Cause: mapped}
 		}
@@ -250,7 +388,7 @@ func TrimWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRun
 		if argsErr != nil {
 			return argsErr
 		}
-		if runErr := runTrimCommand(ctx, runner, args, onProgress, 20, 95, "trim.reencode"); runErr != nil {
+		if runErr := runTrimCommand(ctx, runner, args, trimDuration, onProgress, 20, 95, "trim.reencode"); runErr != nil {
 			return mapTrimExecutionError(runErr)
 		}
 		if publishErr := publish(); publishErr != nil {
@@ -268,7 +406,7 @@ func TrimWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRun
 		if argsErr != nil {
 			return argsErr
 		}
-		if runErr := runTrimCommand(ctx, runner, copyArgs, onProgress, 15, 60, "trim.auto.copy"); runErr == nil {
+		if runErr := runTrimCommand(ctx, runner, copyArgs, trimDuration, onProgress, 15, 60, "trim.auto.copy"); runErr == nil {
 			if publishErr := publish(); publishErr != nil {
 				return publishErr
 			}
@@ -294,7 +432,7 @@ func TrimWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRun
 			if reencodeArgsErr != nil {
 				return reencodeArgsErr
 			}
-			if reencodeErr := runTrimCommand(ctx, runner, reencodeArgs, onProgress, 70, 95, "trim.auto.reencode"); reencodeErr != nil {
+			if reencodeErr := runTrimCommand(ctx, runner, reencodeArgs, trimDuration, onProgress, 70, 95, "trim.auto.reencode"); reencodeErr != nil {
 				mappedReencodeErr := mapTrimExecutionError(reencodeErr)
 				return &VideoError{Code: ErrorCodeVideoTrimAutoFallbackFailed, Message: "auto trim fallback to re-encode failed", Cause: mappedReencodeErr}
 			}
@@ -312,13 +450,13 @@ func TrimWithProgress(ctx context.Context, probe RuntimeProbe, runner CommandRun
 	}
 }
 
-func runTrimCommand(ctx context.Context, runner CommandRunner, args []string, onProgress func(TrimProgressEvent), startPercent float64, endPercent float64, stage string) error {
+func runTrimCommand(ctx context.Context, runner CommandRunner, args []string, durationSeconds float64, onProgress func(TrimProgressEvent), startPercent float64, endPercent float64, stage string) error {
 	if onProgress == nil {
 		return runner.Run(ctx, "ffmpeg", args)
 	}
 
 	if progressRunner, ok := runner.(TrimProgressRunner); ok {
-		return progressRunner.RunWithProgress(ctx, "ffmpeg", args, func(percent float64, rawMessage string) {
+		return progressRunner.RunWithProgress(ctx, "ffmpeg", args, durationSeconds, func(percent float64, rawMessage string) {
 			mappedPercent := startPercent + ((endPercent - startPercent) * (percent / 100.0))
 			onProgress(TrimProgressEvent{Percent: clampPercent(mappedPercent), Stage: stage, Message: strings.TrimSpace(rawMessage)})
 		})

@@ -1,22 +1,28 @@
 import {
   Activity,
   Anvil,
+  ArrowUpDown,
   Captions,
   Combine,
   Crop,
   Eraser,
+  FileMinus,
   FileText,
   FileType,
   Frame,
   Gauge,
   House,
   Image as ImageIcon,
+  ImageUpscale,
+  Images,
   Layers,
   LayoutGrid,
   Minimize2,
   PenTool,
+  RotateCw,
   ScanText,
   Scissors,
+  ScanSearch,
   Stamp,
   Settings2,
   Timer,
@@ -25,7 +31,14 @@ import {
   type LucideIconData,
 } from 'lucide-angular';
 
-export type ToolCategory = 'workspace' | 'image' | 'pdf' | 'docs' | 'video' | 'system';
+export type ToolCategory =
+  | 'workspace'
+  | 'image'
+  | 'pdf'
+  | 'docs'
+  | 'video'
+  | 'audio'
+  | 'system';
 
 /** Sidebar groups include every tool category plus the curated recipes. */
 export type NavGroupId = ToolCategory | 'recipes';
@@ -67,6 +80,7 @@ export const TOOL_CATEGORIES: readonly ToolCategoryDefinition[] = [
   { id: 'pdf', label: 'PDF' },
   { id: 'docs', label: 'Documents' },
   { id: 'video', label: 'Video' },
+  { id: 'audio', label: 'Audio' },
   { id: 'system', label: 'System' },
 ];
 
@@ -118,7 +132,33 @@ export const AUTOMATION_TOOL: ToolDefinition = {
   keywords: ['automation', 'watch', 'folder', 'rule', 'recipe'],
 };
 
-/** The twenty conversion tools. Ids mirror the backend toolId contract. */
+/**
+ * Duplicate scan page. It is a folder-level report, not a tool: no file drop,
+ * no job queue and no plan card. Read-only by design.
+ */
+export const DUPLICATES_TOOL: ToolDefinition = {
+  id: 'system.duplicates',
+  name: 'Duplicates',
+  navName: 'Duplicates',
+  description:
+    'Scan folders for identical files and see how much space they waste.',
+  route: '/duplicates',
+  category: 'system',
+  icon: ScanSearch,
+  formats: [],
+  keywords: [
+    'duplicates',
+    'duplicate',
+    'copy',
+    'identical',
+    'hash',
+    'space',
+    'wasted',
+    'scan',
+  ],
+};
+
+/** The twenty-eight conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -236,6 +276,27 @@ export const TOOLS: readonly ToolDefinition[] = [
     ],
   },
   {
+    id: 'tool.image.upscale',
+    name: 'Upscale Image',
+    navName: 'Upscale',
+    description:
+      'Enlarge images 2x or 4x locally with an optional ONNX model pack.',
+    route: '/image-upscale',
+    category: 'image',
+    icon: ImageUpscale,
+    formats: ['PNG', 'JPG', 'WebP'],
+    keywords: [
+      'image',
+      'upscale',
+      'enlarge',
+      '2x',
+      '4x',
+      'resolution',
+      'real-esrgan',
+      'onnx',
+    ],
+  },
+  {
     id: 'tool.pdf.merge',
     name: 'PDF Merge',
     navName: 'Merge',
@@ -309,6 +370,84 @@ export const TOOLS: readonly ToolDefinition[] = [
     keywords: ['pdf', 'ocr', 'scan', 'searchable', 'text', 'tesseract', 'recognize'],
   },
   {
+    id: 'tool.pdf.rotate',
+    name: 'PDF Rotate',
+    navName: 'Rotate',
+    description: 'Rotate all pages or a page selection by 90, 180 or 270 degrees',
+    route: '/pdf-rotate',
+    category: 'pdf',
+    icon: RotateCw,
+    formats: ['PDF'],
+    keywords: [
+      'pdf',
+      'rotate',
+      'rotation',
+      'turn',
+      'pages',
+      'angle',
+      '90',
+      '180',
+      '270',
+    ],
+  },
+  {
+    id: 'tool.pdf.remove_pages',
+    name: 'PDF Remove Pages',
+    navName: 'Remove pages',
+    description: 'Delete selected pages and keep the rest of the document',
+    route: '/pdf-remove-pages',
+    category: 'pdf',
+    icon: FileMinus,
+    formats: ['PDF'],
+    keywords: [
+      'pdf',
+      'pages',
+      'delete',
+      'remove',
+      'remove pages',
+      'delete pages',
+      'drop pages',
+    ],
+  },
+  {
+    id: 'tool.pdf.reorder',
+    name: 'PDF Reorder Pages',
+    navName: 'Reorder',
+    description: 'Rewrite the page order from an explicit spec, or reverse the document',
+    route: '/pdf-reorder',
+    category: 'pdf',
+    icon: ArrowUpDown,
+    formats: ['PDF'],
+    keywords: [
+      'pdf',
+      'reorder',
+      'order',
+      'pages',
+      'reverse',
+      'move pages',
+      'sort pages',
+    ],
+  },
+  {
+    id: 'tool.pdf.extract_images',
+    name: 'PDF Extract Images',
+    navName: 'Extract images',
+    description: 'Extract embedded images into a folder with collision-safe names',
+    route: '/pdf-extract-images',
+    category: 'pdf',
+    icon: Images,
+    formats: ['PNG', 'JPG', 'JPEG', 'TIF', 'TIFF', 'JP2'],
+    keywords: [
+      'pdf',
+      'images',
+      'extract',
+      'extract images',
+      'pictures',
+      'photos',
+      'folder',
+    ],
+  },
+  {
     id: 'tool.doc.md_to_pdf',
     name: 'Markdown → PDF',
     navName: 'Markdown',
@@ -375,6 +514,77 @@ export const TOOLS: readonly ToolDefinition[] = [
     keywords: ['video', 'audio', 'transcribe', 'whisper', 'subtitles', 'srt', 'vtt'],
   },
   {
+    id: 'tool.audio.extract',
+    name: 'Extract Audio',
+    navName: 'Extract',
+    description:
+      'Extract the audio track from a video or audio file as mp3, m4a, opus, wav or flac',
+    route: '/audio-extract',
+    category: 'audio',
+    icon: Captions,
+    formats: ['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC'],
+    keywords: [
+      'audio',
+      'extract',
+      'extract audio',
+      'audio track',
+      'soundtrack',
+      'rip audio',
+      'video',
+      'mp3',
+      'm4a',
+      'opus',
+      'wav',
+      'flac',
+    ],
+  },
+  {
+    id: 'tool.audio.convert',
+    name: 'Audio Convert',
+    navName: 'Convert',
+    description: 'Convert audio files between mp3, m4a, opus, wav and flac',
+    route: '/audio-convert',
+    category: 'audio',
+    icon: FileType,
+    formats: ['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC'],
+    keywords: [
+      'audio',
+      'convert',
+      'format',
+      'codec',
+      'mp3',
+      'm4a',
+      'opus',
+      'wav',
+      'flac',
+      'bitrate',
+    ],
+  },
+  {
+    id: 'tool.audio.normalize',
+    name: 'Normalize Audio',
+    navName: 'Normalize',
+    description:
+      'Two-pass EBU R128 loudness normalization to streaming, broadcast or podcast targets',
+    route: '/audio-normalize',
+    category: 'audio',
+    icon: Gauge,
+    formats: ['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC'],
+    keywords: [
+      'audio',
+      'normalize',
+      'normalise',
+      'loudness',
+      'lufs',
+      'ebu r128',
+      'volume',
+      'true peak',
+      'streaming',
+      'broadcast',
+      'podcast',
+    ],
+  },
+  {
     id: 'tool.pdf.images',
     name: 'Images to PDF',
     navName: 'Images to PDF',
@@ -398,12 +608,13 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status, Automations and Settings: the full 24-entry navigation model. */
+/** Home, every tool, then System Status, Automations, Duplicates and Settings: the full 33-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,
   SYSTEM_TOOL,
   AUTOMATION_TOOL,
+  DUPLICATES_TOOL,
   SETTINGS_TOOL,
 ];
 

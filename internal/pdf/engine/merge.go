@@ -50,21 +50,65 @@ func (e *MergeError) Unwrap() error {
 	return e.Cause
 }
 
+// MergeStage groups the coarse merge phases exposed through the job progress
+// contract.
+const (
+	MergeStageValidate = "merge.validate"
+	MergeStageCombine  = "merge.combine"
+	MergeStageDone     = "merge.done"
+)
+
+// MergeProgressEvent is one coarse merge update. It deliberately carries no
+// percentage: pdfcpu exposes no page-level progress, so callers get honest
+// per-input counts and stage names instead of a fabricated number.
+type MergeProgressEvent struct {
+	Stage   string
+	Current int
+	Total   int
+	Message string
+}
+
+// MergeProgressFunc receives ordered merge updates. Current never decreases.
+type MergeProgressFunc func(MergeProgressEvent)
+
 // MergeWithPageRanges merges inputPaths into outputPath, optionally keeping a
 // page selection per input. pageRanges is one entry per input; an empty entry
 // keeps the whole file. A nil or short slice treats missing entries as empty.
 func MergeWithPageRanges(ctx context.Context, inputPaths []string, outputPath string, pageRanges []string) error {
+	return MergeWithPageRangesProgress(ctx, inputPaths, outputPath, pageRanges, nil)
+}
+
+// MergeWithPageRangesProgress is MergeWithPageRanges with optional progress.
+// pdfcpu merges in one call, so the events count the inputs as they are
+// validated and prepared. The last input unit is reserved for the combine and
+// publication steps, which keeps the count monotonic and below 100 until the
+// merged file is written.
+func MergeWithPageRangesProgress(ctx context.Context, inputPaths []string, outputPath string, pageRanges []string, onProgress MergeProgressFunc) error {
 	if err := ctx.Err(); err != nil {
 		return &MergeError{Code: "CANCELED", Message: "merge canceled", Cause: err}
 	}
+
+	emitMergeProgress(onProgress, MergeProgressEvent{
+		Stage:   MergeStageValidate,
+		Current: 0,
+		Total:   len(inputPaths),
+		Message: fmt.Sprintf("Validating %d PDF inputs…", len(inputPaths)),
+	})
 
 	if validationErr := ValidateMergePaths(inputPaths, outputPath); validationErr != nil {
 		return validationErr
 	}
 
-	if validationErr := validateMergeInputs(ctx, inputPaths); validationErr != nil {
+	if validationErr := validateMergeInputs(ctx, inputPaths, onProgress); validationErr != nil {
 		return validationErr
 	}
+
+	emitMergeProgress(onProgress, MergeProgressEvent{
+		Stage:   MergeStageCombine,
+		Current: mergeCombineProgress(len(inputPaths)),
+		Total:   len(inputPaths),
+		Message: fmt.Sprintf("Merging %d PDFs into one file…", len(inputPaths)),
+	})
 
 	ranges := normalizeMergePageRanges(pageRanges, len(inputPaths))
 	if !hasMergePageRanges(ranges) {
@@ -72,6 +116,7 @@ func MergeWithPageRanges(ctx context.Context, inputPaths []string, outputPath st
 			return &MergeError{Code: ErrorCodeMergeFailed, Message: "failed to merge PDF files", Cause: err}
 		}
 
+		emitMergeDone(onProgress, len(inputPaths))
 		return nil
 	}
 
@@ -79,7 +124,39 @@ func MergeWithPageRanges(ctx context.Context, inputPaths []string, outputPath st
 		return rangeErr
 	}
 
-	return mergeSelectedPages(ctx, inputPaths, outputPath, ranges)
+	if mergeErr := mergeSelectedPages(ctx, inputPaths, outputPath, ranges); mergeErr != nil {
+		return mergeErr
+	}
+	emitMergeDone(onProgress, len(inputPaths))
+
+	return nil
+}
+
+// mergeCombineProgress reserves the last input unit for the opaque merge and
+// output write, so a finished validation never reports 100.
+func mergeCombineProgress(inputCount int) int {
+	if inputCount <= 1 {
+		return 0
+	}
+
+	return inputCount - 1
+}
+
+func emitMergeProgress(onProgress MergeProgressFunc, event MergeProgressEvent) {
+	if onProgress == nil {
+		return
+	}
+
+	onProgress(event)
+}
+
+func emitMergeDone(onProgress MergeProgressFunc, inputCount int) {
+	emitMergeProgress(onProgress, MergeProgressEvent{
+		Stage:   MergeStageDone,
+		Current: inputCount,
+		Total:   inputCount,
+		Message: fmt.Sprintf("Merged %d PDFs.", inputCount),
+	})
 }
 
 // ValidateMergePageRanges checks every non-empty page range against its input
@@ -111,9 +188,9 @@ func ValidateMergePageRanges(inputPaths []string, pageRanges []string) *MergeErr
 	return nil
 }
 
-func validateMergeInputs(ctx context.Context, inputPaths []string) *MergeError {
+func validateMergeInputs(ctx context.Context, inputPaths []string, onProgress MergeProgressFunc) *MergeError {
 	inputValidationErrors := make([]map[string]any, 0)
-	for _, inputPath := range inputPaths {
+	for index, inputPath := range inputPaths {
 		if err := ctx.Err(); err != nil {
 			return &MergeError{Code: "CANCELED", Message: "merge canceled", Cause: err}
 		}
@@ -135,6 +212,19 @@ func validateMergeInputs(ctx context.Context, inputPaths []string) *MergeError {
 				"fileName":  filepath.Base(inputPath),
 				"code":      code,
 				"message":   fmt.Sprintf("%s: %s", codeMessagePrefix(code), filepath.Base(inputPath)),
+			})
+			continue
+		}
+
+		// Validation is the per-input phase of a pdfcpu merge, which has no
+		// page-level hook. The last input unit is reserved for the combine step
+		// so the reported count never reaches 100 before the file is written.
+		if index < mergeCombineProgress(len(inputPaths)) {
+			emitMergeProgress(onProgress, MergeProgressEvent{
+				Stage:   MergeStageValidate,
+				Current: index + 1,
+				Total:   len(inputPaths),
+				Message: fmt.Sprintf("Merging %d of %d", index+1, len(inputPaths)),
 			})
 		}
 	}

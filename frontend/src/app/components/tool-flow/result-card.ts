@@ -5,9 +5,11 @@ import {
   Input,
   Output,
   inject,
+  signal,
 } from '@angular/core';
 import {
   Check,
+  Copy,
   ExternalLink,
   FolderOpen,
   LucideAngularModule,
@@ -22,21 +24,38 @@ import {
 import {
   FileInfo,
   JobError,
+  JobRequest,
   JobResult,
+  PlanJobResponse,
+  RunJobResponse,
   UndoResult,
   UndoSkipped,
   VerificationCheck,
   VerificationReport,
   Wails,
 } from '../../services/wails';
-import { describeToolError, localizeToolError } from '../../services/tool-error';
+import {
+  describeToolError,
+  localizeToolError,
+  ToolErrorCopy,
+} from '../../services/tool-error';
 import {
   RecentConversionsService,
-  isTerminalJobStatus,
 } from '../../services/recent-conversions.service';
+import {
+  LastRequestService,
+  LastSubmittedRequest,
+} from '../../services/last-request.service';
 import { I18nService } from '../../services/i18n.service';
+import { ClipboardService } from '../../services/clipboard.service';
 import type { TranslationKey } from '../../i18n';
 import { fileDir, fileName, formatBytes, formatCount } from '../../utils/format';
+import {
+  isTerminalJobStatus,
+  jobStatusDefinition,
+} from '../../utils/job-status';
+import { ContextMenu } from '../context-menu/context-menu';
+import { ContextMenuItem } from '../context-menu/context-menu.types';
 
 const GROUP_OUTPUT_LIMIT = 4;
 
@@ -77,6 +96,9 @@ export interface ResultVerifyOutputRow {
   checksPassed: number;
   totalChecks: number;
   warning?: string;
+  targetActual?: string;
+  targetLimit?: string;
+  targetPassed?: boolean;
 }
 
 export interface ResultUndoSkippedRow {
@@ -85,13 +107,35 @@ export interface ResultUndoSkippedRow {
   reason: string;
 }
 
+/** Emitted after the card planned and started a repeated job. */
+export interface RunAgainStartedEvent {
+  jobId: string;
+  request: JobRequest;
+  plan: PlanJobResponse;
+}
+
 type SummaryTone = 'success' | 'warning' | 'danger' | 'neutral';
 type UndoMode = 'undo' | 'restore';
+const RUN_AGAIN_DESTINATION_LIMIT = 3;
+
+type ResultRowKind = 'output' | 'failed';
+
+interface ResultMenuTarget {
+  kind: ResultRowKind;
+  path: string;
+  /** A collapsed folder summary has no file to open. */
+  grouped: boolean;
+}
+
+interface CopyMessage {
+  tone: 'success' | 'danger';
+  text: string;
+}
 
 @Component({
   selector: 'app-result-card',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, ContextMenu],
   templateUrl: './result-card.html',
   styleUrl: './result-card.css',
 })
@@ -105,14 +149,32 @@ export class ResultCard implements DoCheck {
   private readonly verificationRequestedJobIds = new Set<string>();
 
   verifyReport: VerificationReport | null = null;
-  verifyLoading = false;
-  verifyUnavailable = false;
+  private verifyLoadingInternal = false;
+  private verifyUnavailableInternal = false;
+
+  /**
+   * Supplied by pages that read the job through the shared run controller.
+   * When a report is supplied the card renders that state instead of fetching
+   * its own, so the page and the card never verify the same job twice.
+   */
+  @Input() verificationLoading = false;
+  @Input() verificationUnavailable = false;
 
   undoBusy = false;
   undoMessage = '';
   undoTone: 'success' | 'warning' = 'success';
   undoSkipped: UndoSkipped[] = [];
   undoMode: UndoMode = 'undo';
+  showAllOutputs = false;
+
+  runAgainBusy = false;
+  runAgainPending: PlanJobResponse | null = null;
+  runAgainError: JobError | null = null;
+  private runAgainRequestValue: JobRequest | null = null;
+  private runAgainLookup: {
+    jobId: string;
+    stored: LastSubmittedRequest | null;
+  } | null = null;
 
   @Input()
   set job(value: JobResult | null) {
@@ -122,6 +184,12 @@ export class ResultCard implements DoCheck {
     if (previousJobId !== (value?.jobId ?? '')) {
       this.resetAutoVerification();
       this.resetUndoState();
+      this.resetRunAgainState();
+      this.showAllOutputs = false;
+      this.copyMessage.set(null);
+      this.menuOpen.set(false);
+      this.menuTarget.set(null);
+      this.menuOpener.set(null);
     }
 
     this.pendingRecord = true;
@@ -142,7 +210,7 @@ export class ResultCard implements DoCheck {
     this.verifyReport = value;
     this.pendingVerify = false;
     this.cancelVerificationRequest();
-    this.verifyUnavailable = false;
+    this.verifyUnavailableInternal = false;
   }
 
   get verification(): VerificationReport | null {
@@ -173,9 +241,12 @@ export class ResultCard implements DoCheck {
   @Output() reveal = new EventEmitter<string>();
   @Output() retryFailed = new EventEmitter<void>();
   @Output() reset = new EventEmitter<void>();
+  @Output() runAgainStarted = new EventEmitter<RunAgainStartedEvent>();
 
   private readonly recentConversions = inject(RecentConversionsService);
+  private readonly lastRequests = inject(LastRequestService);
   private readonly wailsService = inject(Wails);
+  private readonly clipboard = inject(ClipboardService);
   readonly i18n = inject(I18nService);
   private readonly recordedJobIds = new Set<string>();
 
@@ -189,6 +260,16 @@ export class ResultCard implements DoCheck {
   readonly verifyAttentionIcon = ShieldAlert;
   readonly undoIcon = Undo2;
   readonly restoreIcon = Redo2;
+  readonly copyIcon = Copy;
+
+  /** Context-menu state; one menu instance serves every result row. */
+  readonly menuOpen = signal(false);
+  readonly menuX = signal(0);
+  readonly menuY = signal(0);
+  readonly menuTarget = signal<ResultMenuTarget | null>(null);
+  readonly menuOpener = signal<HTMLElement | null>(null);
+  /** Inline feedback for a failed clipboard write. */
+  readonly copyMessage = signal<CopyMessage | null>(null);
 
   ngDoCheck(): void {
     if (this.pendingRecord) {
@@ -222,12 +303,12 @@ export class ResultCard implements DoCheck {
 
   private cancelVerificationRequest(): void {
     this.verificationGeneration += 1;
-    this.verifyLoading = false;
+    this.verifyLoadingInternal = false;
   }
 
   private resetAutoVerification(): void {
     this.cancelVerificationRequest();
-    this.verifyUnavailable = false;
+    this.verifyUnavailableInternal = false;
     if (!this.verificationInputProvided) {
       this.verifyReport = null;
     }
@@ -249,8 +330,8 @@ export class ResultCard implements DoCheck {
     this.verificationRequestedJobIds.add(job.jobId);
     const generation = ++this.verificationGeneration;
     this.verifyReport = null;
-    this.verifyUnavailable = false;
-    this.verifyLoading = true;
+    this.verifyUnavailableInternal = false;
+    this.verifyLoadingInternal = true;
 
     let report: VerificationReport | null = null;
     try {
@@ -266,47 +347,86 @@ export class ResultCard implements DoCheck {
       return;
     }
 
-    this.verifyLoading = false;
+    this.verifyLoadingInternal = false;
     if (
       !report ||
       !Array.isArray(report.outputs) ||
       report.outputs.length === 0
     ) {
       this.verifyReport = null;
-      this.verifyUnavailable = true;
+      this.verifyUnavailableInternal = true;
       return;
     }
 
     this.verifyReport = report;
-    this.verifyUnavailable = false;
+    this.verifyUnavailableInternal = false;
+  }
+
+  /** Supplied page state wins; otherwise the card reports its own fetch. */
+  verifyStateLoading(): boolean {
+    return this.verificationInputProvided
+      ? this.verificationLoading
+      : this.verifyLoadingInternal;
+  }
+
+  verifyStateUnavailable(): boolean {
+    return this.verificationInputProvided
+      ? this.verificationUnavailable
+      : this.verifyUnavailableInternal;
   }
 
   showVerifyBlock(): boolean {
     return (
       this.outputRows().length > 0 &&
-      (this.verifyLoading ||
-        this.verifyUnavailable ||
+      (this.verifyStateLoading() ||
+        this.verifyStateUnavailable() ||
         this.verifyReport !== null)
     );
   }
 
   verifyTone(): SummaryTone {
-    if (this.verifyLoading || this.verifyUnavailable || !this.verifyReport) {
+    if (
+      this.verifyStateLoading() ||
+      this.verifyStateUnavailable() ||
+      !this.verifyReport
+    ) {
       return 'neutral';
     }
-    return this.verifyReport.success ? 'success' : 'warning';
+    return this.verificationPassed(this.verifyReport) ? 'success' : 'warning';
   }
 
   verifyTitle(): string {
-    return this.verifyReport?.success
+    return this.verificationPassed(this.verifyReport)
       ? this.i18n.t('resultCard.verified')
       : this.i18n.t('resultCard.needsAttention');
   }
 
   verifyIcon() {
-    return this.verifyReport?.success
+    return this.verificationPassed(this.verifyReport)
       ? this.verifyOkIcon
       : this.verifyAttentionIcon;
+  }
+
+  /**
+   * Advisory checks (such as a best-effort target miss) never invalidate an
+   * output. A report whose only failures are advisory is still verified, even
+   * if an older producer left `success` false.
+   */
+  private verificationPassed(report: VerificationReport | null): boolean {
+    if (!report) {
+      return false;
+    }
+    if (report.success) {
+      return true;
+    }
+
+    const outputs = report.outputs ?? [];
+    if (outputs.length === 0) {
+      return false;
+    }
+    return outputs.every((output) =>
+      (output.checks ?? []).every((check) => check.passed || check.advisory),
+    );
   }
 
   verifySummary(): string {
@@ -327,15 +447,21 @@ export class ResultCard implements DoCheck {
 
   verifyOutputs(): ResultVerifyOutputRow[] {
     const report = this.verifyReport;
-    if (!report || this.verifyLoading || this.verifyUnavailable) {
+    if (
+      !report ||
+      this.verifyStateLoading() ||
+      this.verifyStateUnavailable()
+    ) {
       return [];
     }
 
     return report.outputs.slice(0, 3).map((output) => {
-      const checks = output.checks ?? [];
+      const checks = (output.checks ?? []).filter((check) => !check.advisory);
       const checksPassed = checks.filter((check) => check.passed).length;
       const passed =
         checks.length === 0 ? output.exists : checksPassed === checks.length;
+      const targetBytes = output.targetBytes ?? 0;
+      const actualBytes = output.actualBytes ?? output.sizeBytes;
 
       return {
         path: output.path,
@@ -347,13 +473,22 @@ export class ResultCard implements DoCheck {
         warning: !passed
           ? (output.warnings?.[0] ?? this.i18n.t('resultCard.checkFailed'))
           : undefined,
+        targetActual: targetBytes > 0 ? formatBytes(actualBytes) : undefined,
+        targetLimit: targetBytes > 0 ? formatBytes(targetBytes) : undefined,
+        targetPassed: targetBytes > 0 ? actualBytes <= targetBytes : undefined,
       };
     });
   }
 
   verifyChecks(): VerificationCheck[] {
     const outputs = this.verifyReport?.outputs ?? [];
-    return outputs.length > 0 ? (outputs[0].checks ?? []).slice(0, 4) : [];
+    if (outputs.length === 0) {
+      return [];
+    }
+
+    return (outputs[0].checks ?? [])
+      .filter((check) => !check.advisory)
+      .slice(0, 4);
   }
 
   verifyCheckText(check: VerificationCheck): string {
@@ -372,6 +507,9 @@ export class ResultCard implements DoCheck {
     let total = 0;
     for (const output of report.outputs) {
       for (const check of output.checks ?? []) {
+        if (check.advisory) {
+          continue;
+        }
         total += 1;
         if (check.passed) {
           passed += 1;
@@ -462,6 +600,212 @@ export class ResultCard implements DoCheck {
     this.undoTone = 'success';
   }
 
+  /** The stored request for the visible terminal job, when it has inputs. */
+  private currentRunAgainRequest(): LastSubmittedRequest | null {
+    const job = this.jobValue;
+    if (
+      !job ||
+      !job.jobId ||
+      !isTerminalJobStatus(job.status) ||
+      job.toolId.startsWith('recipe.')
+    ) {
+      return null;
+    }
+
+    if (!this.runAgainLookup || this.runAgainLookup.jobId !== job.jobId) {
+      this.runAgainLookup = {
+        jobId: job.jobId,
+        stored: this.lastRequests.get(job.toolId),
+      };
+    }
+
+    const stored = this.runAgainLookup.stored;
+    return stored && stored.request.inputPaths.length > 0 ? stored : null;
+  }
+
+  /** True when the card can offer to repeat the finished job. */
+  canRunAgain(): boolean {
+    return (
+      !this.runAgainBusy &&
+      !this.runAgainPending &&
+      this.currentRunAgainRequest() !== null
+    );
+  }
+
+  /** False while a confirmation is open; drives the inline form. */
+  showRunAgainConfirmation(): boolean {
+    return this.runAgainPending !== null;
+  }
+
+  runAgainToolName(): string {
+    const toolId = this.jobValue?.toolId ?? '';
+    return this.i18n.tOr(`tools.${toolId}.name`, toolId);
+  }
+
+  runAgainInputCount(): number {
+    const stored = this.currentRunAgainRequest();
+    return stored?.request.inputPaths.length ?? 0;
+  }
+
+  runAgainMeta(): string {
+    const nouns = this.nounPair(this.toolLabel);
+    return this.i18n.t('resultCard.runAgain.meta', {
+      tool: this.runAgainToolName(),
+      counted: formatCount(this.runAgainInputCount(), nouns.one, nouns.many),
+    });
+  }
+
+  /** Unique planned destinations, capped for the compact confirmation. */
+  runAgainDestinations(): string[] {
+    const seen = new Set<string>();
+    const destinations: string[] = [];
+    for (const output of this.runAgainPending?.outputs ?? []) {
+      const path = output.outputPath?.trim() ?? '';
+      if (!path || seen.has(path)) {
+        continue;
+      }
+      seen.add(path);
+      destinations.push(path);
+    }
+    return destinations.slice(0, RUN_AGAIN_DESTINATION_LIMIT);
+  }
+
+  runAgainDestinationOverflow(): number {
+    const all = new Set(
+      (this.runAgainPending?.outputs ?? [])
+        .map((output) => output.outputPath?.trim() ?? '')
+        .filter((path) => path.length > 0),
+    );
+    return Math.max(0, all.size - RUN_AGAIN_DESTINATION_LIMIT);
+  }
+
+  runAgainErrorCopy(): ToolErrorCopy | null {
+    return this.runAgainError
+      ? localizeToolError(
+          (key) => this.i18n.t(key),
+          describeToolError(
+            this.runAgainError,
+            this.i18n.t('resultCard.runAgain.failed'),
+          ),
+        )
+      : null;
+  }
+
+  /** Plans the remembered request; the card never runs an unchecked request. */
+  async startRunAgain(): Promise<void> {
+    if (this.runAgainBusy) {
+      return;
+    }
+
+    const stored = this.currentRunAgainRequest();
+    if (!stored) {
+      return;
+    }
+
+    this.runAgainBusy = true;
+    this.runAgainError = null;
+    this.runAgainPending = null;
+    this.runAgainRequestValue = stored.request;
+
+    let plan: PlanJobResponse;
+    try {
+      plan = await this.wailsService.planJob(stored.request);
+    } catch {
+      plan = {
+        success: false,
+        message: this.i18n.t('resultCard.runAgain.failed'),
+        outputs: [],
+      };
+    }
+
+    this.runAgainBusy = false;
+
+    if (
+      !plan.success ||
+      plan.error ||
+      (plan.outputs ?? []).length === 0
+    ) {
+      this.runAgainPending = null;
+      this.runAgainError = plan.error ?? {
+        code: 'VALIDATION_INVALID_INPUT',
+        detail_code: 'PLAN_JOB_FAILED',
+        message: plan.message || this.i18n.t('resultCard.runAgain.failed'),
+      };
+      return;
+    }
+
+    this.runAgainPending = plan;
+  }
+
+  cancelRunAgain(): void {
+    if (this.runAgainBusy) {
+      return;
+    }
+    this.runAgainPending = null;
+    this.runAgainError = null;
+    this.runAgainRequestValue = null;
+  }
+
+  /** Starts the job once the user confirms the planned destinations. */
+  async confirmRunAgain(): Promise<void> {
+    const request = this.runAgainRequestValue;
+    const plan = this.runAgainPending;
+    if (this.runAgainBusy || !request || !plan) {
+      return;
+    }
+
+    this.runAgainBusy = true;
+    this.runAgainError = null;
+
+    let response: RunJobResponse;
+    try {
+      response = await this.wailsService.runJob(request);
+    } catch {
+      response = {
+        success: false,
+        message: this.i18n.t('resultCard.runAgain.startFailed'),
+        jobId: '',
+        status: 'failed',
+        error: {
+          code: 'EXEC_IO_TRANSIENT',
+          detail_code: 'RUN_JOB_FAILED',
+          message: this.i18n.t('resultCard.runAgain.startFailed'),
+        },
+      };
+    }
+
+    this.runAgainBusy = false;
+
+    if (!response.success || !response.jobId) {
+      this.runAgainError = response.error ?? {
+        code: 'EXEC_IO_TRANSIENT',
+        detail_code: 'RUN_JOB_FAILED',
+        message:
+          response.message || this.i18n.t('resultCard.runAgain.startFailed'),
+      };
+      return;
+    }
+
+    // A fresh submission refreshes the remembered timestamp for the tool.
+    this.lastRequests.save(request);
+    this.runAgainPending = null;
+    this.runAgainRequestValue = null;
+    this.runAgainLookup = null;
+    this.runAgainStarted.emit({
+      jobId: response.jobId,
+      request,
+      plan,
+    });
+  }
+
+  private resetRunAgainState(): void {
+    this.runAgainBusy = false;
+    this.runAgainPending = null;
+    this.runAgainError = null;
+    this.runAgainRequestValue = null;
+    this.runAgainLookup = null;
+  }
+
   private nounPair(label: string): { one: string; many: string } {
     const keys = NOUN_KEYS[label];
     return keys
@@ -532,43 +876,22 @@ export class ResultCard implements DoCheck {
   }
 
   statusLabel(job: JobResult): string {
-    switch (job.status) {
-      case 'success':
-        return this.i18n.t('home.status.success');
-      case 'partial_success':
-        return this.i18n.t('home.status.partial');
-      case 'failed':
-        return this.i18n.t('home.status.failed');
-      case 'cancelled':
-        return this.i18n.t('home.status.cancelled');
-      case 'interrupted':
-        return this.i18n.t('home.status.interrupted');
-      default:
-        return job.status;
-    }
+    const key = jobStatusDefinition(job.status)?.labels.resultCard;
+    return key ? this.i18n.t(key) : job.status;
   }
 
   summaryTone(job: JobResult | null): SummaryTone {
-    switch (job?.status) {
-      case 'success':
-        return 'success';
-      case 'partial_success':
-      case 'interrupted':
-        return 'warning';
-      case 'failed':
-        return 'danger';
-      default:
-        return 'neutral';
-    }
+    return (
+      (job && jobStatusDefinition(job.status)?.tones.resultCard) || 'neutral'
+    );
   }
 
   summaryIcon(job: JobResult | null) {
-    switch (job?.status) {
+    switch (this.summaryTone(job)) {
       case 'success':
         return this.checkIcon;
-      case 'failed':
-      case 'partial_success':
-      case 'interrupted':
+      case 'danger':
+      case 'warning':
         return this.alertIcon;
       default:
         return this.cancelIcon;
@@ -590,7 +913,7 @@ export class ResultCard implements DoCheck {
       );
       const outputCount = Math.max(item.outputCount ?? 0, outputs.length);
 
-      if (outputCount > GROUP_OUTPUT_LIMIT) {
+      if (outputCount > GROUP_OUTPUT_LIMIT && !this.showAllOutputs) {
         const directory = item.outputPath || fileDir(outputs[0] ?? '');
         if (!directory || seen.has(directory)) {
           continue;
@@ -638,6 +961,32 @@ export class ResultCard implements DoCheck {
     return rows;
   }
 
+  /** Total output count used by the "show all" toggle label. */
+  totalOutputCount(): number {
+    return (this.job?.items ?? []).reduce((total, item) => {
+      if (!item.success) {
+        return total;
+      }
+      const outputs = (item.outputs ?? []).filter((path) => !!path);
+      return total + Math.max(item.outputCount ?? 0, outputs.length);
+    }, 0);
+  }
+
+  /** True when at least one successful item collapses more than four outputs. */
+  showAllToggleVisible(): boolean {
+    return (this.job?.items ?? []).some((item) => {
+      if (!item.success) {
+        return false;
+      }
+      const outputs = (item.outputs ?? []).filter((path) => !!path);
+      return Math.max(item.outputCount ?? 0, outputs.length) > GROUP_OUTPUT_LIMIT;
+    });
+  }
+
+  toggleAllOutputs(): void {
+    this.showAllOutputs = !this.showAllOutputs;
+  }
+
   failedRows(): ResultFailedRow[] {
     return (this.job?.items ?? [])
       .filter((item) => !item.success)
@@ -649,6 +998,175 @@ export class ResultCard implements DoCheck {
           describeToolError(item.error),
         ).description,
       }));
+  }
+
+  onOutputContextMenu(event: MouseEvent, row: ResultOutputRow): void {
+    this.openRowMenu(event, {
+      kind: 'output',
+      path: row.path,
+      grouped: row.grouped === true,
+    });
+  }
+
+  onFailedRowContextMenu(event: MouseEvent, row: ResultFailedRow): void {
+    this.openRowMenu(event, {
+      kind: 'failed',
+      path: row.path,
+      grouped: false,
+    });
+  }
+
+  onOutputRowKeydown(event: KeyboardEvent, row: ResultOutputRow): void {
+    this.openRowMenuFromKeyboard(event, {
+      kind: 'output',
+      path: row.path,
+      grouped: row.grouped === true,
+    });
+  }
+
+  onFailedRowKeydown(event: KeyboardEvent, row: ResultFailedRow): void {
+    this.openRowMenuFromKeyboard(event, {
+      kind: 'failed',
+      path: row.path,
+      grouped: false,
+    });
+  }
+
+  /** Items for the row currently targeted by the menu. */
+  menuItems(): ContextMenuItem[] {
+    const target = this.menuTarget();
+    if (!target) {
+      return [];
+    }
+
+    const hasPath = target.path.trim().length > 0;
+    const items: ContextMenuItem[] = [
+      {
+        id: 'open',
+        label: this.i18n.t('contextMenu.open'),
+        icon: this.externalIcon,
+        // A collapsed folder summary stands for many files; opening "it"
+        // would open an arbitrary one.
+        disabled: !hasPath || target.grouped,
+      },
+      {
+        id: 'reveal',
+        label: this.i18n.t('contextMenu.reveal'),
+        icon: this.folderIcon,
+        disabled: !hasPath,
+      },
+      {
+        id: 'copyPath',
+        label: this.i18n.t('contextMenu.copyPath'),
+        icon: this.copyIcon,
+        disabled: !hasPath,
+      },
+    ];
+
+    if (target.kind === 'failed') {
+      items.push({
+        id: 'retry',
+        label: this.i18n.t('contextMenu.retry'),
+        icon: this.retryIcon,
+      });
+    }
+
+    return items;
+  }
+
+  onMenuSelect(id: string): void {
+    const target = this.menuTarget();
+    if (!target) {
+      return;
+    }
+
+    const hasPath = target.path.trim().length > 0;
+
+    switch (id) {
+      case 'open':
+        if (hasPath && !target.grouped) {
+          this.open.emit(target.path);
+        }
+        return;
+      case 'reveal':
+        if (hasPath) {
+          this.reveal.emit(target.path);
+        }
+        return;
+      case 'copyPath':
+        if (hasPath) {
+          void this.copyPath(target.path);
+        }
+        return;
+      case 'retry':
+        // The card already owns the retry path; the menu reuses it.
+        this.retryFailed.emit();
+        return;
+      default:
+        return;
+    }
+  }
+
+  onMenuClosed(): void {
+    this.menuOpen.set(false);
+    this.menuTarget.set(null);
+    this.menuOpener.set(null);
+  }
+
+  private openRowMenu(event: MouseEvent, target: ResultMenuTarget): void {
+    // A right click must never read as a click on the row or its buttons.
+    event.preventDefault();
+    event.stopPropagation();
+
+    const row = event.currentTarget;
+    if (row instanceof HTMLElement) {
+      row.focus();
+    }
+
+    this.showMenu(event.clientX, event.clientY, target, row);
+  }
+
+  private openRowMenuFromKeyboard(
+    event: KeyboardEvent,
+    target: ResultMenuTarget,
+  ): void {
+    if (
+      event.key !== 'ContextMenu' &&
+      !(event.shiftKey && event.key === 'F10')
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const row = event.currentTarget;
+    const rect =
+      row instanceof HTMLElement ? row.getBoundingClientRect() : null;
+    this.showMenu(rect ? rect.left : 0, rect ? rect.bottom : 0, target, row);
+  }
+
+  private showMenu(
+    x: number,
+    y: number,
+    target: ResultMenuTarget,
+    opener: EventTarget | null,
+  ): void {
+    this.menuX.set(x);
+    this.menuY.set(y);
+    this.menuTarget.set(target);
+    this.menuOpener.set(opener instanceof HTMLElement ? opener : null);
+    this.copyMessage.set(null);
+    this.menuOpen.set(true);
+  }
+
+  private async copyPath(path: string): Promise<void> {
+    const copied = await this.clipboard.writeText(path);
+    this.copyMessage.set(
+      copied
+        ? { tone: 'success', text: this.i18n.t('contextMenu.copied') }
+        : { tone: 'danger', text: this.i18n.t('contextMenu.copyFailed') },
+    );
   }
 
   successCount(): number {

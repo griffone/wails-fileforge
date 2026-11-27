@@ -9,6 +9,7 @@ import { Subject } from 'rxjs';
 
 import { PdfFromImages } from './pdf-from-images';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobProgressEvent,
@@ -140,6 +141,7 @@ describe('PdfFromImages', () => {
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
     localStorage.removeItem('ff-recent-conversions');
+    clearToolStorage();
     inspectCalls = [];
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
@@ -226,6 +228,7 @@ describe('PdfFromImages', () => {
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
     localStorage.removeItem('ff-recent-conversions');
+    clearToolStorage();
   });
 
   it('fills five images into two 2×2 pages and sends the slot map', fakeAsync(() => {

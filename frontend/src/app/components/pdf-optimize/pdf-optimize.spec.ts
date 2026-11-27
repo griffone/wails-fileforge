@@ -8,7 +8,13 @@ import {
 import { Subject } from 'rxjs';
 
 import { PdfOptimize } from './pdf-optimize';
+import { DESTINATION_PRESETS } from '../../config/destination-presets';
 import { I18nService } from '../../services/i18n.service';
+import {
+  TOOL_OPTIONS_STORAGE_PREFIX,
+  toolOptionsStorageKey,
+} from '../../services/preferences.service';
+import { LAST_REQUEST_STORAGE_PREFIX } from '../../services/last-request.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -104,12 +110,55 @@ describe('PdfOptimize', () => {
     return { target: { value } } as unknown as Event;
   }
 
+  function checkedEvent(checked: boolean): Event {
+    return { target: { checked } } as unknown as Event;
+  }
+
+  function preset(id: string) {
+    const found = DESTINATION_PRESETS.find((candidate) => candidate.id === id);
+    if (!found) {
+      throw new Error(`missing preset ${id}`);
+    }
+    return found;
+  }
+
   function lastPlanRequest(): JobRequest {
     return wailsSpy.planJob.calls.mostRecent().args[0] as JobRequest;
   }
 
+  function clearToolStorage(): void {
+    const prefixes = [
+      TOOL_OPTIONS_STORAGE_PREFIX,
+      LAST_REQUEST_STORAGE_PREFIX,
+    ];
+    const keys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && prefixes.some((prefix) => key.startsWith(prefix))) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) {
+      localStorage.removeItem(key);
+    }
+  }
+
+  function seedOptions(values: Record<string, unknown>): void {
+    localStorage.setItem(
+      toolOptionsStorageKey('tool.pdf.optimize'),
+      JSON.stringify({ schemaVersion: 1, values }),
+    );
+  }
+
+  function storedOptions(): Record<string, unknown> {
+    return JSON.parse(
+      localStorage.getItem(toolOptionsStorageKey('tool.pdf.optimize')) ?? '{}',
+    );
+  }
+
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
@@ -184,6 +233,7 @@ describe('PdfOptimize', () => {
     fixture.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('plans one PDF with default compression and no metadata', fakeAsync(() => {
@@ -265,6 +315,92 @@ describe('PdfOptimize', () => {
       keywords: 'pdf, report',
     });
     expect(request.mode).toBe('single');
+  }));
+
+  it('turns compression on and plans a preset target', fakeAsync(() => {
+    component.onCompressToggle(checkedEvent(false));
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    expect(component.compress()).toBeFalse();
+
+    component.selectTargetPreset(preset('discord'));
+    tick(250);
+    flushMicrotasks();
+
+    expect(component.compress()).toBeTrue();
+    expect(component.targetMb()).toBe(9.5);
+    expect(component.activeTargetPresetId()).toBe('discord');
+    expect(component.targetValid()).toBeTrue();
+    expect(component.targetSizeBytes()).toBe(9_961_472);
+
+    const request = lastPlanRequest();
+    expect(request.options['targetSizeBytes']).toBe(9_961_472);
+    expect(request.options['compress']).toBeUndefined();
+  }));
+
+  it('turns compression on when a custom target is typed', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.onCompressToggle(checkedEvent(false));
+    flushMicrotasks();
+    expect(component.compress()).toBeFalse();
+
+    component.onTargetInput(inputEvent('5'));
+    tick(250);
+    flushMicrotasks();
+
+    expect(component.compress()).toBeTrue();
+    expect(component.activeTargetPresetId()).toBeNull();
+    expect(lastPlanRequest().options['targetSizeBytes']).toBe(5_242_880);
+  }));
+
+  it('blocks a target without compression', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectTargetPreset(preset('discord'));
+    tick(250);
+    flushMicrotasks();
+    const planCalls = wailsSpy.planJob.calls.count();
+
+    component.onCompressToggle(checkedEvent(false));
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.targetValid()).toBeTrue();
+    expect(component.targetRequiresCompression()).toBeTrue();
+    expect(component.canRun()).toBeFalse();
+    expect(component.plan()).toBeNull();
+    expect(component.actionHelper()).toBe(
+      'Enable compression to use a target size.',
+    );
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls);
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runJob).not.toHaveBeenCalled();
+    expect(
+      (fixture.nativeElement.querySelector('.action-primary') as HTMLButtonElement)
+        .disabled,
+    ).toBeTrue();
+  }));
+
+  it('shows the target preset on the plan card', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    component.selectTargetPreset(preset('discord'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const targetRow = fixture.nativeElement.querySelector(
+      '.output-plan-target',
+    ) as HTMLElement;
+    expect(targetRow.textContent).toContain('Target');
+    expect(targetRow.textContent).toContain('9.5 MB');
+    expect(targetRow.textContent).toContain('Discord');
   }));
 
   it('omits compression and metadata when nothing changes them', fakeAsync(() => {
@@ -487,4 +623,121 @@ describe('PdfOptimize', () => {
       element.querySelector('.toolbar .btn-secondary')?.textContent,
     ).toContain('Elegir PDF');
   });
+
+  it('restores the remembered options on init', fakeAsync(() => {
+    seedOptions({
+      compress: false,
+      metadata: { title: 'Kept title' },
+    });
+
+    const recreated = TestBed.createComponent(PdfOptimize);
+    recreated.detectChanges();
+    flushMicrotasks();
+
+    expect(recreated.componentInstance.compress()).toBeFalse();
+    expect(recreated.componentInstance.metadata()['title']).toBe('Kept title');
+
+    recreated.destroy();
+  }));
+
+  it('saves the options and the submitted request after a successful run', fakeAsync(() => {
+    component.onCompressToggle({ target: { checked: false } } as unknown as Event);
+    component.onMetadataInput('title', inputEvent('Draft'));
+    tick(250);
+    flushMicrotasks();
+
+    component.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    void component.run();
+    flushMicrotasks();
+
+    expect(storedOptions()).toEqual({
+      schemaVersion: 1,
+      values: {
+        compress: false,
+        targetMb: null,
+        metadata: {
+          title: 'Draft',
+          author: '',
+          subject: '',
+          keywords: '',
+          creator: '',
+        },
+      },
+    });
+
+    const request = JSON.parse(
+      localStorage.getItem(
+        `${LAST_REQUEST_STORAGE_PREFIX}tool.pdf.optimize`,
+      ) ?? '{}',
+    );
+    expect(request.request.inputPaths).toEqual(['/tmp/a.pdf']);
+    expect(request.request.options).toEqual({
+      compress: false,
+      metadata: { title: 'Draft' },
+    });
+  }));
+
+  it('keeps the remembered options when reset clears the form', fakeAsync(() => {
+    seedOptions({ compress: false, metadata: { title: 'Kept title' } });
+
+    const recreated = TestBed.createComponent(PdfOptimize);
+    recreated.detectChanges();
+    flushMicrotasks();
+    const page = recreated.componentInstance;
+
+    page.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+    void page.run();
+    flushMicrotasks();
+
+    page.reset();
+    flushMicrotasks();
+
+    expect(page.selectedPaths()).toEqual([]);
+    expect(page.jobResult()).toBeNull();
+    expect(page.compress()).toBeFalse();
+    expect(page.metadata()['title']).toBe('Kept title');
+    expect(storedOptions()).toEqual({
+      schemaVersion: 1,
+      values: {
+        compress: false,
+        targetMb: null,
+        metadata: {
+          title: 'Kept title',
+          author: '',
+          subject: '',
+          keywords: '',
+          creator: '',
+        },
+      },
+    });
+
+    recreated.destroy();
+  }));
+
+  it('adopts and observes a job started from run again', fakeAsync(() => {
+    const request: JobRequest = {
+      toolId: 'tool.pdf.optimize',
+      mode: 'single',
+      inputPaths: ['/tmp/a.pdf'],
+      outputDir: '/tmp/out',
+      options: {},
+    };
+
+    component.onRunAgainStarted({
+      jobId: 'job-again-1',
+      request,
+      plan: planResponse(request),
+    });
+    flushMicrotasks();
+
+    expect(component.activeJobId()).toBe('job-again-1');
+    expect(component.isPolling()).toBeTrue();
+    expect(component.outputDir()).toBe('/tmp/out');
+    expect(component.selectedPaths()).toEqual(['/tmp/a.pdf']);
+    expect(component.jobResult()?.status).toBe('running');
+    expect(wailsSpy.getJobStatus).toHaveBeenCalledWith('job-again-1');
+  }));
 });

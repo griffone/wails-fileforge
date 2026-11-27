@@ -128,6 +128,15 @@ func (t *TrimTool) Plan(ctx context.Context, req models.JobRequest) (models.Plan
 		return planFailure(plan, &models.JobError{Code: engine.ErrorCodeVideoTrimModeInvalid, Message: "trimMode must be auto, copy, or reencode"})
 	}
 
+	targetSizeBytes, targetErr := videoOptionTargetSize(req.Options, engine.ErrorCodeVideoTrimValidation)
+	if targetErr != nil {
+		return planFailure(plan, targetErr)
+	}
+	copyModeForcedToReencode := targetSizeBytes > 0 && trimMode != engine.TrimModeReencode
+	if copyModeForcedToReencode {
+		trimMode = engine.TrimModeReencode
+	}
+
 	targetFormat, qualityPreset, optionsErr := resolveVideoOutputOptions(req.Options, engine.ErrorCodeVideoTrimValidation)
 	if optionsErr != nil {
 		return planFailure(plan, optionsErr)
@@ -152,17 +161,18 @@ func (t *TrimTool) Plan(ctx context.Context, req models.JobRequest) (models.Plan
 		var planned models.PlannedOutput
 		var planErr *models.JobError
 		if explicitOutput != "" {
-			planned, planErr = planExplicitTrimOutput(inputPath, explicitOutput, startTime, endTime, targetFormat, qualityPreset, trimMode)
+			planned, planErr = planExplicitTrimOutput(inputPath, explicitOutput, startTime, endTime, targetFormat, qualityPreset, trimMode, targetSizeBytes)
 		} else {
 			planned = planAutoVideoOutput(inputPath, outputDir, videoTrimOutputSuffix, targetFormat, used)
 			planErr = mapVideoError(engine.ValidateTrimRequest(engine.TrimRequest{
-				InputPath:     planned.InputPath,
-				OutputPath:    planned.OutputPath,
-				StartTime:     startTime,
-				EndTime:       endTime,
-				TargetFormat:  targetFormat,
-				QualityPreset: qualityPreset,
-				TrimMode:      trimMode,
+				InputPath:       planned.InputPath,
+				OutputPath:      planned.OutputPath,
+				StartTime:       startTime,
+				EndTime:         endTime,
+				TargetFormat:    targetFormat,
+				QualityPreset:   qualityPreset,
+				TrimMode:        trimMode,
+				TargetSizeBytes: targetSizeBytes,
 			}))
 		}
 
@@ -177,19 +187,42 @@ func (t *TrimTool) Plan(ctx context.Context, req models.JobRequest) (models.Plan
 			plan.Outputs = outputs
 			return planFailure(plan, rangeErr)
 		}
+
+		if targetSizeBytes > 0 {
+			media, mediaOK := targetMediaForPath(ctx, planned.InputPath)
+			spec := targetPlanSpec{
+				targetBytes:    targetSizeBytes,
+				resolution:     engine.ResolutionOriginal,
+				forcedReencode: copyModeForcedToReencode,
+			}
+			if mediaOK {
+				spec.durationKnown = true
+				spec.durationSeconds = endTime - startTime
+				if media.DurationSeconds > 0 && endTime > media.DurationSeconds {
+					spec.durationSeconds = media.DurationSeconds - startTime
+				}
+				spec.sourceHeight = media.Height
+				spec.audioKbps = engine.TargetAudioKbps(targetFormat, media.HasAudio)
+			}
+			warnings = append(warnings, targetPlanWarnings(spec)...)
+		}
 	}
 
 	plan.Success = true
 	plan.Message = videoTrimPlanMessage(len(outputs))
 	plan.Outputs = outputs
 	plan.Warnings = warnings
-	plan.EffectiveOptions = map[string]any{
+	effectiveOptions := map[string]any{
 		"targetFormat":  targetFormat,
 		"qualityPreset": qualityPreset,
 		"trimMode":      trimMode,
 		"startTime":     startTime,
 		"endTime":       endTime,
 	}
+	if targetSizeBytes > 0 {
+		effectiveOptions["targetSizeBytes"] = targetSizeBytes
+	}
+	plan.EffectiveOptions = effectiveOptions
 
 	return plan, nil
 }
@@ -245,9 +278,10 @@ func (t *TrimTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan 
 
 		trimReq := trimRequestFromPlannedOutput(planned, plan.EffectiveOptions)
 		var fallbackInfo string
+		var trimOutcome engine.TargetEncodeOutcome
 		var trimErr *engine.VideoError
 		if reportItemProgress {
-			trimErr = engine.TrimWithProgress(ctx, t.probe, t.runner, trimReq, func(evt engine.TrimProgressEvent) {
+			trimOutcome, trimErr = engine.TrimWithOutcome(ctx, t.probe, t.runner, trimReq, func(evt engine.TrimProgressEvent) {
 				if strings.Contains(evt.Stage, "fallback") {
 					fallbackInfo = evt.Message
 				}
@@ -273,7 +307,7 @@ func (t *TrimTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan 
 				onProgress(models.JobProgress{Current: current, Total: total, Stage: stage, Message: message})
 			})
 		} else {
-			trimErr = engine.Trim(ctx, t.probe, t.runner, trimReq)
+			trimOutcome, trimErr = engine.TrimWithOutcome(ctx, t.probe, t.runner, trimReq, nil)
 		}
 
 		if trimErr != nil {
@@ -290,10 +324,14 @@ func (t *TrimTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan 
 			items = append(items, videoPlanFailureItem(trimReq.InputPath, trimReq.OutputPath, jobErr))
 		} else {
 			message := "Video trim successful"
+			if trimOutcome.TargetAttempted {
+				message = targetResultMessage(trimOutcome, "Trimmed")
+			}
 			item := models.JobResultItem{InputPath: trimReq.InputPath, OutputPath: trimReq.OutputPath, Outputs: []string{trimReq.OutputPath}, OutputCount: 1, Success: true, Message: message}
 			if trimReq.TrimMode == engine.TrimModeAuto && fallbackInfo != "" {
 				item.Message = message + " (fallback re-encode used)"
 			}
+			applyTargetDetails(&item, trimOutcome)
 			items = append(items, item)
 			if reportItemProgress && onProgress != nil {
 				onProgress(models.JobProgress{Current: 100, Total: 100, Stage: "trim.done", Message: item.Message})
@@ -312,7 +350,7 @@ func (t *TrimTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan 
 	return items, nil
 }
 
-func planExplicitTrimOutput(inputPath, outputPath string, startTime, endTime float64, targetFormat, qualityPreset, trimMode string) (models.PlannedOutput, *models.JobError) {
+func planExplicitTrimOutput(inputPath, outputPath string, startTime, endTime float64, targetFormat, qualityPreset, trimMode string, targetSizeBytes int64) (models.PlannedOutput, *models.JobError) {
 	planned := models.PlannedOutput{
 		InputPath:  strings.TrimSpace(inputPath),
 		OutputPath: filepath.Clean(strings.TrimSpace(outputPath)),
@@ -324,13 +362,14 @@ func planExplicitTrimOutput(inputPath, outputPath string, startTime, endTime flo
 	}
 
 	validationErr := engine.ValidateTrimRequest(engine.TrimRequest{
-		InputPath:     planned.InputPath,
-		OutputPath:    planned.OutputPath,
-		StartTime:     startTime,
-		EndTime:       endTime,
-		TargetFormat:  targetFormat,
-		QualityPreset: qualityPreset,
-		TrimMode:      trimMode,
+		InputPath:       planned.InputPath,
+		OutputPath:      planned.OutputPath,
+		StartTime:       startTime,
+		EndTime:         endTime,
+		TargetFormat:    targetFormat,
+		QualityPreset:   qualityPreset,
+		TrimMode:        trimMode,
+		TargetSizeBytes: targetSizeBytes,
 	})
 
 	return planned, mapVideoError(validationErr)
@@ -341,13 +380,14 @@ func trimRequestFromPlannedOutput(planned models.PlannedOutput, effectiveOptions
 	endTime, _ := effectiveOptions["endTime"].(float64)
 
 	return engine.TrimRequest{
-		InputPath:     planned.InputPath,
-		OutputPath:    planned.OutputPath,
-		StartTime:     startTime,
-		EndTime:       endTime,
-		TargetFormat:  optionString(effectiveOptions, "targetFormat"),
-		QualityPreset: optionString(effectiveOptions, "qualityPreset"),
-		TrimMode:      optionString(effectiveOptions, "trimMode"),
+		InputPath:       planned.InputPath,
+		OutputPath:      planned.OutputPath,
+		StartTime:       startTime,
+		EndTime:         endTime,
+		TargetFormat:    optionString(effectiveOptions, "targetFormat"),
+		QualityPreset:   optionString(effectiveOptions, "qualityPreset"),
+		TrimMode:        optionString(effectiveOptions, "trimMode"),
+		TargetSizeBytes: videoInt64Option(effectiveOptions, "targetSizeBytes"),
 	}
 }
 

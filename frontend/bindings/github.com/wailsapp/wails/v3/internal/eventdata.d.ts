@@ -8,16 +8,24 @@ import type { Events } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import type * as models$0 from "../../../../../fileforge-desktop/internal/models/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import type * as update$0 from "../../../../../fileforge-desktop/internal/update/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "automation/run": models$0.AutomationRunEvent;
+            "duplicates/progress": models$0.DuplicateScanProgressEvent;
+            "duplicates/state": models$0.DuplicateScanState;
             "jobs/progress": models$0.JobProgressEvent;
             "jobs/state": models$0.JobResult;
             "recipes/progress": models$0.RecipeProgressEvent;
             "recipes/state": models$0.RecipeResult;
             "toolchain/install": models$0.ToolchainInstallEvent;
+            "update/error": update$0.ErrorEvent;
+            "update/progress": update$0.ProgressEvent;
+            "update/state": update$0.Status;
         }
     }
 }

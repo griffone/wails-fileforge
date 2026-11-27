@@ -12,12 +12,14 @@ import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
 import { RecentConversionsService } from '../../services/recent-conversions.service';
 import { ToolchainStateService } from '../../services/toolchain-state.service';
 import {
+  AppInfoResponse,
   JobResult,
   LocalCapabilitiesResponse,
   ToolchainComponent,
   ToolchainInstallEvent,
   ToolchainStatus,
   TranscriptionCapabilitiesResponse,
+  UpdateStatus,
   Wails,
 } from '../../services/wails';
 
@@ -177,12 +179,12 @@ const CAPABILITIES: LocalCapabilitiesResponse = {
       detail: 'PDF compression for target sizes',
     },
     {
-      id: 'libreoffice',
-      label: 'libreoffice',
+      id: 'pdftotext',
+      label: 'pdftotext',
       available: false,
       required: false,
-      detail: 'DOCX to PDF/A archival export',
-      suggestion: 'Install LibreOffice for PDF/A DOCX exports.',
+      detail: 'OCR text-layer verification',
+      suggestion: 'Install poppler-utils for text verification.',
     },
   ],
   ocrLanguages: ['afr'],
@@ -201,6 +203,28 @@ const TRANSCRIPTION: TranscriptionCapabilitiesResponse = {
   modelSizeBytes: 142 * 1024 * 1024,
   languages: ['auto', 'en', 'es'],
   defaultLanguage: 'auto',
+};
+
+const APP_INFO: AppInfoResponse = {
+  success: true,
+  message: 'app info',
+  version: '1.2.0',
+  commit: 'a1b2c3d',
+  builtAt: '2026-11-26T12:00:00Z',
+  release: true,
+  updateKeyConfigured: false,
+};
+
+const UPDATE_STATUS: UpdateStatus = {
+  success: true,
+  message: '',
+  state: 'unavailable',
+  currentVersion: '1.2.0',
+  updatesEnabled: false,
+  updateAvailable: false,
+  reason:
+    'This is a development build. Updates are only available in release builds.',
+  consentGranted: false,
 };
 
 describe('Settings', () => {
@@ -274,12 +298,29 @@ describe('Settings', () => {
       'openPath',
       'getLocalCapabilities',
       'getTranscriptionCapabilities',
+      'getAppInfo',
+      'getUpdateStatus',
+      'listJobHistory',
+      'trashInfo',
     ]);
     wailsSpy.openDirectoryDialog.and.resolveTo('');
     wailsSpy.openFileDialog.and.resolveTo('');
     wailsSpy.openPath.and.resolveTo({ success: true, message: 'opened' });
+    wailsSpy.listJobHistory.and.resolveTo({
+      success: true,
+      message: '',
+      entries: [],
+    });
+    wailsSpy.trashInfo.and.resolveTo({
+      success: true,
+      message: '',
+      files: 0,
+      bytes: 0,
+    });
     wailsSpy.getLocalCapabilities.and.resolveTo(CAPABILITIES);
     wailsSpy.getTranscriptionCapabilities.and.resolveTo(TRANSCRIPTION);
+    wailsSpy.getAppInfo.and.resolveTo(APP_INFO);
+    wailsSpy.getUpdateStatus.and.resolveTo(UPDATE_STATUS);
 
     toolchain = new ToolchainStateStub();
 
@@ -323,8 +364,42 @@ describe('Settings', () => {
     );
   }));
 
-  it('defaults to keeping outputs next to the original', () => {
-    expect(component.defaultOutputDir()).toBe('');
+  it('renders the About build identity in Spanish', fakeAsync(() => {
+    i18n.setLocale('es');
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      element().querySelector('.settings-about-version')?.textContent,
+    ).toContain('1.2.0');
+    expect(
+      element().querySelector('.settings-about-commit')?.textContent,
+    ).toContain('a1b2c3d');
+    expect(
+      element().querySelector('.settings-about-built-at')?.textContent,
+    ).toContain('2026-11-26T12:00:00Z');
+
+    const text = element().textContent ?? '';
+    expect(text).toContain('Acerca de FileForge');
+    expect(text).toContain('Versión');
+    expect(text).toContain('Fecha de compilación');
+  }));
+
+  it('renders the updates block inside the About panel', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const about = element().querySelector('.settings-about-panel');
+    expect(about).not.toBeNull();
+    expect(about?.querySelector('.settings-updates')).not.toBeNull();
+    expect(about?.textContent).toContain(
+      'Updates are off in this development build',
+    );
+    expect(wailsSpy.getUpdateStatus).toHaveBeenCalledTimes(1);
+  }));
+
+  it('defaults to keeping outputs next to the original', () => {    expect(component.defaultOutputDir()).toBe('');
     expect(button('.settings-next-to-original').getAttribute('aria-pressed')).toBe(
       'true',
     );
@@ -346,6 +421,7 @@ describe('Settings', () => {
       defaultOutputDir: '/tmp/exports',
       whisperPath: '',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(
@@ -363,6 +439,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(element().querySelector('.settings-path')).toBeNull();
@@ -447,7 +524,7 @@ describe('Settings', () => {
     expect(text).toContain('Required');
     expect(text).toContain('Optional');
     expect(text).toContain('Ready');
-    expect(text).toContain('Install LibreOffice for PDF/A DOCX exports.');
+    expect(text).toContain('Install poppler-utils for text verification.');
     expect(text).toContain('OCR languages: AFR · recommended AFR');
     expect(
       element().querySelector('.settings-capability-lang')?.textContent,
@@ -569,6 +646,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith(
@@ -585,6 +663,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '/models/ggml-medium.bin',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith(
@@ -592,6 +671,34 @@ describe('Settings', () => {
       '/models/ggml-medium.bin',
     );
     expect(button('.settings-use-detected-whisper').disabled).toBeFalse();
+  }));
+
+  it('persists the advanced illustration model override', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      element().querySelector('.settings-upscale-anime-path')?.textContent,
+    ).toContain('Using the bundled illustration model.');
+
+    wailsSpy.openFileDialog.and.resolveTo('/models/anime.onnx');
+    button('.settings-choose-upscale-anime').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      element().querySelector('.settings-upscale-anime-path')?.textContent,
+    ).toContain('/models/anime.onnx');
+    expect(button('.settings-clear-upscale-anime').disabled).toBeFalse();
+
+    button('.settings-clear-upscale-anime').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      element().querySelector('.settings-upscale-anime-path')?.textContent,
+    ).toContain('Using the bundled illustration model.');
+    expect(button('.settings-clear-upscale-anime').disabled).toBeTrue();
   }));
 
   it('ignores a cancelled whisper file picker', fakeAsync(() => {
@@ -631,6 +738,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(
@@ -828,6 +936,46 @@ describe('Settings', () => {
 
     expect(element().textContent).toContain('not available for linux/arm64');
     expect(element().querySelector('.settings-install-toolchain')).toBeNull();
+  }));
+
+  it('keeps Install / repair available when an optional pack is missing', fakeAsync(() => {
+    toolchain.status.set(
+      toolchainStatus({
+        ready: true,
+        components: [
+          ...TOOLCHAIN_COMPONENTS,
+          {
+            id: 'upscale',
+            label: 'Upscale engine',
+            ready: false,
+            required: false,
+            detail: 'The upscale engine is not installed. Run Install / repair.',
+          },
+          {
+            id: 'upscale-model',
+            label: 'Upscale model',
+            ready: false,
+            required: false,
+            detail: 'Upscale model is not installed. Run Install / repair.',
+          },
+        ],
+      }),
+    );
+
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const install = element().querySelector(
+      '.settings-install-toolchain',
+    ) as HTMLButtonElement | null;
+    expect(install).not.toBeNull();
+    expect(install?.textContent).toContain('Install / repair');
+
+    install?.click();
+    flushMicrotasks();
+
+    expect(toolchain.install).toHaveBeenCalled();
   }));
 
   it('reloads dependent panels once the toolchain becomes ready', fakeAsync(() => {

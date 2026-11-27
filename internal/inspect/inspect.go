@@ -27,6 +27,7 @@ const (
 	kindImage    = "image"
 	kindPDF      = "pdf"
 	kindVideo    = "video"
+	kindAudio    = "audio"
 	kindDocument = "document"
 	kindArchive  = "archive"
 	kindOther    = "other"
@@ -289,6 +290,8 @@ func kindFromExtension(extension string) string {
 		return kindPDF
 	case "mp4", "mov", "mkv", "webm", "avi":
 		return kindVideo
+	case "mp3", "m4a", "aac", "opus", "ogg", "wav", "flac", "wma", "aiff", "aif":
+		return kindAudio
 	case "md", "markdown", "docx", "html", "htm", "txt", "srt", "vtt":
 		return kindDocument
 	case "zip":
@@ -327,6 +330,8 @@ func mimeTypeFor(extension, kind string) string {
 		return "application/pdf"
 	case kindVideo:
 		return "video/" + extension
+	case kindAudio:
+		return "audio/" + extension
 	case kindDocument:
 		switch extension {
 		case "md", "markdown":

@@ -163,6 +163,7 @@ describe('PdfMerge', () => {
       'openDirectoryDialog',
       'isRuntimeAvailable',
       'listTools',
+      'suggestOutputName',
     ]);
 
     jobProgressSubject = new Subject<JobProgressEvent>();
@@ -209,6 +210,11 @@ describe('PdfMerge', () => {
       success: true,
       message: 'ok',
       tools: [],
+    });
+    wailsSpy.suggestOutputName.and.resolveTo({
+      success: true,
+      message: 'no title',
+      found: false,
     });
 
     await TestBed.configureTestingModule({
@@ -258,6 +264,77 @@ describe('PdfMerge', () => {
     expect(component.canRun()).toBeTrue();
     expect(component.primaryLabel()).toBe('Merge 2 PDFs');
     expect(primary.disabled).toBeFalse();
+  }));
+
+  it('shows a metadata suggestion and applies it when used', fakeAsync(() => {
+    wailsSpy.suggestOutputName.and.resolveTo({
+      success: true,
+      message: 'pdf title',
+      found: true,
+      suggestedName: 'Quarterly Report',
+      source: 'pdf-title',
+    });
+
+    component.onPathsSelected(['/tmp/one.pdf', '/tmp/two.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.suggestOutputName).toHaveBeenCalledOnceWith(
+      'tool.pdf.merge',
+      '/tmp/one.pdf',
+    );
+    const row = fixture.nativeElement.querySelector(
+      '.output-plan-suggestion',
+    ) as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row.textContent).toContain('Quarterly Report');
+
+    const planCalls = wailsSpy.planJob.calls.count();
+    (row.querySelector('.output-plan-suggestion-use') as HTMLButtonElement).click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.customName()).toBe('Quarterly Report');
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls + 1);
+    expect(lastPlanRequest().options['outputPath']).toBe(
+      '/tmp/Quarterly Report.pdf',
+    );
+    expect(component.plan()?.outputs[0].outputPath).toBe(
+      '/tmp/Quarterly Report.pdf',
+    );
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-suggestion'),
+    ).toBeNull();
+  }));
+
+  it('leaves the plan unchanged when the suggestion is ignored', fakeAsync(() => {
+    wailsSpy.suggestOutputName.and.resolveTo({
+      success: true,
+      message: 'pdf title',
+      found: true,
+      suggestedName: 'Quarterly Report',
+      source: 'pdf-title',
+    });
+
+    component.onPathsSelected(['/tmp/one.pdf', '/tmp/two.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.customName()).toBe('');
+    expect(lastPlanRequest().options['outputPath']).toBeUndefined();
+    expect(component.plan()?.outputs[0].outputPath).toBe('/tmp/one_merged.pdf');
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-suggestion'),
+    ).not.toBeNull();
+
+    component.clear();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.suggestedName()).toBe('');
+    expect(
+      fixture.nativeElement.querySelector('.output-plan-suggestion'),
+    ).toBeNull();
   }));
 
   it('rejects non-PDFs and duplicates with a notice', fakeAsync(() => {
@@ -338,6 +415,130 @@ describe('PdfMerge', () => {
       '/tmp/b.pdf': '2-4',
     });
     expect(lastPlanRequest().options['inputPageRanges']).toEqual(['2-4', '1']);
+  }));
+
+  it('drag reorder changes the submitted order and keeps each page range with its file', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf', '/tmp/c.pdf']);
+    flushMicrotasks();
+
+    component.onPageRangeInput('/tmp/a.pdf', inputEvent('1'));
+    component.onPageRangeInput('/tmp/b.pdf', inputEvent('2'));
+    component.onPageRangeInput('/tmp/c.pdf', inputEvent('3'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const rows = Array.from(
+      fixture.nativeElement.querySelectorAll('.file-queue-row'),
+    ) as HTMLElement[];
+    expect(rows.length).toBe(3);
+
+    const transfer = new DataTransfer();
+    const handle = rows[0].querySelector('.file-queue-drag') as HTMLElement;
+    handle.dispatchEvent(
+      new DragEvent('dragstart', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      }),
+    );
+
+    spyOn(rows[2], 'getBoundingClientRect').and.returnValue({
+      top: 0,
+      bottom: 60,
+      height: 60,
+      left: 0,
+      right: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    rows[2].dispatchEvent(
+      new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+        clientY: 55,
+      }),
+    );
+    rows[2].dispatchEvent(
+      new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+        clientY: 55,
+      }),
+    );
+
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.selectedPaths()).toEqual([
+      '/tmp/b.pdf',
+      '/tmp/c.pdf',
+      '/tmp/a.pdf',
+    ]);
+    expect(component.fileItems().map((item) => item.name)).toEqual([
+      'b.pdf',
+      'c.pdf',
+      'a.pdf',
+    ]);
+    expect(lastPlanRequest().inputPaths).toEqual([
+      '/tmp/b.pdf',
+      '/tmp/c.pdf',
+      '/tmp/a.pdf',
+    ]);
+    expect(lastPlanRequest().options['inputPageRanges']).toEqual([
+      '2',
+      '3',
+      '1',
+    ]);
+  }));
+
+  it('ignores a drag drop on the row itself and keeps the queue order', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const planCalls = wailsSpy.planJob.calls.count();
+    const rows = Array.from(
+      fixture.nativeElement.querySelectorAll('.file-queue-row'),
+    ) as HTMLElement[];
+    const transfer = new DataTransfer();
+    const handle = rows[0].querySelector('.file-queue-drag') as HTMLElement;
+    handle.dispatchEvent(
+      new DragEvent('dragstart', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      }),
+    );
+
+    spyOn(rows[0], 'getBoundingClientRect').and.returnValue({
+      top: 0,
+      bottom: 60,
+      height: 60,
+      left: 0,
+      right: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    rows[0].dispatchEvent(
+      new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+        clientY: 10,
+      }),
+    );
+
+    flushMicrotasks();
+
+    expect(component.selectedPaths()).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+    expect(wailsSpy.planJob.calls.count()).toBe(planCalls);
   }));
 
   it('drops the page range when its file is removed', fakeAsync(() => {
@@ -794,6 +995,79 @@ describe('PdfMerge', () => {
     expect(component.customName()).toBe('');
     expect(component.plan()).toBeNull();
     expect(component.outputDir()).toBe('/tmp/out');
+  }));
+
+  it('round-trips the advanced disclosure state', () => {
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const details = element.querySelector(
+      'details.advanced',
+    ) as HTMLDetailsElement;
+    expect(details).toBeTruthy();
+    expect(details.open).toBeFalse();
+    expect(component.advancedOpen()).toBeFalse();
+
+    details.open = true;
+    details.dispatchEvent(new Event('toggle'));
+    fixture.detectChanges();
+    expect(component.advancedOpen()).toBeTrue();
+
+    component.advancedOpen.set(false);
+    fixture.detectChanges();
+    expect(details.open).toBeFalse();
+
+    component.advancedOpen.set(true);
+    fixture.detectChanges();
+    expect(details.open).toBeTrue();
+  });
+
+  it('offers run again after a merge and repeats the same request once confirmed', fakeAsync(() => {
+    let runs = 0;
+    wailsSpy.runJob.and.callFake(() => {
+      runs += 1;
+      return Promise.resolve({
+        success: true,
+        message: 'queued',
+        jobId: runs === 1 ? 'job-first' : 'job-again',
+        status: 'queued',
+      });
+    });
+
+    component.onPathsSelected(['/tmp/a.pdf', '/tmp/b.pdf']);
+    flushMicrotasks();
+    const planned = lastPlanRequest();
+
+    void component.run();
+    flushMicrotasks();
+
+    jobStateSubject.next(successStatus('job-first', '/tmp/a_merged.pdf').result!);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const runAgain = fixture.nativeElement.querySelector(
+      '.result-run-again',
+    ) as HTMLButtonElement;
+    expect(runAgain).not.toBeNull();
+
+    runAgain.click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planJob).toHaveBeenCalledWith(planned);
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(1);
+
+    (fixture.nativeElement.querySelector(
+      '.result-run-again-confirm',
+    ) as HTMLButtonElement).click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.runJob).toHaveBeenCalledTimes(2);
+    expect(wailsSpy.runJob.calls.mostRecent().args[0]).toEqual(planned);
+    expect(component.activeJobId()).toBe('job-again');
+    expect(component.isPolling()).toBeTrue();
+    expect(component.selectedPaths()).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
   }));
 
   it('renders the page copy in Spanish', fakeAsync(() => {

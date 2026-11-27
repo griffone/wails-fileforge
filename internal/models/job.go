@@ -33,15 +33,18 @@ type JobProgressEvent struct {
 }
 
 type JobResultItem struct {
-	InputPath   string    `json:"inputPath"`
-	OutputPath  string    `json:"outputPath"`
-	Outputs     []string  `json:"outputs,omitempty"`
-	OutputCount int       `json:"outputCount,omitempty"`
-	Attempts    int       `json:"attempts,omitempty"`
-	RetryCount  int       `json:"retryCount,omitempty"`
-	Success     bool      `json:"success"`
-	Message     string    `json:"message"`
-	Error       *JobError `json:"error,omitempty"`
+	InputPath   string   `json:"inputPath"`
+	OutputPath  string   `json:"outputPath"`
+	Outputs     []string `json:"outputs,omitempty"`
+	OutputCount int      `json:"outputCount,omitempty"`
+	Attempts    int      `json:"attempts,omitempty"`
+	RetryCount  int      `json:"retryCount,omitempty"`
+	Success     bool     `json:"success"`
+	Message     string   `json:"message"`
+	// Details carries optional machine-readable measurements, such as the
+	// measured input/output loudness of a normalization item.
+	Details map[string]any `json:"details,omitempty"`
+	Error   *JobError      `json:"error,omitempty"`
 }
 
 type JobResult struct {
@@ -133,6 +136,39 @@ type ImageCropPreviewResponse struct {
 	Width      int       `json:"width,omitempty"`
 	Height     int       `json:"height,omitempty"`
 	Error      *JobError `json:"error,omitempty"`
+}
+
+// ImageCropSuggestionResponse carries the suggested crop rectangle detected
+// from a uniform image border. Coordinates are original-image pixels with the
+// origin at the top-left. Found=false is a normal answer, not an error: it
+// means no border was trustworthy enough to suggest.
+type ImageCropSuggestionResponse struct {
+	Success    bool      `json:"success"`
+	Message    string    `json:"message"`
+	Found      bool      `json:"found"`
+	X          int       `json:"x"`
+	Y          int       `json:"y"`
+	Width      int       `json:"width"`
+	Height     int       `json:"height"`
+	Reason     string    `json:"reason,omitempty"`
+	Confidence string    `json:"confidence,omitempty"`
+	Error      *JobError `json:"error,omitempty"`
+}
+
+// OutputNameSuggestionResponse carries a base name derived from document
+// metadata. SuggestedName has no extension: the tool decides that. Found=false
+// is a normal answer, not an error, and Reason explains why nothing was
+// suggested. The user still confirms it; nothing is renamed automatically.
+type OutputNameSuggestionResponse struct {
+	Success       bool   `json:"success"`
+	Message       string `json:"message"`
+	Found         bool   `json:"found"`
+	SuggestedName string `json:"suggestedName,omitempty"`
+	// Source is one of pdf-title, docx-title, docx-heading, md-heading or
+	// input-name.
+	Source string    `json:"source,omitempty"`
+	Reason string    `json:"reason,omitempty"`
+	Error  *JobError `json:"error,omitempty"`
 }
 
 type ImageAnnotateOperation struct {

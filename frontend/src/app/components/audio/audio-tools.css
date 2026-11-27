@@ -1,0 +1,171 @@
+:host {
+  display: block;
+}
+
+.page-head-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.page-local {
+  flex: none;
+  margin-top: 3px;
+}
+
+.page-local lucide-icon {
+  color: var(--success);
+  opacity: 0.85;
+}
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.flow-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.92fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-end {
+  margin-left: auto;
+}
+
+.error-banner {
+  align-items: flex-start;
+}
+
+.banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.banner-copy strong {
+  font-weight: 650;
+}
+
+.audio-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.lossless-warning {
+  align-items: flex-start;
+}
+
+.destination-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+}
+
+.field-help {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.action-helper {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.action-primary {
+  flex: 1;
+}
+
+.progress-panel .panel-body {
+  padding: 14px;
+}
+
+.loudness-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.loudness-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.loudness-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loudness-values {
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 1000px) {
+  .flow-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .page-head-row {
+    flex-direction: column;
+  }
+
+  .toolbar-end {
+    margin-left: 0;
+  }
+
+  .action-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .action-primary {
+    width: 100%;
+  }
+}

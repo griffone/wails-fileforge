@@ -27,6 +27,7 @@ import {
   ToolchainStateService,
 } from '../../services/toolchain-state.service';
 import {
+  AppInfoResponse,
   LocalCapability,
   LocalCapabilitiesResponse,
   ToolchainComponent,
@@ -34,6 +35,8 @@ import {
   Wails,
 } from '../../services/wails';
 import { formatBytes } from '../../utils/format';
+import { SettingsUpdates } from './settings-updates/settings-updates';
+import { TrashHistory } from './trash-history/trash-history';
 
 /** Shared with the Home onboarding strip. */
 const ONBOARDING_STORAGE_KEY = 'ff-onboarding-dismissed';
@@ -47,7 +50,7 @@ const DEFAULT_OCR_LANGUAGES = ['eng', 'spa'];
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, TrashHistory, SettingsUpdates],
   templateUrl: './settings.html',
   styleUrl: './settings.css',
 })
@@ -94,6 +97,22 @@ export class Settings implements OnInit {
 
   readonly actionMessage = signal('');
 
+  readonly appInfo = signal<AppInfoResponse | null>(null);
+  readonly appInfoLoading = signal(false);
+  readonly appInfoError = signal('');
+
+  readonly aboutVersion = computed(() => this.aboutValue(this.appInfo()?.version));
+  readonly aboutCommit = computed(() => this.aboutValue(this.appInfo()?.commit));
+  readonly aboutBuiltAt = computed(() =>
+    this.aboutValue(this.appInfo()?.builtAt),
+  );
+  readonly aboutRelease = computed(() => this.appInfo()?.release === true);
+  readonly aboutUpdateKey = computed(() =>
+    this.appInfo()?.updateKeyConfigured
+      ? this.i18n.t('settings.aboutInfo.updateKeyConfigured')
+      : this.i18n.t('settings.aboutInfo.updateKeyDisabled'),
+  );
+
   readonly capabilities = signal<LocalCapabilitiesResponse | null>(null);
   readonly capabilitiesLoading = signal(false);
   readonly capabilitiesError = signal('');
@@ -105,6 +124,11 @@ export class Settings implements OnInit {
 
   readonly whisperPath = this.preferences.whisperPath;
   readonly whisperModelPath = this.preferences.whisperModelPath;
+
+  readonly upscaleAnimeModelPath = this.preferences.upscaleAnimeModelPath;
+  readonly hasUpscaleAnimeModel = computed(
+    () => this.upscaleAnimeModelPath().trim().length > 0,
+  );
 
   readonly transcriptionReady = computed(
     () => this.transcriptionCapabilities()?.available === true,
@@ -124,6 +148,27 @@ export class Settings implements OnInit {
   readonly toolchainComponents = computed(
     () => this.toolchainStatus()?.components ?? [],
   );
+
+  /**
+   * True when an optional pack is missing even though the required toolchain
+   * is ready. Without this the Install / repair button disappeared after the
+   * first run and there was no way to install background removal or upscaling
+   * later.
+   */
+  readonly optionalPackMissing = computed(() => {
+    const optionalPackIDs = new Set([
+      'pdf2docx',
+      'rembg',
+      'rembg-model',
+      'upscale',
+      'upscale-model',
+      'upscale-anime-model',
+    ]);
+
+    return this.toolchainComponents().some(
+      (component) => optionalPackIDs.has(component.id) && !component.ready,
+    );
+  });
   readonly toolchainBusy = this.toolchain.isBusy;
 
   readonly toolchainModel = computed(() => {
@@ -205,6 +250,12 @@ export class Settings implements OnInit {
     () => this.toolchainStatus()?.storageDir?.trim() ?? '',
   );
 
+  readonly installButtonLabel = computed(() =>
+    this.toolchainReady() && this.optionalPackMissing()
+      ? this.i18n.t('settings.toolchain.installRepair')
+      : this.i18n.t('settings.toolchain.install'),
+  );
+
   private lastToolchainReady = false;
 
   constructor() {
@@ -221,9 +272,39 @@ export class Settings implements OnInit {
   }
 
   ngOnInit(): void {
+    void this.loadAppInfo();
     void this.loadCapabilities();
     void this.loadTranscriptionCapabilities();
     void this.toolchain.refresh();
+  }
+
+  /** Reads the build identity stamped into the desktop binary. */
+  async loadAppInfo(): Promise<void> {
+    this.appInfoLoading.set(true);
+    this.appInfoError.set('');
+
+    try {
+      const response = await this.wails.getAppInfo();
+      if (!response.success) {
+        this.appInfo.set(null);
+        this.appInfoError.set(
+          response.message || this.i18n.t('settings.aboutInfo.unavailable'),
+        );
+        return;
+      }
+
+      this.appInfo.set(response);
+    } catch {
+      this.appInfo.set(null);
+      this.appInfoError.set(this.i18n.t('settings.aboutInfo.unavailable'));
+    } finally {
+      this.appInfoLoading.set(false);
+    }
+  }
+
+  private aboutValue(value: string | undefined): string {
+    const text = (value ?? '').trim();
+    return text || this.i18n.t('settings.aboutInfo.notReported');
   }
 
   async loadCapabilities(): Promise<void> {
@@ -345,8 +426,11 @@ export class Settings implements OnInit {
     if (component.ready) {
       return this.i18n.t('settings.status.ready');
     }
-    return component.required
-      ? this.i18n.t('settings.status.missing')
+    if (component.required) {
+      return this.i18n.t('settings.status.missing');
+    }
+    return component.standard
+      ? this.i18n.t('settings.status.needsInstall')
       : this.i18n.t('settings.status.optional');
   }
 
@@ -355,6 +439,15 @@ export class Settings implements OnInit {
       return 'success';
     }
     return component.required ? 'danger' : 'idle';
+  }
+
+  toolchainComponentScopeLabel(component: ToolchainComponent): string {
+    if (component.required) {
+      return this.i18n.t('settings.status.required');
+    }
+    return component.standard
+      ? this.i18n.t('settings.status.standard')
+      : this.i18n.t('settings.status.optional');
   }
 
   /** Version + path when known, otherwise the human detail line. */
@@ -482,6 +575,32 @@ export class Settings implements OnInit {
     this.preferences.setWhisperModelPath(path);
     this.actionMessage.set('');
     await this.loadTranscriptionCapabilities();
+  }
+
+  async chooseUpscaleAnimeModel(): Promise<void> {
+    const path = (await this.wails.openFileDialog()).trim();
+    if (!path) {
+      return;
+    }
+
+    this.preferences.setUpscaleAnimeModelPath(path);
+    this.actionMessage.set('');
+  }
+
+  clearUpscaleAnimeModel(): void {
+    if (!this.hasUpscaleAnimeModel()) {
+      return;
+    }
+
+    this.preferences.clearUpscaleAnimeModelPath();
+    this.actionMessage.set('');
+  }
+
+  upscaleAnimeModelLabel(): string {
+    return (
+      this.upscaleAnimeModelPath().trim() ||
+      this.i18n.t('settings.upscale.animeModelNotSet')
+    );
   }
 
   async useDetectedWhisperPaths(): Promise<void> {
@@ -659,6 +778,8 @@ export class Settings implements OnInit {
         return this.i18n.t('toolchain.phase.installingLanguages');
       case 'rembg':
         return this.i18n.t('toolchain.phase.installingBackgroundRemoval');
+      case 'upscale':
+        return this.i18n.t('toolchain.phase.installingUpscale');
       case 'finalize':
         return this.i18n.t('toolchain.phase.verifying');
       case 'ready':

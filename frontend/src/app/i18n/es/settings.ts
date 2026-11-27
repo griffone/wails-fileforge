@@ -23,6 +23,7 @@ export const settingsEs = {
   'settings.toolchain.notReported': 'No informado',
   'settings.toolchain.storageHelp':
     'Se instalan en tu carpeta de datos de usuario. Sin permisos de administrador ni cambios en el PATH del sistema.',
+  'settings.toolchain.installRepair': 'Instalar / reparar',
   'settings.toolchain.install': 'Instalar herramientas locales',
   'settings.toolchain.openFolder': 'Abrir carpeta',
   'settings.toolchain.refresh': 'Actualizar',
@@ -83,7 +84,7 @@ export const settingsEs = {
   'settings.capabilities.ocrLanguagesRecommended':
     'Idiomas de OCR: {installed} · recomendados {recommended}',
   'settings.capabilities.noOcrData': 'No hay datos de idioma OCR instalados',
-  'settings.history.title': 'Historial',
+  'settings.history.title': 'Conversiones recientes e introducción',
   'settings.history.recent': 'Conversiones recientes',
   'settings.history.clear': 'Borrar conversiones recientes',
   'settings.history.onboarding': 'Introducción de Inicio',
@@ -93,6 +94,56 @@ export const settingsEs = {
   'settings.history.none': 'Aún no hay conversiones finalizadas.',
   'settings.history.one': '1 conversión finalizada',
   'settings.history.many': '{count} conversiones finalizadas',
+  'settings.trashHistory.title': 'Papelera e historial',
+  'settings.trashHistory.subtitle':
+    'Deshacer mueve las salidas a la papelera de la aplicación. Restáuralas aquí o recupera el espacio.',
+  'settings.trashHistory.refreshAria': 'Actualizar papelera e historial',
+  'settings.trashHistory.loading': 'Cargando papelera e historial…',
+  'settings.trashHistory.historyUnavailable':
+    'No se pudo cargar el historial de trabajos.',
+  'settings.trashHistory.trashUnavailable':
+    'No se pudo leer el contenido de la papelera.',
+  'settings.trash.title': 'Papelera de la aplicación',
+  'settings.trash.aria': 'Tamaño y limpieza de la papelera',
+  'settings.trash.empty': 'La papelera está vacía.',
+  'settings.trash.summary': '{files} · {size}',
+  'settings.trash.derived':
+    'Medido directamente en la carpeta de la papelera.',
+  'settings.trash.emptyAction': 'Vaciar papelera',
+  'settings.trash.confirmTitle': '¿Vaciar la papelera?',
+  'settings.trash.confirmBody':
+    'Se eliminarán de forma permanente {files} ({size}). Esta acción no se puede deshacer.',
+  'settings.trash.confirmAction': 'Eliminar permanentemente',
+  'settings.trash.cancel': 'Cancelar',
+  'settings.trash.emptied': 'Papelera vaciada.',
+  'settings.trash.emptyFailed': 'No se pudo vaciar la papelera.',
+  'settings.jobHistory.title': 'Historial de trabajos',
+  'settings.jobHistory.listAria': 'Trabajos recientes',
+  'settings.jobHistory.empty': 'Aún no hay trabajos finalizados.',
+  'settings.jobHistory.emptyHint':
+    'Los trabajos finalizados aparecen aquí para mostrar, deshacer o restaurar sus salidas.',
+  'settings.jobHistory.unknownTool': 'Herramienta desconocida',
+  'settings.jobHistory.organizeTool': 'Organizar archivos',
+  'settings.jobHistory.state.done': 'Finalizado',
+  'settings.jobHistory.state.undone': 'Deshecho',
+  'settings.jobHistory.state.trashed': 'En la papelera',
+  'settings.jobHistory.state.emptied': 'Papelera vaciada',
+  'settings.jobHistory.reveal': 'Mostrar',
+  'settings.jobHistory.revealAria': 'Mostrar una salida de {name}',
+  'settings.jobHistory.undo': 'Deshacer',
+  'settings.jobHistory.undoAria': 'Deshacer las salidas de {name}',
+  'settings.jobHistory.restore': 'Restaurar',
+  'settings.jobHistory.restoreAria': 'Restaurar las salidas de {name}',
+  'settings.jobHistory.undoDone':
+    'Las salidas se movieron a la papelera de la aplicación.',
+  'settings.jobHistory.undoSkipped':
+    'Las salidas se movieron a la papelera; se omitieron {count} archivos.',
+  'settings.jobHistory.restoreDone': 'Salidas restauradas.',
+  'settings.jobHistory.restoreSkipped':
+    'Salidas restauradas; se omitieron {count} archivos.',
+  'settings.jobHistory.undoFailed': 'No se pudo completar la acción de deshacer.',
+  'settings.jobHistory.restoreFailed':
+    'No se pudo completar la acción de restaurar.',
   'settings.action.historyCleared': 'Conversiones recientes borradas.',
   'settings.action.onboardingReset':
     'La introducción volverá a mostrarse en Inicio.',
@@ -106,8 +157,118 @@ export const settingsEs = {
   'settings.status.missing': 'Falta',
   'settings.status.optional': 'Opcional',
   'settings.status.required': 'Requerido',
+  'settings.status.standard': 'Incluido',
+  'settings.status.needsInstall': 'Falta instalar',
   'settings.status.notStarted': 'Sin iniciar',
   'settings.status.notFound': 'No encontrado',
   'settings.status.auto': 'Automático',
+  'settings.aboutInfo.title': 'Acerca de FileForge',
+  'settings.aboutInfo.version': 'Versión',
+  'settings.aboutInfo.commit': 'Commit',
+  'settings.aboutInfo.builtAt': 'Fecha de compilación',
+  'settings.aboutInfo.notReported': 'No informado',
+  'settings.aboutInfo.loading': 'Leyendo la identidad de la compilación…',
+  'settings.aboutInfo.unavailable':
+    'La identidad de la compilación no está disponible.',
+  'settings.aboutInfo.devBuild': 'Compilación de desarrollo',
+  'settings.aboutInfo.updateKey': 'Clave de firma de actualizaciones',
+  'settings.aboutInfo.updateKeyConfigured': 'Fijada en esta compilación',
+  'settings.aboutInfo.updateKeyDisabled':
+    'Sin fijar · actualizaciones desactivadas porque esta compilación no tiene clave de firma',
+  'settings.aboutInfo.help':
+    'Las compilaciones de lanzamiento llevan una versión que el actualizador puede comparar. Las compilaciones de desarrollo muestran dev y nunca buscan actualizaciones.',
+  'settings.updates.title': 'Actualizaciones',
+  'settings.updates.check': 'Buscar actualizaciones',
+  'settings.updates.checking': 'Buscando actualizaciones…',
+  'settings.updates.checkAgain': 'Buscar de nuevo',
+  'settings.updates.idle':
+    'Todavía no se buscaron actualizaciones en esta sesión. Buscar solo lee el listado de versiones; no descarga ni instala nada.',
+  'settings.updates.currentVersion': 'Versión actual {version}',
+  'settings.updates.availableTitle': 'La versión {version} está disponible',
+  'settings.updates.availableBody':
+    'FileForge {version} está listo para descargar. No se descarga nada hasta que lo pidas.',
+  'settings.updates.notes': 'Notas de la versión',
+  'settings.updates.notesShowMore': 'Mostrar más',
+  'settings.updates.notesShowLess': 'Mostrar menos',
+  'settings.updates.size': 'Tamaño de la descarga: {size}',
+  'settings.updates.sizeUnknown':
+    'La versión no informa el tamaño de la descarga',
+  'settings.updates.download': 'Descargar {version}',
+  'settings.updates.availableHelp':
+    'FileForge descarga solo cuando lo pides y se instala solo después de que confirmes.',
+  'settings.updates.downloading': 'Descargando {version}…',
+  'settings.updates.downloadingHint':
+    'La actualización se instala solo después de que confirmes. Puedes seguir usando FileForge mientras descarga.',
+  'settings.updates.noCancel':
+    'Esta descarga no se puede cancelar desde FileForge; termina o falla.',
+  'settings.updates.progress': '{written} de {total}',
+  'settings.updates.progressUnknown': '{written} descargados',
+  'settings.updates.downloadedTitle':
+    'La versión {version} está descargada y verificada.',
+  'settings.updates.verified':
+    'La suma de verificación y la firma coinciden con la clave fijada.',
+  'settings.updates.installHint':
+    'No se instala nada hasta que revises el paso siguiente.',
+  'settings.updates.installAppImage': 'Instalar {version} y reiniciar…',
+  'settings.updates.installWindows':
+    'Instalar {version} y abrir el instalador…',
+  'settings.updates.installGeneric': 'Instalar {version}…',
+  'settings.updates.consentTitle': '¿Instalar FileForge {version}?',
+  'settings.updates.consentAppImage':
+    'FileForge se cerrará, reemplazará su archivo AppImage por la descarga verificada y volverá a iniciarse.',
+  'settings.updates.consentWindows':
+    'FileForge abrirá el instalador de la actualización y luego se cerrará. Sigue el instalador para terminar; puede pedir permisos de administrador.',
+  'settings.updates.consentGeneric':
+    'FileForge se cerrará e instalará la actualización.',
+  'settings.updates.ackAppImage':
+    'Entiendo que FileForge se reiniciará después de instalar.',
+  'settings.updates.ackWindows':
+    'Entiendo que se abrirá el instalador y que FileForge se cerrará.',
+  'settings.updates.ackGeneric': 'Entiendo que FileForge se cerrará.',
+  'settings.updates.consentCancel': 'Cancelar',
+  'settings.updates.consentConfirm':
+    'Sí, instalar y reiniciar FileForge',
+  'settings.updates.consentConfirmWindows':
+    'Sí, instalar y abrir el instalador',
+  'settings.updates.consentConfirmGeneric': 'Sí, instalar la actualización',
+  'settings.updates.installing': 'Instalando {version}…',
+  'settings.updates.installingHelp':
+    'FileForge se reiniciará cuando termine la instalación.',
+  'settings.updates.installed':
+    'La actualización se instaló. FileForge se reinicia ahora.',
+  'settings.updates.upToDate': 'FileForge {version} está actualizado.',
+  'settings.updates.upToDateHelp':
+    'Esta es la última versión estable. Puedes buscar de nuevo cuando quieras.',
+  'settings.updates.errorTitle': 'La búsqueda de actualizaciones falló.',
+  'settings.updates.errorGeneric': 'La operación de actualización falló.',
+  'settings.updates.retry': 'Reintentar',
+  'settings.updates.state.available': 'Actualización disponible',
+  'settings.updates.state.downloading': 'Descargando',
+  'settings.updates.state.downloaded': 'Descargada',
+  'settings.updates.state.installing': 'Instalando',
+  'settings.updates.state.upToDate': 'Actualizado',
+  'settings.updates.state.error': 'Error de actualización',
+  'settings.updates.state.checking': 'Buscando',
+  'settings.updates.unavailable.dev':
+    'Las actualizaciones están desactivadas en esta compilación de desarrollo. Solo las compilaciones de lanzamiento pueden actualizarse solas.',
+  'settings.updates.unavailable.noKey':
+    'Esta compilación no tiene una clave de firma de actualizaciones fijada, así que FileForge no aceptará ni instalará una actualización.',
+  'settings.updates.unavailable.packageManager':
+    'FileForge se instaló con tu gestor de paquetes. Actualízalo desde ahí.',
+  'settings.updates.unavailable.platform':
+    'Las actualizaciones no son compatibles con esta plataforma. Instala una versión nueva manualmente.',
+  'settings.updates.unavailable.generic':
+    'Las actualizaciones no están disponibles en esta compilación.',
+  'settings.upscale.title': 'Motor y modelos de ampliación',
+  'settings.upscale.subtitle':
+    'La ampliación se instala con el resto de las herramientas locales: un entorno ONNX compartido y dos modelos fijados, verificados con suma de comprobación. Ejecuta Instalar / reparar para agregarlos o restaurarlos.',
+  'settings.upscale.packSize':
+    'Descarga: unos 73 MB en total, incluidos unos 22,5 MB de los modelos de fotos e ilustraciones. El motor se comparte con la eliminación de fondo.',
+  'settings.upscale.animeModel': 'Modelo de ilustraciones (reemplazo avanzado)',
+  'settings.upscale.animeModelNotSet': 'Se usa el modelo de ilustraciones incluido.',
+  'settings.upscale.chooseModel': 'Elegir archivo .onnx',
+  'settings.upscale.clearModel': 'Usar el modelo incluido',
+  'settings.upscale.help':
+    'El modelo de ilustraciones incluido (pesos de xinntao/Real-ESRGAN, exportación ONNX de skillsafe-ai) lo descarga y verifica la cadena de herramientas. Usa un archivo propio solo si quieres reemplazarlo por tu exportación ONNX RealESRGAN x4; anime es un ejemplo del contenido que maneja bien.',
   'settings.about': 'FileForge Desktop · herramientas de archivo locales',
 };

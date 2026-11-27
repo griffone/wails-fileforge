@@ -23,6 +23,7 @@ export const settingsEn = {
   'settings.toolchain.notReported': 'Not reported',
   'settings.toolchain.storageHelp':
     'Installed under your user data folder. No admin rights or system PATH changes.',
+  'settings.toolchain.installRepair': 'Install / repair',
   'settings.toolchain.install': 'Install local tools',
   'settings.toolchain.openFolder': 'Open folder',
   'settings.toolchain.refresh': 'Refresh',
@@ -81,7 +82,7 @@ export const settingsEn = {
   'settings.capabilities.ocrLanguagesRecommended':
     'OCR languages: {installed} · recommended {recommended}',
   'settings.capabilities.noOcrData': 'No OCR language data installed',
-  'settings.history.title': 'History',
+  'settings.history.title': 'Recent conversions & onboarding',
   'settings.history.recent': 'Recent conversions',
   'settings.history.clear': 'Clear recent conversions',
   'settings.history.onboarding': 'Home onboarding',
@@ -91,6 +92,53 @@ export const settingsEn = {
   'settings.history.none': 'No finished conversions yet.',
   'settings.history.one': '1 finished conversion',
   'settings.history.many': '{count} finished conversions',
+  'settings.trashHistory.title': 'Trash and history',
+  'settings.trashHistory.subtitle':
+    'Undo moves outputs to the app trash. Restore them here or reclaim the space.',
+  'settings.trashHistory.refreshAria': 'Refresh trash and job history',
+  'settings.trashHistory.loading': 'Loading trash and job history…',
+  'settings.trashHistory.historyUnavailable':
+    'Job history could not be loaded.',
+  'settings.trashHistory.trashUnavailable':
+    'Trash contents could not be read.',
+  'settings.trash.title': 'App trash',
+  'settings.trash.aria': 'App trash size and cleanup',
+  'settings.trash.empty': 'The trash is empty.',
+  'settings.trash.summary': '{files} · {size}',
+  'settings.trash.derived': 'Measured from the trash folder itself.',
+  'settings.trash.emptyAction': 'Empty trash',
+  'settings.trash.confirmTitle': 'Empty the trash?',
+  'settings.trash.confirmBody':
+    '{files} ({size}) will be permanently deleted. This cannot be undone.',
+  'settings.trash.confirmAction': 'Delete permanently',
+  'settings.trash.cancel': 'Cancel',
+  'settings.trash.emptied': 'Trash emptied.',
+  'settings.trash.emptyFailed': 'The trash could not be emptied.',
+  'settings.jobHistory.title': 'Job history',
+  'settings.jobHistory.listAria': 'Recent jobs',
+  'settings.jobHistory.empty': 'No finished jobs yet.',
+  'settings.jobHistory.emptyHint':
+    'Finished jobs appear here so you can reveal, undo or restore their outputs.',
+  'settings.jobHistory.unknownTool': 'Unknown tool',
+  'settings.jobHistory.organizeTool': 'Organize files',
+  'settings.jobHistory.state.done': 'Done',
+  'settings.jobHistory.state.undone': 'Undone',
+  'settings.jobHistory.state.trashed': 'In trash',
+  'settings.jobHistory.state.emptied': 'Trash emptied',
+  'settings.jobHistory.reveal': 'Reveal',
+  'settings.jobHistory.revealAria': 'Reveal an output of {name}',
+  'settings.jobHistory.undo': 'Undo',
+  'settings.jobHistory.undoAria': 'Undo the outputs of {name}',
+  'settings.jobHistory.restore': 'Restore',
+  'settings.jobHistory.restoreAria': 'Restore the outputs of {name}',
+  'settings.jobHistory.undoDone': 'Outputs moved to the app trash.',
+  'settings.jobHistory.undoSkipped':
+    'Outputs moved to the app trash; {count} files were skipped.',
+  'settings.jobHistory.restoreDone': 'Outputs restored.',
+  'settings.jobHistory.restoreSkipped':
+    'Outputs restored; {count} files were skipped.',
+  'settings.jobHistory.undoFailed': 'The undo could not be completed.',
+  'settings.jobHistory.restoreFailed': 'The restore could not be completed.',
   'settings.action.historyCleared': 'Recent conversions cleared.',
   'settings.action.onboardingReset': 'Onboarding will show again on Home.',
   'settings.status.ready': 'Ready',
@@ -103,8 +151,115 @@ export const settingsEn = {
   'settings.status.missing': 'Missing',
   'settings.status.optional': 'Optional',
   'settings.status.required': 'Required',
+  'settings.status.standard': 'Included',
+  'settings.status.needsInstall': 'Install needed',
   'settings.status.notStarted': 'Not started',
   'settings.status.notFound': 'Not found',
   'settings.status.auto': 'Auto',
+  'settings.aboutInfo.title': 'About FileForge',
+  'settings.aboutInfo.version': 'Version',
+  'settings.aboutInfo.commit': 'Commit',
+  'settings.aboutInfo.builtAt': 'Build time',
+  'settings.aboutInfo.notReported': 'Not reported',
+  'settings.aboutInfo.loading': 'Reading the build identity…',
+  'settings.aboutInfo.unavailable': 'The build identity is not available.',
+  'settings.aboutInfo.devBuild': 'Development build',
+  'settings.aboutInfo.updateKey': 'Update signing key',
+  'settings.aboutInfo.updateKeyConfigured': 'Pinned to this build',
+  'settings.aboutInfo.updateKeyDisabled':
+    'Not pinned · updates disabled because this build has no signing key',
+  'settings.aboutInfo.help':
+    'Release builds carry a version an updater can compare. Development builds report dev and never check for updates.',
+  'settings.updates.title': 'Updates',
+  'settings.updates.check': 'Check for updates',
+  'settings.updates.checking': 'Checking for updates…',
+  'settings.updates.checkAgain': 'Check again',
+  'settings.updates.idle':
+    'No update check has run in this session. Checking only reads the release feed; nothing is downloaded or installed.',
+  'settings.updates.currentVersion': 'Current version {version}',
+  'settings.updates.availableTitle': 'Version {version} is available',
+  'settings.updates.availableBody':
+    'FileForge {version} is ready to download. Nothing is downloaded until you ask for it.',
+  'settings.updates.notes': 'Release notes',
+  'settings.updates.notesShowMore': 'Show more',
+  'settings.updates.notesShowLess': 'Show less',
+  'settings.updates.size': 'Download size: {size}',
+  'settings.updates.sizeUnknown': 'Download size not reported by the release',
+  'settings.updates.download': 'Download {version}',
+  'settings.updates.availableHelp':
+    'FileForge downloads only when you ask, and installs only after you confirm.',
+  'settings.updates.downloading': 'Downloading {version}…',
+  'settings.updates.downloadingHint':
+    'The update installs only after you confirm. You can keep using FileForge while it downloads.',
+  'settings.updates.noCancel':
+    'This download cannot be cancelled from FileForge; it stops when it finishes or fails.',
+  'settings.updates.progress': '{written} of {total}',
+  'settings.updates.progressUnknown': '{written} downloaded',
+  'settings.updates.downloadedTitle':
+    'Version {version} is downloaded and verified.',
+  'settings.updates.verified':
+    'The checksum and signature matched the pinned update key.',
+  'settings.updates.installHint':
+    'Nothing is installed until you review the next step.',
+  'settings.updates.installAppImage': 'Install {version} and restart…',
+  'settings.updates.installWindows':
+    'Install {version} and open the installer…',
+  'settings.updates.installGeneric': 'Install {version}…',
+  'settings.updates.consentTitle': 'Install FileForge {version}?',
+  'settings.updates.consentAppImage':
+    'FileForge will close, replace its AppImage file with the verified download and start again.',
+  'settings.updates.consentWindows':
+    'FileForge will open the update installer and then close. Follow the installer to finish; it may ask for administrator rights.',
+  'settings.updates.consentGeneric':
+    'FileForge will close and install the update.',
+  'settings.updates.ackAppImage':
+    'I understand FileForge will restart after installing.',
+  'settings.updates.ackWindows':
+    'I understand the installer will open and FileForge will close.',
+  'settings.updates.ackGeneric': 'I understand FileForge will close.',
+  'settings.updates.consentCancel': 'Cancel',
+  'settings.updates.consentConfirm':
+    'Yes, install and restart FileForge',
+  'settings.updates.consentConfirmWindows':
+    'Yes, install and open the installer',
+  'settings.updates.consentConfirmGeneric': 'Yes, install the update',
+  'settings.updates.installing': 'Installing {version}…',
+  'settings.updates.installingHelp':
+    'FileForge will restart when the install finishes.',
+  'settings.updates.installed': 'The update was installed. FileForge restarts now.',
+  'settings.updates.upToDate': 'FileForge {version} is up to date.',
+  'settings.updates.upToDateHelp':
+    'This is the latest stable release. You can check again at any time.',
+  'settings.updates.errorTitle': 'The update check failed.',
+  'settings.updates.errorGeneric': 'The update operation failed.',
+  'settings.updates.retry': 'Try again',
+  'settings.updates.state.available': 'Update available',
+  'settings.updates.state.downloading': 'Downloading',
+  'settings.updates.state.downloaded': 'Downloaded',
+  'settings.updates.state.installing': 'Installing',
+  'settings.updates.state.upToDate': 'Up to date',
+  'settings.updates.state.error': 'Update error',
+  'settings.updates.state.checking': 'Checking',
+  'settings.updates.unavailable.dev':
+    'Updates are off in this development build. Only release builds can update themselves.',
+  'settings.updates.unavailable.noKey':
+    'This build has no update signing key pinned, so FileForge will not accept or install an update.',
+  'settings.updates.unavailable.packageManager':
+    'FileForge was installed by your package manager. Update it from there.',
+  'settings.updates.unavailable.platform':
+    'Updates are not supported on this platform. Install a new version manually.',
+  'settings.updates.unavailable.generic':
+    'Updates are unavailable in this build.',
+  'settings.upscale.title': 'Upscale engine and models',
+  'settings.upscale.subtitle':
+    'Upscaling installs with the rest of the local tools: one shared ONNX environment and two pinned models, verified by checksum. Run Install / repair to add or restore them.',
+  'settings.upscale.packSize':
+    'Download: about 73 MB in total, including about 22.5 MB for the photo and illustration models. The engine is shared with background removal.',
+  'settings.upscale.animeModel': 'Illustration model (advanced override)',
+  'settings.upscale.animeModelNotSet': 'Using the bundled illustration model.',
+  'settings.upscale.chooseModel': 'Choose .onnx file',
+  'settings.upscale.clearModel': 'Use bundled model',
+  'settings.upscale.help':
+    'The bundled illustration model (weights from xinntao/Real-ESRGAN, ONNX export by skillsafe-ai) is downloaded and verified by the toolchain. Only point this at your own RealESRGAN x4 ONNX export if you want to override it; anime is one example of the content it handles well.',
   'settings.about': 'FileForge Desktop · local-first file tools',
 } as const;

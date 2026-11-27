@@ -314,6 +314,7 @@ func (s *Service) executeBurnedSubtitles(ctx context.Context, tracked *recipeJob
 		))
 		return
 	}
+	s.setWorkspace(tracked, tempDir)
 	defer func() {
 		_ = os.RemoveAll(tempDir)
 	}()

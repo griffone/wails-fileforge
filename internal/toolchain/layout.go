@@ -14,8 +14,11 @@ import (
 //	models/ggml-<model>.bin
 //	tessdata/eng.traineddata, spa.traineddata
 //	pdf2docx-venv/        dedicated venv for the PDF to DOCX engine
-//	rembg-venv/           dedicated venv for the background removal engine
+//	onnx-venv/            shared venv for the background removal and upscale engines
+//	onnx-venv.ready       marker written after the shared venv imports
 //	rembg/                REMBG_HOME/U2NET_HOME with models/<model>/<model>.onnx
+//	upscale/              UPSCALE_HOME with models/general/<model>.onnx + .data
+//	                      and models/anime/<model>.onnx
 //	manifest.json
 //
 // The helpers below are the single source of truth for those paths.
@@ -75,12 +78,11 @@ func ManagedPDF2DOCXPath(dataDir string) (string, bool) {
 	return path, fileWithContent(path)
 }
 
-// ManagedRembgPythonPath returns the interpreter of the managed background
-// removal virtual environment for the running OS. It is exported so the
-// background removal engine runs with the exact package set installed by the
-// toolchain.
+// ManagedRembgPythonPath returns the interpreter of the shared ONNX virtual
+// environment for the running OS. Background removal and upscaling install the
+// same pinned ONNX stack, so both engines resolve this one interpreter.
 func ManagedRembgPythonPath(dataDir string) (string, bool) {
-	path := rembgVenvPythonPath(ToolchainDir(dataDir), runtime.GOOS)
+	path := onnxVenvPythonPath(ToolchainDir(dataDir), runtime.GOOS)
 
 	return path, fileWithContent(path)
 }
@@ -99,6 +101,54 @@ func ManagedRembgModelPath(dataDir, model string) (string, bool) {
 	path := rembgModelPath(ToolchainDir(dataDir), model)
 
 	return path, fileWithContent(path)
+}
+
+// ManagedUpscalePythonPath returns the interpreter of the shared ONNX virtual
+// environment for the running OS. Background removal and upscaling install the
+// same pinned ONNX stack, so both engines resolve this one interpreter. The
+// upscale engine runs with the exact package set the toolchain verifies.
+func ManagedUpscalePythonPath(dataDir string) (string, bool) {
+	path := onnxVenvPythonPath(ToolchainDir(dataDir), runtime.GOOS)
+
+	return path, fileWithContent(path)
+}
+
+// ManagedUpscaleModelPath returns the ONNX file of the pinned photo upscale
+// model when both the graph and its external data file are present with the
+// expected sizes.
+func ManagedUpscaleModelPath(dataDir string) (string, bool) {
+	root := ToolchainDir(dataDir)
+	path := upscaleModelONNXPath(root)
+
+	return path, upscaleModelFilesMatch(root)
+}
+
+// ManagedUpscaleAnimeModelPath returns the ONNX file of the pinned illustration
+// upscale model when it is present with the expected size.
+func ManagedUpscaleAnimeModelPath(dataDir string) (string, bool) {
+	root := ToolchainDir(dataDir)
+	path := upscaleAnimeModelPath(root)
+
+	return path, upscaleAnimeModelFilesMatch(root)
+}
+
+// ManagedUpscaleRuntimeState reports whether the shared ONNX engine is installed
+// and verified: interpreter, pinned packages and the post-import marker. The
+// reason is user-facing and names what is missing.
+func ManagedUpscaleRuntimeState(dataDir string) (bool, string) {
+	return upscaleRuntimeState(ToolchainDir(dataDir), runtime.GOOS)
+}
+
+// ManagedUpscaleModelState reports whether the pinned photo upscale model is
+// installed and complete. The reason is user-facing.
+func ManagedUpscaleModelState(dataDir string) (bool, string) {
+	return upscaleModelState(ToolchainDir(dataDir))
+}
+
+// ManagedUpscaleAnimeModelState reports whether the pinned illustration upscale
+// model is installed and complete. The reason is user-facing.
+func ManagedUpscaleAnimeModelState(dataDir string) (bool, string) {
+	return upscaleAnimeModelState(ToolchainDir(dataDir))
 }
 
 // tessdataPDFAssets lists the Tesseract data files required by the searchable
@@ -247,21 +297,23 @@ func pdf2docxVenvBinaryPath(root, goos string) string {
 	return filepath.Join(pdf2docxVenvDir(root), "bin", "pdf2docx")
 }
 
-// rembgVenvDir returns the dedicated virtual environment that hosts the pinned
-// background removal engine packages. It is separate from the conda prefix and
-// from the PDF to DOCX environment so a repair of one never breaks the others.
-func rembgVenvDir(root string) string {
-	return filepath.Join(root, "rembg-venv")
+// onnxVenvDir returns the virtual environment shared by the two ONNX engines:
+// background removal and upscaling. Both install the same pinned inference
+// stack, so one environment serves both instead of duplicating roughly
+// 150–200 MB on disk. It stays separate from the conda prefix and from the PDF
+// to DOCX environment so a repair of one never breaks the others.
+func onnxVenvDir(root string) string {
+	return filepath.Join(root, "onnx-venv")
 }
 
-// rembgVenvPythonPath returns the interpreter inside the background removal
-// virtual environment.
-func rembgVenvPythonPath(root, goos string) string {
+// onnxVenvPythonPath returns the interpreter inside the shared ONNX virtual
+// environment.
+func onnxVenvPythonPath(root, goos string) string {
 	if goos == "windows" {
-		return filepath.Join(rembgVenvDir(root), "Scripts", "python.exe")
+		return filepath.Join(onnxVenvDir(root), "Scripts", "python.exe")
 	}
 
-	return filepath.Join(rembgVenvDir(root), "bin", "python")
+	return filepath.Join(onnxVenvDir(root), "bin", "python")
 }
 
 // rembgHomeDir returns the RemBG home folder. Both REMBG_HOME and U2NET_HOME
@@ -276,21 +328,21 @@ func rembgModelPath(root, model string) string {
 	return filepath.Join(rembgHomeDir(root), "models", model, RembgModelFileName(model))
 }
 
-// rembgReadyFileName marks a background removal virtual environment that was
-// installed and imported successfully. It lives in the RemBG home, not inside
-// the venv, so a partial venv can never carry the marker by accident.
-const rembgReadyFileName = ".ready"
+// onnxReadyFileName marks the shared ONNX virtual environment as imported. It
+// lives next to the venv, not inside it, so a partial venv can never carry the
+// marker by accident.
+const onnxReadyFileName = "onnx-venv.ready"
 
-// rembgReadyFilePath returns the readiness marker path.
-func rembgReadyFilePath(root string) string {
-	return filepath.Join(rembgHomeDir(root), rembgReadyFileName)
+// onnxReadyFilePath returns the readiness marker of the shared ONNX venv.
+func onnxReadyFilePath(root string) string {
+	return filepath.Join(root, onnxReadyFileName)
 }
 
-// rembgSitePackagesDir returns the site-packages folder of the background
-// removal virtual environment. Windows keeps it under Lib; Unix nests it below
+// onnxSitePackagesDir returns the site-packages folder of the shared ONNX
+// virtual environment. Windows keeps it under Lib; Unix nests it below
 // lib/pythonX.Y, so the Python version is discovered instead of hardcoded.
-func rembgSitePackagesDir(root, goos string) (string, bool) {
-	venv := rembgVenvDir(root)
+func onnxSitePackagesDir(root, goos string) (string, bool) {
+	venv := onnxVenvDir(root)
 	if goos == "windows" {
 		dir := filepath.Join(venv, "Lib", "site-packages")
 
@@ -310,57 +362,79 @@ func rembgSitePackagesDir(root, goos string) (string, bool) {
 	return "", false
 }
 
-// rembgPackagesInstalled reports whether the venv carries the rembg package and
-// a pip receipt for onnxruntime. A missing dist-info directory means the
-// install was interrupted, so the environment is never reported as ready.
-func rembgPackagesInstalled(root, goos string) bool {
-	sitePackages, found := rembgSitePackagesDir(root, goos)
+// onnxPackagesInstalled reports whether the shared venv carries every pinned
+// engine package: rembg (background removal), a pip receipt for onnxruntime and
+// the image/array stack the upscale bridge imports. A missing dist-info
+// directory means the install was interrupted, so the environment is never
+// reported as ready.
+func onnxPackagesInstalled(root, goos string) bool {
+	sitePackages, found := onnxSitePackagesDir(root, goos)
 	if !found {
 		return false
 	}
 	if !fileWithContent(filepath.Join(sitePackages, "rembg", "__init__.py")) {
 		return false
 	}
-
-	matches, err := filepath.Glob(filepath.Join(sitePackages, "onnxruntime-*.dist-info"))
-	if err != nil {
-		return false
-	}
-	for _, match := range matches {
-		if directoryExists(match) {
-			return true
+	for _, receipt := range []string{"onnxruntime-*.dist-info", "numpy-*.dist-info", "pillow-*.dist-info"} {
+		matches, err := filepath.Glob(filepath.Join(sitePackages, receipt))
+		if err != nil {
+			return false
+		}
+		found := false
+		for _, match := range matches {
+			if directoryExists(match) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
 		}
 	}
 
-	return false
+	return true
 }
 
-// rembgRuntimeState verifies the background removal engine: the interpreter,
-// the installed packages and the marker written after a successful import.
+// onnxRuntimeState verifies the shared ONNX engine: the interpreter, the
+// installed packages and the marker written after a successful import. The
+// reason names the shared environment so both engines report the same cause.
+func onnxRuntimeState(root, goos string) (bool, string) {
+	if !fileWithContent(onnxVenvPythonPath(root, goos)) {
+		return false, "The local ONNX engine shared by background removal and upscaling is not installed. Run Install / repair to download it."
+	}
+	if !onnxPackagesInstalled(root, goos) {
+		return false, "The local ONNX engine shared by background removal and upscaling is incomplete. Run Install / repair to repair it."
+	}
+	if !fileWithContent(onnxReadyFilePath(root)) {
+		return false, "The local ONNX engine shared by background removal and upscaling is not verified. Run Install / repair to repair it."
+	}
+
+	return true, "Local ONNX engine (shared by background removal and upscaling)"
+}
+
+// rembgRuntimeState verifies the background removal engine, which runs on the
+// shared ONNX environment.
 func rembgRuntimeState(root, goos string) (bool, string) {
-	if !fileWithContent(rembgVenvPythonPath(root, goos)) {
-		return false, "Background removal engine is not installed. Run Install / repair."
-	}
-	if !rembgPackagesInstalled(root, goos) {
-		return false, "Background removal engine is incomplete. Run Install / repair."
-	}
-	if !fileWithContent(rembgReadyFilePath(root)) {
-		return false, "Background removal engine is not verified. Run Install / repair."
+	ready, reason := onnxRuntimeState(root, goos)
+	if ready {
+		return true, "Local background removal engine"
 	}
 
-	return true, "Local background removal engine"
+	return false, reason
 }
 
-// ManagedRembgRuntimeState reports whether the managed background removal engine
-// is installed and verified: interpreter, pinned packages and the post-import
-// marker. The reason is user-facing and points the user at Settings.
+// ManagedRembgRuntimeState reports whether the shared ONNX engine is installed
+// and verified: interpreter, pinned packages and the post-import marker. The
+// reason is user-facing and names what is missing.
 func ManagedRembgRuntimeState(dataDir string) (bool, string) {
-	ready, reason := rembgRuntimeState(ToolchainDir(dataDir), runtime.GOOS)
-	if ready {
-		return true, reason
-	}
+	return rembgRuntimeState(ToolchainDir(dataDir), runtime.GOOS)
+}
 
-	return false, strings.Replace(reason, "Run Install / repair.", "Open Settings and run Install / repair.", 1)
+// ManagedRembgModelState reports whether the pinned background removal model is
+// installed and complete, reusing the exact-size check from the toolchain
+// status. The reason is user-facing.
+func ManagedRembgModelState(dataDir string) (bool, string) {
+	return rembgModelState(ToolchainDir(dataDir))
 }
 
 // rembgModelState verifies the pinned model by its exact size. The checksum is
@@ -377,6 +451,98 @@ func rembgModelState(root string) (bool, string) {
 	}
 
 	return false, "Background removal model is not installed. Run Install / repair."
+}
+
+// upscaleHomeDir returns the upscale home folder. The pinned model files live
+// below it so the application never reads weights from the user home
+// directory.
+func upscaleHomeDir(root string) string {
+	return filepath.Join(root, "upscale")
+}
+
+// upscaleModelDir returns the folder that holds the pinned photo model.
+func upscaleModelDir(root string) string {
+	return filepath.Join(upscaleHomeDir(root), "models", DefaultUpscaleModel)
+}
+
+// upscaleModelONNXPath returns the ONNX graph of the pinned photo model. The
+// external weights file lives next to it.
+func upscaleModelONNXPath(root string) string {
+	return filepath.Join(upscaleModelDir(root), upscaleModelSpec.ONNXFileName)
+}
+
+// upscaleAnimeModelDir returns the folder that holds the pinned illustration
+// model.
+func upscaleAnimeModelDir(root string) string {
+	return filepath.Join(upscaleHomeDir(root), "models", UpscaleModelAnime)
+}
+
+// upscaleAnimeModelPath returns the ONNX file of the pinned illustration model.
+func upscaleAnimeModelPath(root string) string {
+	return filepath.Join(upscaleAnimeModelDir(root), upscaleAnimeModelSpec.FileName)
+}
+
+// upscaleRuntimeState verifies the upscale engine, which runs on the shared
+// ONNX environment.
+func upscaleRuntimeState(root, goos string) (bool, string) {
+	ready, reason := onnxRuntimeState(root, goos)
+	if ready {
+		return true, "Local upscale engine"
+	}
+
+	return false, reason
+}
+
+// upscaleModelFilesMatch reports whether every pinned model file is present
+// with its exact size. The checksum is only verified during install because
+// hashing the weights on every status poll would be wasteful.
+func upscaleModelFilesMatch(root string) bool {
+	spec := upscaleModelSpec
+	dir := upscaleModelDir(root)
+	for _, file := range spec.Files {
+		if !fileHasExactSize(filepath.Join(dir, file.Name), file.SizeBytes) {
+			return false
+		}
+	}
+
+	return len(spec.Files) > 0
+}
+
+// upscaleModelState verifies the pinned photo model by the exact sizes of the
+// graph and its external data file.
+func upscaleModelState(root string) (bool, string) {
+	spec := upscaleModelSpec
+	if upscaleModelFilesMatch(root) {
+		return true, "Local photo upscale model"
+	}
+	for _, file := range spec.Files {
+		if fileWithContent(filepath.Join(upscaleModelDir(root), file.Name)) {
+			return false, "The photo upscale model is incomplete. Run Install / repair to download it again."
+		}
+	}
+
+	return false, "The photo upscale model is not installed. Run Install / repair to download it."
+}
+
+// upscaleAnimeModelFilesMatch reports whether the pinned illustration model file
+// is present with its exact size. The checksum is only verified during install.
+func upscaleAnimeModelFilesMatch(root string) bool {
+	spec := upscaleAnimeModelSpec
+
+	return fileHasExactSize(upscaleAnimeModelPath(root), spec.SizeBytes)
+}
+
+// upscaleAnimeModelState verifies the pinned illustration model by its exact
+// size.
+func upscaleAnimeModelState(root string) (bool, string) {
+	if upscaleAnimeModelFilesMatch(root) {
+		return true, "Local illustration upscale model"
+	}
+	if fileWithContent(upscaleAnimeModelPath(root)) {
+		return false, "The illustration upscale model is incomplete. Run Install / repair to download it again."
+	}
+
+	return false, "The illustration upscale model is not installed. Run Install / repair to download it."
 }
 
 func manifestFilePath(root string) string {

@@ -55,6 +55,27 @@ app-command-palette     overlay, opened by Ctrl/Cmd+K
 - At `<= 900px` the rail becomes a drawer with a backdrop; the top bar exposes the menu button.
 - The top bar shows `CATEGORY / Short name` using the registry's `navName`, not the full name.
 
+## Secondary windows
+
+A tool page and the command palette can open the same tool in its own window
+(`WindowService.OpenToolWindow`). It is one extra window **per route**: asking
+for a route that already has one focuses it instead of opening a duplicate.
+
+- **What is shared.** Jobs, recipes, activity, downloads and settings are
+  app-wide: the backend emits their events to every window, so a job started in
+  one window is visible in another and in the tray.
+- **What is not shared.** Page state is per window. Each window loads its own
+  Angular instance and each page builds its own `ToolRunController`, so two
+  windows of the same tool keep independent file queues and options. Submitted
+  requests stay deduplicated only through the shared `LastRequestService`, which
+  is read on demand, never live-synced.
+- **Closing.** Only the primary window hides instead of closing while work runs.
+  A secondary window closes normally and never quits the app or cancels a job;
+  the tray keeps listing every running task.
+- **Bootstrap.** The window opens at `/?route=<path>`; `main.ts` rewrites the
+  address before Angular starts, so the router's first navigation is the tool
+  and Home is never painted first.
+
 ## File-first tool flow
 
 Every tool follows the same user task, not the backend job contract:
@@ -65,17 +86,43 @@ Every tool follows the same user task, not the backend job contract:
 - Outcome: presets first (WebP/JPEG/PNG, MP4/WebM, crop size, page strategy); exact settings live under `Advanced`.
 - Output: `OutputPlanCard` shows the resolved destination and collision-safe name before running. Default is next to the original; never overwrite.
 - Run: one primary action (`Convert 3 images`, `Merge 2 PDFs`). There is no separate Validate button.
-- Result: `ResultCard` with open, show in folder, retry failed and "do another"; technical job ids/codes live in a Details disclosure.
+- Result: `ResultCard` with open, show in folder, retry failed, "do another" and "Run again with the same settings" for every tool whose last request is stored; technical job ids/codes live in a Details disclosure.
 - Backend: `PlanJob` is the source of truth. The same resolver is used by planning and execution; explicit existing outputs are conflicts, auto-derived names get `-2`, `-3`.
 - Native desktop: `EnableFileDrop` + `data-file-drop-target` + `common:WindowFilesDropped`; `OpenPath` / `RevealInFolder` for results.
 
 Shared components:
 
 - `app-file-drop` — click, Enter/Space, native OS paths, drag state.
-- `app-file-queue` — file cards, optional reorder, remove.
+- `app-file-queue` — file cards, optional drag reorder with move-up/move-down
+  buttons, remove.
 - `app-output-plan-card` — destination, resolved names, counts, adjusted warnings.
-- `app-result-card` — success/partial/failure, open/reveal, retry, details.
+- `app-result-card` — success/partial/failure, open/reveal, retry, undo, run
+  again, details.
 - `app-job-card` — live progress.
+- `app-activity-panel` — background jobs and recipe runs, cancel/open.
+- `app-trash-history` — Settings panel for the app trash and terminal job
+  history (open, reveal, undo, restore, empty trash).
+- `app-toast-host` — in-app completion and error toasts.
+
+## Tool run lifecycle
+
+Every tool page owns its feature model (options, previews, templates) but
+delegates the run pipeline to `ToolRunController` (`frontend/src/app/utils/tool-run-controller.ts`):
+
+- **One pipeline:** intake → plan → run → observe → reconcile → verify → undo,
+  with cancellation, resume and the queue helpers in one place.
+- **One status vocabulary:** `frontend/src/app/utils/job-status.ts` maps backend
+  job status to label and tone for the job card, activity drawer, result card and
+  Home. Do not add a per-page status switch.
+- **Option memory:** `createToolOptions` (`utils/tool-options.ts`) restores the
+  last used values per tool and validates the stored shape on read. A page's
+  `reset()` calls `restore()` again instead of hard-coded defaults.
+- **Last request:** every accepted run stores its request through
+  `ToolRunController` (`LastRequestService`), so `ResultCard` can offer "Run
+  again" on every tool by `toolId` and plans the stored request before starting.
+- **Thumbnails:** document inputs (DOCX/MD) convert in process, then the shared
+  PDF preview pipeline rasterizes the first page (`pdftoppm`); a document that
+  cannot render is a typed "no preview", not an error card.
 
 ## Page recipe
 
@@ -149,15 +196,16 @@ Rules:
 1. Add the route in `frontend/src/app/app.routes.ts`.
 2. Add a `ToolDefinition` in `frontend/src/app/config/tools.ts` (name, `navName`, description, route, category, icon, formats, keywords).
 3. The rail, command palette, Home grid and recents pick it up automatically.
-4. Build the page with the file-first flow: `FileDrop`/`FileQueue` → presets/advanced → `OutputPlanCard` → one action → `ResultCard`. Use `.page`, `.panel`, fields, banners and buttons.
-5. Implement `Plan(ctx, req)` on the Go tool and reuse the same resolver in execution; never overwrite, and return planned outputs/counts/warnings. Expose it through the existing `PlanJob` path.
-6. Add `Local only` once in the header; no back links, no mode selector, no output-path typing, no Validate button.
-7. Add or update both Go and frontend specs, then run:
+4. Build the page with the file-first flow: `FileDrop`/`FileQueue` → presets/advanced → `OutputPlanCard` → one action → `ResultCard`. Use `.page`, `.panel`, fields, banners and buttons, and create a `ToolRunController` instead of copying plan/run/progress code.
+5. If the tool has durable options, create a `createToolOptions` store with a schema version and restore it on init; do not hand-roll `localStorage`.
+6. Implement `Plan(ctx, req)` on the Go tool and reuse the same resolver in execution; never overwrite, and return planned outputs/counts/warnings. Expose it through the existing `PlanJob` path.
+7. Add `Local only` once in the header; no back links, no mode selector, no output-path typing, no Validate button.
+8. Add or update both Go and frontend specs, then run:
 
    ```bash
    task verify:all
    ```
-8. If the tool needs a new backend API, update Go, regenerate bindings, and never edit `frontend/bindings/` by hand.
+9. If the tool needs a new backend API, update Go, regenerate bindings, and never edit `frontend/bindings/` by hand.
 
 ## Accessibility baseline
 
@@ -174,4 +222,6 @@ Rules:
 - The Angular dev server has no Wails IPC. Pages show `Preview only` and the static registry; this is expected.
 - The production bundle is over the default 500 kB warning budget because the app ships PDF.js, fonts and tool pages. The initial error budget is 1.25 MB.
 - `home.css`, `image-annotate.css` and `pdf-merge.css` are slightly over the 4 kB per-component warning threshold. They are under the 8 kB error limit; move shared rules into `styles.css` before adding much more.
+- Queue reordering uses native HTML5 drag events and has no touch path; the move-up/move-down buttons are the touch and keyboard fallback.
+- Close-to-hide needs a usable tray. On Linux the tray requires a StatusNotifierWatcher host (KDE, or GNOME with the AppIndicator extension); without one the app quits on close and no job is hidden.
 - Generated files in `frontend/bindings/` are read-only.

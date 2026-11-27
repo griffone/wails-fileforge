@@ -10,6 +10,7 @@ import {
   RecipeStatusResponse,
   Wails,
 } from '../services/wails';
+import { isTerminalJobStatus } from './job-status';
 
 export interface JobStreamHandlers {
   onProgress?: (event: JobProgressEvent) => void;
@@ -174,19 +175,13 @@ function isStream<T>(value: Observable<T> | undefined): value is Observable<T> {
   return !!value && typeof value.subscribe === 'function';
 }
 
-const TERMINAL_JOB_STATUSES: ReadonlySet<string> = new Set([
+const TERMINAL_RECIPE_STATUSES: ReadonlySet<string> = new Set([
   'success',
   'failed',
   'partial_success',
   'cancelled',
   'interrupted',
 ]);
-
-function isTerminalJobStatus(status: string): boolean {
-  return TERMINAL_JOB_STATUSES.has(status);
-}
-
-const TERMINAL_RECIPE_STATUSES = TERMINAL_JOB_STATUSES;
 
 function isTerminalRecipeStatus(status: string): boolean {
   return TERMINAL_RECIPE_STATUSES.has(status);

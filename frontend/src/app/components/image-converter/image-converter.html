@@ -16,6 +16,7 @@
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
         {{ i18n.t('imageConverter.page.localBadge') }}
       </span>
+      <app-open-window-action />
     </div>
   </header>
 
@@ -119,7 +120,7 @@
             </div>
           }
 
-          <details class="advanced" (toggle)="onAdvancedToggle($event)">
+          <details class="advanced" [open]="advancedOpen()" (toggle)="onAdvancedToggle($event)">
             <summary class="advanced-summary">
               <span class="advanced-title">{{ i18n.t('imageConverter.advanced.title') }}</span>
               <span class="advanced-hint">{{ i18n.t('imageConverter.advanced.hint') }}</span>
@@ -346,11 +347,15 @@
       <app-result-card
         [job]="job"
         [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
         toolLabel="image"
         (open)="onOpen($event)"
         (reveal)="onReveal($event)"
         (retryFailed)="retryFailed()"
         (reset)="reset()"
+        (runAgainStarted)="onRunAgainStarted($event)"
       ></app-result-card>
     }
   </div>

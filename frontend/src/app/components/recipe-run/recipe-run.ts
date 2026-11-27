@@ -17,7 +17,18 @@ import {
 import { Subscription } from 'rxjs';
 
 import { FileDrop } from '../file-drop/file-drop';
-import { FileQueue } from '../tool-flow/file-queue';
+import {
+  RecipeOptionFields,
+  type RecipeOptionChange,
+} from '../recipe-options/recipe-option-fields';
+import {
+  optionInitialValues,
+  optionRequestValues,
+  optionValidationError,
+  type RecipeOptionValidation,
+  type RecipeOptionValue,
+} from '../recipe-options/recipe-option-values';
+import { FileQueue, FileQueueReorder } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
 import { FileQueueItem } from '../tool-flow/tool-flow.types';
@@ -42,6 +53,7 @@ import {
   RecipeResult,
   RecipeStatusResponse,
   Recipe,
+  RecipeOptionField,
   RunRecipeResponse,
   VerificationReport,
   Wails,
@@ -58,7 +70,6 @@ import { resumeRecipeRun } from '../../utils/resume-task';
 
 const DEFAULT_RECIPE_ID = 'recipe.email_pdf';
 const PLAN_DEBOUNCE_MS = 250;
-const BYTES_PER_MB = 1024 * 1024;
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   'success',
@@ -96,18 +107,6 @@ function normalizeStepState(value: string | undefined): RecipeStepState {
   }
 }
 
-function defaultTargetMb(recipe: Recipe | null): number {
-  const bytes = recipe?.defaultTargetSizeBytes ?? 0;
-  return bytes > 0 ? bytes / BYTES_PER_MB : 0;
-}
-
-function targetInputText(mb: number): string {
-  if (!Number.isFinite(mb) || mb <= 0) {
-    return '';
-  }
-  return String(Number(mb.toFixed(2)));
-}
-
 /** Splits a recipe name on its last space so the tail can render in serif. */
 function splitTitle(name: string): TitleParts {
   const trimmed = name.trim();
@@ -126,6 +125,7 @@ function splitTitle(name: string): TitleParts {
     FileDrop,
     FileQueue,
     OutputPlanCard,
+    RecipeOptionFields,
     ResultCard,
   ],
   templateUrl: './recipe-run.html',
@@ -147,11 +147,26 @@ export class RecipeRun implements OnDestroy, OnInit {
   readonly fileItems = signal<FileQueueItem[]>([]);
   /** Empty means "next to the source"; the backend resolves it. */
   readonly outputDir = signal('');
-  readonly targetMb = signal(defaultTargetMb(this.resolveFallback()));
-  readonly targetText = signal(
-    targetInputText(defaultTargetMb(this.resolveFallback())),
-  );
   readonly recipe = signal<Recipe | null>(this.resolveFallback());
+
+  /**
+   * Editable display values for the declared schema. Integer fields hold the
+   * value in the declared unit (bytes are divided by `scale`), so the request
+   * builder is the only place that knows about canonical units.
+   */
+  readonly optionValues = signal<Record<string, RecipeOptionValue>>({});
+  private readonly optionIssues = signal<Record<string, RecipeOptionValidation>>(
+    {},
+  );
+
+  /** Localized inline messages, recomputed so a language switch re-renders. */
+  readonly optionErrors = computed<Record<string, string>>(() => {
+    const errors: Record<string, string> = {};
+    for (const [key, issue] of Object.entries(this.optionIssues())) {
+      errors[key] = this.i18n.t(issue.key, issue.params);
+    }
+    return errors;
+  });
 
   readonly plan = signal<RecipePlanResponse | null>(null);
   readonly planLoading = signal(false);
@@ -168,10 +183,39 @@ export class RecipeRun implements OnDestroy, OnInit {
 
   readonly fileName = fileName;
 
-  /** Recipes with a fixed outcome (no target size) hide the field entirely. */
-  readonly showTargetSize = computed(
-    () => (this.recipe()?.defaultTargetSizeBytes ?? 0) > 0,
-  );
+  /**
+   * Editable fields a built-in recipe declares. User recipes always run with
+   * their saved overrides, so they get the read-only summary instead of
+   * controls that would duplicate or contradict the stored values.
+   */
+  readonly optionFields = computed<RecipeOptionField[]>(() => {
+    const recipe = this.recipe();
+    if (!recipe || recipe.userDefined) {
+      return [];
+    }
+    return recipe.optionSchema ?? [];
+  });
+
+  /** Read-only summary of the declared options a user recipe runs with. */
+  readonly userOptionSummaries = computed(() => {
+    const recipe = this.recipe();
+    if (!recipe?.userDefined) {
+      return [] as { key: string; label: string; value: string }[];
+    }
+
+    return (recipe.optionSchema ?? []).map((field) => {
+      const raw =
+        recipe.optionOverrides?.[field.key] ?? field.default ?? '';
+      return {
+        key: field.key,
+        label: this.i18n.tOr(
+          `recipeRun.option.${field.key}`,
+          field.label,
+        ),
+        value: this.formatOptionValue(field, raw),
+      };
+    });
+  });
 
   /** Only `maxInputs === 1` restricts the queue; 0 means unlimited. */
   readonly multipleInputs = computed(
@@ -259,16 +303,8 @@ export class RecipeRun implements OnDestroy, OnInit {
   readonly titleLead = computed(() => this.titleParts().lead);
   readonly titleTail = computed(() => this.titleParts().tail);
 
-  readonly targetInvalid = computed(() => {
-    if (!this.showTargetSize()) {
-      return false;
-    }
-    const value = this.targetMb();
-    return !Number.isFinite(value) || value <= 0;
-  });
-
-  readonly targetBytes = computed(() =>
-    this.showTargetSize() ? Math.round(this.targetMb() * BYTES_PER_MB) : 0,
+  readonly optionsInvalid = computed(
+    () => Object.keys(this.optionIssues()).length > 0,
   );
 
   readonly planBlocked = computed(() => this.plan()?.success === false);
@@ -276,7 +312,7 @@ export class RecipeRun implements OnDestroy, OnInit {
   readonly canRun = computed(
     () =>
       this.selectedPaths().length > 0 &&
-      !this.targetInvalid() &&
+      !this.optionsInvalid() &&
       !this.isSubmitting() &&
       !this.isRunning() &&
       !this.planBlocked(),
@@ -501,15 +537,16 @@ export class RecipeRun implements OnDestroy, OnInit {
         name: this.recipeName(),
       });
     }
-    if (this.targetInvalid()) {
-      return this.i18n.t('recipeRun.target.invalid');
+    const issue = this.firstOptionError();
+    if (issue) {
+      return issue;
     }
     return '';
   });
 
   readonly settingsSub = computed(() =>
-    this.showTargetSize()
-      ? this.i18n.t('recipeRun.settings.subWithTarget')
+    this.optionFields().length > 0
+      ? this.i18n.t('recipeRun.settings.subWithOptions')
       : this.i18n.t('recipeRun.settings.sub'),
   );
 
@@ -541,14 +578,15 @@ export class RecipeRun implements OnDestroy, OnInit {
   private planToken = 0;
   private planDirty = false;
   private fileItemsGeneration = 0;
-  private targetTouched = false;
+  /** Keys the user edited; schema updates never overwrite them. */
+  private readonly touchedOptions = new Set<string>();
 
   async ngOnInit(): Promise<void> {
     this.resumeBackgroundRun();
 
     const fallback = this.resolveFallback();
     this.recipe.set(fallback);
-    this.applyDefaultTarget(fallback);
+    this.applyOptionDefaults(fallback);
 
     const response = await this.wailsService.listRecipes().catch(() => ({
       success: false,
@@ -567,7 +605,7 @@ export class RecipeRun implements OnDestroy, OnInit {
     }
 
     this.recipe.set(found);
-    this.applyDefaultTarget(found);
+    this.applyOptionDefaults(found);
   }
 
   ngOnDestroy(): void {
@@ -761,6 +799,23 @@ export class RecipeRun implements OnDestroy, OnInit {
     this.swap(index, index + 1);
   }
 
+  onReorder(event: FileQueueReorder): void {
+    if (!this.multipleInputs()) {
+      return;
+    }
+    const paths = this.selectedPaths();
+    const from = paths.indexOf(event.path);
+    if (from < 0 || event.to < 0 || event.to >= paths.length || event.to === from) {
+      return;
+    }
+    const next = [...paths];
+    next.splice(from, 1);
+    next.splice(event.to, 0, event.path);
+    this.selectedPaths.set(next);
+    this.syncFileItems();
+    this.schedulePlanRefresh();
+  }
+
   async chooseOutputFolder(): Promise<void> {
     const directory = (await this.wailsService.openDirectoryDialog()).trim();
     if (!directory) {
@@ -778,11 +833,8 @@ export class RecipeRun implements OnDestroy, OnInit {
     this.schedulePlanRefresh();
   }
 
-  onTargetInput(event: Event): void {
-    const value = (event.target as HTMLInputElement | null)?.value ?? '';
-    this.targetTouched = true;
-    this.targetText.set(value);
-    this.targetMb.set(Number(value));
+  onOptionValueChange(change: RecipeOptionChange): void {
+    this.setOptionValue(change.field, change.value);
     this.actionError.set(null);
     this.schedulePlanRefresh();
   }
@@ -927,6 +979,13 @@ export class RecipeRun implements OnDestroy, OnInit {
   }
 
   private resolveRecipeId(): string {
+    const params = this.route.snapshot?.params ?? {};
+    const fromParams =
+      typeof params['recipeId'] === 'string' ? params['recipeId'].trim() : '';
+    if (fromParams) {
+      return fromParams;
+    }
+
     const data = this.route.snapshot?.data ?? {};
     const candidate =
       typeof data['recipeId'] === 'string' ? data['recipeId'].trim() : '';
@@ -934,16 +993,53 @@ export class RecipeRun implements OnDestroy, OnInit {
   }
 
   private resolveFallback(): Recipe | null {
-    return (
-      findRecipeFallback(this.recipeId) ?? findRecipeFallback(DEFAULT_RECIPE_ID)
-    );
+    const fallback = findRecipeFallback(this.recipeId);
+    if (fallback) {
+      return fallback;
+    }
+
+    // A user recipe has no static config: the catalog must provide it.
+    if (this.recipeId.startsWith('recipe.user.')) {
+      return null;
+    }
+
+    return findRecipeFallback(DEFAULT_RECIPE_ID);
+  }
+
+  /** Renders a stored option value in the declared display unit. */
+  private formatOptionValue(field: RecipeOptionField, raw: unknown): string {
+    if (field.kind === 'integer') {
+      const numeric = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isFinite(numeric)) {
+        return String(raw ?? '');
+      }
+      const scale = field.scale && field.scale > 0 ? field.scale : 1;
+      const display = String(Number((numeric / scale).toFixed(2)));
+      return field.unit ? `${display} ${field.unit}` : display;
+    }
+
+    if (field.kind === 'boolean') {
+      return raw === true ? this.i18n.t('common.yes') : this.i18n.t('common.no');
+    }
+
+    if (field.kind === 'enum') {
+      const choice = (field.values ?? []).find(
+        (candidate) => candidate.value === raw,
+      );
+      return choice
+        ? this.i18n.tOr(`recipeRun.choice.${choice.value}`, choice.label)
+        : String(raw ?? '');
+    }
+
+    return String(raw ?? '');
   }
 
   private buildRequest(): RecipeRequest {
-    const options: Record<string, unknown> = {};
-    if (this.showTargetSize()) {
-      options['targetSizeBytes'] = this.targetBytes();
-    }
+    // User recipes run with their stored overrides; only built-in schemas are
+    // editable here. Declared keys are the only keys that can reach the request.
+    const options = this.recipe()?.userDefined
+      ? {}
+      : optionRequestValues(this.optionFields(), this.optionValues());
 
     return {
       recipeId: this.recipe()?.id ?? this.recipeId,
@@ -953,19 +1049,80 @@ export class RecipeRun implements OnDestroy, OnInit {
     };
   }
 
-  private applyDefaultTarget(recipe: Recipe | null): void {
-    if (this.targetTouched) {
+  /** Seeds untouched fields from the schema defaults of `recipe`. */
+  private applyOptionDefaults(recipe: Recipe | null): void {
+    const fields =
+      recipe && !recipe.userDefined ? (recipe.optionSchema ?? []) : [];
+    if (fields.length === 0) {
+      this.optionIssues.set({});
       return;
     }
-    const defaultMb = defaultTargetMb(recipe);
-    this.targetMb.set(defaultMb);
-    this.targetText.set(targetInputText(defaultMb));
+
+    const defaults = optionInitialValues(fields);
+    this.optionValues.update((values) => {
+      const next = { ...values };
+      for (const field of fields) {
+        if (this.touchedOptions.has(field.key)) {
+          continue;
+        }
+        next[field.key] = defaults[field.key];
+      }
+      return next;
+    });
+    this.revalidateOptions(fields);
+  }
+
+  private setOptionValue(
+    field: RecipeOptionField,
+    value: RecipeOptionValue,
+  ): void {
+    this.touchedOptions.add(field.key);
+    this.optionValues.update((values) => ({
+      ...values,
+      [field.key]: value,
+    }));
+    this.revalidateOptions(this.optionFields());
+  }
+
+  /** Re-runs schema validation for every declared field. */
+  private revalidateOptions(fields: readonly RecipeOptionField[]): void {
+    const values = this.optionValues();
+    const issues: Record<string, RecipeOptionValidation> = {};
+    for (const field of fields) {
+      const issue = optionValidationError(
+        field,
+        values[field.key],
+        this.optionLabel(field),
+        (choice) =>
+          this.i18n.tOr(`recipeRun.choice.${choice.value}`, choice.label),
+      );
+      if (issue) {
+        issues[field.key] = issue;
+      }
+    }
+    this.optionIssues.set(issues);
+  }
+
+  private optionLabel(field: RecipeOptionField): string {
+    return this.i18n.tOr(`recipeRun.option.${field.key}`, field.label);
+  }
+
+  /** First inline message in schema order; explains a disabled action. */
+  private firstOptionError(): string {
+    const errors = this.optionErrors();
+    for (const field of this.optionFields()) {
+      const message = errors[field.key];
+      if (message) {
+        return message;
+      }
+    }
+    return '';
   }
 
   private async refreshPlan(): Promise<boolean> {
     this.clearPlanRefreshTimer();
 
-    if (this.selectedPaths().length === 0 || this.targetInvalid()) {
+    if (this.selectedPaths().length === 0 || this.optionsInvalid()) {
       this.planToken += 1;
       this.planDirty = false;
       this.plan.set(null);

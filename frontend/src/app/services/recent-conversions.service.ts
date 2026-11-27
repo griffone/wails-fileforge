@@ -10,18 +10,11 @@ import {
 import { ToolDefinition } from '../config/tools';
 import { JobResult } from './wails';
 import { ToolRegistryService } from './tool-registry.service';
+import { isTerminalJobStatus } from '../utils/job-status';
 
 const STORAGE_KEY = 'ff-recent-conversions';
 const MAX_RECENT = 8;
 const MAX_OUTPUTS = 20;
-
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
-  'success',
-  'partial_success',
-  'failed',
-  'cancelled',
-  'interrupted',
-]);
 
 /** One finished job, shaped for the Home history. */
 export interface RecentConversion {
@@ -39,9 +32,7 @@ export interface RecentConversion {
 }
 
 /** True for statuses that represent a finished job. */
-export function isTerminalJobStatus(status: string): boolean {
-  return TERMINAL_STATUSES.has(status);
-}
+export { isTerminalJobStatus };
 
 /**
  * Remembers the last finished conversions for the Home history.

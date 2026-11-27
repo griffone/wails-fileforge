@@ -17,13 +17,18 @@ tasks:
       - task: common:generate:icons
     cmds:
       - task: generate:syso
-      - go build {{.BUILD_FLAGS}} -o {{.BIN_DIR}}/{{.APP_NAME}}.exe
+      - go build {{.BUILD_FLAGS}} {{if eq .PRODUCTION "true"}}-ldflags="-w -s -H windowsgui {{.VERSION_LDFLAGS}}"{{end}} -o {{.BIN_DIR}}/{{.APP_NAME}}.exe
+      # The headless CLI links the same bimg/libvips cgo stack. Console
+      # subsystem: no -H windowsgui.
+      - go build -trimpath -buildvcs=false -ldflags="-w -s {{.VERSION_LDFLAGS}}" -o {{.BIN_DIR}}/fileforge-cli.exe {{.CLI_SOURCE}}
       - cmd: powershell Remove-item *.syso
         platforms: [windows]
       - cmd: rm -f *.syso
         platforms: [linux, darwin]
     vars:
-      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"{{else}}-buildvcs=false -gcflags=all="-l"{{end}}'
+      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production -trimpath -buildvcs=false{{else}}-buildvcs=false -gcflags=all="-l"{{end}}'
+      VERSION_LDFLAGS:
+        sh: GOOS= GOARCH= CGO_ENABLED=0 go run {{.ROOT_DIR}}/scripts/versionflags
     env:
       GOOS: windows
       # bimg links libvips through cgo. Install libvips and expose vips.pc via
@@ -62,7 +67,7 @@ tasks:
     cmds:
       # Create the Microsoft WebView2 bootstrapper if it doesn't exist
       - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
-      - makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" project.nsi
+      - makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" -DFILEFORGE_CLI_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/fileforge-cli.exe" project.nsi
     vars:
       ARCH: "{{.ARCH | default ARCH}}"
       ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'

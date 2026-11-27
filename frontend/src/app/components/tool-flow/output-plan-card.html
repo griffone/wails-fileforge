@@ -25,6 +25,16 @@
       }
     </div>
 
+    @if (targetValue) {
+      <div class="output-plan-target">
+        <span class="output-plan-label">{{ i18n.t('outputPlan.target') }}</span>
+        <span class="output-plan-value">{{ targetValue }}</span>
+        @if (targetLabel) {
+          <span class="badge badge-neutral">{{ targetLabel }}</span>
+        }
+      </div>
+    }
+
     @if (errorCopy(); as error) {
       <div class="banner banner-danger output-plan-error" role="alert">
         <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
@@ -96,6 +106,20 @@
       </ul>
     } @else if (!errorCopy()) {
       <p class="output-plan-status">{{ i18n.t('outputPlan.empty') }}</p>
+    }
+
+    @if (suggestedName) {
+      <div class="output-plan-suggestion">
+        <span class="output-plan-label">{{ i18n.t('outputPlan.suggestion') }}</span>
+        <span class="output-plan-suggestion-name" [title]="suggestedName">{{ suggestedName }}</span>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm output-plan-suggestion-use"
+          (click)="applySuggestion()"
+        >
+          {{ i18n.t('outputPlan.suggestionUse') }}
+        </button>
+      </div>
     }
 
     @if (hasAdjusted()) {

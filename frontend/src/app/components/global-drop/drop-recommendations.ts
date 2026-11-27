@@ -107,6 +107,7 @@ export function recommendDropTools(
     routes.add('/image-watermark');
     routes.add('/image-ocr');
     routes.add('/image-background');
+    routes.add('/image-upscale');
     routes.add('/pdf-from-images');
   }
 
@@ -117,6 +118,10 @@ export function recommendDropTools(
     routes.add('/pdf-split');
     routes.add('/pdf-crop');
     routes.add('/pdf-optimize');
+    routes.add('/pdf-rotate');
+    routes.add('/pdf-remove-pages');
+    routes.add('/pdf-reorder');
+    routes.add('/pdf-extract-images');
     routes.add('/pdf-to-docx');
   }
 

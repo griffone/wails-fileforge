@@ -1,6 +1,36 @@
-<ul class="file-queue" [attr.aria-label]="i18n.t('fileQueue.listAria')">
+<ul
+  class="file-queue"
+  [attr.aria-label]="i18n.t('fileQueue.listAria')"
+  (dragleave)="onListDragLeave($event)"
+>
   @for (item of items; track item.path; let i = $index) {
-    <li class="file-queue-row">
+    <li
+      class="file-queue-row"
+      tabindex="0"
+      aria-haspopup="menu"
+      [class.is-reorderable]="reorderable"
+      [class.is-dragging]="draggingPath() === item.path"
+      [class.is-drop-before]="dropIndex() === i"
+      [class.is-drop-after]="dropIndex() === items.length && i === items.length - 1"
+      (contextmenu)="onRowContextMenu($event, item)"
+      (keydown)="onRowKeydown($event, item)"
+      (dragover)="onRowDragOver($event, i)"
+      (drop)="onRowDrop($event, i)"
+    >
+      @if (reorderable) {
+        <span
+          class="file-queue-drag"
+          draggable="true"
+          aria-hidden="true"
+          [attr.title]="dragLabel(item)"
+          (dragstart)="onDragStart($event, item)"
+          (dragend)="onDragEnd()"
+          (click)="$event.stopPropagation()"
+        >
+          <lucide-icon [img]="dragIcon" [size]="15" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+        </span>
+      }
+
       <span class="file-queue-thumb" aria-hidden="true">
         @if (item.thumbnailUrl) {
           <img class="file-queue-image" [src]="item.thumbnailUrl" alt="" loading="lazy" />
@@ -69,3 +99,25 @@
     </li>
   }
 </ul>
+
+@if (actionMessage(); as message) {
+  <div
+    [class]="'file-queue-banner banner banner-' + message.tone"
+    role="status"
+    aria-live="polite"
+  >
+    <span>{{ message.text }}</span>
+  </div>
+}
+
+<app-context-menu
+  [open]="menuOpen()"
+  [x]="menuX()"
+  [y]="menuY()"
+  [items]="menuItems()"
+  [opener]="menuOpener()"
+  [label]="i18n.t('contextMenu.label')"
+  (select)="onMenuSelect($event)"
+  (closed)="onMenuClosed()"
+></app-context-menu>
+

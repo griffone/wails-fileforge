@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -367,75 +366,23 @@ func BuildBurnArgs(req BurnRequest, subtitleName string) []string {
 	return args
 }
 
-// parseBurnProgress reads one ffmpeg -progress line. It accepts out_time_us and
-// out_time_ms (both carry microseconds), a manually parsed
-// out_time=HH:MM:SS.ffffff, and progress=end. ok is false for every other line.
+// parseBurnProgress adapts the shared ffmpeg progress parser to the burn
+// callback shape. It accepts out_time_us and out_time_ms (both carry
+// microseconds), a manually parsed out_time=HH:MM:SS.ffffff, and progress=end.
+// ok is false for every other line.
 func parseBurnProgress(line string) (microseconds int64, done bool, ok bool) {
-	key, value, found := strings.Cut(line, "=")
-	if !found {
+	sample, parsed := ParseFFmpegProgress(line)
+	if !parsed {
 		return 0, false, false
 	}
 
-	switch strings.TrimSpace(key) {
-	case "out_time_us", "out_time_ms":
-		microseconds, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
-		if err != nil || microseconds < 0 {
-			return 0, false, false
-		}
-		return microseconds, false, true
-	case "out_time":
-		microseconds, ok := parseBurnTimestamp(strings.TrimSpace(value))
-		if !ok {
-			return 0, false, false
-		}
-		return microseconds, false, true
-	case "progress":
-		if strings.EqualFold(strings.TrimSpace(value), "end") {
-			return 0, true, true
-		}
-	}
-
-	return 0, false, false
+	return sample.Microseconds, sample.Done, true
 }
 
 // parseBurnTimestamp parses ffmpeg's HH:MM:SS.ffffff timestamps into
-// microseconds. Hours may exceed 23 for long inputs; minutes and seconds must
-// be valid.
+// microseconds through the shared parser.
 func parseBurnTimestamp(value string) (int64, bool) {
-	parts := strings.Split(value, ":")
-	if len(parts) != 3 {
-		return 0, false
-	}
-
-	hours, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || hours < 0 || hours > 100000 {
-		return 0, false
-	}
-
-	minutes, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil || minutes < 0 || minutes > 59 {
-		return 0, false
-	}
-
-	secondsText, fractionText, hasFraction := strings.Cut(parts[2], ".")
-	seconds, err := strconv.ParseInt(secondsText, 10, 64)
-	if err != nil || seconds < 0 || seconds > 59 {
-		return 0, false
-	}
-
-	var fraction int64
-	if hasFraction {
-		if fractionText == "" || len(fractionText) > 6 {
-			return 0, false
-		}
-		digits := fractionText + strings.Repeat("0", 6-len(fractionText))
-		fraction, err = strconv.ParseInt(digits, 10, 64)
-		if err != nil {
-			return 0, false
-		}
-	}
-
-	return (hours*3600+minutes*60+seconds)*1_000_000 + fraction, true
+	return parseFFmpegTimestamp(value)
 }
 
 // burnPercent maps the rendered position to the 5-99 range reserved for the

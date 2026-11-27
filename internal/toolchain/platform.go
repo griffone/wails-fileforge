@@ -304,6 +304,150 @@ func RembgModelURL(model string) (string, error) {
 	return rembgModelReleaseBaseURL + RembgModelFileName(normalized), nil
 }
 
+// Supported upscale models. Both models are pinned downloads installed by the
+// standard toolchain; the option values are kept for request and preference
+// compatibility. UpscaleModelAnime is the upstream name of the weight set and
+// is displayed to users as the illustration model.
+const (
+	UpscaleModelGeneral = "general"
+	UpscaleModelAnime   = "anime"
+
+	DefaultUpscaleModel = UpscaleModelGeneral
+)
+
+// Metadata for the pinned upscale model. It is the compact Real-ESRGAN general
+// x4v3 network, exported to ONNX by Qualcomm AI Hub Models v0.67.0. The zip,
+// the graph and the external weights are all pinned: the installer verifies the
+// archive checksum, then each extracted file. Values were captured on
+// 2026-11-27 from the published release asset. The upstream Real-ESRGAN
+// licence is BSD-3-Clause (https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE).
+const (
+	upscaleModelArchiveName       = "realesr-general-x4v3-onnx-float.zip"
+	upscaleModelURL               = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/real_esrgan_general_x4v3/releases/v0.67.0/real_esrgan_general_x4v3-onnx-float.zip"
+	upscaleModelZipSizeByte int64 = 4541448
+	upscaleModelZipSHA256         = "4f3619c89eb0727ff9170b977578d160fa4d696680a0cac4c7f870b52973033b"
+
+	upscaleModelONNXFileName        = "real_esrgan_general_x4v3.onnx"
+	upscaleModelONNXSizeBytes int64 = 158541
+	upscaleModelONNXSHA256          = "ca44c913c9669c5e656d25bc900da6856e828b98422c17f31ddec69d99b331a0"
+
+	upscaleModelDataFileName        = "real_esrgan_general_x4v3.data"
+	upscaleModelDataSizeBytes int64 = 4836096
+	upscaleModelDataSHA256          = "512d0ec9940c2e9d85d27f2952f12a0b77b7841dc22df4ce9f3ea458bc98f37f"
+
+	// upscaleModelArchiveDir is the folder inside the pinned zip that holds the
+	// graph and its external data file.
+	upscaleModelArchiveDir = "real_esrgan_general_x4v3-onnx-float/real_esrgan_general_x4v3_onnx"
+)
+
+// Metadata for the pinned illustration (upstream "anime") model. It is the
+// RealESRGAN_x4plus_anime_6B network exported to ONNX by skillsafe-ai. The
+// graph is self-contained and accepts a dynamic input, so the bridge can use
+// the requested tile size instead of the fixed 128 px tile of the general
+// model. Values were captured on 2026-11-27 from the commit-pinned Hugging Face
+// file. The upstream Real-ESRGAN licence is BSD-3-Clause
+// (https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE).
+//
+// The general and illustration hashes stay separate constants: updating one
+// model must never invalidate the other download.
+const (
+	upscaleAnimeModelFileName        = "realesrgan_x4plus_anime_6b.onnx"
+	upscaleAnimeModelURL             = "https://huggingface.co/skillsafe-ai/realesrgan-x4plus-anime-6b/resolve/c001be50fae1c7a2bae8b2b4dec5e6fcbdbcca96/model.onnx"
+	upscaleAnimeModelSizeBytes int64 = 17939975
+	upscaleAnimeModelSHA256          = "9a029dae374b2cd4c3eb2dbbed857e22e6d785687c767aa12828e7356b9fb378"
+)
+
+// UpscaleFileModelSpec describes one pinned upscale model that is downloaded
+// as a single ONNX file, without an archive around it.
+type UpscaleFileModelSpec struct {
+	Model     string
+	FileName  string
+	URL       string
+	SizeBytes int64
+	SHA256    string
+}
+
+// DefaultUpscaleAnimeModelSpec returns the validated metadata of the pinned
+// illustration model.
+func DefaultUpscaleAnimeModelSpec() UpscaleFileModelSpec {
+	return defaultUpscaleAnimeModelSpec()
+}
+
+func defaultUpscaleAnimeModelSpec() UpscaleFileModelSpec {
+	return UpscaleFileModelSpec{
+		Model:     UpscaleModelAnime,
+		FileName:  upscaleAnimeModelFileName,
+		URL:       upscaleAnimeModelURL,
+		SizeBytes: upscaleAnimeModelSizeBytes,
+		SHA256:    upscaleAnimeModelSHA256,
+	}
+}
+
+// upscaleAnimeModelSpec is the model the installer manages. It is a variable so
+// tests can substitute a small fake payload; production never overwrites it.
+var upscaleAnimeModelSpec = defaultUpscaleAnimeModelSpec()
+
+// UpscaleModelsSizeBytes returns the combined download of both pinned upscale
+// models. It is the number the install affordances show to users.
+func UpscaleModelsSizeBytes() int64 {
+	return upscaleModelSpec.SizeBytes + upscaleAnimeModelSpec.SizeBytes
+}
+
+// upscalePins is the validated package set the shared ONNX virtual environment
+// must satisfy for the upscale engine. Every pin here is also present with the
+// same exact version in rembgPins, which is the set actually installed: the
+// shared environment is a superset, so a single venv serves both engines.
+var upscalePins = []string{
+	"onnxruntime==1.32.0",
+	"numpy==2.3.5",
+	"pillow==12.3.0",
+}
+
+// UpscaleModelFile describes one file extracted from the pinned model archive.
+type UpscaleModelFile struct {
+	Name      string
+	SizeBytes int64
+	SHA256    string
+}
+
+// UpscaleModelSpec describes one pinned upscale model archive and the files the
+// installer must extract and verify.
+type UpscaleModelSpec struct {
+	Model        string
+	ArchiveName  string
+	URL          string
+	SizeBytes    int64
+	SHA256       string
+	ArchiveDir   string
+	ONNXFileName string
+	Files        []UpscaleModelFile
+}
+
+// DefaultUpscaleModelSpec returns the validated metadata of the shipped model.
+func DefaultUpscaleModelSpec() UpscaleModelSpec {
+	return defaultUpscaleModelSpec()
+}
+
+func defaultUpscaleModelSpec() UpscaleModelSpec {
+	return UpscaleModelSpec{
+		Model:        DefaultUpscaleModel,
+		ArchiveName:  upscaleModelArchiveName,
+		URL:          upscaleModelURL,
+		SizeBytes:    upscaleModelZipSizeByte,
+		SHA256:       upscaleModelZipSHA256,
+		ArchiveDir:   upscaleModelArchiveDir,
+		ONNXFileName: upscaleModelONNXFileName,
+		Files: []UpscaleModelFile{
+			{Name: upscaleModelONNXFileName, SizeBytes: upscaleModelONNXSizeBytes, SHA256: upscaleModelONNXSHA256},
+			{Name: upscaleModelDataFileName, SizeBytes: upscaleModelDataSizeBytes, SHA256: upscaleModelDataSHA256},
+		},
+	}
+}
+
+// upscaleModelSpec is the model the installer manages. It is a variable so
+// tests can substitute a small fake archive; production never overwrites it.
+var upscaleModelSpec = defaultUpscaleModelSpec()
+
 // SupportedOCRLanguages lists the downloadable Tesseract language data.
 func SupportedOCRLanguages() []string {
 	return []string{OCRLanguageEnglish, OCRLanguageSpanish}

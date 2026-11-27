@@ -5,24 +5,52 @@ package capabilities
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"strings"
 
+	"github.com/h2non/bimg"
+
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/pdf"
+	"fileforge-desktop/internal/toolchain"
+	"fileforge-desktop/internal/video/engine"
 )
 
-// Options injects the binary lookup and the OCR capability provider so tests
-// can simulate a machine with a specific toolchain. A nil LookPath uses
-// exec.LookPath; a nil OCR provider reports no language data, which keeps tests
-// independent from the machine. Detect wires the real PDF OCR detector.
+// Options injects the binary lookup, the OCR capability provider, the managed
+// toolchain snapshot and the libvips build so tests can simulate a machine with
+// a specific toolchain. A nil LookPath uses exec.LookPath; a nil OCR provider
+// reports no language data, which keeps tests independent from the machine. A
+// nil Managed runs the real toolchain detectors and a nil Vips reads bimg.
 type Options struct {
 	LookPath func(string) (string, error)
 	OCR      func(context.Context) models.OCRCapabilitiesResponse
+	Managed  func() ManagedRuntime
+	Vips     func() (version string, formats int)
 }
 
-// Detect probes the real machine: binaries through exec.LookPath and OCR
-// languages through the PDF OCR detector.
+// ManagedRuntime is the managed-toolchain snapshot rendered by the capability
+// panel. It is a value, not a live service, so tests can inject a machine state.
+type ManagedRuntime struct {
+	DataDir            string
+	DataDirError       error
+	PDF2DOCX           bool
+	RembgReady         bool
+	RembgReason        string
+	RembgModelReady    bool
+	RembgModelReason   string
+	UpscaleReady       bool
+	UpscaleReason      string
+	UpscaleModelReady  bool
+	UpscaleModelReason string
+	UpscaleAnimeReady  bool
+	UpscaleAnimeReason string
+	Whisper            engine.TranscriptionCapabilities
+}
+
+// Detect probes the real machine: binaries through exec.LookPath, OCR
+// languages through the PDF OCR detector, managed packs through the toolchain
+// layout and libvips through the linked bimg build.
 func Detect(ctx context.Context) models.LocalCapabilitiesResponse {
 	return DetectWith(ctx, Options{OCR: pdf.OCRCapabilities})
 }
@@ -43,6 +71,14 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 			return models.OCRCapabilitiesResponse{}
 		}
 	}
+	managed := opts.Managed
+	if managed == nil {
+		managed = detectManagedRuntime
+	}
+	vips := opts.Vips
+	if vips == nil {
+		vips = linkedVipsRuntime
+	}
 
 	ocrCapabilities := ocr(ctx)
 	languages := ocrCapabilities.Languages
@@ -58,11 +94,10 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 
 	pdftoppm := binaryAvailable("pdftoppm")
 	pdftotext := binaryAvailable("pdftotext")
-	gs := binaryAvailable("gs")
+	_, gs := toolchain.ResolveGhostscript(lookPath)
 	ffmpeg := binaryAvailable("ffmpeg")
 	ffprobe := binaryAvailable("ffprobe")
-	libreoffice := binaryAvailable("libreoffice")
-	pandoc := binaryAvailable("pandoc")
+	cwebp := binaryAvailable("cwebp")
 
 	tesseract := binaryAvailable("tesseract")
 	tesseractDetail := "Not installed"
@@ -77,6 +112,74 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 	default:
 		tesseractAvailable = true
 		tesseractDetail = "Languages: " + strings.ToUpper(strings.Join(languages, ", "))
+	}
+
+	vipsVersion, vipsFormats := vips()
+	vipsAvailable := strings.TrimSpace(vipsVersion) != "" && vipsFormats > 0
+	vipsDetail := "Not available"
+	if vipsAvailable {
+		vipsDetail = fmt.Sprintf("libvips %s, %d formats", strings.TrimSpace(vipsVersion), vipsFormats)
+	}
+
+	managedState := managed()
+
+	pdf2docxAvailable := managedState.PDF2DOCX
+	pdf2docxDetail := "Not installed"
+	pdf2docxSuggestion := ""
+	if pdf2docxAvailable {
+		pdf2docxDetail = "Managed pdf2docx environment"
+	} else {
+		pdf2docxSuggestion = pdf.PDFToDOCXUnavailableReason
+	}
+
+	rembgAvailable := managedState.RembgReady && managedState.RembgModelReady
+	rembgDetail := "Not installed"
+	rembgSuggestion := ""
+	switch {
+	case rembgAvailable:
+		rembgDetail = "Background removal engine and model"
+	case !managedState.RembgReady:
+		rembgSuggestion = managedReason(managedState.RembgReason,
+			"Run Install / repair to install the background removal engine.")
+	case !managedState.RembgModelReady:
+		rembgDetail = "Engine installed, but the model is not ready"
+		rembgSuggestion = managedReason(managedState.RembgModelReason,
+			"Run Install / repair to download the background removal model.")
+	}
+
+	upscaleAvailable := managedState.UpscaleReady && managedState.UpscaleModelReady && managedState.UpscaleAnimeReady
+	upscaleDetail := "Not installed"
+	upscaleSuggestion := ""
+	switch {
+	case upscaleAvailable:
+		upscaleDetail = "Upscale engine and both models (photo and illustration)"
+	case !managedState.UpscaleReady:
+		upscaleSuggestion = managedReason(managedState.UpscaleReason,
+			"Run Install / repair to install the upscale engine.")
+	case !managedState.UpscaleModelReady:
+		upscaleDetail = "Engine installed, but the photo model is not ready"
+		upscaleSuggestion = managedReason(managedState.UpscaleModelReason,
+			"Run Install / repair to download the photo upscale model.")
+	case !managedState.UpscaleAnimeReady:
+		upscaleDetail = "Engine installed, but the illustration model is not ready"
+		upscaleSuggestion = managedReason(managedState.UpscaleAnimeReason,
+			"Run Install / repair to download the illustration upscale model.")
+	}
+
+	whisper := managedState.Whisper
+	whisperAvailable := whisper.Available()
+	whisperDetail := "Not installed"
+	whisperSuggestion := "Install whisper.cpp and a GGML model, or run Install / repair."
+	switch {
+	case whisperAvailable:
+		whisperDetail = "Model: " + whisper.ModelName
+		whisperSuggestion = ""
+	case whisper.WhisperPresent && !whisper.ModelPresent:
+		whisperDetail = "Installed, but no model was found"
+		whisperSuggestion = "Download a GGML model in Settings or run Install / repair."
+	case !whisper.WhisperPresent && whisper.ModelPresent:
+		whisperDetail = "Model found, but whisper-cli was not found"
+		whisperSuggestion = "Install whisper.cpp or run Install / repair."
 	}
 
 	checks := []models.LocalCapability{
@@ -110,39 +213,71 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 			Available:  gs,
 			Required:   false,
 			Detail:     "PDF compression for target sizes",
-			Suggestion: suggestion(gs, "Install Ghostscript to reach PDF target sizes."),
+			Suggestion: suggestion(gs, "Install Ghostscript (gswin64c on Windows) to reach PDF target sizes."),
 		},
 		{
 			ID:         "ffmpeg",
 			Label:      "ffmpeg",
 			Available:  ffmpeg,
 			Required:   true,
-			Detail:     "Video conversion, trimming and merging",
-			Suggestion: suggestion(ffmpeg, "Install ffmpeg for the video tools."),
+			Detail:     "Video and audio conversion, trimming, merging and normalization",
+			Suggestion: suggestion(ffmpeg, "Install ffmpeg for the video and audio tools."),
 		},
 		{
 			ID:         "ffprobe",
 			Label:      "ffprobe",
 			Available:  ffprobe,
 			Required:   true,
-			Detail:     "Video metadata and durations",
+			Detail:     "Video and audio metadata, durations and output verification",
 			Suggestion: suggestion(ffprobe, "Install ffprobe (usually with ffmpeg)."),
 		},
 		{
-			ID:         "libreoffice",
-			Label:      "libreoffice",
-			Available:  libreoffice,
-			Required:   false,
-			Detail:     "DOCX to PDF/A archival export",
-			Suggestion: suggestion(libreoffice, "Install LibreOffice for PDF/A DOCX exports."),
+			ID:         "libvips",
+			Label:      "libvips",
+			Available:  vipsAvailable,
+			Required:   true,
+			Detail:     vipsDetail,
+			Suggestion: suggestion(vipsAvailable, "Rebuild FileForge against libvips (8.5 or newer) with its image loaders; every image tool needs it."),
 		},
 		{
-			ID:         "pandoc",
-			Label:      "pandoc",
-			Available:  pandoc,
+			ID:         "cwebp",
+			Label:      "cwebp",
+			Available:  cwebp,
 			Required:   false,
-			Detail:     "DOCX fallback conversion",
-			Suggestion: suggestion(pandoc, "Install Pandoc for the DOCX fallback path."),
+			Detail:     "Optional WebP preview encoder",
+			Suggestion: suggestion(cwebp, "Install WebP tools (cwebp) for WebP previews; PNG previews are used otherwise."),
+		},
+		{
+			ID:         "pdf2docx",
+			Label:      "pdf2docx",
+			Available:  pdf2docxAvailable,
+			Required:   false,
+			Detail:     pdf2docxDetail,
+			Suggestion: pdf2docxSuggestion,
+		},
+		{
+			ID:         "rembg",
+			Label:      "Background removal pack",
+			Available:  rembgAvailable,
+			Required:   false,
+			Detail:     rembgDetail,
+			Suggestion: rembgSuggestion,
+		},
+		{
+			ID:         "upscale",
+			Label:      "Local upscale engine",
+			Available:  upscaleAvailable,
+			Required:   false,
+			Detail:     upscaleDetail,
+			Suggestion: upscaleSuggestion,
+		},
+		{
+			ID:         "whisper",
+			Label:      "Whisper model",
+			Available:  whisperAvailable,
+			Required:   true,
+			Detail:     whisperDetail,
+			Suggestion: whisperSuggestion,
 		},
 	}
 
@@ -153,6 +288,52 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 		OCRLanguages:           languages,
 		RecommendedOCRLanguage: ocrCapabilities.RecommendedLanguage,
 	}
+}
+
+// detectManagedRuntime reads the real managed toolchain using the same detectors
+// the tools use, so the panel never drifts from the actual runtime.
+func detectManagedRuntime() ManagedRuntime {
+	state := ManagedRuntime{}
+
+	dataDir, err := toolchain.DataDir()
+	if err != nil {
+		state.DataDirError = err
+		return state
+	}
+	state.DataDir = dataDir
+
+	_, state.PDF2DOCX = toolchain.ManagedPDF2DOCXPythonPath(dataDir)
+	state.RembgReady, state.RembgReason = toolchain.ManagedRembgRuntimeState(dataDir)
+	state.RembgModelReady, state.RembgModelReason = toolchain.ManagedRembgModelState(dataDir)
+	state.UpscaleReady, state.UpscaleReason = toolchain.ManagedUpscaleRuntimeState(dataDir)
+	state.UpscaleModelReady, state.UpscaleModelReason = toolchain.ManagedUpscaleModelState(dataDir)
+	state.UpscaleAnimeReady, state.UpscaleAnimeReason = toolchain.ManagedUpscaleAnimeModelState(dataDir)
+	state.Whisper = engine.DetectTranscriptionCapabilities("", "")
+
+	return state
+}
+
+// linkedVipsRuntime reports the libvips version bimg was built against and how
+// many image formats it exposes for loading.
+func linkedVipsRuntime() (string, int) {
+	formats := 0
+	for imageType := range bimg.ImageTypes {
+		if bimg.VipsIsTypeSupported(imageType) {
+			formats++
+		}
+	}
+
+	return bimg.VipsVersion, formats
+}
+
+// managedReason keeps the detector guidance when it exists and falls back to
+// the panel copy otherwise.
+func managedReason(reason, fallback string) string {
+	if trimmed := strings.TrimSpace(reason); trimmed != "" {
+		return trimmed
+	}
+
+	return fallback
 }
 
 // suggestion returns guidance only when a tool is missing, so available rows

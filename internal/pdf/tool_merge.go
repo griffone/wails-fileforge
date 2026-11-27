@@ -131,12 +131,26 @@ func (t *MergeTool) ExecuteSingle(ctx context.Context, req models.JobRequest) (m
 
 // ExecutePlan merges exactly the resolved output and page ranges. It never
 // re-plans or re-resolves paths from req.Options: the engine owns planning.
-func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, _ func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
+// pdfcpu has no page-level progress, so the engine reports honest stage names
+// and per-input counts; no percentage is invented here.
+func (t *MergeTool) ExecutePlan(ctx context.Context, req models.JobRequest, plan models.PlanJobResponse, onProgress func(models.JobProgress)) ([]models.JobResultItem, *models.JobError) {
 	inputPath := strings.Join(req.InputPaths, ",")
 	outputPath := plannedOutputPath(plan)
 	pageRanges := plannedMergePageRanges(plan)
 
-	err := engine.MergeWithPageRanges(ctx, req.InputPaths, outputPath, pageRanges)
+	var mergeProgress engine.MergeProgressFunc
+	if onProgress != nil {
+		mergeProgress = func(event engine.MergeProgressEvent) {
+			onProgress(models.JobProgress{
+				Current: event.Current,
+				Total:   event.Total,
+				Stage:   event.Stage,
+				Message: event.Message,
+			})
+		}
+	}
+
+	err := engine.MergeWithPageRangesProgress(ctx, req.InputPaths, outputPath, pageRanges, mergeProgress)
 	if err != nil {
 		jobErr := mapMergeError(err)
 		return []models.JobResultItem{mergeFailureItem(inputPath, outputPath, jobErr)}, jobErr

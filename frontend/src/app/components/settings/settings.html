@@ -250,11 +250,7 @@
                     <span
                       class="badge badge-neutral settings-capability-scope"
                     >
-                      {{
-                        component.required
-                          ? i18n.t('settings.status.required')
-                          : i18n.t('settings.status.optional')
-                      }}
+                      {{ toolchainComponentScopeLabel(component) }}
                     </span>
                     <span [class]="toolchainComponentBadgeClass(component)">{{
                       toolchainComponentStateLabel(component)
@@ -292,7 +288,7 @@
 
           <div class="actions">
             @if (
-              !toolchainReady() &&
+              (!toolchainReady() || optionalPackMissing()) &&
               !toolchainBusy() &&
               !toolchainUnsupported() &&
               !toolchainError()
@@ -302,7 +298,7 @@
                 class="btn btn-primary btn-sm settings-install-toolchain"
                 (click)="installToolchain()"
               >
-                {{ i18n.t('settings.toolchain.install') }}
+                {{ installButtonLabel() }}
               </button>
             }
             @if (toolchainBusy()) {
@@ -332,6 +328,68 @@
             </button>
           </div>
         }
+      </div>
+    </section>
+
+    <section
+      class="panel settings-panel settings-upscale"
+      aria-labelledby="settings-upscale-title"
+    >
+      <div class="panel-head">
+        <h2 id="settings-upscale-title" class="panel-title">
+          {{ i18n.t('settings.upscale.title') }}
+        </h2>
+        @if (hasUpscaleAnimeModel()) {
+          <span class="badge badge-info">
+            {{ i18n.t('settings.status.ready') }}
+          </span>
+        } @else {
+          <span class="badge badge-neutral">
+            {{ i18n.t('settings.status.optional') }}
+          </span>
+        }
+      </div>
+
+      <div class="settings-body">
+        <p class="settings-help">
+          {{ i18n.t('settings.upscale.subtitle') }}
+        </p>
+        <p class="settings-help settings-upscale-size">
+          {{ i18n.t('settings.upscale.packSize') }}
+        </p>
+
+        <div class="settings-transcription-row">
+          <div class="settings-row-text settings-transcription-row-text">
+            <span class="settings-current-label">
+              {{ i18n.t('settings.upscale.animeModel') }}
+            </span>
+            <p class="settings-transcription-path mono settings-upscale-anime-path">
+              {{ upscaleAnimeModelLabel() }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm settings-choose-upscale-anime"
+            (click)="chooseUpscaleAnimeModel()"
+          >
+            {{ i18n.t('settings.upscale.chooseModel') }}
+          </button>
+        </div>
+
+        <div class="actions">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm settings-clear-upscale-anime"
+            [disabled]="!hasUpscaleAnimeModel()"
+            (click)="clearUpscaleAnimeModel()"
+          >
+            {{ i18n.t('settings.upscale.clearModel') }}
+          </button>
+        </div>
+
+        <p class="settings-help">
+          {{ i18n.t('settings.upscale.help') }}
+        </p>
       </div>
     </section>
 
@@ -721,6 +779,8 @@
       </div>
     </section>
 
+    <app-trash-history></app-trash-history>
+
     <section class="panel settings-panel" aria-labelledby="settings-history-title">
       <div class="panel-head">
         <h2 id="settings-history-title" class="panel-title">
@@ -776,6 +836,62 @@
         @if (actionMessage()) {
           <p class="settings-message" role="status">{{ actionMessage() }}</p>
         }
+      </div>
+    </section>
+
+    <section
+      class="panel settings-panel settings-about-panel"
+      aria-labelledby="settings-about-title"
+    >
+      <div class="panel-head">
+        <h2 id="settings-about-title" class="panel-title">
+          {{ i18n.t('settings.aboutInfo.title') }}
+        </h2>
+        @if (appInfo() && !aboutRelease()) {
+          <span class="badge badge-neutral settings-about-dev">
+            {{ i18n.t('settings.aboutInfo.devBuild') }}
+          </span>
+        }
+      </div>
+
+      <div class="settings-body">
+        @if (appInfoLoading() && !appInfo()) {
+          <p class="settings-help" role="status" aria-live="polite">
+            {{ i18n.t('settings.aboutInfo.loading') }}
+          </p>
+        }
+
+        @if (appInfoError(); as error) {
+          <div class="banner banner-warning settings-about-error" role="alert">
+            <lucide-icon
+              [img]="alertIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <span class="settings-capability-error-text">{{ error }}</span>
+          </div>
+        }
+
+        <dl class="settings-about-grid">
+          <dt>{{ i18n.t('settings.aboutInfo.version') }}</dt>
+          <dd class="mono settings-about-version">{{ aboutVersion() }}</dd>
+
+          <dt>{{ i18n.t('settings.aboutInfo.commit') }}</dt>
+          <dd class="mono settings-about-commit">{{ aboutCommit() }}</dd>
+
+          <dt>{{ i18n.t('settings.aboutInfo.builtAt') }}</dt>
+          <dd class="mono settings-about-built-at">{{ aboutBuiltAt() }}</dd>
+
+          <dt>{{ i18n.t('settings.aboutInfo.updateKey') }}</dt>
+          <dd class="settings-about-update-key">{{ aboutUpdateKey() }}</dd>
+        </dl>
+
+        <app-settings-updates [appInfo]="appInfo()"></app-settings-updates>
+
+        <p class="settings-help">
+          {{ i18n.t('settings.aboutInfo.help') }}
+        </p>
       </div>
     </section>
 

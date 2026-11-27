@@ -18,15 +18,18 @@ describe('ToolRegistryService', () => {
     localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
-  it('exposes the twenty conversion tools', () => {
-    expect(service.tools.length).toBe(20);
+  it('exposes the twenty-eight conversion tools', () => {
+    expect(service.tools.length).toBe(28);
   });
 
-  it('exposes twenty-four navigation entries', () => {
-    expect(service.navigation.length).toBe(24);
+  it('exposes thirty-two navigation entries', () => {
+    expect(service.navigation.length).toBe(33);
     expect(service.navigation[0].route).toBe('/');
-    expect(service.navigation[service.navigation.length - 2].route).toBe(
+    expect(service.navigation[service.navigation.length - 3].route).toBe(
       '/automations',
+    );
+    expect(service.navigation[service.navigation.length - 2].route).toBe(
+      '/duplicates',
     );
     expect(service.navigation[service.navigation.length - 1].route).toBe(
       '/settings',
@@ -71,6 +74,7 @@ describe('ToolRegistryService', () => {
     const home = service.findByRoute('/');
     const system = service.findByRoute('/tool-catalog');
     const automations = service.findByRoute('/automations');
+    const duplicates = service.findByRoute('/duplicates');
     const settings = service.findByRoute('/settings');
     const tool = service.findByRoute('/video-trim');
     const ocr = service.findByRoute('/pdf-ocr');
@@ -79,6 +83,7 @@ describe('ToolRegistryService', () => {
     expect(home && service.isTool(home)).toBeFalse();
     expect(system && service.isTool(system)).toBeFalse();
     expect(automations && service.isTool(automations)).toBeFalse();
+    expect(duplicates && service.isTool(duplicates)).toBeFalse();
     expect(settings && service.isTool(settings)).toBeFalse();
     expect(tool && service.isTool(tool)).toBeTrue();
     expect(ocr && service.isTool(ocr)).toBeTrue();
@@ -89,7 +94,7 @@ describe('ToolRegistryService', () => {
     const toolGroups = service.navGroups.filter((group) => group.id !== 'recipes');
     const grouped = toolGroups.reduce((total, group) => total + group.items.length, 0);
 
-    expect(service.navGroups.length).toBe(7);
+    expect(service.navGroups.length).toBe(8);
     expect(grouped).toBe(service.navigation.length);
     expect(service.navGroups.map((group) => group.label)).toEqual([
       'Workspace',
@@ -98,27 +103,117 @@ describe('ToolRegistryService', () => {
       'PDF',
       'Documents',
       'Video',
+      'Audio',
       'System',
     ]);
     expect(
       service.navGroups.find((group) => group.id === 'recipes')?.items.length,
-    ).toBe(5);
+    ).toBe(6);
     expect(
       service.navGroups.find((group) => group.id === 'image')?.items.length,
-    ).toBe(7);
+    ).toBe(8);
     expect(
       service.navGroups.find((group) => group.id === 'pdf')?.items.length,
-    ).toBe(7);
+    ).toBe(11);
     expect(
       service.navGroups.find((group) => group.id === 'video')?.items.length,
     ).toBe(4);
+    expect(
+      service.navGroups.find((group) => group.id === 'audio')?.items.length,
+    ).toBe(3);
   });
 
-  it('exposes the five recipes as navigation entries outside the tool counts', () => {
-    expect(service.recipes.length).toBe(5);
-    expect(service.recipeNav.length).toBe(5);
-    expect(service.navigation.length).toBe(24);
-    expect(service.tools.length).toBe(20);
+  it('registers the three audio tools with their manifest routes and formats', () => {
+    const audioGroup = service.navGroups.find((group) => group.id === 'audio');
+    expect(audioGroup?.label).toBe('Audio');
+    expect(audioGroup?.items.map((item) => item.id)).toEqual([
+      'tool.audio.extract',
+      'tool.audio.convert',
+      'tool.audio.normalize',
+    ]);
+
+    const extract = service.findByRoute('/audio-extract');
+    expect(extract?.id).toBe('tool.audio.extract');
+    expect(extract?.category).toBe('audio');
+    expect(extract?.formats).toEqual(['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC']);
+
+    const convert = service.findByRoute('/audio-convert');
+    expect(convert?.id).toBe('tool.audio.convert');
+    expect(convert?.category).toBe('audio');
+    expect(convert?.formats).toEqual(['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC']);
+
+    const normalize = service.findByRoute('/audio-normalize');
+    expect(normalize?.id).toBe('tool.audio.normalize');
+    expect(normalize?.category).toBe('audio');
+    expect(normalize?.formats).toEqual(['MP3', 'M4A', 'OPUS', 'WAV', 'FLAC']);
+  });
+
+  it('registers the four PDF page tools in the PDF group', () => {
+    const pdfGroup = service.navGroups.find((group) => group.id === 'pdf');
+    expect(pdfGroup?.label).toBe('PDF');
+    expect(pdfGroup?.items.map((item) => item.id)).toEqual([
+      'tool.pdf.merge',
+      'tool.pdf.split',
+      'tool.pdf.crop',
+      'tool.pdf.optimize',
+      'tool.pdf.ocr',
+      'tool.pdf.rotate',
+      'tool.pdf.remove_pages',
+      'tool.pdf.reorder',
+      'tool.pdf.extract_images',
+      'tool.pdf.images',
+      'tool.pdf.to_docx',
+    ]);
+
+    const rotate = service.findByRoute('/pdf-rotate');
+    expect(rotate?.id).toBe('tool.pdf.rotate');
+    expect(rotate?.category).toBe('pdf');
+    expect(rotate?.formats).toEqual(['PDF']);
+
+    const removePages = service.findByRoute('/pdf-remove-pages');
+    expect(removePages?.id).toBe('tool.pdf.remove_pages');
+    expect(removePages?.category).toBe('pdf');
+    expect(removePages?.formats).toEqual(['PDF']);
+
+    const reorder = service.findByRoute('/pdf-reorder');
+    expect(reorder?.id).toBe('tool.pdf.reorder');
+    expect(reorder?.category).toBe('pdf');
+    expect(reorder?.formats).toEqual(['PDF']);
+
+    const extractImages = service.findByRoute('/pdf-extract-images');
+    expect(extractImages?.id).toBe('tool.pdf.extract_images');
+    expect(extractImages?.category).toBe('pdf');
+    expect(extractImages?.formats).toEqual([
+      'PNG',
+      'JPG',
+      'JPEG',
+      'TIF',
+      'TIFF',
+      'JP2',
+    ]);
+  });
+
+  it('registers the duplicates page as a non-tool system entry', () => {
+    const systemGroup = service.navGroups.find((group) => group.id === 'system');
+    expect(systemGroup?.items.map((item) => item.id)).toEqual([
+      'system.status',
+      'system.automations',
+      'system.duplicates',
+      'system.settings',
+    ]);
+
+    const duplicates = service.findByRoute('/duplicates');
+    expect(duplicates?.id).toBe('system.duplicates');
+    expect(duplicates?.category).toBe('system');
+    expect(duplicates?.formats).toEqual([]);
+    expect(service.findById('system.duplicates')?.route).toBe('/duplicates');
+  });
+
+  it('exposes the six recipes as navigation entries outside the tool counts', () => {
+    expect(service.recipes.length).toBe(6);
+    expect(service.recipeNav.length).toBe(6);
+    expect(service.navigation.length).toBe(33);
+    expect(service.tools.length).toBe(28);
   });
 
   it('resolves recipes by route', () => {
@@ -199,11 +294,31 @@ describe('ToolRegistryService', () => {
     const emailPdf = service.findRecipeByRoute('/recipe/email-pdf');
     const recipesGroup = service.navGroups.find((group) => group.id === 'recipes');
     const pdfGroup = service.navGroups.find((group) => group.id === 'pdf');
+    const rotate = service.findByRoute('/pdf-rotate');
+    const removePages = service.findByRoute('/pdf-remove-pages');
+    const reorder = service.findByRoute('/pdf-reorder');
+    const extractImages = service.findByRoute('/pdf-extract-images');
 
     expect(merge && service.toolName(merge)).toBe('Unir PDF');
     expect(merge && service.navName(merge)).toBe('Unir');
     expect(merge && service.toolDescription(merge)).toBe(
       'Combina varios archivos PDF en un solo documento en el orden que elijas.',
+    );
+    expect(rotate && service.toolName(rotate)).toBe('Rotar PDF');
+    expect(rotate && service.navName(rotate)).toBe('Rotar');
+    expect(removePages && service.toolName(removePages)).toBe(
+      'Eliminar páginas de PDF',
+    );
+    expect(removePages && service.navName(removePages)).toBe('Eliminar páginas');
+    expect(reorder && service.toolName(reorder)).toBe(
+      'Reordenar páginas de PDF',
+    );
+    expect(reorder && service.navName(reorder)).toBe('Reordenar');
+    expect(extractImages && service.toolName(extractImages)).toBe(
+      'Extraer imágenes de PDF',
+    );
+    expect(extractImages && service.navName(extractImages)).toBe(
+      'Extraer imágenes',
     );
     expect(service.categoryLabel('docs')).toBe('Documentos');
     expect(recipesGroup && service.groupLabel(recipesGroup)).toBe('Recetas');

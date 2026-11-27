@@ -3,5 +3,6 @@
   "recipe.web_image_set",
   "recipe.social_clip",
   "recipe.clean_scan",
-  "recipe.burned_subtitles"
+  "recipe.burned_subtitles",
+  "recipe.archive_document"
 ]

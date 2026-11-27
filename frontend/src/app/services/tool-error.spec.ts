@@ -86,6 +86,20 @@ describe('describeToolError', () => {
     expect(copy.action).toBe('none');
   });
 
+  it('maps an unclassified canonical code without promising a retry', () => {
+    const copy = describeToolError({
+      code: 'ERROR_UNCLASSIFIED',
+      detail_code: 'FUTURE_UNKNOWN_FAILURE',
+      message: 'something the backend could not classify',
+    });
+
+    expect(copy.kind).toBe('unclassified');
+    expect(copy.title).toBe('This error was not classified.');
+    expect(copy.description).toContain('will not retry');
+    expect(copy.action).toBe('none');
+    expect(copy.technical).toContain('FUTURE_UNKNOWN_FAILURE');
+  });
+
   it('falls back to message patterns when no code matches', () => {
     const copy = describeToolError({
       code: 'EXEC_IO_TRANSIENT',
@@ -147,6 +161,7 @@ describe('localizeToolError', () => {
       ['RUNTIME_DEP_MISSING', 'dependencyMissing'],
       ['CANCELLED_BY_USER', 'cancelled'],
       ['PDF_SPLIT_NO_BOOKMARKS', 'noBookmarks'],
+      ['ERROR_UNCLASSIFIED', 'unclassified'],
     ];
 
     for (const [detailCode, kind] of cases) {

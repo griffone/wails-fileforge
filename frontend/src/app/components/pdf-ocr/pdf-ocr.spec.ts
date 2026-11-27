@@ -9,6 +9,7 @@ import { EMPTY, Subject } from 'rxjs';
 
 import { PdfOcr } from './pdf-ocr';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobProgress,
@@ -149,6 +150,7 @@ describe('PdfOcr', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'getOCRCapabilities',
@@ -207,6 +209,7 @@ describe('PdfOcr', () => {
     fixture?.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('loads capabilities, selects the recommended language and renders the page', fakeAsync(() => {

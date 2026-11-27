@@ -1,0 +1,500 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">{{ i18n.t('imageUpscale.page.eyebrow') }}</p>
+        <h1 class="page-title">
+          {{ i18n.t('imageUpscale.page.titleLead') }}
+          <em>{{ i18n.t('imageUpscale.page.titleTail') }}</em>
+        </h1>
+        <p class="page-sub">
+          {{ i18n.t('imageUpscale.page.sub') }}
+        </p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon
+          [img]="shieldIcon"
+          [size]="12"
+          [strokeWidth]="2"
+          aria-hidden="true"
+        ></lucide-icon>
+        {{ i18n.t('imageUpscale.page.localBadge') }}
+      </span>
+      <app-open-window-action />
+    </div>
+  </header>
+
+  <div class="page-stack">
+    @if (packBanner(); as banner) {
+      <section
+        class="banner banner-warning pack-banner"
+        role="alert"
+        aria-labelledby="upscale-pack-title"
+      >
+        <lucide-icon
+          [img]="alertIcon"
+          [size]="16"
+          [strokeWidth]="1.75"
+          aria-hidden="true"
+        ></lucide-icon>
+        <div class="pack-banner-copy">
+          <strong id="upscale-pack-title">{{ banner.title }}</strong>
+          <span>{{ banner.detail }}</span>
+
+          @if (missingPackComponents().length > 0) {
+            <ul class="pack-components">
+              @for (component of missingPackComponents(); track component.id) {
+                <li>
+                  <strong>{{ component.label }}</strong>
+                  @if (component.detail) {
+                    <span> — {{ component.detail }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+
+          @if (packInstalling()) {
+            <div
+              class="pack-progress"
+              [attr.aria-label]="i18n.t('imageUpscale.pack.progressAria')"
+            >
+              <div
+                class="progress"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                [attr.aria-valuenow]="packPercent()"
+                [attr.aria-valuetext]="packPercent() + '%'"
+              >
+                <div
+                  class="progress-fill"
+                  [style.width.%]="packPercent()"
+                ></div>
+              </div>
+              <div class="pack-progress-meta">
+                <span class="pack-progress-message">{{
+                  packProgressMessage()
+                }}</span>
+                <span class="mono">{{ packPercent() }}%</span>
+              </div>
+            </div>
+          } @else if (packInstallError(); as error) {
+            <div class="banner banner-danger pack-install-error" role="alert">
+              <span>{{ error }}</span>
+            </div>
+          }
+
+          <div class="pack-actions">
+            @if (packInstalling()) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm pack-cancel"
+                [disabled]="packCancelling()"
+                (click)="cancelPackInstall()"
+              >
+                {{
+                  packCancelling()
+                    ? i18n.t('imageUpscale.pack.cancelling')
+                    : i18n.t('imageUpscale.pack.cancel')
+                }}
+              </button>
+            } @else {
+              <button
+                type="button"
+                class="btn btn-primary btn-sm pack-install"
+                [disabled]="toolchainChecking()"
+                (click)="installPack()"
+              >
+                {{
+                  i18n.t('imageUpscale.pack.install', {
+                    size: i18n.t('imageUpscale.pack.modelsSize'),
+                  })
+                }}
+              </button>
+            }
+            <a class="btn btn-secondary btn-sm pack-settings" routerLink="/settings"
+              >{{ i18n.t('imageUpscale.pack.openSettings') }}</a
+            >
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm pack-recheck"
+              [disabled]="toolchainChecking() || packInstalling()"
+              (click)="refreshToolchain()"
+            >
+              <lucide-icon
+                [img]="recheckIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              {{ toolchainChecking() ? i18n.t('imageUpscale.pack.rechecking') : i18n.t('imageUpscale.pack.recheck') }}
+            </button>
+          </div>
+        </div>
+      </section>
+    }
+
+    <div class="flow-grid">
+      <section class="panel intake-panel" aria-labelledby="upscale-input-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="upscale-input-title" class="panel-title">{{ i18n.t('imageUpscale.intake.title') }}</h2>
+            <p class="panel-sub">
+              {{ i18n.t('imageUpscale.intake.sub') }}
+            </p>
+          </div>
+          <span class="badge badge-neutral">{{ fileCountLabel() }}</span>
+        </div>
+
+        <div class="panel-body">
+          <app-file-drop
+            accept="image/*"
+            [title]="i18n.t('imageUpscale.intake.dropTitle')"
+            hint="PNG · JPG · WebP · BMP · TIFF · GIF"
+            [ariaLabel]="i18n.t('imageUpscale.intake.dropAria')"
+            [nativePicker]="true"
+            (pathsSelected)="onPathsSelected($event)"
+            (browseRequested)="chooseFiles()"
+          ></app-file-drop>
+
+          <div
+            class="toolbar"
+            role="group"
+            [attr.aria-label]="i18n.t('imageUpscale.intake.actionsAria')"
+          >
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              (click)="chooseFiles()"
+            >
+              <lucide-icon
+                [img]="folderIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              {{ i18n.t('imageUpscale.intake.choose') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm toolbar-end"
+              [disabled]="selectedPaths().length === 0"
+              (click)="clear()"
+            >
+              <lucide-icon
+                [img]="closeIcon"
+                [size]="14"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              {{ i18n.t('imageUpscale.intake.clear') }}
+            </button>
+          </div>
+
+          @if (notice(); as note) {
+            <div
+              class="banner error-banner"
+              [class.banner-warning]="note.tone === 'warning'"
+              [class.banner-danger]="note.tone === 'danger'"
+              role="alert"
+            >
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span>{{ note.text }}</span>
+            </div>
+          }
+
+          @if (fileItems().length > 0) {
+            <app-file-queue
+              [items]="fileItems()"
+              (remove)="removeFile($event)"
+            ></app-file-queue>
+          }
+
+          @if (selectedPaths().length > 1) {
+            <p class="batch-note">
+              {{ i18n.t('imageUpscale.intake.batchNote') }}
+            </p>
+          }
+        </div>
+      </section>
+
+      <section
+        class="panel outcome-panel"
+        aria-labelledby="upscale-output-title"
+      >
+        <div class="panel-head">
+          <div>
+            <h2 id="upscale-output-title" class="panel-title">{{ i18n.t('imageUpscale.output.title') }}</h2>
+            <p class="panel-sub">
+              {{ i18n.t('imageUpscale.output.sub') }}
+            </p>
+          </div>
+          <div class="panel-head-badges">
+            <span
+              class="badge"
+              [class.badge-success]="packReady()"
+              [class.badge-warning]="!packReady()"
+              >{{ packBadge() }}</span
+            >
+            <span class="badge badge-neutral">{{ scaleLabel() }} · {{ formatLabel() }}</span>
+          </div>
+        </div>
+
+        <div class="panel-body">
+          <div class="options-grid">
+            <div class="field">
+              <label class="label" for="upscale-scale">{{ i18n.t('imageUpscale.field.scale') }}</label>
+              <select
+                id="upscale-scale"
+                class="select"
+                aria-describedby="upscale-scale-help"
+                (change)="onScaleChange($event)"
+              >
+                @for (option of scaleOptions; track option) {
+                  <option [value]="option" [selected]="scale() === option">
+                    {{ option }}x
+                  </option>
+                }
+              </select>
+              <p id="upscale-scale-help" class="field-help">
+                {{ i18n.t('imageUpscale.field.scaleHelp') }}
+              </p>
+            </div>
+
+            <div class="field">
+              <label class="label" for="upscale-tile">{{ i18n.t('imageUpscale.field.tile') }}</label>
+              <select
+                id="upscale-tile"
+                class="select"
+                aria-describedby="upscale-tile-help"
+                (change)="onTileChange($event)"
+              >
+                @for (option of tileOptions; track option) {
+                  <option [value]="option" [selected]="tileSize() === option">
+                    {{ option }} px
+                  </option>
+                }
+              </select>
+              <p id="upscale-tile-help" class="field-help">
+                {{ i18n.t('imageUpscale.field.tileHelp') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="label" for="upscale-model">{{ i18n.t('imageUpscale.field.model') }}</label>
+            <select
+              id="upscale-model"
+              class="select"
+              aria-describedby="upscale-model-help"
+              (change)="onModelChange($event)"
+            >
+              <option value="general" [selected]="model() === 'general'">
+                {{ i18n.t('imageUpscale.model.general') }}
+              </option>
+              <option value="anime" [selected]="model() === 'anime'">
+                {{ i18n.t('imageUpscale.model.anime') }}
+              </option>
+            </select>
+            <p id="upscale-model-help" class="field-help">
+              {{ i18n.t('imageUpscale.field.modelHelp') }}
+            </p>
+          </div>
+
+          @if (model() === "anime") {
+            <div class="field anime-field">
+              <span class="label">{{ i18n.t('imageUpscale.field.animeModel') }}</span>
+              @if (animeModelConfigured()) {
+                <p class="anime-path mono">
+                  {{
+                    i18n.t('imageUpscale.animeModel.configured', {
+                      path: animeModelPath(),
+                    })
+                  }}
+                </p>
+              } @else {
+                <p class="anime-path">
+                  {{ i18n.t('imageUpscale.animeModel.included') }}
+                </p>
+              }
+              <p class="field-help">
+                {{ i18n.t('imageUpscale.animeModel.help') }}
+              </p>
+              <a class="btn btn-ghost btn-sm anime-link" routerLink="/settings"
+                >{{ i18n.t('imageUpscale.animeModel.advanced') }}</a
+              >
+            </div>
+          }
+
+          <div class="options-grid">
+            <div class="field">
+              <label class="label" for="upscale-format">{{ i18n.t('imageUpscale.field.format') }}</label>
+              <select
+                id="upscale-format"
+                class="select"
+                (change)="onFormatChange($event)"
+              >
+                @for (option of formatOptions; track option) {
+                  <option [value]="option" [selected]="format() === option">
+                    {{
+                      option === "jpeg"
+                        ? i18n.t('imageUpscale.format.jpeg')
+                        : option === "webp"
+                          ? i18n.t('imageUpscale.format.webp')
+                          : i18n.t('imageUpscale.format.png')
+                    }}
+                  </option>
+                }
+              </select>
+            </div>
+
+            <div class="field">
+              <label class="label" for="upscale-quality">{{ i18n.t('imageUpscale.field.quality') }}</label>
+              <input
+                id="upscale-quality"
+                class="input"
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                [attr.aria-label]="i18n.t('imageUpscale.field.qualityAria')"
+                [disabled]="!qualityEnabled()"
+                [value]="quality()"
+                (input)="onQualityInput($event)"
+              />
+              <p class="field-help">
+                {{ i18n.t('imageUpscale.field.qualityHelp') }}
+              </p>
+            </div>
+          </div>
+
+          <app-output-plan-card
+            [plan]="plan()"
+            [loading]="planLoading()"
+            [destinationLabel]="destinationLabel()"
+            [isDefaultDestination]="isDefaultDestination()"
+            (changeDestination)="chooseOutputFolder()"
+          ></app-output-plan-card>
+
+          @if (!isDefaultDestination()) {
+            <div class="destination-actions">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                (click)="useOriginalFolders()"
+              >
+                {{ i18n.t('settings.output.useOriginal') }}
+              </button>
+            </div>
+          }
+
+          <div class="banner banner-info output-note">
+            <lucide-icon
+              [img]="upscaleIcon"
+              [size]="16"
+              [strokeWidth]="1.75"
+              aria-hidden="true"
+            ></lucide-icon>
+            <div class="banner-copy">
+              <strong>{{ i18n.t('imageUpscale.note.title') }}</strong>
+              <span>{{ i18n.t('imageUpscale.note.body') }}</span>
+              <span class="note-limit">{{ i18n.t('imageUpscale.note.limit') }}</span>
+            </div>
+          </div>
+
+          @if (jobErrorCopy(); as error) {
+            <div class="banner banner-danger error-banner" role="alert">
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ error.title }}</strong>
+                <span>{{ error.description }}</span>
+              </div>
+            </div>
+          }
+
+          @if (actionMessage(); as message) {
+            <div class="banner banner-warning error-banner" role="alert">
+              <lucide-icon
+                [img]="alertIcon"
+                [size]="16"
+                [strokeWidth]="1.75"
+                aria-hidden="true"
+              ></lucide-icon>
+              <span>{{ message }}</span>
+            </div>
+          }
+
+          @if (actionHelper(); as helper) {
+            <p class="action-helper" role="status">{{ helper }}</p>
+          }
+
+          <div class="action-row">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg action-primary"
+              [disabled]="!canRun()"
+              (click)="run()"
+            >
+              {{ primaryLabel() }}
+            </button>
+
+            @if (isPolling()) {
+              <button type="button" class="btn btn-ghost" (click)="cancel()">
+                {{ i18n.t('imageUpscale.action.cancel') }}
+              </button>
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+
+    @if (showProgress()) {
+      <section class="panel progress-panel" [attr.aria-label]="i18n.t('imageUpscale.progress.aria')">
+        <div class="panel-body progress-body">
+          <app-job-card [job]="jobResult()"></app-job-card>
+        </div>
+      </section>
+    }
+
+    @if (processedSummary(); as summary) {
+      <div class="banner banner-success processed-summary" role="status">
+        <lucide-icon
+          [img]="shieldIcon"
+          [size]="16"
+          [strokeWidth]="1.75"
+          aria-hidden="true"
+        ></lucide-icon>
+        <span>{{ summary }}</span>
+      </div>
+    }
+
+    @if (terminalJob(); as job) {
+      <app-result-card
+        [job]="job"
+        [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
+        toolLabel="image"
+        verbPast="upscaled"
+        (open)="onOpen($event)"
+        (reveal)="onReveal($event)"
+        (retryFailed)="retryFailed()"
+        (reset)="reset()"
+        (runAgainStarted)="onRunAgainStarted($event)"
+      ></app-result-card>
+    }
+  </div>
+</div>

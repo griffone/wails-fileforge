@@ -287,6 +287,27 @@
   gap: 0;
 }
 
+.home-recipe-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.home-recipe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.home-user-recipes {
+  margin-top: 28px;
+}
+
 .home-recipe-top {
   display: flex;
   align-items: center;
@@ -585,3 +606,4 @@
     margin-left: 0;
   }
 }
+

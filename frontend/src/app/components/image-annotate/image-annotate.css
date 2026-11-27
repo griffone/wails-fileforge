@@ -471,6 +471,53 @@
   padding: 14px;
 }
 
+/* ---- Annotation text dialog -------------------------------------------- */
+
+.text-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(6, 8, 11, 0.5);
+  backdrop-filter: blur(3px) saturate(104%);
+  -webkit-backdrop-filter: blur(3px) saturate(104%);
+}
+
+.text-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 81;
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  transform: translate(-50%, -50%);
+}
+
+.text-dialog-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.text-dialog-body {
+  margin: 0 0 14px;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.text-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 1000px) {
   .flow-grid {
     grid-template-columns: minmax(0, 1fr);

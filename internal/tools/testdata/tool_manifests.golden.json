@@ -1,11 +1,140 @@
 [
   {
+    "toolId": "tool.audio.convert",
+    "name": "Audio Convert",
+    "description": "Convert audio files between mp3, m4a, opus, wav and flac",
+    "domain": "audio",
+    "capability": "tool.audio.convert",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "mp3",
+      "m4a",
+      "aac",
+      "opus",
+      "ogg",
+      "wav",
+      "flac",
+      "wma",
+      "aiff"
+    ],
+    "outputExtensions": [
+      "mp3",
+      "m4a",
+      "opus",
+      "wav",
+      "flac"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "audio",
+      "convert",
+      "ffmpeg"
+    ],
+    "resourceClass": "audio",
+    "maxWorkers": 1
+  },
+  {
+    "toolId": "tool.audio.extract",
+    "name": "Extract Audio",
+    "description": "Extract the audio track from a video or audio file as mp3, m4a, opus, wav or flac",
+    "domain": "audio",
+    "capability": "tool.audio.extract",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "mp3",
+      "m4a",
+      "aac",
+      "opus",
+      "ogg",
+      "wav",
+      "flac",
+      "wma",
+      "aiff",
+      "mp4",
+      "m4v",
+      "mov",
+      "mkv",
+      "webm",
+      "avi",
+      "wmv",
+      "flv",
+      "ts",
+      "mts",
+      "3gp"
+    ],
+    "outputExtensions": [
+      "mp3",
+      "m4a",
+      "opus",
+      "wav",
+      "flac"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "audio",
+      "extract",
+      "ffmpeg"
+    ],
+    "resourceClass": "audio",
+    "maxWorkers": 1
+  },
+  {
+    "toolId": "tool.audio.normalize",
+    "name": "Normalize Audio",
+    "description": "Two-pass EBU R128 loudness normalization to streaming, broadcast or podcast targets",
+    "domain": "audio",
+    "capability": "tool.audio.normalize",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "mp3",
+      "m4a",
+      "aac",
+      "opus",
+      "ogg",
+      "wav",
+      "flac",
+      "wma",
+      "aiff"
+    ],
+    "outputExtensions": [
+      "mp3",
+      "m4a",
+      "opus",
+      "wav",
+      "flac"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "audio",
+      "normalize",
+      "loudness",
+      "ffmpeg"
+    ],
+    "resourceClass": "audio",
+    "maxWorkers": 1
+  },
+  {
     "toolId": "tool.doc.docx_to_pdf",
     "name": "DOCX to PDF",
-    "description": "Convert DOCX to PDF with standard fidelity (LibreOffice + Pandoc fallback)",
+    "description": "Convert DOCX to PDF with standard fidelity using the bundled pure-Go renderer. Complex desktop publishing layouts, exact floating-shape wrapping and some SmartArt diagrams may differ; PDF/A export needs Ghostscript.",
     "domain": "doc",
     "capability": "tool.doc.docx_to_pdf",
-    "version": "1.0",
+    "version": "1.1",
     "supportsSingle": true,
     "supportsBatch": true,
     "inputExtensions": [
@@ -14,16 +143,12 @@
     "outputExtensions": [
       "pdf"
     ],
-    "runtimeDependencies": [
-      "libreoffice",
-      "pandoc"
-    ],
+    "runtimeDependencies": [],
     "tags": [
       "doc",
       "docx",
       "pdf",
-      "standard-fidelity",
-      "fallback"
+      "standard-fidelity"
     ],
     "resourceClass": "external",
     "maxWorkers": 2
@@ -264,6 +389,42 @@
     ]
   },
   {
+    "toolId": "tool.image.upscale",
+    "name": "Upscale Image",
+    "description": "Upscale images 2x or 4x locally with a pinned ONNX model",
+    "domain": "image",
+    "capability": "tool.image.upscale",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "png",
+      "jpg",
+      "webp"
+    ],
+    "runtimeDependencies": [
+      "upscale",
+      "upscale-model"
+    ],
+    "tags": [
+      "image",
+      "upscale",
+      "enlarge",
+      "onnx",
+      "real-esrgan"
+    ]
+  },
+  {
     "toolId": "tool.image.watermark",
     "name": "Image Watermark",
     "description": "Watermark images with text or a logo using nine anchors, opacity, scale, margin and tiling",
@@ -318,6 +479,36 @@
       "crop",
       "margins"
     ]
+  },
+  {
+    "toolId": "tool.pdf.extract_images",
+    "name": "PDF Extract Images",
+    "description": "Extract embedded images into a folder with collision-safe names",
+    "domain": "pdf",
+    "capability": "tool.pdf.extract_images",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "png",
+      "jpg",
+      "jpeg",
+      "tif",
+      "tiff",
+      "jp2"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "images",
+      "extract"
+    ],
+    "resourceClass": "cpu"
   },
   {
     "toolId": "tool.pdf.images",
@@ -431,6 +622,83 @@
       "compress",
       "metadata"
     ]
+  },
+  {
+    "toolId": "tool.pdf.remove_pages",
+    "name": "PDF Remove Pages",
+    "description": "Delete selected pages and keep the rest of the document",
+    "domain": "pdf",
+    "capability": "tool.pdf.remove_pages",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "pages",
+      "delete",
+      "remove"
+    ],
+    "resourceClass": "cpu"
+  },
+  {
+    "toolId": "tool.pdf.reorder",
+    "name": "PDF Reorder Pages",
+    "description": "Rewrite the page order from an explicit spec, or reverse the document",
+    "domain": "pdf",
+    "capability": "tool.pdf.reorder",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "reorder",
+      "pages",
+      "order"
+    ],
+    "resourceClass": "cpu"
+  },
+  {
+    "toolId": "tool.pdf.rotate",
+    "name": "PDF Rotate",
+    "description": "Rotate all pages or a page selection by 90, 180 or 270 degrees",
+    "domain": "pdf",
+    "capability": "tool.pdf.rotate",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "pdf"
+    ],
+    "outputExtensions": [
+      "pdf"
+    ],
+    "runtimeDependencies": [
+      "pdfcpu"
+    ],
+    "tags": [
+      "pdf",
+      "rotate",
+      "pages"
+    ],
+    "resourceClass": "cpu"
   },
   {
     "toolId": "tool.pdf.split",

@@ -26,7 +26,9 @@ const (
 	PhaseModel       = "model"
 	PhaseTessdata    = "tessdata"
 	PhasePdf2Docx    = "pdf2docx"
+	PhaseONNX        = "onnx"
 	PhaseRembg       = "rembg"
+	PhaseUpscale     = "upscale"
 	PhaseFinalize    = "finalize"
 	PhaseReady       = "ready"
 	PhaseCancelled   = "cancelled"
@@ -49,11 +51,15 @@ const (
 	pdf2docxStartPercent           = 91
 	pdf2docxInstallPercent         = 92
 	pdf2docxEndPercent             = 94
-	rembgVenvStartPercent          = 94
-	rembgVenvInstallPercent        = 95
-	rembgVenvEndPercent            = 96
+	onnxVenvStartPercent           = 94
+	onnxVenvInstallPercent         = 95
+	onnxVenvEndPercent             = 96
 	rembgModelStartPercent         = 96
-	rembgModelEndPercent           = 99
+	rembgModelEndPercent           = 97
+	upscaleModelStartPercent       = 97
+	upscaleModelEndPercent         = 98
+	upscaleAnimeModelStartPercent  = 98
+	upscaleAnimeModelEndPercent    = 99
 	readyPercent                   = 100
 
 	condaPackagesMessage = "Installing FFmpeg, Tesseract, Poppler, Ghostscript and Python…"
@@ -76,10 +82,12 @@ var pdf2docxPins = []string{
 	"pdf2docx==0.5.13",
 }
 
-// rembgPins is the validated package set installed into the dedicated
-// background removal virtual environment. rembg pulls onnxruntime for CPU
-// inference, so the runtime, the array/image stack and its transitive pins are
-// fixed rather than resolved at install time.
+// rembgPins is the validated package set installed into the shared ONNX
+// virtual environment. rembg pulls onnxruntime for CPU inference, so the
+// runtime, the array/image stack and its transitive pins are fixed rather than
+// resolved at install time. The upscale engine imports onnxruntime, numpy and
+// Pillow; all three appear here with the exact versions upscalePins pins, so
+// one environment serves both engines.
 var rembgPins = []string{
 	"rembg[cpu]==2.0.87",
 	"onnxruntime==1.32.0",
@@ -125,6 +133,11 @@ type installState struct {
 	err          string
 	model        string
 	ocrLanguages []string
+
+	// componentErrors holds the failure of a standard component (the ONNX
+	// engine and its models) so a partial install can surface the exact
+	// component instead of an opaque setup failure.
+	componentErrors map[string]string
 }
 
 // NewService builds the installer for one application data directory and
@@ -350,12 +363,13 @@ func (s *Service) Start(ctx context.Context, options models.ToolchainInstallOpti
 	installContext, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 	s.state = installState{
-		installing:   true,
-		percent:      0,
-		phase:        PhaseStarting,
-		detail:       "Preparing the local toolchain…",
-		model:        model,
-		ocrLanguages: append([]string{}, languages...),
+		installing:      true,
+		percent:         0,
+		phase:           PhaseStarting,
+		detail:          "Preparing the local toolchain…",
+		model:           model,
+		ocrLanguages:    append([]string{}, languages...),
+		componentErrors: make(map[string]string),
 	}
 	s.mu.Unlock()
 
@@ -472,7 +486,12 @@ func (s *Service) install(ctx context.Context, model string, languages []string,
 	if err := s.installPdf2Docx(ctx, force); err != nil {
 		return err
 	}
-	if err := s.installRembg(ctx, staging, force); err != nil {
+
+	// The ONNX engine and its models are part of the standard install, but each
+	// one is an independent component: a failure is recorded against it and the
+	// rest of the toolchain still finishes, so the app starts degraded instead
+	// of failing as a whole.
+	if err := s.installONNXPacks(ctx, force); err != nil {
 		return err
 	}
 
@@ -535,9 +554,13 @@ func (s *Service) installEnvironment(ctx context.Context, force bool) error {
 		if err := os.RemoveAll(pdf2docxVenvDir(s.root)); err != nil {
 			return fmt.Errorf("replace the PDF to DOCX environment: %w", err)
 		}
-		if err := os.RemoveAll(rembgVenvDir(s.root)); err != nil {
-			return fmt.Errorf("replace the background removal environment: %w", err)
+		if err := os.RemoveAll(onnxVenvDir(s.root)); err != nil {
+			return fmt.Errorf("replace the shared ONNX environment: %w", err)
 		}
+		if err := os.Remove(onnxReadyFilePath(s.root)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("reset the shared ONNX readiness marker: %w", err)
+		}
+		s.removeLegacyVenvs()
 	}
 	action := "create"
 	if directoryExists(filepath.Join(prefix, "conda-meta")) {
@@ -792,13 +815,65 @@ func (s *Service) installPdf2Docx(ctx context.Context, force bool) error {
 	return nil
 }
 
-// installRembg creates the dedicated virtual environment for the background
-// removal engine, verifies that it imports, and installs the pinned ONNX model.
-// The model lives outside the venv, so repairing the engine never discards the
-// downloaded weights. The staging argument is accepted for symmetry with the
-// other installer steps; the model uses a temp file next to its destination so
-// the final rename stays atomic.
-func (s *Service) installRembg(ctx context.Context, _ string, force bool) error {
+// componentIDsONNXVenv lists the components that depend on the shared ONNX
+// virtual environment. A venv failure is recorded against all of them.
+var componentIDsONNXVenv = []string{"rembg", "upscale"}
+
+// installONNXPacks creates the shared ONNX environment once and installs the
+// pinned models for both engines. Each engine and each model is an independent
+// component: a failure is recorded against the affected ids and the install
+// continues, so one broken download never blocks the rest of the toolchain.
+func (s *Service) installONNXPacks(ctx context.Context, force bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := s.ensureONNXVenv(ctx, force); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		s.recordComponentFailure(err.Error(), componentIDsONNXVenv...)
+
+		return nil
+	}
+	s.clearComponentFailure(componentIDsONNXVenv...)
+
+	if err := s.installRembgModel(ctx, force); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		s.recordComponentFailure(err.Error(), "rembg-model")
+	} else {
+		s.clearComponentFailure("rembg-model")
+	}
+
+	if err := s.installUpscaleModel(ctx, force); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		s.recordComponentFailure(err.Error(), "upscale-model")
+	} else {
+		s.clearComponentFailure("upscale-model")
+	}
+
+	if err := s.installUpscaleAnimeModel(ctx, force); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		s.recordComponentFailure(err.Error(), "upscale-anime-model")
+	} else {
+		s.clearComponentFailure("upscale-anime-model")
+	}
+
+	return nil
+}
+
+// ensureONNXVenv creates the virtual environment shared by background removal
+// and upscaling, installs the pinned package set and verifies it with one real
+// import. Both engines import the same ONNX stack, so a second venv would only
+// duplicate 150–200 MB. The weights live outside the venv, so repairing the
+// engine never discards downloaded models.
+func (s *Service) ensureONNXVenv(ctx context.Context, force bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -808,72 +883,120 @@ func (s *Service) installRembg(ctx context.Context, _ string, force bool) error 
 		return fmt.Errorf("the managed Python is missing; reinstall the toolchain")
 	}
 
-	venv := rembgVenvDir(s.root)
-	venvPython := rembgVenvPythonPath(s.root, s.platform.OS)
-	readyMarker := rembgReadyFilePath(s.root)
-	if !force && fileWithContent(venvPython) && fileWithContent(readyMarker) {
-		s.progress(PhaseRembg, rembgVenvEndPercent, "The background removal engine is already installed.", false)
-	} else {
-		if err := os.RemoveAll(venv); err != nil {
-			return fmt.Errorf("replace the background removal environment: %w", err)
-		}
-		// A rebuilt venv must prove itself again: leaving the old marker behind
-		// would let a failed pip or import hide behind a stale success.
-		if err := os.Remove(readyMarker); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("reset the background removal readiness marker: %w", err)
-		}
+	venv := onnxVenvDir(s.root)
+	venvPython := onnxVenvPythonPath(s.root, s.platform.OS)
+	readyMarker := onnxReadyFilePath(s.root)
+	if !force && fileWithContent(venvPython) && fileWithContent(readyMarker) && onnxPackagesInstalled(s.root, s.platform.OS) {
+		s.progress(PhaseONNX, onnxVenvEndPercent, "The shared ONNX engine is already installed.", false)
+		s.removeLegacyVenvs()
 
-		environment := withEnvironment(os.Environ(), map[string]string{
-			"PATH": prependPath(os.Getenv("PATH"), managedPathDirs(s.root, s.platform.OS), pathListSeparatorFor(s.platform.OS)),
-		})
-
-		s.progress(PhaseRembg, rembgVenvStartPercent, "Creating the background removal environment…", false)
-		if _, err := s.runner.Run(ctx, basePython, []string{"-m", "venv", venv}, environment); err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-
-			return fmt.Errorf("create the background removal environment: %w", err)
-		}
-
-		s.progress(PhaseRembg, rembgVenvInstallPercent, "Installing the background removal engine…", false)
-		pipArgs := append([]string{"-m", "pip", "install", "--no-cache-dir", "--disable-pip-version-check"}, rembgPins...)
-		if _, err := s.runner.Run(ctx, venvPython, pipArgs, environment); err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-
-			return fmt.Errorf("install the background removal engine: %w", err)
-		}
-
-		if !fileWithContent(venvPython) || !rembgPackagesInstalled(s.root, s.platform.OS) {
-			return fmt.Errorf("the background removal engine did not install correctly: the virtual environment is incomplete")
-		}
-
-		// The marker is written only after a real import succeeds, so a venv
-		// with missing shared libraries is never reported as ready.
-		importContext, cancel := context.WithTimeout(ctx, rembgImportTimeout)
-		_, importErr := s.runner.Run(importContext, venvPython, []string{"-c", "import rembg, onnxruntime"}, environment)
-		cancel()
-		if importErr != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-
-			return fmt.Errorf("the background removal engine could not be imported: %w", importErr)
-		}
-
-		if err := os.MkdirAll(rembgHomeDir(s.root), 0o755); err != nil {
-			return fmt.Errorf("create the background removal home: %w", err)
-		}
-		if err := os.WriteFile(readyMarker, []byte("rembg 2.0.87\n"), 0o644); err != nil {
-			return fmt.Errorf("mark the background removal engine as ready: %w", err)
-		}
-
-		s.progress(PhaseRembg, rembgVenvEndPercent, "Background removal engine is verified.", false)
+		return nil
 	}
 
-	return s.installRembgModel(ctx, force)
+	if err := os.RemoveAll(venv); err != nil {
+		return fmt.Errorf("replace the shared ONNX environment: %w", err)
+	}
+	// A rebuilt venv must prove itself again: leaving the old marker behind
+	// would let a failed pip or import hide behind a stale success.
+	if err := os.Remove(readyMarker); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reset the shared ONNX readiness marker: %w", err)
+	}
+	s.removeLegacyVenvs()
+
+	environment := withEnvironment(os.Environ(), map[string]string{
+		"PATH": prependPath(os.Getenv("PATH"), managedPathDirs(s.root, s.platform.OS), pathListSeparatorFor(s.platform.OS)),
+	})
+
+	s.progress(PhaseONNX, onnxVenvStartPercent, "Creating the shared ONNX engine…", false)
+	if _, err := s.runner.Run(ctx, basePython, []string{"-m", "venv", venv}, environment); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		return fmt.Errorf("create the shared ONNX environment: %w", err)
+	}
+
+	s.progress(PhaseONNX, onnxVenvInstallPercent, "Installing the shared ONNX engine…", false)
+	pipArgs := append([]string{"-m", "pip", "install", "--no-cache-dir", "--disable-pip-version-check"}, rembgPins...)
+	if _, err := s.runner.Run(ctx, venvPython, pipArgs, environment); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		return fmt.Errorf("install the shared ONNX engine: %w", err)
+	}
+
+	if !fileWithContent(venvPython) || !onnxPackagesInstalled(s.root, s.platform.OS) {
+		return fmt.Errorf("the shared ONNX engine did not install correctly: the virtual environment is incomplete")
+	}
+
+	// The marker is written only after a real import succeeds, so a venv with
+	// missing shared libraries is never reported as ready. The import covers
+	// both engines: rembg for background removal, onnxruntime/numpy/PIL for
+	// upscaling.
+	importContext, cancel := context.WithTimeout(ctx, rembgImportTimeout)
+	_, importErr := s.runner.Run(importContext, venvPython, []string{"-c", "import rembg, onnxruntime, numpy, PIL"}, environment)
+	cancel()
+	if importErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		return fmt.Errorf("the shared ONNX engine could not be imported: %w", importErr)
+	}
+
+	if err := os.MkdirAll(rembgHomeDir(s.root), 0o755); err != nil {
+		return fmt.Errorf("create the background removal home: %w", err)
+	}
+	if err := os.MkdirAll(upscaleHomeDir(s.root), 0o755); err != nil {
+		return fmt.Errorf("create the upscale home: %w", err)
+	}
+	if err := os.WriteFile(readyMarker, []byte("onnxruntime 1.32.0\n"), 0o644); err != nil {
+		return fmt.Errorf("mark the shared ONNX engine as ready: %w", err)
+	}
+
+	s.progress(PhaseONNX, onnxVenvEndPercent, "The shared ONNX engine is verified.", false)
+
+	return nil
+}
+
+// removeLegacyVenvs deletes the per-engine virtual environments used before the
+// shared ONNX venv existed. It reclaims 150 MB or more on upgraded installs;
+// the downloaded models live elsewhere and are kept.
+func (s *Service) removeLegacyVenvs() {
+	for _, legacy := range []string{"rembg-venv", "upscale-venv"} {
+		_ = os.RemoveAll(filepath.Join(s.root, legacy))
+	}
+}
+
+// recordComponentFailure stores the failure of standard components so Status
+// can report each one and the UI can offer a targeted retry.
+func (s *Service) recordComponentFailure(message string, ids ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.state.componentErrors == nil {
+		s.state.componentErrors = make(map[string]string, len(ids))
+	}
+	for _, id := range ids {
+		s.state.componentErrors[id] = message
+	}
+}
+
+func (s *Service) clearComponentFailure(ids ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, id := range ids {
+		delete(s.state.componentErrors, id)
+	}
+}
+
+func (s *Service) componentFailure(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.state.componentErrors[id]
 }
 
 // installRembgModel downloads the pinned model with size and checksum
@@ -940,6 +1063,141 @@ func verifyRembgModel(path string, spec RembgModelSpec) error {
 	}
 
 	return artifact.Verify(path)
+}
+
+// installUpscaleModel downloads the pinned photo model archive with size and
+// checksum verification, extracts the graph and its external weights, verifies
+// each file and publishes the model folder atomically. A failed download or a
+// bad checksum leaves the previous model untouched.
+func (s *Service) installUpscaleModel(ctx context.Context, force bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	spec := upscaleModelSpec
+	if !force && upscaleModelFilesMatch(s.root) {
+		s.progress(PhaseUpscale, upscaleModelEndPercent, "The photo upscale model is already installed.", false)
+
+		return nil
+	}
+
+	s.progress(PhaseUpscale, upscaleModelStartPercent, "Downloading the photo upscale model…", false)
+
+	modelsParent := filepath.Dir(upscaleModelDir(s.root))
+	if err := os.MkdirAll(modelsParent, 0o755); err != nil {
+		return fmt.Errorf("create the upscale model folder: %w", err)
+	}
+
+	tempDir, err := os.MkdirTemp(modelsParent, ".fileforge-upscale-model-*")
+	if err != nil {
+		return fmt.Errorf("create a temporary upscale model folder: %w", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
+
+	archivePath := filepath.Join(tempDir, spec.ArchiveName)
+	if err := s.downloader.DownloadArtifact(ctx, UpscaleModelArtifact(), archivePath, s.progressRange(
+		PhaseUpscale, "Downloading the photo upscale model…",
+		upscaleModelStartPercent, upscaleModelEndPercent,
+	)); err != nil {
+		return fmt.Errorf("download the upscale model: %w", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+
+	extractDir := filepath.Join(tempDir, "extract")
+	if err := ExtractZip(archivePath, extractDir); err != nil {
+		return fmt.Errorf("extract the upscale model: %w", err)
+	}
+
+	sourceDir := filepath.Join(extractDir, filepath.FromSlash(spec.ArchiveDir))
+	stagedDir := filepath.Join(tempDir, "model")
+	if err := os.MkdirAll(stagedDir, 0o755); err != nil {
+		return fmt.Errorf("stage the upscale model: %w", err)
+	}
+	for _, file := range spec.Files {
+		source := filepath.Join(sourceDir, file.Name)
+		if err := (Artifact{SHA256: file.SHA256, SizeBytes: file.SizeBytes}).Verify(source); err != nil {
+			return fmt.Errorf("verify the upscale model file %s: %w", file.Name, err)
+		}
+		if err := fsx.ReplaceFile(source, filepath.Join(stagedDir, file.Name)); err != nil {
+			return fmt.Errorf("stage the upscale model file %s: %w", file.Name, err)
+		}
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+
+	targetDir := upscaleModelDir(s.root)
+	if err := os.RemoveAll(targetDir); err != nil {
+		return fmt.Errorf("replace the upscale model: %w", err)
+	}
+	if err := os.Rename(stagedDir, targetDir); err != nil {
+		return fmt.Errorf("install the upscale model: %w", err)
+	}
+
+	s.progress(PhaseUpscale, upscaleModelEndPercent, "The photo upscale model is installed.", false)
+
+	return nil
+}
+
+// installUpscaleAnimeModel downloads the pinned illustration model file with
+// size and checksum verification. It stages the download next to its
+// destination and publishes it atomically, so a failed download or a bad
+// checksum leaves the previous model untouched.
+func (s *Service) installUpscaleAnimeModel(ctx context.Context, force bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	spec := upscaleAnimeModelSpec
+	target := upscaleAnimeModelPath(s.root)
+	if !force && upscaleAnimeModelFilesMatch(s.root) {
+		s.progress(PhaseUpscale, upscaleAnimeModelEndPercent, "The illustration upscale model is already installed.", false)
+
+		return nil
+	}
+
+	s.progress(PhaseUpscale, upscaleAnimeModelStartPercent, "Downloading the illustration upscale model…", false)
+
+	modelDir := upscaleAnimeModelDir(s.root)
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		return fmt.Errorf("create the illustration upscale model folder: %w", err)
+	}
+
+	tempFile, err := os.CreateTemp(modelDir, ".fileforge-upscale-anime-model-*")
+	if err != nil {
+		return fmt.Errorf("create a temporary illustration upscale model file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	_ = tempFile.Close()
+	defer func() {
+		_ = os.Remove(tempPath)
+	}()
+
+	if err := s.downloader.DownloadArtifact(ctx, UpscaleAnimeModelArtifact(), tempPath, s.progressRange(
+		PhaseUpscale, "Downloading the illustration upscale model…",
+		upscaleAnimeModelStartPercent, upscaleAnimeModelEndPercent,
+	)); err != nil {
+		return fmt.Errorf("download the illustration upscale model: %w", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+
+	artifact := Artifact{FileName: spec.FileName, SHA256: spec.SHA256, SizeBytes: spec.SizeBytes}
+	if err := artifact.Verify(tempPath); err != nil {
+		return fmt.Errorf("verify the illustration upscale model: %w", err)
+	}
+	if err := fsx.ReplaceFile(tempPath, target); err != nil {
+		return fmt.Errorf("install the illustration upscale model: %w", err)
+	}
+
+	s.progress(PhaseUpscale, upscaleAnimeModelEndPercent, "The illustration upscale model is installed.", false)
+
+	return nil
 }
 
 func (s *Service) finalize(model string, languages []string) error {
@@ -1298,10 +1556,10 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 	}
 	components = append(components, pdf2docxComponent)
 
-	// The background removal pack is optional too: the venv and the model have
-	// separate components so the UI can tell an engine repair from a model
-	// download, and neither gates the rest of the application. A missing pack
-	// reports the repair detail instead of a path that does not exist.
+	// The background removal engine and the upscale engine share one ONNX
+	// virtual environment. Each engine keeps its own component so the UI can
+	// report it separately, and neither gates the rest of the application. A
+	// failure recorded during an install is attached to the component.
 	rembgReady, rembgDetail := rembgRuntimeState(s.root, s.platform.OS)
 	rembgComponent := models.ToolchainComponent{
 		ID:       "rembg",
@@ -1309,9 +1567,10 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 		Ready:    rembgReady,
 		Required: false,
 		Detail:   rembgDetail,
+		Error:    s.componentFailure("rembg"),
 	}
 	if rembgReady {
-		rembgComponent.Path = rembgVenvPythonPath(s.root, s.platform.OS)
+		rembgComponent.Path = onnxVenvPythonPath(s.root, s.platform.OS)
 	}
 	components = append(components, rembgComponent)
 
@@ -1322,11 +1581,60 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 		Ready:    rembgModelReady,
 		Required: false,
 		Detail:   rembgModelDetail,
+		Error:    s.componentFailure("rembg-model"),
 	}
 	if rembgModelReady {
 		rembgModelComponent.Path = rembgModelPath(s.root, rembgModelSpec.Model)
 	}
 	components = append(components, rembgModelComponent)
+
+	// The upscale engine and both pinned models are part of the standard
+	// install set. They are not Required: a failed download degrades these
+	// tools instead of blocking startup.
+	upscaleReady, upscaleDetail := upscaleRuntimeState(s.root, s.platform.OS)
+	upscaleComponent := models.ToolchainComponent{
+		ID:       "upscale",
+		Label:    "Upscale engine",
+		Ready:    upscaleReady,
+		Required: false,
+		Standard: true,
+		Detail:   upscaleDetail,
+		Error:    s.componentFailure("upscale"),
+	}
+	if upscaleReady {
+		upscaleComponent.Path = onnxVenvPythonPath(s.root, s.platform.OS)
+	}
+	components = append(components, upscaleComponent)
+
+	upscaleModelReady, upscaleModelDetail := upscaleModelState(s.root)
+	upscaleModelComponent := models.ToolchainComponent{
+		ID:       "upscale-model",
+		Label:    "Photo upscale model",
+		Ready:    upscaleModelReady,
+		Required: false,
+		Standard: true,
+		Detail:   upscaleModelDetail,
+		Error:    s.componentFailure("upscale-model"),
+	}
+	if upscaleModelReady {
+		upscaleModelComponent.Path = upscaleModelONNXPath(s.root)
+	}
+	components = append(components, upscaleModelComponent)
+
+	upscaleAnimeModelReady, upscaleAnimeModelDetail := upscaleAnimeModelState(s.root)
+	upscaleAnimeModelComponent := models.ToolchainComponent{
+		ID:       "upscale-anime-model",
+		Label:    "Illustration upscale model",
+		Ready:    upscaleAnimeModelReady,
+		Required: false,
+		Standard: true,
+		Detail:   upscaleAnimeModelDetail,
+		Error:    s.componentFailure("upscale-anime-model"),
+	}
+	if upscaleAnimeModelReady {
+		upscaleAnimeModelComponent.Path = upscaleAnimeModelPath(s.root)
+	}
+	components = append(components, upscaleAnimeModelComponent)
 
 	return components
 }

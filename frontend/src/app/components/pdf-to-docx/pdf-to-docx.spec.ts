@@ -10,6 +10,7 @@ import { EMPTY, Subject } from 'rxjs';
 
 import { PdfToDocx } from './pdf-to-docx';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobProgress,
@@ -126,6 +127,7 @@ describe('PdfToDocx', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'planJob',
@@ -198,6 +200,7 @@ describe('PdfToDocx', () => {
     fixture?.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('renders the fidelity contract and plans one PDF as DOCX', fakeAsync(() => {

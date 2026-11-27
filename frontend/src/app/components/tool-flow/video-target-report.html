@@ -1,0 +1,40 @@
+@if (rows().length > 0) {
+  <section class="panel video-target-panel" [attr.aria-label]="i18n.t('videoTarget.result.title')">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">{{ i18n.t('videoTarget.result.title') }}</h2>
+        <p class="panel-sub">{{ i18n.t('videoTarget.result.sub') }}</p>
+      </div>
+    </div>
+
+    <div class="panel-body">
+      <ul class="video-target-list">
+        @for (row of rows(); track $index) {
+          <li class="video-target-row">
+            <div class="video-target-file">
+              <span class="video-target-name" [title]="row.path">{{ row.name }}</span>
+              <span class="video-target-values mono">{{ row.values }}</span>
+              @if (row.floor) {
+                <span class="video-target-floor">{{ row.floor }}</span>
+              }
+            </div>
+
+            <span
+              class="video-target-state"
+              [class.is-met]="row.met"
+              [class.is-miss]="!row.met"
+            >
+              <lucide-icon
+                [img]="row.met ? checkIcon : alertIcon"
+                [size]="13"
+                [strokeWidth]="2"
+                aria-hidden="true"
+              ></lucide-icon>
+              {{ row.met ? i18n.t('videoTarget.result.met') : i18n.t('videoTarget.result.miss') }}
+            </span>
+          </li>
+        }
+      </ul>
+    </div>
+  </section>
+}

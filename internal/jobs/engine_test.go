@@ -220,10 +220,13 @@ func TestDefaultLimitsInvariants(t *testing.T) {
 	if limits.External != 1 {
 		t.Fatalf("External = %d, want 1", limits.External)
 	}
+	if limits.Audio < 1 || limits.Audio > 2 {
+		t.Fatalf("Audio = %d, want [1,2]", limits.Audio)
+	}
 	if limits.IO != 2 {
 		t.Fatalf("IO = %d, want 2", limits.IO)
 	}
-	if limits.Total < max(limits.CPU, limits.External, limits.IO) {
+	if limits.Total < max(limits.CPU, limits.External, limits.Audio, limits.IO) {
 		t.Fatalf("Total = %d must cover every class: %+v", limits.Total, limits)
 	}
 }
@@ -241,9 +244,16 @@ func TestClassForToolMapping(t *testing.T) {
 		{name: "pdf crop", toolID: "tool.pdf.crop", want: ClassCPU},
 		{name: "pdf optimize", toolID: "tool.pdf.optimize", want: ClassCPU},
 		{name: "pdf images", toolID: "tool.pdf.images", want: ClassCPU},
+		{name: "pdf rotate", toolID: "tool.pdf.rotate", want: ClassCPU},
+		{name: "pdf remove pages", toolID: "tool.pdf.remove_pages", want: ClassCPU},
+		{name: "pdf reorder", toolID: "tool.pdf.reorder", want: ClassCPU},
+		{name: "pdf extract images", toolID: "tool.pdf.extract_images", want: ClassCPU},
 		{name: "pdf ocr", toolID: "tool.pdf.ocr", want: ClassExternal},
 		{name: "pdf to docx", toolID: "tool.pdf.to_docx", want: ClassExternal},
 		{name: "video convert", toolID: "tool.video.convert", want: ClassExternal},
+		{name: "audio extract", toolID: "tool.audio.extract", want: ClassAudio},
+		{name: "audio convert", toolID: "tool.audio.convert", want: ClassAudio},
+		{name: "audio normalize", toolID: "tool.audio.normalize", want: ClassAudio},
 		{name: "doc md to pdf", toolID: "tool.doc.md_to_pdf", want: ClassExternal},
 		{name: "unknown", toolID: "tool.unknown", want: ClassCPU},
 	}
@@ -739,6 +749,40 @@ func readEnginePersistedJobs(t *testing.T, path string) []models.JobResult {
 	}
 
 	return persisted
+}
+
+// TestEngineDebouncedSnapshotWritesAfterTheWindow guards the lazy persistence
+// path: a coalesced tick hands the store a producer, so the file must still
+// appear once the debounce window elapses and carry the current state.
+func TestEngineDebouncedSnapshotWritesAfterTheWindow(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "jobs.json")
+	engine := newTestEngine(t, newEngineResolver(t), Options{
+		PersistencePath: storePath,
+		Debounce:        10 * time.Millisecond,
+	})
+
+	seedEngineJob(t, engine, models.JobResult{JobID: "job_debounced", StartedAt: 7, Status: StatusRunning})
+
+	engine.persistDebounced()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(storePath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("debounced snapshot was not written before the deadline")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	persisted := readEnginePersistedJobs(t, storePath)
+	if len(persisted) != 1 || persisted[0].JobID != "job_debounced" {
+		t.Fatalf("debounced snapshot = %+v, want job_debounced", persisted)
+	}
+	if persisted[0].Status != StatusRunning {
+		t.Fatalf("persisted status = %q, want %q", persisted[0].Status, StatusRunning)
+	}
 }
 
 func TestEngineSubmitRejectsInvalidRequest(t *testing.T) {
@@ -2041,5 +2085,84 @@ func assertNoExtraCompletion(t *testing.T, completions <-chan models.JobResult, 
 	case extra := <-completions:
 		t.Fatalf("unexpected extra completion callback: %+v", extra)
 	case <-time.After(window):
+	}
+}
+
+func TestEngineRetriesNewlyAllowlistedToolAtMostThreeAttempts(t *testing.T) {
+	var attempts atomic.Int32
+	tool := &engineFakeTool{
+		id: "tool.image.compress",
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
+			attempts.Add(1)
+			jobErr := models.NewCanonicalJobError("IMAGE_COMPRESS_EXECUTION", "transient failure", nil)
+			return models.JobResultItem{
+				InputPath: firstEngineInput(req),
+				Success:   false,
+				Message:   jobErr.Message,
+				Error:     jobErr,
+			}, jobErr
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	response := submitTestJob(t, engine, models.JobRequest{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{engineInput("compress")},
+	})
+
+	result := awaitEngineJob(t, engine, response.JobID)
+	if result.Status != StatusFailed {
+		t.Fatalf("job status = %s, want failed", result.Status)
+	}
+	if attempts.Load() != 3 {
+		t.Fatalf("execute calls = %d, want 3", attempts.Load())
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(result.Items))
+	}
+	if result.Items[0].Attempts != 3 || result.Items[0].RetryCount != 2 {
+		t.Fatalf("item attempts = %d retryCount = %d, want 3/2", result.Items[0].Attempts, result.Items[0].RetryCount)
+	}
+	if result.Error == nil || result.Error.Details["lastDetailCode"] != "IMAGE_COMPRESS_EXECUTION" {
+		t.Fatalf("retry metadata = %+v, want lastDetailCode preserved", result.Error)
+	}
+}
+
+func TestEngineDoesNotRetryNewlyAllowlistedToolValidationError(t *testing.T) {
+	var attempts atomic.Int32
+	tool := &engineFakeTool{
+		id: "tool.image.compress",
+		single: func(_ context.Context, req models.JobRequest, _ func(models.JobProgress)) (models.JobResultItem, *models.JobError) {
+			attempts.Add(1)
+			jobErr := models.NewCanonicalJobError("IMAGE_COMPRESS_TARGET_INVALID", "target size is invalid", nil)
+			return models.JobResultItem{
+				InputPath: firstEngineInput(req),
+				Success:   false,
+				Message:   jobErr.Message,
+				Error:     jobErr,
+			}, jobErr
+		},
+	}
+
+	engine := newTestEngine(t, newEngineResolver(t, tool), Options{
+		Limits: Limits{Total: 1, CPU: 1, External: 1, IO: 1},
+	})
+
+	response := submitTestJob(t, engine, models.JobRequest{
+		ToolID:     tool.id,
+		Mode:       "single",
+		InputPaths: []string{engineInput("compress")},
+	})
+
+	result := awaitEngineJob(t, engine, response.JobID)
+	if result.Status != StatusFailed {
+		t.Fatalf("job status = %s, want failed", result.Status)
+	}
+	if attempts.Load() != 1 {
+		t.Fatalf("execute calls = %d, want 1 for a deterministic failure", attempts.Load())
 	}
 }

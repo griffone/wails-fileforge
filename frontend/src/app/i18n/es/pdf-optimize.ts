@@ -21,7 +21,22 @@ export const pdfOptimizeEs = {
   'pdfOptimize.notice.duplicateMany': 'Ya hay {count} PDF en la cola.',
   'pdfOptimize.output.title': 'Salida',
   'pdfOptimize.output.sub':
-    'Elige la compresión y los metadatos, luego comprueba dónde irán los archivos.',
+    'Define un objetivo opcional, elige la compresión y los metadatos, luego comprueba dónde irán los archivos.',
+  'pdfOptimize.field.target': 'Tamaño objetivo (MB)',
+  'pdfOptimize.presets.label': 'Preajustes de destino',
+  'pdfOptimize.presets.help':
+    'Elige un servicio y el objetivo se rellena. Cualquier valor que escribas también funciona.',
+  'pdfOptimize.target.help':
+    'Opcional. Un objetivo necesita compresión, así que al definirlo se activa. Déjalo vacío para comprimir sin un objetivo de tamaño.',
+  'pdfOptimize.target.summary': 'Objetivo de {size} por PDF',
+  'pdfOptimize.target.unitHelp':
+    'Los tamaños objetivo usan 1 MB = 1.048.576 bytes.',
+  'pdfOptimize.target.errorPositive':
+    'Introduce un tamaño objetivo mayor que 0 MB.',
+  'pdfOptimize.target.errorMax':
+    'Introduce un tamaño objetivo de {max} MB o menos.',
+  'pdfOptimize.target.errorTooLarge':
+    'El tamaño objetivo es demasiado grande para usarlo.',
   'pdfOptimize.badge.compressOn': 'Compresión activada',
   'pdfOptimize.badge.compressOff': 'Compresión desactivada',
   'pdfOptimize.advanced.title': 'Avanzado',
@@ -55,6 +70,8 @@ export const pdfOptimizeEs = {
   'pdfOptimize.helper.addOne': 'Añade al menos un PDF para optimizar.',
   'pdfOptimize.helper.metadataTooLong':
     'Acorta cada valor de metadatos a {max} caracteres o menos.',
+  'pdfOptimize.helper.targetNeedsCompression':
+    'Activa la compresión para usar un tamaño objetivo.',
   'pdfOptimize.action.optimize': 'Optimizar PDF',
   'pdfOptimize.action.optimizeOne': 'Optimizar 1 PDF',
   'pdfOptimize.action.optimizeMany': 'Optimizar {count} PDF',

@@ -16,6 +16,7 @@
         <lucide-icon [img]="shieldIcon" [size]="12" [strokeWidth]="2" aria-hidden="true"></lucide-icon>
         {{ i18n.t('videoConvert.page.localBadge') }}
       </span>
+      <app-open-window-action />
     </div>
   </header>
 
@@ -103,11 +104,83 @@
             }
           </div>
 
+          <div class="field">
+            <label class="label" for="video-convert-target">{{ i18n.t('videoTarget.field.target') }}</label>
+            <div
+              class="target-presets"
+              role="group"
+              [attr.aria-label]="i18n.t('videoTarget.presets.label')"
+            >
+              @for (preset of destinationPresets; track preset.id) {
+                <button
+                  type="button"
+                  class="chip target-chip"
+                  [attr.data-preset]="preset.id"
+                  [attr.aria-pressed]="preset.id === target.activePresetId()"
+                  (click)="selectTargetPreset(preset)"
+                >
+                  <span>{{ target.presetLabel(preset) }}</span>
+                  <span class="target-chip-size mono">{{ target.presetSizeLabel(preset) }}</span>
+                </button>
+              }
+            </div>
+            <p class="field-help presets-help">{{ i18n.t('videoTarget.presets.help') }}</p>
+            <div class="target-row">
+              <input
+                id="video-convert-target"
+                class="input"
+                type="number"
+                min="0.1"
+                step="0.1"
+                inputmode="decimal"
+                aria-describedby="video-convert-target-help"
+                [value]="target.targetMb() ?? ''"
+                [attr.aria-invalid]="target.valid() ? null : 'true'"
+                (input)="onTargetInput($event)"
+              />
+              <span class="target-unit mono">MB</span>
+            </div>
+            @if (target.error(); as error) {
+              <p
+                id="video-convert-target-help"
+                class="field-help field-help-error"
+                role="alert"
+              >
+                {{ error }}
+              </p>
+            } @else if (target.hasTarget()) {
+              <p
+                id="video-convert-target-help"
+                class="field-help target-summary"
+                role="status"
+              >
+                {{ target.summary() }}
+              </p>
+            } @else {
+              <p id="video-convert-target-help" class="field-help">
+                {{ i18n.t('videoTarget.target.optionalHelp') }}
+              </p>
+            }
+            <p class="field-help">{{ i18n.t('videoTarget.target.unitHelp') }}</p>
+          </div>
+
+          @if (target.hasTarget()) {
+            <div class="banner banner-info target-note">
+              <lucide-icon [img]="alertIcon" [size]="16" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+              <div class="banner-copy">
+                <strong>{{ i18n.t('videoTarget.note.title') }}</strong>
+                <span>{{ i18n.t('videoTarget.note.body') }}</span>
+              </div>
+            </div>
+          }
+
           <app-output-plan-card
             [plan]="plan()"
             [loading]="planLoading()"
             [destinationLabel]="destinationLabel()"
             [isDefaultDestination]="isDefaultDestination()"
+            [targetLabel]="target.planPresetLabel()"
+            [targetValue]="target.planValue()"
             (changeDestination)="chooseOutputFolder()"
           ></app-output-plan-card>
 
@@ -119,7 +192,7 @@
             </div>
           }
 
-          <details class="advanced" (toggle)="onAdvancedToggle($event)">
+          <details class="advanced" [open]="advancedOpen()" (toggle)="onAdvancedToggle($event)">
             <summary class="advanced-summary">
               <span class="advanced-title">{{ i18n.t('videoConvert.advanced.title') }}</span>
               <span class="advanced-hint">{{ i18n.t('videoConvert.advanced.hint') }}</span>
@@ -175,6 +248,7 @@
                     id="video-convert-bitrate"
                     class="select"
                     [value]="bitrateKbps()?.toString() ?? ''"
+                    [disabled]="target.hasTarget()"
                     (change)="onBitrateChange($event)"
                   >
                     <option value="">{{ i18n.t('videoConvert.advanced.bitrateAuto') }}</option>
@@ -183,7 +257,11 @@
                     <option value="8000">8 Mbps</option>
                     <option value="12000">12 Mbps</option>
                   </select>
-                  <p class="field-help">{{ i18n.t('videoConvert.advanced.bitrateHelp') }}</p>
+                  @if (target.hasTarget()) {
+                    <p class="field-help">{{ i18n.t('videoTarget.bitrate.overridden') }}</p>
+                  } @else {
+                    <p class="field-help">{{ i18n.t('videoConvert.advanced.bitrateHelp') }}</p>
+                  }
                 </div>
 
                 <div class="field advanced-audio">
@@ -259,12 +337,18 @@
       <app-result-card
         [job]="job"
         [fileInfos]="outputInfos()"
+        [verification]="verification()"
+        [verificationLoading]="verificationLoading()"
+        [verificationUnavailable]="verificationUnavailable()"
         toolLabel="video"
         (open)="onOpen($event)"
         (reveal)="onReveal($event)"
         (retryFailed)="retryFailed()"
         (reset)="reset()"
+        (runAgainStarted)="onRunAgainStarted($event)"
       ></app-result-card>
+
+      <app-video-target-report [job]="job"></app-video-target-report>
     }
   </div>
 </div>

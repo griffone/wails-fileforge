@@ -39,7 +39,7 @@ export const docDocxToPdfEn = {
   'docDocxToPdf.archival.title': 'Archival PDF',
   'docDocxToPdf.archival.label': 'PDF/A (archival)',
   'docDocxToPdf.archival.help':
-    'Requires LibreOffice. If the primary engine is unavailable, the conversion fails instead of producing a non-archival PDF.',
+    'Requires Ghostscript. If it is unavailable, the export fails instead of producing a non-archival PDF.',
   'docDocxToPdf.archival.note':
     'Page selection can reduce strict PDF/A compliance. The plan reports a warning when both are set.',
   'docDocxToPdf.helper.addOne': 'Add at least one DOCX file to convert.',

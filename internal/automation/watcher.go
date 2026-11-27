@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -25,6 +26,13 @@ var (
 // per-rule worker. A full queue drops new paths instead of blocking fsnotify.
 const watcherQueueCapacity = 64
 
+// maxWatchedDirectories bounds how many directories one recursive rule
+// watches, including the rule's own folder. inotify watches are a finite
+// per-user resource, so a very deep tree is capped instead of exhausting the
+// budget silently. Reaching the cap is logged once per rule and the deepest
+// folders beyond it are simply not watched.
+const maxWatchedDirectories = 256
+
 // fileFingerprint identifies a file version by size and modification time. A
 // source whose fingerprint changed during a run is never deleted.
 type fileFingerprint struct {
@@ -45,15 +53,24 @@ func fingerprintInfo(info os.FileInfo) fileFingerprint {
 	return fileFingerprint{size: info.Size(), modifiedAt: info.ModTime().UnixNano()}
 }
 
+// queuedPath is one stable file waiting for the per-rule worker. The
+// fingerprint captured when the stability window closed is carried along so an
+// organize rule can prove the file did not change before it moves it.
+type queuedPath struct {
+	path           string
+	fingerprint    fileFingerprint
+	hasFingerprint bool
+}
+
 // ruleWatcher owns one fsnotify watcher for one enabled rule.
 type ruleWatcher struct {
 	service *Service
 	rule    models.AutomationRule
 
-	extensions map[string]struct{}
-	// excludeOutputDir is true when the rule writes into a subfolder of the
-	// watched folder; events from that subtree are ignored.
-	excludeOutputDir bool
+	filter ruleFilter
+
+	// maxDirs caps the watched directory count in recursive mode.
+	maxDirs int
 
 	watcher *fsnotify.Watcher
 	ctx     context.Context
@@ -64,28 +81,24 @@ type ruleWatcher struct {
 	fingerprints map[string]fileFingerprint
 	inFlight     map[string]struct{}
 	produced     map[string]time.Time
-	stopping     bool
-	dead         bool
-	wg           sync.WaitGroup
+	// watchedDirs tracks every directory this rule watches so the cap is
+	// counted in one place and removed folders are forgotten.
+	watchedDirs    map[string]struct{}
+	capLogged      bool
+	addErrorLogged bool
+	stopping       bool
+	dead           bool
+	wg             sync.WaitGroup
 
-	// slots caps this rule at one concurrent recipe run.
+	// slots caps this rule at one concurrent run.
 	slots chan struct{}
 
 	// queue carries accepted, stable paths to the single per-rule worker.
-	queue chan string
+	queue chan queuedPath
 }
 
 func newRuleWatcher(service *Service, rule models.AutomationRule, parentCtx context.Context) (*ruleWatcher, error) {
-	extensions := make(map[string]struct{}, len(rule.Extensions))
-	for _, extension := range rule.Extensions {
-		if normalized := normalizeExtension(extension); normalized != "" {
-			extensions[normalized] = struct{}{}
-		}
-	}
-
-	excludeOutputDir := rule.OutputDir != "" &&
-		rule.OutputDir != rule.WatchDir &&
-		pathWithin(rule.WatchDir, rule.OutputDir)
+	filter := newRuleFilter(rule)
 
 	fsWatcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -98,21 +111,28 @@ func newRuleWatcher(service *Service, rule models.AutomationRule, parentCtx cont
 
 	ctx, cancel := context.WithCancel(parentCtx)
 
-	return &ruleWatcher{
-		service:          service,
-		rule:             rule,
-		extensions:       extensions,
-		excludeOutputDir: excludeOutputDir,
-		watcher:          fsWatcher,
-		ctx:              ctx,
-		cancel:           cancel,
-		timers:           make(map[string]*time.Timer),
-		fingerprints:     make(map[string]fileFingerprint),
-		inFlight:         make(map[string]struct{}),
-		produced:         make(map[string]time.Time),
-		slots:            make(chan struct{}, 1),
-		queue:            make(chan string, watcherQueueCapacity),
-	}, nil
+	watcher := &ruleWatcher{
+		service:      service,
+		rule:         rule,
+		filter:       filter,
+		maxDirs:      maxWatchedDirectories,
+		watcher:      fsWatcher,
+		ctx:          ctx,
+		cancel:       cancel,
+		timers:       make(map[string]*time.Timer),
+		fingerprints: make(map[string]fileFingerprint),
+		inFlight:     make(map[string]struct{}),
+		produced:     make(map[string]time.Time),
+		watchedDirs:  map[string]struct{}{rule.WatchDir: {}},
+		slots:        make(chan struct{}, 1),
+		queue:        make(chan queuedPath, watcherQueueCapacity),
+	}
+
+	if rule.Recursive {
+		watcher.addDescendants(rule.WatchDir)
+	}
+
+	return watcher, nil
 }
 
 func (w *ruleWatcher) start() {
@@ -127,8 +147,8 @@ func (w *ruleWatcher) worker() {
 		select {
 		case <-w.ctx.Done():
 			return
-		case path := <-w.queue:
-			w.process(path)
+		case queued := <-w.queue:
+			w.process(queued)
 		}
 	}
 }
@@ -137,6 +157,12 @@ func (w *ruleWatcher) worker() {
 // fsnotify loop. A full queue drops the path; the next fsnotify event or a
 // later retry can pick the file up again.
 func (w *ruleWatcher) enqueue(path string) bool {
+	return w.enqueueStable(queuedPath{path: path})
+}
+
+// enqueueStable carries the fingerprint captured when the stability window
+// closed along with the path.
+func (w *ruleWatcher) enqueueStable(queued queuedPath) bool {
 	select {
 	case <-w.ctx.Done():
 		return false
@@ -144,10 +170,10 @@ func (w *ruleWatcher) enqueue(path string) bool {
 	}
 
 	select {
-	case w.queue <- path:
+	case w.queue <- queued:
 		return true
 	default:
-		log.Printf("automation.watcher.queue_full ruleId=%s path=%s capacity=%d", w.rule.ID, path, cap(w.queue))
+		log.Printf("automation.watcher.queue_full ruleId=%s path=%s capacity=%d", w.rule.ID, queued.path, cap(w.queue))
 		return false
 	}
 }
@@ -275,11 +301,194 @@ func (w *ruleWatcher) markDead(reason string) {
 }
 
 func (w *ruleWatcher) handleEvent(event fsnotify.Event) {
-	if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
+	if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) {
+		// A recursive rule watches folders that appear after it started, so a
+		// created directory is adopted before the file path filter runs.
+		if w.rule.Recursive && event.Has(fsnotify.Create) && w.adoptCreatedDirectory(event.Name) {
+			return
+		}
+		w.handlePath(event.Name)
+
 		return
 	}
 
-	w.handlePath(event.Name)
+	if w.rule.Recursive && (event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)) {
+		w.forgetDirectoryTree(filepath.Clean(event.Name))
+	}
+}
+
+// adoptCreatedDirectory watches a directory that appeared after the rule
+// started. It reports true when the event named a directory, so the caller can
+// stop treating it as a candidate file.
+//
+// Directories that already contain files (for example a folder moved into the
+// watch tree) are scanned and their files enter the normal stability window, so
+// a rename-into-place never loses work.
+func (w *ruleWatcher) adoptCreatedDirectory(rawPath string) bool {
+	path := filepath.Clean(rawPath)
+	if w.ctx.Err() != nil {
+		return false
+	}
+
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	if w.shouldSkipDirectory(path) {
+		return true
+	}
+
+	w.adoptDirectory(path)
+
+	return true
+}
+
+// adoptDirectory watches dir, its descendants and any files already inside it.
+func (w *ruleWatcher) adoptDirectory(dir string) {
+	if !w.addDirectory(dir) {
+		return
+	}
+	w.addDescendants(dir)
+	w.scheduleExistingFiles(dir)
+}
+
+// addDescendants watches every eligible directory below root without
+// scheduling files: startup must keep the old behavior of ignoring files that
+// were already there.
+func (w *ruleWatcher) addDescendants(root string) {
+	if !w.rule.Recursive {
+		return
+	}
+
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || path == root || !entry.IsDir() {
+			return nil
+		}
+		if w.shouldSkipDirectory(path) {
+			return filepath.SkipDir
+		}
+		if !w.addDirectory(path) {
+			return filepath.SkipDir
+		}
+
+		return nil
+	})
+}
+
+// scheduleExistingFiles walks a freshly adopted directory and sends its files
+// through the normal event path. Directories beyond the cap are skipped so the
+// watcher never schedules files it cannot watch.
+func (w *ruleWatcher) scheduleExistingFiles(root string) {
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			if path == root {
+				return nil
+			}
+			if w.shouldSkipDirectory(path) || !w.watchesDirectory(path) {
+				return filepath.SkipDir
+			}
+
+			return nil
+		}
+		w.handlePath(path)
+
+		return nil
+	})
+}
+
+// addDirectory adds one fsnotify watch and records it. It enforces the
+// per-rule directory cap and logs the first Add failure instead of failing the
+// whole rule.
+func (w *ruleWatcher) addDirectory(dir string) bool {
+	w.mu.Lock()
+	if w.stopping || w.watchedDirs == nil {
+		w.mu.Unlock()
+		return false
+	}
+	if _, exists := w.watchedDirs[dir]; exists {
+		w.mu.Unlock()
+		return true
+	}
+	if w.maxDirs > 0 && len(w.watchedDirs) >= w.maxDirs {
+		logCap := !w.capLogged
+		w.capLogged = true
+		w.mu.Unlock()
+		if logCap {
+			log.Printf(
+				"automation.watcher.directory_cap ruleId=%s dir=%s limit=%d: deeper folders are not watched",
+				w.rule.ID,
+				dir,
+				w.maxDirs,
+			)
+		}
+
+		return false
+	}
+	w.watchedDirs[dir] = struct{}{}
+	w.mu.Unlock()
+
+	if err := w.watcher.Add(dir); err != nil {
+		w.mu.Lock()
+		delete(w.watchedDirs, dir)
+		logError := !w.addErrorLogged
+		w.addErrorLogged = true
+		w.mu.Unlock()
+		if logError {
+			log.Printf("automation.watcher.add_dir.failed ruleId=%s dir=%s err=%v", w.rule.ID, dir, err)
+		}
+
+		return false
+	}
+
+	return true
+}
+
+// forgetDirectoryTree drops bookkeeping for a removed or renamed directory
+// subtree. fsnotify discards the kernel watches by itself; the map must follow
+// so the cap counts real watches and a recreated folder is adopted again.
+func (w *ruleWatcher) forgetDirectoryTree(root string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for dir := range w.watchedDirs {
+		if dir == root || pathWithin(root, dir) {
+			delete(w.watchedDirs, dir)
+		}
+	}
+}
+
+// shouldSkipDirectory rejects hidden/temp folders and the excluded subtree in
+// recursive mode.
+func (w *ruleWatcher) shouldSkipDirectory(path string) bool {
+	return w.filter.skipsDirectory(path)
+}
+
+func (w *ruleWatcher) watchesDirectory(dir string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	_, exists := w.watchedDirs[dir]
+
+	return exists
+}
+
+// watchedDirectoryCount reports how many directories this rule watches. It is
+// primarily a test seam for the recursive cap.
+func (w *ruleWatcher) watchedDirectoryCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return len(w.watchedDirs)
+}
+
+func (w *ruleWatcher) directoryCapReached() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.capLogged
 }
 
 func (w *ruleWatcher) handlePath(rawPath string) {
@@ -310,43 +519,12 @@ func (w *ruleWatcher) handlePath(rawPath string) {
 	w.schedule(path, info)
 }
 
-// acceptsFile applies the non-recursive, hidden/temp, extension and
-// output-folder filters. It returns the stat info so the caller does not repeat
-// the filesystem call.
+// acceptsFile applies the path, hidden/temp, extension, pattern and
+// output-folder filters. Recursive rules accept any depth; other rules only
+// accept direct children. It returns the stat info so the caller does not
+// repeat the filesystem call.
 func (w *ruleWatcher) acceptsFile(path string) (os.FileInfo, bool) {
-	relative, err := filepath.Rel(w.rule.WatchDir, path)
-	if err != nil {
-		return nil, false
-	}
-	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return nil, false
-	}
-	// Non-recursive: only direct children of the watched folder are processed.
-	if strings.ContainsRune(relative, filepath.Separator) {
-		return nil, false
-	}
-	if isIgnoredName(relative) {
-		return nil, false
-	}
-
-	if w.excludeOutputDir && pathWithin(w.rule.OutputDir, path) {
-		return nil, false
-	}
-
-	extension := normalizeExtension(filepath.Ext(relative))
-	if extension == "" {
-		return nil, false
-	}
-	if _, accepted := w.extensions[extension]; !accepted {
-		return nil, false
-	}
-
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return nil, false
-	}
-
-	return info, true
+	return w.filter.acceptsPath(path)
 }
 
 func (w *ruleWatcher) schedule(path string, info os.FileInfo) {
@@ -426,7 +604,7 @@ func (w *ruleWatcher) onStable(path string) {
 	delete(w.fingerprints, path)
 	w.mu.Unlock()
 
-	if !w.enqueue(path) {
+	if !w.enqueueStable(queuedPath{path: path, fingerprint: current, hasFingerprint: true}) {
 		w.endProcess(path)
 	}
 }
@@ -437,8 +615,8 @@ func (w *ruleWatcher) endProcess(path string) {
 	w.mu.Unlock()
 }
 
-func (w *ruleWatcher) process(path string) {
-	defer w.endProcess(path)
+func (w *ruleWatcher) process(queued queuedPath) {
+	defer w.endProcess(queued.path)
 
 	select {
 	case w.slots <- struct{}{}:
@@ -450,7 +628,96 @@ func (w *ruleWatcher) process(path string) {
 		return
 	}
 
-	w.runRecipe(path)
+	if w.rule.Action == models.AutomationActionOrganize {
+		w.runOrganize(queued)
+
+		return
+	}
+
+	w.runRecipe(queued.path)
+}
+
+// runOrganize moves one stable file to the destination the planner resolves.
+// The safety order is: re-stat, plan with the same code the preview uses,
+// re-stat immediately before the move, then move without ever overwriting or
+// deleting the source before its copy is verified.
+func (w *ruleWatcher) runOrganize(queued queuedPath) {
+	path := queued.path
+
+	baseline, err := fingerprintFile(path)
+	if err != nil {
+		w.finish(path, models.JobStatusFailed, "The file is no longer available.", nil)
+
+		return
+	}
+	if queued.hasFingerprint && queued.fingerprint != baseline {
+		w.finish(
+			path,
+			models.JobStatusPartialSuccess,
+			"The file changed after the stability window, so it was not moved.",
+			nil,
+		)
+
+		return
+	}
+
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		w.finish(path, models.JobStatusFailed, "The file is no longer available.", nil)
+
+		return
+	}
+
+	planner, err := newOrganizePlanner(w.service, w.rule)
+	if err != nil {
+		w.finish(path, models.JobStatusFailed, err.Error(), nil)
+
+		return
+	}
+	move := planner.planPath(path, info)
+	if move.Action != models.OrganizeMoveAction {
+		w.finish(path, models.JobStatusPartialSuccess, move.Reason, nil)
+
+		return
+	}
+
+	w.service.emitRun(models.AutomationRunEvent{
+		RuleID:   w.rule.ID,
+		RuleName: w.rule.Name,
+		FilePath: path,
+		Status:   models.JobStatusRunning,
+		Message:  fmt.Sprintf("Organizing %s", filepath.Base(path)),
+		At:       time.Now().UnixMilli(),
+	})
+
+	// Re-stat immediately before the move: a file that changed after the
+	// stability window is never moved.
+	current, statErr := os.Stat(path)
+	if statErr != nil || fingerprintInfo(current) != baseline {
+		w.finish(
+			path,
+			models.JobStatusPartialSuccess,
+			"The file changed while the rule was running, so it was not moved.",
+			nil,
+		)
+
+		return
+	}
+
+	if err := w.service.moveOrganizedFile(path, move.Destination); err != nil {
+		w.finish(path, models.JobStatusFailed, err.Error(), nil)
+
+		return
+	}
+
+	w.service.recordOrganizeMove(w.rule, path, move.Destination)
+	w.addProduced([]string{move.Destination})
+	w.finish(
+		path,
+		models.JobStatusSuccess,
+		fmt.Sprintf("Moved to %s.", move.Destination),
+		[]string{move.Destination},
+	)
 }
 
 func (w *ruleWatcher) runRecipe(path string) {
@@ -709,6 +976,19 @@ func isIgnoredName(name string) bool {
 	lower := strings.ToLower(name)
 	for _, suffix := range []string{".tmp", ".part", ".crdownload"} {
 		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// hasIgnoredSegment reports whether any path segment of a relative path is
+// hidden or an in-progress name, so a recursive rule never processes files in
+// a .git folder or inside a temporary directory.
+func hasIgnoredSegment(relative string) bool {
+	for _, segment := range strings.Split(relative, string(filepath.Separator)) {
+		if isIgnoredName(segment) {
 			return true
 		}
 	}

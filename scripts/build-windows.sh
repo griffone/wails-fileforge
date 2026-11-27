@@ -9,6 +9,8 @@
 #
 # Requirements: go, node, npm, makensis, mingw-w64 (gcc, dlltool and binutils
 # objdump), pkg-config, curl, python3, zip and the Wails v3 CLI (wails3).
+# Code signing is optional: scripts/sign-windows.sh signs when a certificate is
+# configured and warns otherwise. Set REQUIRE_SIGNING=1 to make it mandatory.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -122,6 +124,11 @@ echo "==> Building the frontend"
   npm run build
 )
 
+# Resolve the build identity once so the desktop exe and the CLI share one
+# version, commit and timestamp. GOOS is already windows here, so reset it for
+# the host-side helper.
+VERSION_LDFLAGS="$(cd "$ROOT_DIR" && GOOS= GOARCH= CGO_ENABLED=0 go run ./scripts/versionflags)"
+
 echo "==> Generating the Windows resources and executable"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
@@ -136,14 +143,34 @@ trap 'rm -f "$SYSO"' EXIT
 (
   cd "$ROOT_DIR"
   go build -tags production -trimpath -buildvcs=false \
-    -ldflags="-w -s -H windowsgui" \
+    -ldflags="-w -s -H windowsgui $VERSION_LDFLAGS" \
     -o "$STAGE_DIR/fileforge-desktop.exe" .
+)
+
+# The headless CLI links the same bimg/libvips cgo stack, so it builds with the
+# environment exported above. It stays a console binary (no -H windowsgui) and
+# is staged next to the desktop exe so the NSIS file copy and the portable ZIP
+# both pick it up.
+echo "==> Building the Windows headless CLI"
+(
+  cd "$ROOT_DIR"
+  go build -trimpath -buildvcs=false \
+    -ldflags="-w -s $VERSION_LDFLAGS" \
+    -o "$STAGE_DIR/fileforge-cli.exe" ./cmd/fileforge-cli
 )
 
 echo "==> Bundling the libvips runtime"
 python3 "$ROOT_DIR/scripts/prune-windows-dlls.py" \
   --source "$VIPS_DIR/bin" \
   --dest "$STAGE_DIR"
+
+# Sign the staged executables before makensis runs, so the installer packages
+# signed binaries and the portable ZIP below picks them up as well. The hook
+# warns and continues when no certificate is configured.
+echo "==> Signing the staged executables"
+"$ROOT_DIR/scripts/sign-windows.sh" \
+  "$STAGE_DIR/fileforge-desktop.exe" \
+  "$STAGE_DIR/fileforge-cli.exe"
 
 echo "==> Building the NSIS installer"
 BOOTSTRAPPER="$ROOT_DIR/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe"
@@ -156,10 +183,18 @@ rm -f "$INSTALLER"
   cd "$ROOT_DIR/build/windows/nsis"
   makensis \
     -DARG_WAILS_AMD64_BINARY="$STAGE_DIR/fileforge-desktop.exe" \
+    -DFILEFORGE_CLI_BINARY="$STAGE_DIR/fileforge-cli.exe" \
     -DLIBVIPS_DIR="$STAGE_DIR" \
     project.nsi
 )
 
+# Sign the installer after makensis produced it. The uninstaller NSIS embeds
+# stays unsigned: signing it would need the NSIS !uninstfinalize hook.
+echo "==> Signing the NSIS installer"
+"$ROOT_DIR/scripts/sign-windows.sh" "$INSTALLER"
+
+# The portable ZIP bundles the already-signed executables; the ZIP itself is
+# not signed.
 echo "==> Creating the portable ZIP"
 rm -f "$PORTABLE"
 (

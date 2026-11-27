@@ -257,6 +257,35 @@
   color: var(--muted);
 }
 
+.recipe-options-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted, transparent);
+}
+
+.recipe-option-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recipe-option-row dt {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.recipe-option-row dd {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
 .action-helper {
   margin: 0;
   font-size: 0.8125rem;

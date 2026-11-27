@@ -14,6 +14,8 @@ import (
 	"fileforge-desktop/internal/media"
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/pdf"
+	"fileforge-desktop/internal/update"
+	appversion "fileforge-desktop/internal/version"
 	"fileforge-desktop/internal/video"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -40,6 +42,23 @@ func (s *SystemService) GetOCRCapabilities() models.OCRCapabilitiesResponse {
 // binary or model is reported with guidance, not an error.
 func (s *SystemService) GetTranscriptionCapabilities(whisperPath, modelPath string) models.TranscriptionCapabilitiesResponse {
 	return video.TranscriptionCapabilities(whisperPath, modelPath)
+}
+
+// GetAppInfo reports the version, commit and build time injected into this
+// binary, plus whether the build pinned an update signing key. The Settings
+// About panel reads it, and Release tells a future updater whether the build
+// is a stamped release.
+func (s *SystemService) GetAppInfo() models.AppInfoResponse {
+	info := appversion.Current()
+	return models.AppInfoResponse{
+		Success:             true,
+		Message:             "app info",
+		Version:             info.Version,
+		Commit:              info.Commit,
+		BuiltAt:             info.BuiltAt,
+		Release:             info.Release,
+		UpdateKeyConfigured: update.Configured(),
+	}
 }
 
 // GetLocalCapabilities reports every external tool the local tools rely on,
@@ -161,6 +180,36 @@ func (s *SystemService) OpenDirectoryDialog() (string, error) {
 	dialog.SetTitle("Select Directory")
 	dialog.CanChooseDirectories(true)
 	dialog.CanChooseFiles(false)
+
+	return dialog.PromptForSingleSelection()
+}
+
+// OpenImportFileDialog opens a native file dialog filtered to JSON so the user
+// can pick a shared recipe file. It returns an empty path when they cancel.
+func (s *SystemService) OpenImportFileDialog() (string, error) {
+	app := application.Get()
+
+	dialog := app.Dialog.OpenFile()
+	dialog.SetTitle("Select a recipes file")
+	dialog.AddFilter("JSON files", "*.json")
+
+	return dialog.PromptForSingleSelection()
+}
+
+// SaveFileDialog opens a native save dialog for a shareable recipe file. It
+// returns the chosen path, or an empty string when the user cancels.
+func (s *SystemService) SaveFileDialog(defaultFilename string) (string, error) {
+	app := application.Get()
+
+	dialog := app.Dialog.SaveFile()
+	dialog.SetOptions(&application.SaveFileDialogOptions{
+		Title:                "Save recipes file",
+		Filename:             strings.TrimSpace(defaultFilename),
+		CanCreateDirectories: true,
+		Filters: []application.FileFilter{
+			{DisplayName: "JSON files", Pattern: "*.json"},
+		},
+	})
 
 	return dialog.PromptForSingleSelection()
 }

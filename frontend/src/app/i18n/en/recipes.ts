@@ -54,4 +54,16 @@ export const recipesEn = {
   'recipes.burned_subtitles.step.verify.name': 'Verify sync',
   'recipes.burned_subtitles.step.verify.detail':
     'Duration, cues and rendered frames are checked',
+  'recipes.archive_document.inputLabel': '1 DOCX',
+  'recipes.archive_document.highlights': [
+    'PDF/A-2',
+    'SHA-256 checksum',
+    'Optional sidecar',
+  ],
+  'recipes.archive_document.step.render.name': 'Render PDF/A-2',
+  'recipes.archive_document.step.render.detail':
+    'Bundled DOCX renderer, then Ghostscript distils the PDF',
+  'recipes.archive_document.step.verify.name': 'Hash and verify',
+  'recipes.archive_document.step.verify.detail':
+    'PDF signature, PDF/A marker, page count and SHA-256',
 } as const;

@@ -3,6 +3,7 @@ export const outputPlanEn = {
   'outputPlan.sub': 'Choose where the converted files should go.',
   'outputPlan.change': 'Change',
   'outputPlan.destination': 'Destination',
+  'outputPlan.target': 'Target',
   'outputPlan.default': 'Default',
   'outputPlan.working': 'Working out the output…',
   'outputPlan.folder': 'Folder',
@@ -13,4 +14,6 @@ export const outputPlanEn = {
   'outputPlan.adjustedNote':
     'Existing names will be adjusted to avoid overwriting.',
   'outputPlan.nextToOriginal': 'Next to the original',
+  'outputPlan.suggestion': 'Suggested name',
+  'outputPlan.suggestionUse': 'Use',
 } as const;

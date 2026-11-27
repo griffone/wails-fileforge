@@ -41,8 +41,29 @@ export const recipeRunEn = {
   'recipeRun.settings.title': 'Settings',
   'recipeRun.settings.subWithTarget':
     'Set the target size and where the results are saved.',
+  'recipeRun.settings.subWithOptions':
+    'Set the recipe options and where the results are saved.',
   'recipeRun.settings.sub': 'Choose where the results are saved.',
+  'recipeRun.options.userSaved':
+    'This recipe saves these values. Edit the recipe to change them.',
   'recipeRun.target.label': 'Target size',
+  'recipeRun.option.targetSizeBytes': 'Target size',
+  'recipeRun.option.variantPreset': 'Variant preset',
+  'recipeRun.option.writeSidecar': 'SHA-256 sidecar',
+  'recipeRun.option.help.targetSizeBytes':
+    'Best effort: the output may stay above the target.',
+  'recipeRun.option.help.variantPreset':
+    'Widths are capped at the source width; images are never upscaled.',
+  'recipeRun.option.help.writeSidecar':
+    'Write <pdf>.sha256 next to the PDF with a `hash  filename` line.',
+  'recipeRun.option.error.required': 'Enter a value for {label}.',
+  'recipeRun.option.error.integer': '{label} must be a whole number{unit}.',
+  'recipeRun.option.error.enum': '{label} must be one of: {values}.',
+  'recipeRun.option.error.range':
+    '{label} must be between {min} and {max} {unit}.',
+  'recipeRun.choice.standard': '1600 / 800 px',
+  'recipeRun.choice.compact': '1200 / 600 px',
+  'recipeRun.choice.large': '2400 / 1200 px',
   'recipeRun.target.invalid': 'Enter a target size larger than 0 MB.',
   'recipeRun.target.help':
     'Best effort: the recipe gets as close as the source allows.',

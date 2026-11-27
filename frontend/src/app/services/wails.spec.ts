@@ -127,4 +127,65 @@ describe('Wails', () => {
 
     expect(start).toHaveBeenCalledTimes(1);
   });
+
+  it('returns a safe fallback when the update status cannot be read', async () => {
+    spyOn(ipc, 'getUpdateStatus').and.rejectWith(new Error('ipc down'));
+
+    const status = await service.getUpdateStatus();
+
+    expect(status.success).toBeFalse();
+    expect(status.state).toBe('error');
+    expect(status.updatesEnabled).toBeFalse();
+    // The panel renders a translated error; no English IPC detail leaks in.
+    expect(status.message).toBe('');
+  });
+
+  it('forwards every update action to the generated bindings', async () => {
+    const check = spyOn(ipc, 'checkForUpdates').and.resolveTo({
+      success: true,
+      message: '',
+      state: 'available',
+      currentVersion: '1.2.0',
+      updatesEnabled: true,
+      updateAvailable: true,
+      consentGranted: false,
+    });
+    const download = spyOn(ipc, 'downloadUpdate').and.resolveTo({
+      success: true,
+      message: '',
+      state: 'downloading',
+      currentVersion: '1.2.0',
+      updatesEnabled: true,
+      updateAvailable: true,
+      consentGranted: false,
+    });
+    const consent = spyOn(ipc, 'grantInstallConsent').and.resolveTo({
+      success: true,
+      message: '',
+      state: 'ready',
+      currentVersion: '1.2.0',
+      updatesEnabled: true,
+      updateAvailable: true,
+      consentGranted: true,
+    });
+    const install = spyOn(ipc, 'installUpdate').and.resolveTo({
+      success: true,
+      message: '',
+      state: 'installing',
+      currentVersion: '1.2.0',
+      updatesEnabled: true,
+      updateAvailable: true,
+      consentGranted: false,
+    });
+
+    expect((await service.checkForUpdates()).state).toBe('available');
+    expect((await service.downloadUpdate()).state).toBe('downloading');
+    expect((await service.grantInstallConsent()).consentGranted).toBeTrue();
+    expect((await service.installUpdate()).state).toBe('installing');
+
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(consent).toHaveBeenCalledTimes(1);
+    expect(install).toHaveBeenCalledTimes(1);
+  });
 });

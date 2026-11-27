@@ -11,6 +11,7 @@ import { EMPTY, Subject } from 'rxjs';
 import { ImageBackground } from './image-background';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
+import { clearToolStorage } from '../../../testing/tool-storage';
 import {
   FileInfo,
   JobRequest,
@@ -167,6 +168,7 @@ describe('ImageBackground', () => {
 
   beforeEach(async () => {
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
 
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'getToolchainStatus',
@@ -235,6 +237,7 @@ describe('ImageBackground', () => {
     fixture?.destroy();
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
+    clearToolStorage();
   });
 
   it('enables the page when the engine and the model are ready', fakeAsync(() => {

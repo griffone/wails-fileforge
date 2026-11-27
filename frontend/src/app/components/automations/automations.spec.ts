@@ -14,6 +14,8 @@ import {
   AutomationRunEvent,
   AutomationRunRecord,
   AutomationStatusResponse,
+  AutomationOrganizePreviewResponse,
+  OrganizePlannedMove,
   Recipe,
   Wails,
 } from '../../services/wails';
@@ -31,6 +33,7 @@ const EMAIL_RECIPE: Recipe = {
   maxInputs: 0,
   steps: [],
   defaultTargetSizeBytes: 0,
+  duplicable: false,
 };
 
 function sampleRule(
@@ -88,6 +91,69 @@ function sampleRun(
   };
 }
 
+/** An organize rule whose exact current settings were previewed. */
+function sampleOrganizeRule(
+  overrides: Partial<AutomationRule> = {},
+): AutomationRule {
+  return sampleRule({
+    id: 'rule_organize',
+    name: 'Sort downloads',
+    action: 'organize',
+    recipeId: '',
+    extensions: ['pdf'],
+    outputDir: '',
+    targetDir: '/tmp/library',
+    folderTemplate: '{year}/{month}',
+    nameTemplate: '{name}-{date}{ext}',
+    collisionPolicy: 'suffix',
+    previewHash: 'preview-hash-1',
+    previewedAt: HISTORY_RUN_AT,
+    lastMessage: 'Moved to /tmp/library/2026/11/a.pdf.',
+    lastOutputs: ['/tmp/library/2026/11/a.pdf'],
+    ...overrides,
+  });
+}
+
+function sampleMoves(): OrganizePlannedMove[] {
+  return [
+    {
+      source: '/tmp/inbox/a.pdf',
+      destination: '/tmp/library/2026/11/a.pdf',
+      action: 'move',
+      sizeBytes: 2048,
+    },
+    {
+      source: '/tmp/inbox/b.pdf',
+      destination: '/tmp/library/2026/11/b-2.pdf',
+      action: 'move',
+      sizeBytes: 1024,
+    },
+    {
+      source: '/tmp/inbox/c.pdf',
+      destination: '',
+      action: 'skip',
+      reason: 'The destination already exists, so the file was left in place.',
+      sizeBytes: 10,
+    },
+  ];
+}
+
+function samplePreview(
+  overrides: Partial<AutomationOrganizePreviewResponse> = {},
+): AutomationOrganizePreviewResponse {
+  return {
+    success: true,
+    message: 'Preview: 2 moves planned, 1 skip.',
+    ruleId: 'rule_organize',
+    targetDir: '/tmp/library',
+    moves: sampleMoves(),
+    previewHash: 'preview-hash-1',
+    previewStored: true,
+    generatedAt: HISTORY_RUN_AT,
+    ...overrides,
+  };
+}
+
 describe('Automations', () => {
   let fixture: ComponentFixture<Automations>;
   let component: Automations;
@@ -116,6 +182,16 @@ describe('Automations', () => {
     fixture.detectChanges();
   }
 
+  function setSelect(selector: string, value: string): void {
+    const select = query<HTMLSelectElement>(selector);
+    if (!select) {
+      throw new Error(`Missing select: ${selector}`);
+    }
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+  }
+
   beforeEach(async () => {
     wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
       'listAutomationRules',
@@ -126,6 +202,7 @@ describe('Automations', () => {
       'saveAutomationRule',
       'deleteAutomationRule',
       'setAutomationRuleEnabled',
+      'previewAutomationRule',
       'openDirectoryDialog',
     ]);
 
@@ -163,6 +240,7 @@ describe('Automations', () => {
       message: 'Automation rule disabled.',
       rule: sampleRule({ enabled: false, runtimeStatus: 'stopped' }),
     });
+    wailsSpy.previewAutomationRule.and.resolveTo(samplePreview());
     wailsSpy.openDirectoryDialog.and.resolveTo('');
 
     automationRunSubject = new Subject<AutomationRunEvent>();
@@ -323,6 +401,93 @@ describe('Automations', () => {
       'Automation rule saved.',
     );
   }));
+
+  it('saves recursion and patterns and renders them when set', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/watch');
+    wailsSpy.listAutomationRules.and.resolveTo({
+      success: true,
+      message: 'ok',
+      rules: [
+        sampleRule({
+          id: 'rule_2',
+          recursive: true,
+          patterns: ['invoice-*.pdf'],
+        }),
+      ],
+    });
+
+    click('.automation-new-rule');
+    fixture.detectChanges();
+
+    setInput('#automation-name', 'Inbox PDFs');
+    click('.automation-watch-folder');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    click('#automation-recursive');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    setInput('#automation-patterns', ' invoice-*.pdf, report-*.pdf ');
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const payload = wailsSpy.saveAutomationRule.calls.mostRecent()
+      .args[0] as AutomationRule;
+    expect(payload.recursive).toBeTrue();
+    expect(payload.patterns).toEqual(['invoice-*.pdf', 'report-*.pdf']);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Include subfolders');
+    expect(text).toContain('Included');
+    expect(text).toContain('File name patterns');
+    expect(text).toContain('invoice-*.pdf');
+  }));
+
+  it('shows inline feedback and blocks folder-scoped patterns', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/watch');
+
+    click('.automation-new-rule');
+    fixture.detectChanges();
+
+    setInput('#automation-name', 'Inbox PDFs');
+    click('.automation-watch-folder');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    setInput('#automation-patterns', 'nested/*.pdf');
+    fixture.detectChanges();
+
+    expect(query('.automation-patterns-error')?.textContent).toContain(
+      'file name only',
+    );
+
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.saveAutomationRule).not.toHaveBeenCalled();
+
+    setInput('#automation-patterns', 'invoice-[12.pdf');
+    fixture.detectChanges();
+
+    expect(query('.automation-patterns-error')?.textContent).toContain(
+      'is not valid',
+    );
+    expect(query('#automation-patterns')?.getAttribute('aria-invalid')).toBe(
+      'true',
+    );
+  }));
+
+  it('renders existing rules without recursion or pattern rows', () => {
+    const text = fixture.nativeElement.textContent as string;
+
+    expect(text).not.toContain('Include subfolders');
+    expect(text).not.toContain('File name patterns');
+    expect(fixture.nativeElement.querySelectorAll('.automation-meta-row').length)
+      .toBe(4);
+  });
 
   it('preserves id, createdAt, options and last-run fields when editing', fakeAsync(() => {
     click('.automation-edit');
@@ -513,6 +678,10 @@ describe('Automations', () => {
 
     click('.automation-new-rule');
     fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Incluir subcarpetas');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Patrones de nombre de archivo',
+    );
     click('.automation-save');
     flushMicrotasks();
     fixture.detectChanges();
@@ -522,4 +691,433 @@ describe('Automations', () => {
       'Dale un nombre a la regla.',
     );
   }));
+
+  it('switches the editor between the recipe and organize actions', () => {
+    click('.automation-new-rule');
+    fixture.detectChanges();
+
+    expect(query('#automation-recipe')).not.toBeNull();
+    expect(query('#automation-folder-template')).toBeNull();
+    expect(query('.automation-target-path')).toBeNull();
+
+    setSelect('#automation-action', 'organize');
+
+    expect(component.formAction()).toBe('organize');
+    expect(query('#automation-recipe')).toBeNull();
+    expect(query('.automation-target-folder')).not.toBeNull();
+    expect(query('#automation-folder-template')).not.toBeNull();
+    expect(query('#automation-name-template')).not.toBeNull();
+    expect(query('.automation-collision')).not.toBeNull();
+    expect(query('#automation-delete-source')).toBeNull();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Available tokens');
+    expect(text).toContain('{year}');
+    expect(text).toContain('{title}');
+    expect(text).toContain('Four-digit year of the file date.');
+    expect(text).toContain('Document title when the format has one');
+
+    setSelect('#automation-action', 'recipe');
+
+    expect(query('#automation-recipe')).not.toBeNull();
+    expect(query('#automation-folder-template')).toBeNull();
+  });
+
+  it('loads an existing rule as process with its fields untouched', () => {
+    click('.automation-edit');
+    fixture.detectChanges();
+
+    expect(component.formAction()).toBe('recipe');
+    expect(component.formRecipeId()).toBe(EMAIL_RECIPE.id);
+    expect(component.formOutputDir()).toBe('/tmp/out');
+    expect(component.formDeleteSource()).toBeFalse();
+    expect(component.formTargetDir()).toBe('');
+    expect(component.formFolderTemplate()).toBe('');
+    expect(component.formNameTemplate()).toBe('');
+    expect(component.formCollisionPolicy()).toBe('skip');
+  });
+
+  it('names the offending token and blocks save on an invalid template', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/library');
+
+    click('.automation-new-rule');
+    fixture.detectChanges();
+    setInput('#automation-name', 'Sort downloads');
+    click('.automation-watch-folder');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    setSelect('#automation-action', 'organize');
+    click('.automation-target-folder');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.formTargetDir()).toBe('/tmp/library');
+
+    setInput('#automation-folder-template', '{year}/{mont}');
+
+    const folderError = query('.automation-folder-template-error');
+    expect(folderError?.textContent).toContain('mont');
+    expect(folderError?.textContent).toContain('Available tokens');
+    expect(
+      query('#automation-folder-template')?.getAttribute('aria-invalid'),
+    ).toBe('true');
+
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+    expect(wailsSpy.saveAutomationRule).not.toHaveBeenCalled();
+
+    setInput('#automation-folder-template', '{year}/{month}');
+    setInput('#automation-name-template', '{name}/x');
+
+    expect(query('.automation-name-template-error')?.textContent).toContain(
+      'folder separator',
+    );
+
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+    expect(wailsSpy.saveAutomationRule).not.toHaveBeenCalled();
+
+    setInput('#automation-name-template', '{naem}');
+    expect(query('.automation-name-template-error')?.textContent).toContain(
+      'naem',
+    );
+
+    setInput('#automation-name-template', '');
+    setInput('#automation-folder-template', '..');
+    expect(query('.automation-folder-template-error')?.textContent).toContain(
+      'cannot contain',
+    );
+  }));
+
+  it('blocks saving an organize rule without a target folder', fakeAsync(() => {
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/inbox');
+
+    click('.automation-new-rule');
+    fixture.detectChanges();
+    setInput('#automation-name', 'Sort downloads');
+
+    setSelect('#automation-action', 'organize');
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+    expect(wailsSpy.saveAutomationRule).not.toHaveBeenCalled();
+    expect(query('.automation-form-error')?.textContent).toContain(
+      'folder to watch',
+    );
+
+    click('.automation-watch-folder');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+    expect(wailsSpy.saveAutomationRule).not.toHaveBeenCalled();
+    expect(query('.automation-form-error')?.textContent).toContain(
+      'target folder',
+    );
+    expect(query('.automation-form-error')?.textContent).not.toContain(
+      'recipe',
+    );
+  }));
+
+  it('renders the planned moves, skip reasons and totals', fakeAsync(() => {
+    component.rules.set([sampleOrganizeRule({ enabled: false })]);
+    fixture.detectChanges();
+
+    click('.automation-edit');
+    fixture.detectChanges();
+
+    // The saved rule carries a preview of exactly these settings, so the gate
+    // is already open without previewing again.
+    expect(
+      (query<HTMLInputElement>('#automation-enabled') as HTMLInputElement)
+        .disabled,
+    ).toBeFalse();
+    expect(query('.automation-enable-gate')).toBeNull();
+
+    click('.automation-preview');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.previewAutomationRule).toHaveBeenCalledTimes(1);
+    const payload = wailsSpy.previewAutomationRule.calls.mostRecent()
+      .args[0] as AutomationRule;
+    expect(payload.action).toBe('organize');
+    expect(payload.targetDir).toBe('/tmp/library');
+    expect(payload.folderTemplate).toBe('{year}/{month}');
+    expect(payload.nameTemplate).toBe('{name}-{date}{ext}');
+    expect(payload.collisionPolicy).toBe('suffix');
+
+    const rows = fixture.nativeElement.querySelectorAll('.organize-preview-row');
+    expect(rows.length).toBe(3);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('/tmp/inbox/a.pdf');
+    expect(text).toContain('/tmp/library/2026/11/a.pdf');
+    expect(text).toContain(
+      'The destination already exists, so the file was left in place.',
+    );
+    expect(text).toContain('2 moves planned');
+    expect(text).toContain('1 skipped');
+    expect(query('.automation-preview-size')?.textContent).toContain('3 KB');
+    expect(query('.automation-preview-stored')).not.toBeNull();
+
+    const badges = Array.from(
+      fixture.nativeElement.querySelectorAll(
+        '.organize-preview-row .badge',
+      ) as NodeListOf<HTMLElement>,
+    ).map((badge) => (badge.textContent ?? '').trim());
+    expect(badges).toEqual(['Move', 'Suffix', 'Skip']);
+  }));
+
+  it('caps the preview list and shows every move on request', fakeAsync(() => {
+    const moves: OrganizePlannedMove[] = Array.from({ length: 25 }, (_, index) => ({
+      source: `/tmp/inbox/file-${index}.pdf`,
+      destination: `/tmp/library/file-${index}.pdf`,
+      action: 'move',
+      sizeBytes: 100,
+    }));
+    wailsSpy.previewAutomationRule.and.resolveTo(samplePreview({ moves }));
+
+    component.rules.set([sampleOrganizeRule({ enabled: false })]);
+    fixture.detectChanges();
+    click('.automation-edit');
+    fixture.detectChanges();
+    click('.automation-preview');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelectorAll('.organize-preview-row').length,
+    ).toBe(20);
+    expect(query('.automation-preview-toggle')?.textContent).toContain(
+      'Show all 25',
+    );
+
+    click('.automation-preview-toggle');
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelectorAll('.organize-preview-row').length,
+    ).toBe(25);
+    expect(query('.automation-preview-toggle')?.textContent).toContain(
+      'Show fewer',
+    );
+    expect(query('.automation-preview-planned')?.textContent).toContain(
+      '25 moves planned',
+    );
+  }));
+
+  it('invalidates the preview when a relevant field changes', fakeAsync(() => {
+    component.rules.set([sampleOrganizeRule({ enabled: false })]);
+    fixture.detectChanges();
+    click('.automation-edit');
+    fixture.detectChanges();
+    click('.automation-preview');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const enabled = (): HTMLInputElement =>
+      query<HTMLInputElement>('#automation-enabled') as HTMLInputElement;
+
+    expect(enabled().disabled).toBeFalse();
+    expect(query('.organize-preview-row')).not.toBeNull();
+
+    setInput('#automation-folder-template', '{year}');
+
+    expect(query('.automation-preview-stale')).not.toBeNull();
+    expect(query('.organize-preview-row')).toBeNull();
+    expect(enabled().disabled).toBeTrue();
+    expect(query('.automation-enable-gate')?.textContent).toContain(
+      'changed after the last preview',
+    );
+
+    click('.automation-preview');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(enabled().disabled).toBeFalse();
+    expect(query('.automation-preview-stale')).toBeNull();
+  }));
+
+  it('keeps the editor open when the name changes without a re-preview', fakeAsync(() => {
+    component.rules.set([sampleOrganizeRule({ enabled: false })]);
+    fixture.detectChanges();
+    click('.automation-edit');
+    fixture.detectChanges();
+    click('.automation-preview');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    // The name is not part of the preview fingerprint, so it never invalidates.
+    setInput('#automation-name', 'Sort everything');
+
+    expect(query('.automation-preview-stale')).toBeNull();
+    expect(
+      (query<HTMLInputElement>('#automation-enabled') as HTMLInputElement)
+        .disabled,
+    ).toBeFalse();
+  }));
+
+  it('gates enabling on a preview of the exact settings', fakeAsync(() => {
+    component.rules.set([
+      sampleOrganizeRule({
+        enabled: false,
+        previewHash: '',
+        previewedAt: 0,
+        runtimeStatus: 'stopped',
+      }),
+    ]);
+    fixture.detectChanges();
+
+    const toggle = (): HTMLButtonElement =>
+      query<HTMLButtonElement>('.automation-toggle') as HTMLButtonElement;
+
+    expect(toggle().disabled).toBeTrue();
+    expect(query('.automation-rule-preview-needed')).not.toBeNull();
+    expect(query('.automation-rule-gate')?.textContent).toContain(
+      'preview of the current settings',
+    );
+
+    click('.automation-edit');
+    fixture.detectChanges();
+
+    expect(
+      (query<HTMLInputElement>('#automation-enabled') as HTMLInputElement)
+        .disabled,
+    ).toBeTrue();
+    expect(query('.automation-enable-gate')).not.toBeNull();
+
+    click('.automation-preview');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.previewStored()).toBeTrue();
+    expect(
+      (query<HTMLInputElement>('#automation-enabled') as HTMLInputElement)
+        .disabled,
+    ).toBeFalse();
+    expect(query('.automation-preview-stored')?.textContent).toContain(
+      'can be enabled',
+    );
+
+    click('#automation-enabled');
+    fixture.detectChanges();
+    expect(component.formEnabled()).toBeTrue();
+
+    setInput('#automation-name-template', '{name}{ext}');
+
+    expect(
+      (query<HTMLInputElement>('#automation-enabled') as HTMLInputElement)
+        .disabled,
+    ).toBeTrue();
+
+    click('.automation-save');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const payload = wailsSpy.saveAutomationRule.calls.mostRecent()
+      .args[0] as AutomationRule;
+    expect(payload.enabled).toBeFalse();
+    expect(payload.nameTemplate).toBe('{name}{ext}');
+  }));
+
+  it('does not open the gate for a preview of unsaved settings', fakeAsync(() => {
+    wailsSpy.previewAutomationRule.and.resolveTo(
+      samplePreview({ ruleId: '', previewStored: false }),
+    );
+    wailsSpy.openDirectoryDialog.and.resolveTo('/tmp/library');
+
+    click('.automation-new-rule');
+    fixture.detectChanges();
+    setInput('#automation-name', 'Fresh organize');
+    click('.automation-watch-folder');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    setSelect('#automation-action', 'organize');
+    click('.automation-target-folder');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    click('.automation-preview');
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.previewStored()).toBeFalse();
+    expect(query('.automation-preview-not-stored')).not.toBeNull();
+    expect(
+      (query<HTMLInputElement>('#automation-enabled') as HTMLInputElement)
+        .disabled,
+    ).toBeTrue();
+    expect(query('.automation-enable-gate')?.textContent).toContain(
+      'Save the rule',
+    );
+    // A preview the server did not store never refreshes the saved list.
+    expect(wailsSpy.listAutomationRules).toHaveBeenCalledTimes(1);
+  }));
+
+  it('renders an organize rule card with its target and templates', () => {
+    component.rules.set([sampleOrganizeRule()]);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Organize');
+    expect(text).toContain('/tmp/library');
+    expect(text).toContain('{year}/{month}');
+    expect(text).toContain('{name}-{date}{ext}');
+    expect(text).toContain('Suffix on collision');
+    expect(text).toContain('PDF');
+
+    expect(query('.automation-rule-summary')).not.toBeNull();
+    expect(query('.automation-rule-preview-needed')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelectorAll('.automation-meta-row').length,
+    ).toBe(6);
+  });
+
+  it('renders history rows that carry the synthetic organize tool id', () => {
+    component.runs.set([
+      sampleRun({
+        id: 'run_organize',
+        ruleId: 'automation.organize',
+        ruleName: 'automation.organize',
+        filePath: '/tmp/library/2026/11/a.pdf',
+        message: 'Moved to /tmp/library/2026/11/a.pdf.',
+        outputs: undefined,
+        at: HISTORY_RUN_AT,
+      }),
+    ]);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Organize files');
+    expect(text).not.toContain('automation.organize');
+    expect(text).toContain('a.pdf');
+    expect(text).toContain('No outputs');
+  });
+
+  it('renders the organize copy in Spanish', () => {
+    TestBed.inject(I18nService).setLocale('es');
+    fixture.detectChanges();
+
+    click('.automation-new-rule');
+    fixture.detectChanges();
+    setSelect('#automation-action', 'organize');
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Acción');
+    expect(text).toContain('Organizar archivos');
+    expect(text).toContain('Carpeta destino');
+    expect(text).toContain('Plantilla de carpetas');
+    expect(text).toContain('Plantilla de nombre');
+    expect(text).toContain('Tokens disponibles');
+    expect(text).toContain('Vista previa');
+    expect(text).toContain('Ver movimientos');
+    expect(text).toContain('Guarda esta regla una vez');
+  });
 });

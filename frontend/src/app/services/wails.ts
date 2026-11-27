@@ -3,6 +3,7 @@ import { Events } from '@wailsio/runtime';
 import { Subject, Subscription, ReplaySubject, Observable } from 'rxjs';
 
 import type * as Models from '../../../bindings/fileforge-desktop/internal/models';
+import type * as UpdateModels from '../../../bindings/fileforge-desktop/internal/update';
 
 import { WailsIpc } from './wails-ipc';
 
@@ -99,6 +100,17 @@ export interface ImageCropPreviewResponse
   error?: JobError;
 }
 
+export interface ImageCropSuggestionResponse
+  extends Models.ImageCropSuggestionResponse {
+  error?: JobError;
+}
+
+/** A base name derived from document metadata; the page applies it on confirm. */
+export interface OutputNameSuggestionResponse
+  extends Models.OutputNameSuggestionResponse {
+  error?: JobError;
+}
+
 export type ImageAnnotateOperationType =
   | 'text'
   | 'arrow'
@@ -156,6 +168,24 @@ export interface JobHistoryEntry extends Models.JobHistoryEntry {
   outputs: JobOutputRecord[];
 }
 
+/**
+ * History load result. A failed IPC call must stay distinguishable from an
+ * empty history so the UI can show an error state instead of "no jobs".
+ */
+export interface ListJobHistoryResponse {
+  success: boolean;
+  message: string;
+  entries: JobHistoryEntry[];
+}
+
+export type TrashInfo = Models.TrashInfo;
+
+/** Trash stats plus the transport outcome; `files`/`bytes` are real files. */
+export interface TrashInfoResponse extends TrashInfo {
+  success: boolean;
+  message: string;
+}
+
 export type UndoSkipped = Models.UndoSkipped;
 
 export interface UndoResult extends Models.UndoResult {
@@ -165,10 +195,38 @@ export interface UndoResult extends Models.UndoResult {
 
 export type RecipeStep = Models.RecipeStep;
 
+export type RecipeOptionKind = Models.RecipeOptionKind;
+export type RecipeOptionChoice = Models.RecipeOptionChoice;
+
+export interface RecipeOptionField extends Models.RecipeOptionField {
+  values?: RecipeOptionChoice[];
+}
+
 export interface Recipe extends Models.Recipe {
   acceptExtensions: string[];
   highlights?: string[];
   steps: RecipeStep[];
+  optionSchema?: RecipeOptionField[];
+  optionOverrides?: Record<string, unknown>;
+}
+
+export interface SaveUserRecipeRequest extends Models.SaveUserRecipeRequest {
+  options: Record<string, unknown>;
+}
+
+export interface UserRecipeResponse extends Models.UserRecipeResponse {
+  recipe?: Recipe;
+  error?: JobError;
+}
+
+export type ExportUserRecipesResponse = Models.ExportUserRecipesResponse;
+
+export type ImportUserRecipeIssue = Models.ImportUserRecipeIssue;
+
+export interface ImportUserRecipesResponse
+  extends Models.ImportUserRecipesResponse {
+  invalid: ImportUserRecipeIssue[];
+  error?: JobError;
 }
 
 export interface RecipeRequest extends Models.RecipeRequest {
@@ -221,6 +279,7 @@ export type RecipeProgressEvent = Models.RecipeProgressEvent;
  */
 export interface AutomationRule extends Models.AutomationRule {
   extensions?: string[];
+  patterns?: string[];
   options?: Record<string, unknown>;
   lastOutputs?: string[];
 }
@@ -233,6 +292,19 @@ export interface ListAutomationRulesResponse
 export interface AutomationRuleActionResponse
   extends Models.AutomationRuleActionResponse {
   rule?: AutomationRule;
+  error?: JobError;
+}
+
+/** One planned organize move; `destination` is empty for a skipped item. */
+export type OrganizePlannedMove = Models.OrganizePlannedMove;
+
+/**
+ * Dry-run plan of an organize rule. The generated model types `moves` as
+ * nullable, so the UI contract narrows it to an array.
+ */
+export interface AutomationOrganizePreviewResponse
+  extends Models.AutomationOrganizePreviewResponse {
+  moves: OrganizePlannedMove[];
   error?: JobError;
 }
 
@@ -269,6 +341,8 @@ export interface LocalCapabilitiesResponse
   ocrLanguages: string[];
 }
 
+export type AppInfoResponse = Models.AppInfoResponse;
+
 /** One terminal automation run kept in the local run history. */
 export interface AutomationRunRecord extends Models.AutomationRunRecord {
   outputs?: string[];
@@ -280,6 +354,42 @@ export interface ListAutomationRunsResponse
 }
 
 export type AutomationRunsActionResponse = Models.AutomationRunsActionResponse;
+
+/**
+ * Read-only duplicate scan request. Directories are folders, not files, and
+ * nothing on disk is ever written.
+ */
+export type DuplicateScanRequest = Models.DuplicateScanRequest;
+
+/** Generated empty slices model as `null`; the UI always iterates a list. */
+export interface DuplicateScanGroup extends Models.DuplicateScanGroup {
+  paths: string[];
+}
+
+export type DuplicateScanTotals = Models.DuplicateScanTotals;
+
+export type DuplicateScanWarning = Models.DuplicateScanWarning;
+
+export type DuplicateScanProgressEvent = Models.DuplicateScanProgressEvent;
+
+export interface DuplicateScanState extends Models.DuplicateScanState {
+  groups: DuplicateScanGroup[];
+  warnings: DuplicateScanWarning[];
+}
+
+export type DuplicateStartResponse = Models.DuplicateStartResponse;
+
+export interface DuplicateScanStatusResponse
+  extends Models.DuplicateScanStatusResponse {
+  scan?: DuplicateScanState;
+}
+
+export interface DuplicateScanListResponse
+  extends Models.DuplicateScanListResponse {
+  scans: DuplicateScanState[];
+}
+
+export type DuplicateScanActionResponse = Models.DuplicateScanActionResponse;
 
 export type ToolchainComponent = Models.ToolchainComponent;
 
@@ -301,7 +411,21 @@ export interface ToolchainInstallOptions extends Models.ToolchainInstallOptions 
 
 export type ToolchainInstallEvent = Models.ToolchainInstallEvent;
 
+// The update service returns whole status snapshots. The generated models are
+// the contract: `release` and `download` are nullable until the backend knows
+// about them, and `stage`/`reason`/`method` are optional by design.
+export type UpdateAsset = UpdateModels.Asset;
+export type UpdateDownloaded = UpdateModels.Downloaded;
+export type UpdateErrorEvent = UpdateModels.ErrorEvent;
+export type UpdateProgressEvent = UpdateModels.ProgressEvent;
+export type UpdateRelease = UpdateModels.Release;
+export type UpdateStage = UpdateModels.Stage;
+export type UpdateStatus = UpdateModels.Status;
+
 export type PathActionResponse = Models.PathActionResponse;
+
+/** Result of asking the backend to open (or focus) a tool window. */
+export type ToolWindowResponse = Models.ToolWindowResponse;
 
 export interface InspectFilesResponse extends Models.InspectFilesResponse {
   files: FileInfo[];
@@ -362,12 +486,35 @@ export class Wails {
   private automationRunUnsubscribe: (() => void) | null = null;
   private automationRunRefCount = 0;
 
+  // Duplicate scans emit progress and a full snapshot like a job, but carry a
+  // scan id instead of a job id. Same lazy lifecycle and replay contract.
+  private duplicateProgressSubject: ReplaySubject<DuplicateScanProgressEvent> | null =
+    null;
+  private duplicateProgressUnsubscribe: (() => void) | null = null;
+  private duplicateProgressRefCount = 0;
+
+  private duplicateStateSubject: ReplaySubject<DuplicateScanState> | null =
+    null;
+  private duplicateStateUnsubscribe: (() => void) | null = null;
+  private duplicateStateRefCount = 0;
+
   // Toolchain installer progress follows the same lazy lifecycle. A late UI
   // gets the last event replayed, then polls the install state for the rest.
   private toolchainInstallSubject: ReplaySubject<ToolchainInstallEvent> | null =
     null;
   private toolchainInstallUnsubscribe: (() => void) | null = null;
   private toolchainInstallRefCount = 0;
+
+  // Update streams: progress while bytes move, a full status snapshot on every
+  // transition. Same lazy registration and replay contract as the others.
+  private updateProgressSubject: ReplaySubject<UpdateProgressEvent> | null =
+    null;
+  private updateProgressUnsubscribe: (() => void) | null = null;
+  private updateProgressRefCount = 0;
+
+  private updateStateSubject: ReplaySubject<UpdateStatus> | null = null;
+  private updateStateUnsubscribe: (() => void) | null = null;
+  private updateStateRefCount = 0;
 
   // Bounded thumbnail cache: key is `${path}:${size}`, value is a data URL or
   // null when the preview could not be produced (browser dev mode, bad file).
@@ -516,6 +663,92 @@ export class Wails {
       };
     });
 
+  // Duplicate scan streams. A late subscriber gets the last snapshot replayed;
+  // the page filters by scan id because a replay may belong to an older scan.
+  public readonly duplicateProgress$: Observable<DuplicateScanProgressEvent> =
+    new Observable((subscriber) => {
+      const unregister = this.ensureDuplicateProgressRegistered();
+
+      const sub = this.duplicateProgressSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    });
+
+  public readonly duplicateState$: Observable<DuplicateScanState> =
+    new Observable((subscriber) => {
+      const unregister = this.ensureDuplicateStateRegistered();
+
+      const sub = this.duplicateStateSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    });
+
+  // Update progress is only valid while a download runs. A late subscriber may
+  // receive the last replayed event; the status snapshot decides whether the
+  // UI draws it.
+  public readonly updateProgress$: Observable<UpdateProgressEvent> =
+    new Observable((subscriber) => {
+      const unregister = this.ensureUpdateProgressRegistered();
+
+      const sub = this.updateProgressSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    });
+
+  public readonly updateState$: Observable<UpdateStatus> = new Observable(
+    (subscriber) => {
+      const unregister = this.ensureUpdateStateRegistered();
+
+      const sub = this.updateStateSubject!.subscribe({
+        next: (v) => subscriber.next(v),
+        error: (e) => subscriber.error(e),
+        complete: () => subscriber.complete(),
+      });
+
+      return () => {
+        try {
+          sub.unsubscribe();
+        } catch {
+          // ignore
+        }
+        unregister();
+      };
+    },
+  );
+
   async listTools(): Promise<ListToolsResponse> {
     try {
       const response = await this.ipc.listTools();
@@ -627,15 +860,42 @@ export class Wails {
     }
   }
 
-  async listJobHistory(): Promise<JobHistoryEntry[]> {
+  async listJobHistory(): Promise<ListJobHistoryResponse> {
     try {
       const entries = await this.ipc.listJobHistory();
-      return entries.map((entry) => ({
-        ...entry,
-        outputs: entry.outputs ?? [],
-      }));
-    } catch {
-      return [];
+      return {
+        success: true,
+        message: '',
+        entries: entries.map((entry) => ({
+          ...entry,
+          outputs: entry.outputs ?? [],
+        })),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('List job history failed', error),
+        entries: [],
+      };
+    }
+  }
+
+  async trashInfo(): Promise<TrashInfoResponse> {
+    try {
+      const info = await this.ipc.trashInfo();
+      return {
+        success: true,
+        message: '',
+        files: info?.files ?? 0,
+        bytes: info?.bytes ?? 0,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Read trash info failed', error),
+        files: 0,
+        bytes: 0,
+      };
     }
   }
 
@@ -809,6 +1069,51 @@ export class Wails {
     }
   }
 
+  async getImageCropSuggestion(
+    inputPath: string,
+  ): Promise<ImageCropSuggestionResponse> {
+    try {
+      const response = await this.ipc.getImageCropSuggestion(inputPath);
+      return { ...response, error: this.optionalError(response.error) };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get image crop suggestion failed', error),
+        found: false,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'IMAGE_CROP_SUGGESTION_READ_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async suggestOutputName(
+    toolId: string,
+    inputPath: string,
+  ): Promise<OutputNameSuggestionResponse> {
+    try {
+      const response = await this.ipc.suggestOutputName(toolId, inputPath);
+      return { ...response, error: this.optionalError(response.error) };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Suggest output name failed', error),
+        found: false,
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'OUTPUT_NAME_SUGGESTION_READ_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
   async getImageAnnotatePreview(
     request: ImageAnnotatePreviewRequest,
   ): Promise<ImageAnnotatePreviewResponse> {
@@ -927,6 +1232,67 @@ export class Wails {
     }
   }
 
+  async getAppInfo(): Promise<AppInfoResponse> {
+    try {
+      return await this.ipc.getAppInfo();
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get app info failed', error),
+        version: 'dev',
+        commit: 'none',
+        builtAt: 'unknown',
+        release: false,
+        updateKeyConfigured: false,
+      };
+    }
+  }
+
+  /** Reads the cached update status. This call never touches the network. */
+  async getUpdateStatus(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.getUpdateStatus();
+    } catch (error) {
+      return this.updateFallback();
+    }
+  }
+
+  /** Checks the release feed. It downloads nothing. */
+  async checkForUpdates(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.checkForUpdates();
+    } catch (error) {
+      return this.updateFallback();
+    }
+  }
+
+  /** Downloads and verifies the checked release. */
+  async downloadUpdate(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.downloadUpdate();
+    } catch (error) {
+      return this.updateFallback();
+    }
+  }
+
+  /** Records explicit consent for the verified download. */
+  async grantInstallConsent(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.grantInstallConsent();
+    } catch (error) {
+      return this.updateFallback();
+    }
+  }
+
+  /** Installs the verified download; the backend refuses without consent. */
+  async installUpdate(): Promise<UpdateStatus> {
+    try {
+      return await this.ipc.installUpdate();
+    } catch (error) {
+      return this.updateFallback();
+    }
+  }
+
   async getToolchainStatus(): Promise<ToolchainStatus> {
     try {
       return this.normalizeToolchainStatus(await this.ipc.getToolchainStatus());
@@ -964,6 +1330,24 @@ export class Wails {
       );
     } catch (error) {
       return this.toolchainFallback('Cancel toolchain install failed', error);
+    }
+  }
+
+  /**
+   * Opens one tool in its own window. The backend validates the route and
+   * focuses the window already open for it, so callers can fire this freely.
+   */
+  async openToolWindow(route: string): Promise<ToolWindowResponse> {
+    try {
+      return await this.ipc.openToolWindow(route);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Open tool window failed', error),
+        route,
+        windowName: '',
+        created: false,
+      };
     }
   }
 
@@ -1083,6 +1467,129 @@ export class Wails {
     }
   }
 
+  async saveUserRecipe(
+    request: SaveUserRecipeRequest,
+  ): Promise<UserRecipeResponse> {
+    try {
+      const response = await this.ipc.saveUserRecipe(request);
+      return {
+        ...response,
+        recipe: response.recipe
+          ? this.normalizeRecipe(response.recipe)
+          : undefined,
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Save user recipe failed', error),
+        error: this.defaultError(
+          'VALIDATION_INVALID_INPUT',
+          'RECIPE_USER_SAVE_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async renameUserRecipe(
+    id: string,
+    name: string,
+  ): Promise<UserRecipeResponse> {
+    try {
+      const response = await this.ipc.renameUserRecipe(id, name);
+      return {
+        ...response,
+        recipe: response.recipe
+          ? this.normalizeRecipe(response.recipe)
+          : undefined,
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Rename user recipe failed', error),
+        error: this.defaultError(
+          'VALIDATION_INVALID_INPUT',
+          'RECIPE_USER_RENAME_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async deleteUserRecipe(id: string): Promise<UserRecipeResponse> {
+    try {
+      const response = await this.ipc.deleteUserRecipe(id);
+      return {
+        ...response,
+        recipe: response.recipe
+          ? this.normalizeRecipe(response.recipe)
+          : undefined,
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Delete user recipe failed', error),
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'RECIPE_USER_DELETE_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async exportUserRecipes(
+    path: string,
+    ids: string[],
+  ): Promise<ExportUserRecipesResponse> {
+    try {
+      const response = await this.ipc.exportUserRecipes(path, ids);
+      return { ...response, error: this.optionalError(response.error) };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Export user recipes failed', error),
+        path: '',
+        exported: 0,
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'RECIPE_EXPORT_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
+  async importUserRecipes(
+    path: string,
+    overwrite: boolean,
+  ): Promise<ImportUserRecipesResponse> {
+    try {
+      const response = await this.ipc.importUserRecipes(path, overwrite);
+      return {
+        ...response,
+        invalid: response.invalid ?? [],
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Import user recipes failed', error),
+        imported: 0,
+        skipped: 0,
+        invalid: [],
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'RECIPE_IMPORT_READ_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
   async listAutomationRules(): Promise<ListAutomationRulesResponse> {
     try {
       const response = await this.ipc.listAutomationRules();
@@ -1177,6 +1684,31 @@ export class Wails {
     }
   }
 
+  async previewAutomationRule(
+    rule: AutomationRule,
+  ): Promise<AutomationOrganizePreviewResponse> {
+    try {
+      const response = await this.ipc.previewAutomationRule(rule);
+      return {
+        ...response,
+        moves: (response.moves ?? []).map((move) => ({ ...move })),
+        error: this.optionalError(response.error),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Preview automation rule failed', error),
+        moves: [],
+        previewStored: false,
+        error: this.defaultError(
+          'EXEC_IO_TRANSIENT',
+          'AUTOMATION_RULE_PREVIEW_FAILED',
+          error,
+        ),
+      };
+    }
+  }
+
   async getAutomationStatus(): Promise<AutomationStatusResponse> {
     try {
       return await this.ipc.getAutomationStatus();
@@ -1218,6 +1750,69 @@ export class Wails {
       return {
         success: false,
         message: this.formatMessage('Clear automation runs failed', error),
+      };
+    }
+  }
+
+  async startDuplicateScan(
+    request: DuplicateScanRequest,
+  ): Promise<DuplicateStartResponse> {
+    try {
+      return await this.ipc.startDuplicateScan(request);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Start duplicate scan failed', error),
+      };
+    }
+  }
+
+  async getDuplicateScan(scanId: string): Promise<DuplicateScanStatusResponse> {
+    try {
+      const response = await this.ipc.getDuplicateScan(scanId);
+      return {
+        ...response,
+        scan: response.scan
+          ? this.normalizeDuplicateScanState(response.scan)
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Get duplicate scan failed', error),
+        found: false,
+      };
+    }
+  }
+
+  async cancelDuplicateScan(
+    scanId: string,
+  ): Promise<DuplicateScanActionResponse> {
+    try {
+      return await this.ipc.cancelDuplicateScan(scanId);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Cancel duplicate scan failed', error),
+        scanId,
+      };
+    }
+  }
+
+  async listDuplicateScans(): Promise<DuplicateScanListResponse> {
+    try {
+      const response = await this.ipc.listDuplicateScans();
+      return {
+        ...response,
+        scans: (response.scans ?? []).map((scan) =>
+          this.normalizeDuplicateScanState(scan),
+        ),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('List duplicate scans failed', error),
+        scans: [],
       };
     }
   }
@@ -1366,6 +1961,22 @@ export class Wails {
   async openDirectoryDialog(): Promise<string> {
     try {
       return (await this.ipc.openDirectoryDialog()) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  async openImportFileDialog(): Promise<string> {
+    try {
+      return (await this.ipc.openImportFileDialog()) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  async saveFileDialog(defaultFilename: string): Promise<string> {
+    try {
+      return (await this.ipc.saveFileDialog(defaultFilename)) ?? '';
     } catch {
       return '';
     }
@@ -1821,6 +2432,128 @@ export class Wails {
     };
   }
 
+  // Duplicate scan progress only needs a scan id and a progress payload, the
+  // same minimum the job progress stream checks for.
+  private ensureDuplicateProgressRegistered(): () => void {
+    if (!this.duplicateProgressSubject) {
+      this.duplicateProgressSubject =
+        new ReplaySubject<DuplicateScanProgressEvent>(1);
+      this.duplicateProgressUnsubscribe = Events.On(
+        'duplicates/progress',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<DuplicateScanProgressEvent>;
+          if (
+            typeof candidate.scanId !== 'string' ||
+            candidate.scanId.trim().length === 0 ||
+            !candidate.progress
+          ) {
+            return;
+          }
+
+          this.duplicateProgressSubject?.next({
+            scanId: candidate.scanId,
+            kind: typeof candidate.kind === 'string' ? candidate.kind : '',
+            status:
+              typeof candidate.status === 'string'
+                ? candidate.status
+                : 'running',
+            progress: candidate.progress,
+          });
+        },
+      );
+    }
+
+    this.duplicateProgressRefCount += 1;
+
+    return () => {
+      this.duplicateProgressRefCount -= 1;
+      if (this.duplicateProgressRefCount <= 0) {
+        try {
+          this.duplicateProgressUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.duplicateProgressUnsubscribe = null;
+        try {
+          this.duplicateProgressSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.duplicateProgressSubject = null;
+        this.duplicateProgressRefCount = 0;
+      }
+    };
+  }
+
+  // A duplicate snapshot needs a scan id and a status; the lists are normalized
+  // so consumers never branch on null.
+  private ensureDuplicateStateRegistered(): () => void {
+    if (!this.duplicateStateSubject) {
+      this.duplicateStateSubject = new ReplaySubject<DuplicateScanState>(1);
+      this.duplicateStateUnsubscribe = Events.On(
+        'duplicates/state',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<Models.DuplicateScanState>;
+          if (
+            typeof candidate.scanId !== 'string' ||
+            candidate.scanId.trim().length === 0 ||
+            typeof candidate.status !== 'string' ||
+            candidate.status.trim().length === 0
+          ) {
+            return;
+          }
+
+          this.emitDuplicateState(
+            this.normalizeDuplicateScanState(
+              candidate as Models.DuplicateScanState,
+            ),
+          );
+        },
+      );
+    }
+
+    this.duplicateStateRefCount += 1;
+
+    return () => {
+      this.duplicateStateRefCount -= 1;
+      if (this.duplicateStateRefCount <= 0) {
+        try {
+          this.duplicateStateUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.duplicateStateUnsubscribe = null;
+        try {
+          this.duplicateStateSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.duplicateStateSubject = null;
+        this.duplicateStateRefCount = 0;
+      }
+    };
+  }
+
+  // Native events may arrive outside the Angular zone; the snapshot is emitted
+  // inside it so signal consumers re-render.
+  private emitDuplicateState(snapshot: DuplicateScanState): void {
+    try {
+      this.zone.run(() => this.duplicateStateSubject?.next(snapshot));
+    } catch {
+      // ignore
+    }
+  }
+
   // Ensure the toolchain replay subject exists and the native install event
   // handler is registered. Mirrors the other streams; only a phase string, a
   // finite percent and a message are required to drive the progress UI.
@@ -1881,6 +2614,132 @@ export class Wails {
     };
   }
 
+  // Update progress only needs a stage and finite counters; the status
+  // snapshot decides whether the UI is actually downloading.
+  private ensureUpdateProgressRegistered(): () => void {
+    if (!this.updateProgressSubject) {
+      this.updateProgressSubject = new ReplaySubject<UpdateProgressEvent>(1);
+      this.updateProgressUnsubscribe = Events.On(
+        'update/progress',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<UpdateProgressEvent>;
+          if (typeof candidate.stage !== 'string') {
+            return;
+          }
+
+          this.emitUpdateProgress({
+            stage: candidate.stage as UpdateStage,
+            written:
+              typeof candidate.written === 'number' &&
+              Number.isFinite(candidate.written)
+                ? candidate.written
+                : 0,
+            total:
+              typeof candidate.total === 'number' &&
+              Number.isFinite(candidate.total)
+                ? candidate.total
+                : 0,
+            percent:
+              typeof candidate.percent === 'number' &&
+              Number.isFinite(candidate.percent)
+                ? candidate.percent
+                : 0,
+          });
+        },
+      );
+    }
+
+    this.updateProgressRefCount += 1;
+
+    return () => {
+      this.updateProgressRefCount -= 1;
+      if (this.updateProgressRefCount <= 0) {
+        try {
+          this.updateProgressUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.updateProgressUnsubscribe = null;
+        try {
+          this.updateProgressSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.updateProgressSubject = null;
+        this.updateProgressRefCount = 0;
+      }
+    };
+  }
+
+  // Full update snapshots need a state string; every other field is optional
+  // and already modeled as such by the generated type.
+  private ensureUpdateStateRegistered(): () => void {
+    if (!this.updateStateSubject) {
+      this.updateStateSubject = new ReplaySubject<UpdateStatus>(1);
+      this.updateStateUnsubscribe = Events.On(
+        'update/state',
+        (ev: { data?: unknown }) => {
+          const payload = ev?.data;
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+
+          const candidate = payload as Partial<UpdateStatus>;
+          if (
+            typeof candidate.state !== 'string' ||
+            candidate.state.trim().length === 0
+          ) {
+            return;
+          }
+
+          this.emitUpdateState(candidate as UpdateStatus);
+        },
+      );
+    }
+
+    this.updateStateRefCount += 1;
+
+    return () => {
+      this.updateStateRefCount -= 1;
+      if (this.updateStateRefCount <= 0) {
+        try {
+          this.updateStateUnsubscribe?.();
+        } catch {
+          // ignore
+        }
+        this.updateStateUnsubscribe = null;
+        try {
+          this.updateStateSubject?.complete();
+        } catch {
+          // ignore
+        }
+        this.updateStateSubject = null;
+        this.updateStateRefCount = 0;
+      }
+    };
+  }
+
+  private emitUpdateProgress(progress: UpdateProgressEvent): void {
+    try {
+      this.zone.run(() => this.updateProgressSubject?.next(progress));
+    } catch {
+      // ignore
+    }
+  }
+
+  private emitUpdateState(status: UpdateStatus): void {
+    try {
+      this.zone.run(() => this.updateStateSubject?.next(status));
+    } catch {
+      // ignore
+    }
+  }
+
   /** Safe fallback for toolchain calls when IPC is unavailable (preview). */
   private toolchainFallback(
     prefix: string,
@@ -1896,6 +2755,25 @@ export class Wails {
       components: [],
       model: 'medium',
       ocrLanguages: [],
+    };
+  }
+
+  /**
+   * Safe fallback for update calls when IPC is unavailable (preview).
+   *
+   * It carries no message: the panel renders a translated error and the
+   * technical IPC detail is not user-facing copy. `updatesEnabled: false`
+   * keeps the UI from offering an install that can never happen.
+   */
+  private updateFallback(): UpdateStatus {
+    return {
+      success: false,
+      message: '',
+      state: 'error',
+      currentVersion: 'dev',
+      updatesEnabled: false,
+      updateAvailable: false,
+      consentGranted: false,
     };
   }
 
@@ -1924,6 +2802,12 @@ export class Wails {
       acceptExtensions: recipe.acceptExtensions ?? [],
       highlights: recipe.highlights ?? undefined,
       steps: recipe.steps ?? [],
+      optionSchema: (recipe.optionSchema ?? undefined) as
+        | RecipeOptionField[]
+        | undefined,
+      optionOverrides: (recipe.optionOverrides ?? undefined) as
+        | Record<string, unknown>
+        | undefined,
     };
   }
 
@@ -1947,8 +2831,22 @@ export class Wails {
     return {
       ...rule,
       extensions: rule.extensions ?? undefined,
+      patterns: rule.patterns ?? undefined,
       options: rule.options ?? undefined,
       lastOutputs: rule.lastOutputs ?? undefined,
+    };
+  }
+
+  private normalizeDuplicateScanState(
+    scan: Models.DuplicateScanState,
+  ): DuplicateScanState {
+    return {
+      ...scan,
+      groups: (scan.groups ?? []).map((group) => ({
+        ...group,
+        paths: group.paths ?? [],
+      })),
+      warnings: scan.warnings ?? [],
     };
   }
 

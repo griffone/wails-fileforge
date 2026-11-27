@@ -2,80 +2,111 @@ package engine
 
 import (
 	"archive/zip"
-	"bytes"
 	"context"
 	"errors"
-	"fileforge-desktop/internal/platform/execx"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/bobyeoh/docx2pdf-go"
+
+	"fileforge-desktop/internal/platform/execx"
 	"fileforge-desktop/internal/platform/fsx"
+	"fileforge-desktop/internal/toolchain"
 )
 
 const (
-	EngineLibreOffice = "libreoffice"
-	EnginePandoc      = "pandoc"
-)
+	// EngineDocx2PDF names the bundled pure-Go renderer.
+	EngineDocx2PDF = "docx2pdf"
 
-const (
+	ErrorCodeDocxInputProtected   = "DOC_DOCX_TO_PDF_INPUT_PROTECTED"
+	ErrorCodeDocxInputEncrypted   = "DOC_DOCX_TO_PDF_INPUT_ENCRYPTED"
+	ErrorCodeDocxFontSubstitution = "DOC_DOCX_TO_PDF_FONTS_MISSING_OR_SUBSTITUTED"
+	ErrorCodeDocxPrimaryExecution = "DOC_DOCX_TO_PDF_PRIMARY_EXECUTION_FAILED"
+	ErrorCodeDocxPDFAUnsupported  = "DOC_DOCX_TO_PDF_PDFA_UNSUPPORTED"
+	// ErrorCodeDocxPDFAGhostscriptMissing reports the only external runtime the
+	// tool still needs: Ghostscript, and only for PDF/A post-processing.
+	ErrorCodeDocxPDFAGhostscriptMissing = "DOC_DOCX_TO_PDF_RUNTIME_GHOSTSCRIPT_MISSING"
+	ErrorCodeDocxPageSelectionInvalid   = "DOC_DOCX_TO_PDF_PAGE_SELECTION_INVALID"
+
+	// Deprecated compatibility codes. The frontend error vocabulary recognizes
+	// these strings and older jobs may still carry them, so they stay declared
+	// even though the pure-Go engine never emits them.
 	ErrorCodeDocxRuntimePrimaryMissing  = "DOC_DOCX_TO_PDF_RUNTIME_LIBREOFFICE_MISSING"
 	ErrorCodeDocxRuntimeFallbackMissing = "DOC_DOCX_TO_PDF_RUNTIME_PANDOC_MISSING"
-	ErrorCodeDocxInputProtected         = "DOC_DOCX_TO_PDF_INPUT_PROTECTED"
-	ErrorCodeDocxInputEncrypted         = "DOC_DOCX_TO_PDF_INPUT_ENCRYPTED"
-	ErrorCodeDocxFontSubstitution       = "DOC_DOCX_TO_PDF_FONTS_MISSING_OR_SUBSTITUTED"
-	ErrorCodeDocxPrimaryExecution       = "DOC_DOCX_TO_PDF_PRIMARY_EXECUTION_FAILED"
 	ErrorCodeDocxFallbackExecution      = "DOC_DOCX_TO_PDF_FALLBACK_EXECUTION_FAILED"
-	ErrorCodeDocxPDFAUnsupported        = "DOC_DOCX_TO_PDF_PDFA_UNSUPPORTED"
 )
 
-// LibreOffice selects the PDF/A flavor through the writer_pdf_Export filter.
-// SelectPdfVersion 1 is PDF/A-1b, the archival profile the UI advertises.
-const libreOfficePDFAFilter = `pdf:writer_pdf_Export:{"SelectPdfVersion":{"type":"long","value":"1"}}`
+// cfbMagic is the OLE Compound File signature Word uses for password-protected
+// DOCX packages. Those files are not ZIP archives, so the library cannot open
+// them.
+var cfbMagic = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}
 
+// CommandResult holds the bounded stderr tail of an external command.
 type CommandResult struct {
-	Stdout string
 	Stderr string
 }
 
+// CommandRunner runs the external process used for PDF/A post-processing.
 type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) (CommandResult, error)
 }
 
-type RuntimeProbe interface {
-	Check(ctx context.Context) error
+// resolveGhostscriptBinary returns the executable used for the PDF/A
+// post-process. It is a package variable so tests can simulate a machine with a
+// specific Ghostscript installation.
+var resolveGhostscriptBinary = func() (toolchain.GhostscriptBinary, bool) {
+	return toolchain.ResolveGhostscript(nil)
 }
 
-// PDFAProbe is implemented by probes that can validate the PDF/A path
-// separately. PDF/A export only needs LibreOffice; Pandoc has no PDF/A output.
-type PDFAProbe interface {
-	CheckPDFA(ctx context.Context) error
+// DOCXRenderer renders one DOCX file to a PDF at outputPath. The production
+// implementation wraps the pure-Go docx2pdf library; tests inject a stub and a
+// future engine swap stays local to this package.
+type DOCXRenderer interface {
+	Render(ctx context.Context, inputPath, outputPath string) error
+}
+
+// LibraryRenderer renders through github.com/bobyeoh/docx2pdf-go. Empty
+// Options let the library resolve a system font (Arial/Helvetica on
+// Windows/macOS, DejaVu/Liberation/Noto on Linux) with an embedded Latin
+// fallback.
+type LibraryRenderer struct{}
+
+func (r *LibraryRenderer) Render(ctx context.Context, inputPath, outputPath string) error {
+	return docx2pdf.ConvertContext(ctx, inputPath, outputPath, docx2pdf.Options{})
+}
+
+// ExecCommandRunner runs a command through execx so cancellation kills the
+// whole process group and stderr stays bounded.
+type ExecCommandRunner struct{}
+
+func (r *ExecCommandRunner) Run(ctx context.Context, name string, args ...string) (CommandResult, error) {
+	result, err := execx.Run(ctx, execx.Command{Path: name, Args: args})
+
+	return CommandResult{Stderr: result.Stderr}, err
 }
 
 type ConvertDOCXRequest struct {
 	InputPath  string
 	OutputPath string
-	// PDFA requests a PDF/A-1b export. Only LibreOffice can honor it; Pandoc
-	// has no PDF/A output, so the fallback is refused instead of silently
-	// producing a non-archival PDF.
+	// PDFA requests a PDF/A-2 export. The document renders normally first and
+	// Ghostscript post-processes the result; a missing Ghostscript is an error,
+	// never a silent downgrade.
 	PDFA bool
-	// SkipProtectedCheck skips the ZIP protection scan. Callers that already
-	// ran DetectProtectedDOCX during planning set it to avoid scanning twice.
+	// PageSelection keeps only the requested pages of the rendered PDF. The
+	// range is validated against the real page count.
+	PageSelection string
+	// SkipProtectedCheck skips the package protection scan. Callers that
+	// already ran DetectProtectedDOCX during planning set it to avoid scanning
+	// twice.
 	SkipProtectedCheck bool
-	// SkipRuntimeCheck skips the runtime probe. Callers that already validated
-	// the runtime during planning set it to avoid probing twice.
-	SkipRuntimeCheck bool
 }
 
 type ConvertDOCXResult struct {
-	EngineUsed    string
-	FallbackUsed  bool
-	PrimaryError  string
-	FallbackError string
+	EngineUsed string
 }
 
 type DOCXError struct {
@@ -102,238 +133,227 @@ func (e *DOCXError) Unwrap() error {
 	return e.Cause
 }
 
-type HybridRuntimeProbe struct {
-	lookupPath func(file string) (string, error)
-}
+// ConvertDOCX renders a DOCX file and applies the optional PDF/A and page
+// selection steps. Every step writes a sibling temporary file and publishes the
+// final result with fsx.ReplaceFile, so a failure never leaves a partial output
+// at the destination.
+func ConvertDOCX(ctx context.Context, renderer DOCXRenderer, runner CommandRunner, req ConvertDOCXRequest) (ConvertDOCXResult, error) {
+	result := ConvertDOCXResult{EngineUsed: EngineDocx2PDF}
 
-func NewHybridRuntimeProbe() *HybridRuntimeProbe {
-	return &HybridRuntimeProbe{lookupPath: exec.LookPath}
-}
-
-func (p *HybridRuntimeProbe) Check(_ context.Context) error {
-	lookup := p.lookup()
-	if _, err := lookup("libreoffice"); err != nil {
-		return &DOCXError{Code: ErrorCodeDocxRuntimePrimaryMissing, Message: "libreoffice binary not found in PATH", Cause: err}
-	}
-
-	if _, err := lookup("pandoc"); err != nil {
-		return &DOCXError{Code: ErrorCodeDocxRuntimeFallbackMissing, Message: "pandoc binary not found in PATH", Cause: err}
-	}
-
-	return nil
-}
-
-// CheckPDFA validates only the LibreOffice runtime. PDF/A exports never use the
-// Pandoc fallback.
-func (p *HybridRuntimeProbe) CheckPDFA(_ context.Context) error {
-	lookup := p.lookup()
-	if _, err := lookup("libreoffice"); err != nil {
-		return &DOCXError{Code: ErrorCodeDocxRuntimePrimaryMissing, Message: "libreoffice binary not found in PATH", Cause: err}
-	}
-
-	return nil
-}
-
-func (p *HybridRuntimeProbe) lookup() func(string) (string, error) {
-	if p != nil && p.lookupPath != nil {
-		return p.lookupPath
-	}
-	return exec.LookPath
-}
-
-type ExecCommandRunner struct{}
-
-func (r *ExecCommandRunner) Run(ctx context.Context, name string, args ...string) (CommandResult, error) {
-	cmd := execx.CommandContext(ctx, name, args...)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return CommandResult{Stdout: stdout.String(), Stderr: stderr.String()}, err
-}
-
-func ConvertDOCX(ctx context.Context, probe RuntimeProbe, runner CommandRunner, req ConvertDOCXRequest) (ConvertDOCXResult, error) {
-	if probe == nil {
-		probe = NewHybridRuntimeProbe()
+	if renderer == nil {
+		renderer = &LibraryRenderer{}
 	}
 	if runner == nil {
 		runner = &ExecCommandRunner{}
 	}
 
-	if !req.SkipRuntimeCheck {
-		if err := probe.Check(ctx); err != nil {
-			return ConvertDOCXResult{}, err
-		}
-	}
-
 	if !req.SkipProtectedCheck {
 		if err := DetectProtectedDOCX(req.InputPath); err != nil {
-			return ConvertDOCXResult{}, err
+			return result, err
 		}
 	}
 
-	primaryErr := runLibreOffice(ctx, runner, req.InputPath, req.OutputPath, req.PDFA)
-	if primaryErr == nil {
-		return ConvertDOCXResult{EngineUsed: EngineLibreOffice, FallbackUsed: false}, nil
+	if err := fsx.EnsureDir(filepath.Dir(req.OutputPath), 0o755); err != nil {
+		return result, &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "unable to create output directory", Cause: err}
 	}
 
-	// Pandoc cannot emit PDF/A. Refusing the fallback keeps the archival
-	// promise of the request instead of returning a plain PDF.
-	if req.PDFA {
-		return ConvertDOCXResult{
-			PrimaryError: primaryErr.Error(),
-		}, &DOCXError{
-			Code:    ErrorCodeDocxPDFAUnsupported,
-			Message: "pdf/a export failed in libreoffice and the pandoc fallback cannot produce pdf/a",
-			Cause:   primaryErr,
-			Details: map[string]any{"primaryError": primaryErr.Error()},
-		}
-	}
-
-	fallbackErr := runPandoc(ctx, runner, req.InputPath, req.OutputPath)
-	if fallbackErr == nil {
-		return ConvertDOCXResult{
-			EngineUsed:   EnginePandoc,
-			FallbackUsed: true,
-			PrimaryError: primaryErr.Error(),
-		}, nil
-	}
-
-	return ConvertDOCXResult{
-		EngineUsed:    EnginePandoc,
-		FallbackUsed:  true,
-		PrimaryError:  primaryErr.Error(),
-		FallbackError: fallbackErr.Error(),
-	}, fallbackErr
-}
-
-// libreOfficeConvertTo returns the --convert-to value for the requested output
-// flavor. Everything that is not PDF/A keeps the plain pdf filter.
-func libreOfficeConvertTo(pdfa bool) string {
-	if pdfa {
-		return libreOfficePDFAFilter
-	}
-	return "pdf"
-}
-
-func runLibreOffice(ctx context.Context, runner CommandRunner, inputPath, outputPath string, pdfa bool) error {
-	tmpOutDir, err := os.MkdirTemp("", "fileforge-docx2pdf-lo-")
+	workPath, err := createSiblingTemp(req.OutputPath, ".pdf")
 	if err != nil {
-		return &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "unable to prepare libreoffice output dir", Cause: err}
+		return result, &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "unable to prepare the output file", Cause: err}
 	}
-	defer func() { _ = os.RemoveAll(tmpOutDir) }()
+	// The renderer creates the file itself; remove the placeholder first so the
+	// library always writes a fresh document.
+	_ = os.Remove(workPath)
 
-	// A per-conversion user profile keeps parallel conversions from sharing
-	// LibreOffice's single-instance lock and profile state.
-	profileDir, err := os.MkdirTemp("", "fileforge-docx2pdf-profile-")
-	if err != nil {
-		return &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "unable to prepare libreoffice profile dir", Cause: err}
-	}
-	defer func() { _ = os.RemoveAll(profileDir) }()
-
-	result, execErr := runner.Run(
-		ctx,
-		"libreoffice",
-		"--headless",
-		"-env:UserInstallation="+fileURL(profileDir),
-		"--convert-to", libreOfficeConvertTo(pdfa),
-		"--outdir", tmpOutDir,
-		inputPath,
-	)
-	if execErr != nil {
-		if err := mapProtectedFromExecution(result.Stdout + "\n" + result.Stderr); err != nil {
-			return err
-		}
-		return &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "libreoffice execution failed", Cause: execErr, Details: map[string]any{"stderr": strings.TrimSpace(result.Stderr)}}
-	}
-
-	if err := detectFontIssue(result.Stdout + "\n" + result.Stderr); err != nil {
-		return err
-	}
-
-	converted := filepath.Join(tmpOutDir, strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))+".pdf")
-	if _, statErr := os.Stat(converted); statErr != nil {
-		return &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "libreoffice did not produce output pdf", Cause: statErr}
-	}
-
-	if mkErr := os.MkdirAll(filepath.Dir(outputPath), 0o755); mkErr != nil {
-		return &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "unable to create output directory", Cause: mkErr}
-	}
-
-	if moveErr := moveFile(converted, outputPath); moveErr != nil {
-		return &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "unable to finalize libreoffice output", Cause: moveErr}
-	}
-
-	return nil
-}
-
-func runPandoc(ctx context.Context, runner CommandRunner, inputPath, outputPath string) error {
-	// Pandoc writes to a sibling temp file first so a failure can never leave a
-	// partial file at the destination.
-	tempPath, err := createSiblingTemp(outputPath, ".pdf")
-	if err != nil {
-		return &DOCXError{Code: ErrorCodeDocxFallbackExecution, Message: "unable to prepare pandoc output", Cause: err}
-	}
 	published := false
 	defer func() {
 		if !published {
-			_ = os.Remove(tempPath)
+			_ = os.Remove(workPath)
 		}
 	}()
 
-	result, execErr := runner.Run(ctx, "pandoc", inputPath, "-o", tempPath)
-	if execErr != nil {
-		if err := mapProtectedFromExecution(result.Stdout + "\n" + result.Stderr); err != nil {
-			return err
+	if err := renderer.Render(ctx, req.InputPath, workPath); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return result, ctxErr
 		}
-		return &DOCXError{Code: ErrorCodeDocxFallbackExecution, Message: "pandoc execution failed", Cause: execErr, Details: map[string]any{"stderr": strings.TrimSpace(result.Stderr)}}
+		return result, mapRenderError(err)
 	}
 
-	if err := detectFontIssue(result.Stdout + "\n" + result.Stderr); err != nil {
-		return err
+	if _, statErr := os.Stat(workPath); statErr != nil {
+		return result, &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "the renderer did not produce an output PDF", Cause: statErr}
 	}
 
-	if _, err := os.Stat(tempPath); err != nil {
-		return &DOCXError{Code: ErrorCodeDocxFallbackExecution, Message: "pandoc did not produce output pdf", Cause: err}
+	if req.PDFA {
+		pdfaPath, tempErr := createSiblingTemp(req.OutputPath, ".pdfa.pdf")
+		if tempErr != nil {
+			return result, &DOCXError{Code: ErrorCodeDocxPDFAUnsupported, Message: "unable to prepare the PDF/A output file", Cause: tempErr}
+		}
+		if pdfaErr := applyPDFA(ctx, runner, workPath, pdfaPath); pdfaErr != nil {
+			_ = os.Remove(pdfaPath)
+			return result, pdfaErr
+		}
+		// The PDF/A copy is now the working document.
+		_ = os.Remove(workPath)
+		workPath = pdfaPath
 	}
 
-	if err := fsx.ReplaceFile(tempPath, outputPath); err != nil {
-		return &DOCXError{Code: ErrorCodeDocxFallbackExecution, Message: "unable to finalize pandoc output", Cause: err}
+	if selection := strings.TrimSpace(req.PageSelection); selection != "" {
+		if selectionErr := ApplyPageSelectionContext(ctx, req.InputPath, workPath, selection); selectionErr != nil {
+			return result, mapPageSelectionError(req.InputPath, selection, selectionErr)
+		}
+	}
+
+	if err := fsx.ReplaceFile(workPath, req.OutputPath); err != nil {
+		return result, &DOCXError{Code: ErrorCodeDocxPrimaryExecution, Message: "unable to finalize the converted PDF", Cause: err}
 	}
 	published = true
+
+	return result, nil
+}
+
+// applyPDFA distills a rendered PDF into PDF/A-2 with Ghostscript. Missing gs is
+// reported as a dependency error with install guidance; every other failure is
+// an explicit PDF/A error. Neither path falls back to a plain PDF.
+func applyPDFA(ctx context.Context, runner CommandRunner, inputPath, outputPath string) error {
+	binary, found := resolveGhostscriptBinary()
+	if !found {
+		return ghostscriptMissingError(nil)
+	}
+
+	args := []string{
+		"-q",
+		"-dPDFA=2",
+		"-dBATCH",
+		"-dNOPAUSE",
+		"-sDEVICE=pdfwrite",
+		"-dPDFACompatibilityPolicy=1",
+		"-sOutputFile=" + outputPath,
+		inputPath,
+	}
+
+	result, err := runner.Run(ctx, binary.Path, args...)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if errors.Is(err, exec.ErrNotFound) {
+			return ghostscriptMissingError(err)
+		}
+		return &DOCXError{
+			Code:    ErrorCodeDocxPDFAUnsupported,
+			Message: "Ghostscript could not produce the requested PDF/A file",
+			Cause:   err,
+			Details: map[string]any{"runtime": binary.Name, "stderr": strings.TrimSpace(result.Stderr)},
+		}
+	}
+
+	if info, statErr := os.Stat(outputPath); statErr != nil || info.Size() == 0 {
+		if statErr == nil {
+			statErr = errors.New("ghostscript produced an empty file")
+		}
+		return &DOCXError{
+			Code:    ErrorCodeDocxPDFAUnsupported,
+			Message: "Ghostscript did not produce a PDF/A file",
+			Cause:   statErr,
+			Details: map[string]any{"runtime": binary.Name, "stderr": strings.TrimSpace(result.Stderr)},
+		}
+	}
 
 	return nil
 }
 
+// ghostscriptMissingError keeps the canonical dependency code while naming
+// every candidate the resolver tried, so a Windows report shows why gswin64c was
+// not enough.
+func ghostscriptMissingError(cause error) error {
+	candidates := strings.Join(toolchain.GhostscriptBinaryNames, ", ")
+
+	return &DOCXError{
+		Code:    ErrorCodeDocxPDFAGhostscriptMissing,
+		Message: fmt.Sprintf("Ghostscript (%s) is required for PDF/A export but is not installed. Install Ghostscript or turn off the archival option.", candidates),
+		Cause:   cause,
+		Details: map[string]any{"runtime": "gs", "candidates": candidates},
+	}
+}
+
+// mapRenderError keeps font failures distinguishable from generic render
+// failures so the UI can give the right guidance.
+func mapRenderError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "font") {
+		return &DOCXError{
+			Code:    ErrorCodeDocxFontSubstitution,
+			Message: "unable to resolve a usable font for the DOCX rendering",
+			Cause:   err,
+		}
+	}
+
+	return &DOCXError{
+		Code:    ErrorCodeDocxPrimaryExecution,
+		Message: "the DOCX renderer could not convert the document",
+		Cause:   err,
+	}
+}
+
+func mapPageSelectionError(inputPath, selection string, err error) error {
+	return &DOCXError{
+		Code:    ErrorCodeDocxPageSelectionInvalid,
+		Message: fmt.Sprintf("page selection %q cannot be applied to %s. The document may have fewer pages than the selection.", selection, filepath.Base(inputPath)),
+		Cause:   err,
+		Details: map[string]any{"inputPath": inputPath, "pageSelection": selection},
+	}
+}
+
+// DetectProtectedDOCX rejects password-protected or encrypted packages before
+// they reach the renderer. It recognizes the OLE/CFB signature Word uses for
+// encrypted DOCX files, the ZIP encryption flag, and document protection
+// metadata.
 func DetectProtectedDOCX(inputPath string) error {
-	f, err := os.Open(inputPath)
+	file, err := os.Open(inputPath)
 	if err != nil {
 		return &DOCXError{Code: ErrorCodeDocxInputEncrypted, Message: "unable to inspect docx protection metadata", Cause: err}
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = file.Close() }()
 
-	fi, err := f.Stat()
+	info, err := file.Stat()
 	if err != nil {
 		return &DOCXError{Code: ErrorCodeDocxInputEncrypted, Message: "unable to inspect docx file metadata", Cause: err}
 	}
 
-	zr, err := zip.NewReader(f, fi.Size())
-	if err != nil {
-		return &DOCXError{Code: ErrorCodeDocxInputEncrypted, Message: "docx appears encrypted or invalid package", Cause: err}
+	header := make([]byte, len(cfbMagic))
+	if _, readErr := io.ReadFull(file, header); readErr == nil && string(header) == string(cfbMagic) {
+		return &DOCXError{Code: ErrorCodeDocxInputEncrypted, Message: "encrypted or password-protected docx files are not supported"}
+	}
+	if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
+		return &DOCXError{Code: ErrorCodeDocxInputEncrypted, Message: "unable to inspect docx protection metadata", Cause: seekErr}
 	}
 
-	for _, file := range zr.File {
-		if file.Name != "word/settings.xml" {
+	archive, err := zip.NewReader(file, info.Size())
+	if err != nil {
+		return &DOCXError{Code: ErrorCodeDocxInputEncrypted, Message: "docx appears encrypted or is not a valid package", Cause: err}
+	}
+
+	for _, entry := range archive.File {
+		if entry.Flags&0x1 != 0 {
+			return &DOCXError{Code: ErrorCodeDocxInputEncrypted, Message: "encrypted docx entries are not supported"}
+		}
+	}
+
+	for _, entry := range archive.File {
+		if entry.Name != "word/settings.xml" {
 			continue
 		}
 
-		rc, openErr := file.Open()
+		reader, openErr := entry.Open()
 		if openErr != nil {
 			return &DOCXError{Code: ErrorCodeDocxInputProtected, Message: "unable to read word/settings.xml", Cause: openErr}
 		}
-		content, readErr := io.ReadAll(rc)
-		_ = rc.Close()
+		content, readErr := io.ReadAll(reader)
+		_ = reader.Close()
 		if readErr != nil {
 			return &DOCXError{Code: ErrorCodeDocxInputProtected, Message: "unable to inspect protection metadata", Cause: readErr}
 		}
@@ -346,117 +366,4 @@ func DetectProtectedDOCX(inputPath string) error {
 	}
 
 	return nil
-}
-
-func mapProtectedFromExecution(logOutput string) error {
-	normalized := strings.ToLower(logOutput)
-	if strings.Contains(normalized, "password") || strings.Contains(normalized, "encrypted") || strings.Contains(normalized, "protection") {
-		return &DOCXError{Code: ErrorCodeDocxInputProtected, Message: "protected docx files are not supported"}
-	}
-	return nil
-}
-
-func detectFontIssue(logOutput string) error {
-	normalized := strings.ToLower(logOutput)
-	fontSignals := []string{
-		"font",
-		"substitut",
-		"fallback",
-		"not found",
-		"missing",
-	}
-
-	hasFontSignal := false
-	for _, signal := range fontSignals {
-		if strings.Contains(normalized, signal) {
-			hasFontSignal = true
-			break
-		}
-	}
-
-	if hasFontSignal {
-		return &DOCXError{Code: ErrorCodeDocxFontSubstitution, Message: "font substitution/missing fonts detected during conversion"}
-	}
-
-	return nil
-}
-
-// moveFile moves srcPath over dstPath. A same-device rename is preferred; the
-// cross-device fallback streams through a sibling temp file and publishes it
-// atomically, so a failed copy never leaves a partial destination.
-func moveFile(srcPath, dstPath string) error {
-	if err := os.Rename(srcPath, dstPath); err == nil {
-		return nil
-	}
-
-	source, err := os.Open(srcPath)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = source.Close() }()
-
-	tempPath, err := createSiblingTemp(dstPath, ".tmp")
-	if err != nil {
-		return err
-	}
-	published := false
-	defer func() {
-		if !published {
-			_ = os.Remove(tempPath)
-		}
-	}()
-
-	target, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(target, source); err != nil {
-		_ = target.Close()
-		return err
-	}
-	if err := target.Sync(); err != nil {
-		_ = target.Close()
-		return err
-	}
-	if err := target.Close(); err != nil {
-		return err
-	}
-	if err := source.Close(); err != nil {
-		return err
-	}
-
-	if err := fsx.ReplaceFile(tempPath, dstPath); err != nil {
-		return err
-	}
-	published = true
-
-	if rmErr := os.Remove(srcPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-		return rmErr
-	}
-
-	return nil
-}
-
-// fileURL converts a filesystem path into a file:// URL that LibreOffice
-// accepts on Windows and POSIX hosts.
-func fileURL(path string) string {
-	slashPath := filepath.ToSlash(path)
-
-	// UNC paths: file://server/share/...
-	if strings.HasPrefix(slashPath, "//") {
-		rest := strings.TrimPrefix(slashPath, "//")
-		host, tail, found := strings.Cut(rest, "/")
-		if found {
-			return (&url.URL{Scheme: "file", Host: host, Path: "/" + tail}).String()
-		}
-		return (&url.URL{Scheme: "file", Host: rest}).String()
-	}
-
-	// Windows drive paths: file:///C:/...
-	if len(slashPath) >= 2 && slashPath[1] == ':' {
-		slashPath = "/" + slashPath
-	}
-
-	return (&url.URL{Scheme: "file", Path: slashPath}).String()
 }

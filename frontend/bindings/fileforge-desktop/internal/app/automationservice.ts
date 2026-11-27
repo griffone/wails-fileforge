@@ -52,6 +52,15 @@ export function ListAutomationRuns(limit: number): $CancellablePromise<models$0.
 }
 
 /**
+ * PreviewAutomationRule returns the planned organize moves for a rule without
+ * moving, creating or recording anything. A successful preview of the saved
+ * configuration is what allows an organize rule to be enabled.
+ */
+export function PreviewAutomationRule(rule: models$0.AutomationRule): $CancellablePromise<models$0.AutomationOrganizePreviewResponse> {
+    return $Call.ByName("fileforge-desktop/internal/app.AutomationService.PreviewAutomationRule", rule);
+}
+
+/**
  * SaveAutomationRule validates and persists a watch-folder rule.
  */
 export function SaveAutomationRule(rule: models$0.AutomationRule): $CancellablePromise<models$0.AutomationRuleActionResponse> {

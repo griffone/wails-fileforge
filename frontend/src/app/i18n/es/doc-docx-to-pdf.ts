@@ -40,7 +40,7 @@ export const docDocxToPdfEs = {
   'docDocxToPdf.archival.title': 'PDF de archivo',
   'docDocxToPdf.archival.label': 'PDF/A (archivístico)',
   'docDocxToPdf.archival.help':
-    'Requiere LibreOffice. Si el motor principal no está disponible, la conversión falla en lugar de producir un PDF no archivístico.',
+    'Requiere Ghostscript. Si no está disponible, la exportación falla en lugar de producir un PDF no archivístico.',
   'docDocxToPdf.archival.note':
     'La selección de páginas puede reducir el cumplimiento estricto de PDF/A. El plan muestra una advertencia cuando ambas opciones están activadas.',
   'docDocxToPdf.helper.addOne':

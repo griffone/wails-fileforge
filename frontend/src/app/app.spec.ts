@@ -1,9 +1,11 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { EMPTY } from 'rxjs';
 
 import { App } from './app';
+import { findShortcutById, formatShortcutLabel } from './config/shortcuts';
 import { GlobalDropService } from './services/global-drop.service';
+import { ShortcutService } from './services/shortcut.service';
 import { ToolchainStatus, Wails } from './services/wails';
 
 const TOOLCHAIN_FALLBACK: ToolchainStatus = {
@@ -69,6 +71,26 @@ describe('App', () => {
     expect(compiled.querySelector('.rail-brand-mark')).toBeTruthy();
   });
 
+  it('renders the Audio group in the rail', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    const groups = Array.from(
+      fixture.nativeElement.querySelectorAll('.rail-group'),
+    ) as HTMLElement[];
+    const audio = groups.find(
+      (group) =>
+        group.querySelector('.rail-group-label')?.textContent?.trim() ===
+        'Audio',
+    );
+
+    expect(audio).toBeTruthy();
+    const labels = Array.from(
+      audio?.querySelectorAll('.nav-item-label') ?? [],
+    ).map((label) => label.textContent?.trim());
+    expect(labels).toEqual(['Extract', 'Convert', 'Normalize']);
+  });
+
   it('opens the command palette with Ctrl+K', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
@@ -109,6 +131,163 @@ describe('App', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.palette')).toBeNull();
+  });
+
+  it('shows the registry label in the palette trigger', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    const shortcuts = TestBed.inject(ShortcutService);
+    const expected = formatShortcutLabel(
+      findShortcutById('palette.open'),
+      shortcuts.platform,
+    );
+
+    expect(
+      (fixture.nativeElement.querySelector('.palette-trigger-kbd') as HTMLElement)
+        .textContent?.trim(),
+    ).toBe(expected);
+  });
+
+  it('opens settings with Ctrl+,', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(
+      true,
+    );
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: ',',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(navigate).toHaveBeenCalledWith('/settings');
+  });
+
+  it('opens the shortcut sheet with ?', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '?',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.shortcut-sheet')).toBeTruthy();
+  });
+
+  it('closes the shortcut sheet with Escape', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '?', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.shortcut-sheet')).toBeTruthy();
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.shortcut-sheet')).toBeNull();
+  });
+
+  it('ignores shell shortcuts typed into a form field', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'k',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.palette')).toBeNull();
+    input.remove();
+  });
+
+  it('ignores shell shortcuts while a dialog is open', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl');
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '?', shiftKey: true, bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelectorAll('[role="dialog"]').length).toBe(
+      1,
+    );
+  });
+
+  it('ignores a default-prevented shell shortcut', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'k',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    event.preventDefault();
+    document.dispatchEvent(event);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.palette')).toBeNull();
+  });
+
+  it('routes page shortcuts to the registered controller', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    const shortcuts = TestBed.inject(ShortcutService);
+    const page = {
+      toolId: 'tool.test',
+      requestOpenFiles: jasmine.createSpy('requestOpenFiles').and.returnValue(true),
+      requestRun: jasmine.createSpy('requestRun').and.returnValue(true),
+    };
+    shortcuts.registerPage(page);
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(event);
+
+    expect(page.requestRun).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBeTrue();
+    shortcuts.unregisterPage(page);
   });
 
   it('opens the activity drawer from the topbar trigger', () => {
