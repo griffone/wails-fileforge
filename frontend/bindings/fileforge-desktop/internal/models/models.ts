@@ -998,6 +998,18 @@ export interface ToolRuntimeState {
 }
 
 /**
+ * ToolWindowResponse reports what an open-window request did. Created is false
+ * when the route already had a window and it was focused instead of duplicated.
+ */
+export interface ToolWindowResponse {
+    "success": boolean;
+    "message": string;
+    "route": string;
+    "windowName": string;
+    "created": boolean;
+}
+
+/**
  * ToolchainComponent is one portable component of the managed local
  * toolchain. Ready means the file was verified on disk; Required components
  * gate ToolchainStatus.Ready.

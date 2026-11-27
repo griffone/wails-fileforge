@@ -42,7 +42,7 @@
           @for (group of groups(); track group.id) {
             <div class="palette-group" role="presentation">
               <p class="palette-group-label">{{ group.label }}</p>
-              @for (entry of group.entries; track entry.index) {
+              @for (entry of group.entries; track (entry.action ?? entry.tool.route)) {
                 <div
                   class="palette-option"
                   role="option"

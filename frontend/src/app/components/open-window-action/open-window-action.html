@@ -1,0 +1,13 @@
+@if (tool()) {
+  <button
+    type="button"
+    class="btn btn-ghost btn-sm open-window"
+    [disabled]="busy()"
+    [attr.title]="i18n.t('window.open.hint')"
+    [attr.aria-label]="i18n.t('window.open.action')"
+    (click)="open()"
+  >
+    <lucide-icon [img]="windowIcon" [size]="14" [strokeWidth]="1.75" aria-hidden="true"></lucide-icon>
+    <span class="open-window-label">{{ i18n.t('window.open.action') }}</span>
+  </button>
+}

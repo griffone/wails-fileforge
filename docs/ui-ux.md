@@ -55,6 +55,27 @@ app-command-palette     overlay, opened by Ctrl/Cmd+K
 - At `<= 900px` the rail becomes a drawer with a backdrop; the top bar exposes the menu button.
 - The top bar shows `CATEGORY / Short name` using the registry's `navName`, not the full name.
 
+## Secondary windows
+
+A tool page and the command palette can open the same tool in its own window
+(`WindowService.OpenToolWindow`). It is one extra window **per route**: asking
+for a route that already has one focuses it instead of opening a duplicate.
+
+- **What is shared.** Jobs, recipes, activity, downloads and settings are
+  app-wide: the backend emits their events to every window, so a job started in
+  one window is visible in another and in the tray.
+- **What is not shared.** Page state is per window. Each window loads its own
+  Angular instance and each page builds its own `ToolRunController`, so two
+  windows of the same tool keep independent file queues and options. Submitted
+  requests stay deduplicated only through the shared `LastRequestService`, which
+  is read on demand, never live-synced.
+- **Closing.** Only the primary window hides instead of closing while work runs.
+  A secondary window closes normally and never quits the app or cancels a job;
+  the tray keeps listing every running task.
+- **Bootstrap.** The window opens at `/?route=<path>`; `main.ts` rewrites the
+  address before Angular starts, so the router's first navigation is the tool
+  and Home is never painted first.
+
 ## File-first tool flow
 
 Every tool follows the same user task, not the backend job contract:

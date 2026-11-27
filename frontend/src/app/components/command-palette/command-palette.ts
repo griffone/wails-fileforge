@@ -30,6 +30,8 @@ import { ToolRegistryService } from '../../services/tool-registry.service';
 /** A single selectable row, carrying its translated copy and flattened position. */
 interface PaletteEntry {
   tool: ToolDefinition;
+  /** Action rows run a command instead of navigating to the tool. */
+  action?: 'open-window';
   name: string;
   description: string;
   categoryLabel: string;
@@ -74,9 +76,16 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
   private readonly recentTools = inject(RecentToolsService);
 
   @Input() open = false;
+  /**
+   * Router URL of the window this palette belongs to. When it points at a tool
+   * page, browse mode offers "Open in new window" for that tool; anywhere else
+   * (Home, Settings, a recipe) the entry is absent.
+   */
+  @Input() currentRoute = '';
 
   @Output() closed = new EventEmitter<void>();
   @Output() navigate = new EventEmitter<string>();
+  @Output() openWindow = new EventEmitter<string>();
 
   readonly searchIcon = Search;
   readonly emptyIcon = SearchX;
@@ -169,6 +178,12 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
   }
 
   select(entry: PaletteEntry): void {
+    if (entry.action === 'open-window') {
+      this.openWindow.emit(entry.tool.route);
+      this.closed.emit();
+      return;
+    }
+
     this.navigate.emit(entry.tool.route);
     this.closed.emit();
   }
@@ -244,6 +259,18 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
 
   private browseGroups(): PaletteGroup[] {
     const groups: PaletteGroup[] = [];
+
+    // Actions lead the list: on a tool page the first row is the window action.
+    // Search mode stays a pure tool index, so typing never surfaces an action.
+    const action = this.currentToolAction();
+    if (action) {
+      groups.push({
+        id: 'actions',
+        label: this.i18n.t('palette.group.actions'),
+        entries: [action],
+      });
+    }
+
     const recent = this.recentTools.recent();
 
     if (recent.length > 0) {
@@ -376,6 +403,28 @@ export class CommandPalette implements OnChanges, AfterViewChecked {
     }
 
     return total;
+  }
+
+  /**
+   * The "open current tool in a new window" row, or null when this window is
+   * not on a tool page. The registry decides: Home, Settings, the catalog and
+   * every recipe resolve to a definition that `isTool` rejects.
+   */
+  private currentToolAction(): PaletteEntry | null {
+    const tool = this.registry.findByRoute(this.currentRoute);
+    if (!tool || !this.registry.isTool(tool)) {
+      return null;
+    }
+
+    return {
+      tool,
+      action: 'open-window',
+      name: this.i18n.t('window.open.action'),
+      description: this.i18n.t('window.open.hint'),
+      categoryLabel: this.i18n.t('palette.group.actions'),
+      meta: this.registry.toolName(tool),
+      index: 0,
+    };
   }
 
   private toEntry(tool: ToolDefinition, groupId: string): PaletteEntry {

@@ -41,6 +41,7 @@ import { toastEn } from './toast';
 import { toolCatalogEn } from './tool-catalog';
 import { toolErrorEn } from './tool-error';
 import { toolchainEn } from './toolchain';
+import { windowEn } from './window';
 import { toolsEn } from './tools';
 import { videoConvertEn } from './video-convert';
 import { videoMergeEn } from './video-merge';
@@ -98,6 +99,7 @@ export const en = {
   ...videoTargetEn,
   ...videoTranscribeEn,
   ...pdfRendererEn,
+  ...windowEn,
 } as const;
 
 export type TranslationKey = keyof typeof en;

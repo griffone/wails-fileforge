@@ -13,6 +13,7 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
+import { OpenWindowAction } from '../open-window-action/open-window-action';
 import { PDF_REORDER_COPY } from './pdf-page-ops-copy';
 import {
   REORDER_REVERSE_KEYWORD,
@@ -40,6 +41,7 @@ const PDF_REORDER_TOOL_ID = 'tool.pdf.reorder';
   standalone: true,
   imports: [
     LucideAngularModule,
+    OpenWindowAction,
     FileDrop,
     FileQueue,
     OutputPlanCard,

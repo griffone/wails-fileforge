@@ -77,6 +77,7 @@ export type {
     ToolCatalogEntry,
     ToolManifest,
     ToolRuntimeState,
+    ToolWindowResponse,
     ToolchainComponent,
     ToolchainInstallEvent,
     ToolchainInstallOptions,

@@ -10,6 +10,7 @@ import * as SystemService from "./systemservice.js";
 import * as ToolService from "./toolservice.js";
 import * as ToolchainService from "./toolchainservice.js";
 import * as UpdateService from "./updateservice.js";
+import * as WindowService from "./windowservice.js";
 export {
     AutomationService,
     DuplicatesService,
@@ -19,5 +20,6 @@ export {
     SystemService,
     ToolService,
     ToolchainService,
-    UpdateService
+    UpdateService,
+    WindowService
 };

@@ -169,8 +169,10 @@
 
 <app-command-palette
   [open]="paletteOpen()"
+  [currentRoute]="currentRoute()"
   (closed)="onPaletteClosed()"
   (navigate)="onPaletteNavigate($event)"
+  (openWindow)="onPaletteOpenWindow($event)"
 ></app-command-palette>
 
 <app-shortcut-sheet

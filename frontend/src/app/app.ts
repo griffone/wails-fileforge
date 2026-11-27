@@ -41,6 +41,7 @@ import { ThemeService } from './services/theme.service';
 import { ToolRegistryService } from './services/tool-registry.service';
 import { UpdateStateService } from './services/update-state.service';
 import { Wails } from './services/wails';
+import { WindowLauncher } from './services/window-launcher.service';
 
 interface NativeDropPayload {
   droppedFiles?: unknown;
@@ -80,6 +81,7 @@ export class App {
   private readonly globalDrop = inject(GlobalDropService);
   private readonly updates = inject(UpdateStateService);
   private readonly shortcuts = inject(ShortcutService);
+  private readonly windows = inject(WindowLauncher);
 
   readonly brandIcon = BRAND_ICON;
   readonly searchIcon = Search;
@@ -110,6 +112,8 @@ export class App {
 
   readonly currentTool = signal<ToolDefinition | null>(null);
   readonly currentRecipe = signal<RecipeDefinition | null>(null);
+  /** Router URL of this window, fed to the palette's window action. */
+  readonly currentRoute = signal('');
   readonly paletteOpen = signal(false);
   readonly mobileNavOpen = signal(false);
   readonly shortcutSheetOpen = signal(false);
@@ -206,6 +210,11 @@ export class App {
     this.paletteNavigated = true;
     this.paletteOpen.set(false);
     void this.router.navigateByUrl(route);
+  }
+
+  /** Palette action: open the tool of this window in a window of its own. */
+  onPaletteOpenWindow(route: string): void {
+    void this.windows.open(route);
   }
 
   toggleMobileNav(): void {
@@ -323,6 +332,7 @@ export class App {
 
   private syncCurrentTool(route: string): void {
     const recipe = this.registry.findRecipeByRoute(route);
+    this.currentRoute.set(route);
     this.currentRecipe.set(recipe);
     this.currentTool.set(recipe ? null : this.registry.findByRoute(route));
   }

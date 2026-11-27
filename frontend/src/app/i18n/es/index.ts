@@ -44,6 +44,7 @@ import { toastEs } from './toast';
 import { toolCatalogEs } from './tool-catalog';
 import { toolErrorEs } from './tool-error';
 import { toolchainEs } from './toolchain';
+import { windowEs } from './window';
 import { toolsEs } from './tools';
 import { videoConvertEs } from './video-convert';
 import { videoMergeEs } from './video-merge';
@@ -101,4 +102,5 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...videoTargetEs,
   ...videoTranscribeEs,
   ...pdfRendererEs,
+  ...windowEs,
 };

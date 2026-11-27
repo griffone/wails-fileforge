@@ -13,6 +13,7 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
+import { OpenWindowAction } from '../open-window-action/open-window-action';
 import { PDF_REMOVE_PAGES_COPY } from './pdf-page-ops-copy';
 import {
   defaultPageSelectionOptions,
@@ -35,6 +36,7 @@ const PDF_REMOVE_PAGES_TOOL_ID = 'tool.pdf.remove_pages';
   standalone: true,
   imports: [
     LucideAngularModule,
+    OpenWindowAction,
     FileDrop,
     FileQueue,
     OutputPlanCard,

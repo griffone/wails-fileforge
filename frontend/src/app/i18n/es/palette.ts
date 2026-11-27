@@ -9,4 +9,5 @@ export const paletteEs = {
   'palette.hint.open': 'Abrir',
   'palette.hint.close': 'Cerrar',
   'palette.group.recent': 'Recientes',
+  'palette.group.actions': 'Acciones',
 };

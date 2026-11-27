@@ -1,0 +1,15 @@
+:host {
+  display: inline-flex;
+  flex: none;
+}
+
+.open-window {
+  white-space: nowrap;
+}
+
+/* The button keeps its aria-label, so the text can go on narrow headers. */
+@media (max-width: 720px) {
+  .open-window-label {
+    display: none;
+  }
+}

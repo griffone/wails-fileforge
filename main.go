@@ -37,10 +37,14 @@ func main() {
 			application.NewService(bundle.Notifier),
 			application.NewService(bundle.Duplicates),
 			application.NewService(bundle.Update),
+			application.NewService(bundle.Windows),
 		},
 		Assets: application.AssetOptions{
+			// The SPA fallback turns an extension-less navigation such as
+			// /image-crop into the app root, so reloading a tool window serves
+			// index.html instead of a blank 404.
 			Handler:    application.AssetFileServerFS(assets),
-			Middleware: media.Middleware,
+			Middleware: application.ChainMiddleware(media.Middleware, myapp.SPAFallback),
 		},
 		// Quitting is explicit: the window close is intercepted so running work
 		// survives, and every quit path (tray, app menu, idle close) runs the
@@ -57,13 +61,17 @@ func main() {
 	})
 
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:           "main",
+		Name:           myapp.MainWindowName,
 		Title:          "FileForge Desktop",
 		MinWidth:       1080,
 		MinHeight:      720,
 		EnableFileDrop: true,
 	})
 	win.Show()
+
+	// Tool windows can only be created once the application exists. Attach
+	// before Run so the first OpenToolWindow call from the frontend works.
+	myapp.AttachWindows(app, bundle.Windows)
 
 	myapp.NewTray(bundle, app, win, appIcon).Install()
 

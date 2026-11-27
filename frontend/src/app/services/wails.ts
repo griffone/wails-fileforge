@@ -424,6 +424,9 @@ export type UpdateStatus = UpdateModels.Status;
 
 export type PathActionResponse = Models.PathActionResponse;
 
+/** Result of asking the backend to open (or focus) a tool window. */
+export type ToolWindowResponse = Models.ToolWindowResponse;
+
 export interface InspectFilesResponse extends Models.InspectFilesResponse {
   files: FileInfo[];
 }
@@ -1327,6 +1330,24 @@ export class Wails {
       );
     } catch (error) {
       return this.toolchainFallback('Cancel toolchain install failed', error);
+    }
+  }
+
+  /**
+   * Opens one tool in its own window. The backend validates the route and
+   * focuses the window already open for it, so callers can fire this freely.
+   */
+  async openToolWindow(route: string): Promise<ToolWindowResponse> {
+    try {
+      return await this.ipc.openToolWindow(route);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Open tool window failed', error),
+        route,
+        windowName: '',
+        created: false,
+      };
     }
   }
 

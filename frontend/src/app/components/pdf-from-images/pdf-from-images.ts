@@ -17,6 +17,7 @@ import { FileDrop } from '../file-drop/file-drop';
 import { JobCard } from '../job-card/job-card';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard, RunAgainStartedEvent } from '../tool-flow/result-card';
+import { OpenWindowAction } from '../open-window-action/open-window-action';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
@@ -191,6 +192,7 @@ function gridShape(perPage: PerPage, orientation: Orientation): ImagesGrid {
   standalone: true,
   imports: [
     LucideAngularModule,
+    OpenWindowAction,
     FileDrop,
     OutputPlanCard,
     ResultCard,

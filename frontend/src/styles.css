@@ -720,6 +720,17 @@
     flex-wrap: wrap;
   }
 
+  /* The local badge and the open-window action form the right-hand group:
+     the badge consumes the free space so the action sits at the row's end. */
+  .page-head-row > .page-local {
+    margin-left: auto;
+  }
+
+  .page-head-row > app-open-window-action {
+    flex: none;
+    margin-top: 1px;
+  }
+
   .eyebrow {
     display: inline-flex;
     align-items: center;

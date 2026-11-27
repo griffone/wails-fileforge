@@ -9,6 +9,7 @@ import {
   ToolService,
   ToolchainService,
   UpdateService,
+  WindowService,
 } from '../../../bindings/fileforge-desktop/internal/app';
 import type * as Models from '../../../bindings/fileforge-desktop/internal/models';
 import type * as PreviewModels from '../../../bindings/fileforge-desktop/internal/preview/models';
@@ -260,6 +261,12 @@ export class WailsIpc {
 
   cancelToolchainInstall(): Promise<Models.ToolchainStatus> {
     return ToolchainService.CancelToolchainInstall();
+  }
+
+  // Secondary windows. The backend owns route validation and de-duplication by
+  // route, so the frontend only forwards the route it wants opened.
+  openToolWindow(route: string): Promise<Models.ToolWindowResponse> {
+    return WindowService.OpenToolWindow(route);
   }
 
   // Inspection, dialogs, and system actions.

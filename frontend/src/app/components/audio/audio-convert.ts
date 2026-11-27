@@ -12,6 +12,7 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
+import { OpenWindowAction } from '../open-window-action/open-window-action';
 import { AudioConversionPage } from './audio-conversion-page';
 import { AUDIO_CONVERT_COPY } from './audio-copy';
 import { audioToolPageDeps } from './audio-tool-page';
@@ -27,6 +28,7 @@ const AUDIO_CONVERT_TOOL_ID = 'tool.audio.convert';
   standalone: true,
   imports: [
     LucideAngularModule,
+    OpenWindowAction,
     FileDrop,
     FileQueue,
     OutputPlanCard,

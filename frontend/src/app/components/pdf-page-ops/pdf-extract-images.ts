@@ -13,6 +13,7 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
+import { OpenWindowAction } from '../open-window-action/open-window-action';
 import { fileName, fileDir, formatCount } from '../../utils/format';
 import { PDF_EXTRACT_IMAGES_COPY } from './pdf-page-ops-copy';
 import {
@@ -45,6 +46,7 @@ export interface ExtractedFolderRow {
   standalone: true,
   imports: [
     LucideAngularModule,
+    OpenWindowAction,
     FileDrop,
     FileQueue,
     OutputPlanCard,

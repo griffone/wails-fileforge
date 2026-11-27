@@ -42,6 +42,13 @@ func shouldHideOnClose(running int) bool {
 	return running > 0
 }
 
+// isMainWindow reports whether a window name belongs to the primary window.
+// Hiding instead of closing is reserved for it: a secondary window must never
+// keep the app alive or swallow a close request.
+func isMainWindow(name string) bool {
+	return name == MainWindowName
+}
+
 // closeAction is what a close request resolves to.
 type closeAction int
 
@@ -134,7 +141,15 @@ func NewTray(bundle *Services, app *application.App, window *application.Webview
 func (t *Tray) Install() {
 	// The close hook is installed first so no close request can bypass the
 	// running-task decision, even when the tray cannot be created.
-	t.window.RegisterHook(events.Common.WindowClosing, t.onWindowClosing)
+	//
+	// Hiding on close belongs to the primary window only. Secondary windows are
+	// created by WindowService, which registers a WindowClosing listener and
+	// never a hook, so closing one just closes it.
+	if isMainWindow(t.window.Name()) {
+		t.window.RegisterHook(events.Common.WindowClosing, t.onWindowClosing)
+	} else {
+		log.Printf("tray.close_hook.skipped window=%q", t.window.Name())
+	}
 	t.window.OnWindowEvent(events.Common.WindowShow, func(*application.WindowEvent) {
 		t.mu.Lock()
 		t.hideNoticeSent = false

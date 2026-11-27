@@ -13,6 +13,7 @@ import { JobCard } from '../job-card/job-card';
 import { FileQueue } from '../tool-flow/file-queue';
 import { OutputPlanCard } from '../tool-flow/output-plan-card';
 import { ResultCard } from '../tool-flow/result-card';
+import { OpenWindowAction } from '../open-window-action/open-window-action';
 import { PDF_ROTATE_COPY } from './pdf-page-ops-copy';
 import {
   DEFAULT_ROTATE_ANGLE,
@@ -37,6 +38,7 @@ const PDF_ROTATE_TOOL_ID = 'tool.pdf.rotate';
   standalone: true,
   imports: [
     LucideAngularModule,
+    OpenWindowAction,
     FileDrop,
     FileQueue,
     OutputPlanCard,
