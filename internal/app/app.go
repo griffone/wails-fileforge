@@ -22,6 +22,7 @@ import (
 	"fileforge-desktop/internal/services"
 	"fileforge-desktop/internal/toolchain"
 	_ "fileforge-desktop/internal/video"
+	_ "fileforge-desktop/internal/web"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )

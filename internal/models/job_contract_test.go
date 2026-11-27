@@ -366,6 +366,23 @@ func TestCanonicalErrorCodeClassifiesAudioCodes(t *testing.T) {
 	})
 }
 
+func TestCanonicalErrorCodeClassifiesWebCodes(t *testing.T) {
+	assertCanonicalCodes(t, map[string]string{
+		"WEB_DOWNLOAD_FORMAT_UNAVAILABLE":  ErrorCodeValidationInvalidInput,
+		"WEB_DOWNLOAD_INVALID_URL":         ErrorCodeValidationInvalidInput,
+		"WEB_DOWNLOAD_ITEMS_MISMATCH":      ErrorCodeValidationInvalidInput,
+		"WEB_DOWNLOAD_ITEMS_REQUIRED":      ErrorCodeValidationInvalidInput,
+		"WEB_DOWNLOAD_OPTIONS_INVALID":     ErrorCodeValidationInvalidInput,
+		"WEB_DOWNLOAD_JS_RUNTIME_MISSING":  ErrorCodeRuntimeDepMissing,
+		"WEB_DOWNLOAD_RUNTIME_UNAVAILABLE": ErrorCodeRuntimeDepMissing,
+		"WEB_DOWNLOAD_UNSUPPORTED_SITE":    ErrorCodeUnsupportedFormat,
+		"WEB_DOWNLOAD_CANCELED":            ErrorCodeCancelledByUser,
+		"WEB_DOWNLOAD_EXECUTION_FAILED":    ErrorCodeExecIOTransient,
+		"WEB_DOWNLOAD_METADATA_FAILED":     ErrorCodeExecIOTransient,
+		"WEB_DOWNLOAD_NO_OUTPUT":           ErrorCodeExecIOTransient,
+	})
+}
+
 func TestCanonicalErrorCodeKeepsDOCRules(t *testing.T) {
 	assertCanonicalCodes(t, map[string]string{
 		"DOC_DOCX_TO_PDF_CANCELLED":                    ErrorCodeCancelledByUser,

@@ -139,6 +139,7 @@ func TestBuildArgs(t *testing.T) {
 	audioHead := func(quality string) []string {
 		return []string{"-f", "ba", "-x", "--audio-format", "mp3", "--audio-quality", quality}
 	}
+	explicitPath := filepath.Join(dir, "planned", "Clip [abc].mp4")
 
 	tests := []struct {
 		name string
@@ -164,6 +165,16 @@ func TestBuildArgs(t *testing.T) {
 			name: "audio best vbr",
 			req:  Request{URL: url, OutputDir: dir, Kind: KindAudio},
 			want: append(audioHead("0"), wantDownloadTail(dir, url)...),
+		},
+		{
+			name: "explicit output path replaces the directory template",
+			req:  Request{URL: url, OutputDir: dir, OutputPath: explicitPath, Kind: KindVideo},
+			want: append(videoHead, wantExplicitDownloadTail(explicitPath, url)...),
+		},
+		{
+			name: "explicit audio output path",
+			req:  Request{URL: url, OutputDir: dir, OutputPath: filepath.Join(dir, "Clip.mp3"), Kind: KindAudio, AudioBitrateKbps: 192},
+			want: append(audioHead("192K"), wantExplicitDownloadTail(filepath.Join(dir, "Clip.mp3"), url)...),
 		},
 	}
 
@@ -193,8 +204,8 @@ func TestBuildArgsRejectsInvalidRequest(t *testing.T) {
 	}
 }
 
-// wantDownloadTail pins the shared half of every command, including the exact
-// progress and output templates the parser depends on.
+// wantDownloadTail pins the shared half of every templated command, including
+// the exact progress and output templates the parser depends on.
 func wantDownloadTail(dir, url string) []string {
 	return []string{
 		"--no-playlist",
@@ -203,6 +214,21 @@ func wantDownloadTail(dir, url string) []string {
 		"--progress-template", "download:ff-dl %(progress.downloaded_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s",
 		"-P", dir,
 		"-o", "%(title).120B [%(id)s].%(ext)s",
+		"--print", "after_move:filepath",
+		"--no-simulate",
+		url,
+	}
+}
+
+// wantExplicitDownloadTail pins the exact-file command: no -P and no title
+// template, so yt-dlp writes the path Plan resolved.
+func wantExplicitDownloadTail(outputPath, url string) []string {
+	return []string{
+		"--no-playlist",
+		"--newline",
+		"--progress",
+		"--progress-template", "download:ff-dl %(progress.downloaded_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s",
+		"-o", outputPath,
 		"--print", "after_move:filepath",
 		"--no-simulate",
 		url,

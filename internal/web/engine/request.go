@@ -14,6 +14,9 @@ import (
 type Request struct {
 	URL       string
 	OutputDir string
+	// OutputPath targets one exact file. When set it replaces the -P/-o template
+	// pair so the planned path and the produced path are identical.
+	OutputPath string
 	// Kind is KindVideo or KindAudio.
 	Kind string
 	// MaxHeight caps the video height; zero means best available.
@@ -26,7 +29,7 @@ type Request struct {
 // output directory exists and is writable. It never creates the directory:
 // creating it silently would hide a wrong path behind a successful download.
 func ValidateRequest(req Request) *WebError {
-	if err := validateURL(req.URL); err != nil {
+	if err := ValidateURL(req.URL); err != nil {
 		return err
 	}
 
@@ -97,8 +100,20 @@ func BuildArgs(req Request) ([]string, *WebError) {
 		// stdout, so the only non-progress line is the after_move path.
 		"--progress",
 		"--progress-template", downloadProgressTemplate,
-		"-P", strings.TrimSpace(req.OutputDir),
-		"-o", outputTemplate,
+	)
+
+	if outputPath := strings.TrimSpace(req.OutputPath); outputPath != "" {
+		// The exact file target replaces the directory plus name template
+		// pair, so yt-dlp writes where Plan said it would.
+		args = append(args, "-o", outputPath)
+	} else {
+		args = append(args,
+			"-P", strings.TrimSpace(req.OutputDir),
+			"-o", outputTemplate,
+		)
+	}
+
+	args = append(args,
 		"--print", "after_move:filepath",
 		"--no-simulate",
 		strings.TrimSpace(req.URL),
@@ -127,7 +142,9 @@ func audioQuality(bitrateKbps int) string {
 	return fmt.Sprintf("%dK", bitrateKbps)
 }
 
-func validateURL(rawURL string) *WebError {
+// ValidateURL checks that a link is an absolute http(s) URL with a host. The
+// planner and the probe share it so both reject the same links.
+func ValidateURL(rawURL string) *WebError {
 	trimmed := strings.TrimSpace(rawURL)
 	if trimmed == "" {
 		return &WebError{

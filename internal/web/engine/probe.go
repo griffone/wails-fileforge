@@ -54,7 +54,7 @@ type LinkInfo struct {
 // once; when the link turns out to be a playlist it re-runs with
 // --flat-playlist so filling the entries never expands every item.
 func ProbeLink(ctx context.Context, runner CommandRunner, rawURL string) (*LinkInfo, *WebError) {
-	if err := validateURL(rawURL); err != nil {
+	if err := ValidateURL(rawURL); err != nil {
 		return nil, err
 	}
 	if ctx == nil {

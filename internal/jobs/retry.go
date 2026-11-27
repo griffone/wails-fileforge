@@ -164,6 +164,11 @@ var transientDetailCodesByTool = map[string]map[string]struct{}{
 		"AUDIO_EXECUTION_FAILED": {},
 		"AUDIO_LOUDNORM_FAILED":  {},
 	},
+	// A failed yt-dlp run is a network or server hiccup more often than not.
+	// Validation, runtime, unsupported-site and cancellation codes stay out.
+	"tool.web.download": {
+		"WEB_DOWNLOAD_EXECUTION_FAILED": {},
+	},
 }
 
 func isRetryableError(toolID string, jobErr *models.JobError) bool {

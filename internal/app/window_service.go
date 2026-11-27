@@ -69,6 +69,7 @@ var toolWindowRoutes = map[string]string{
 	"/video-trim":         "tool.video.trim",
 	"/video-merge":        "tool.video.merge",
 	"/video-transcribe":   "tool.video.transcribe",
+	"/web-download":       "tool.web.download",
 	"/audio-extract":      "tool.audio.extract",
 	"/audio-convert":      "tool.audio.convert",
 	"/audio-normalize":    "tool.audio.normalize",

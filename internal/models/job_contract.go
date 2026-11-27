@@ -495,6 +495,35 @@ var canonicalAudioCodes = canonicalCodeFamilies{
 	},
 }
 
+// canonicalWebCodes classifies the URL downloader. The coarse WEB_DOWNLOAD_*
+// bucket the engine returns stays as the job DetailCode; its family decides
+// whether the failure is user-fixable, a missing dependency, unsupported, a
+// cancellation or a transient execution failure.
+var canonicalWebCodes = canonicalCodeFamilies{
+	validation: []string{
+		"WEB_DOWNLOAD_FORMAT_UNAVAILABLE",
+		"WEB_DOWNLOAD_INVALID_URL",
+		"WEB_DOWNLOAD_ITEMS_MISMATCH",
+		"WEB_DOWNLOAD_ITEMS_REQUIRED",
+		"WEB_DOWNLOAD_OPTIONS_INVALID",
+	},
+	runtime: []string{
+		"WEB_DOWNLOAD_JS_RUNTIME_MISSING",
+		"WEB_DOWNLOAD_RUNTIME_UNAVAILABLE",
+	},
+	unsupported: []string{
+		"WEB_DOWNLOAD_UNSUPPORTED_SITE",
+	},
+	cancelled: []string{
+		"WEB_DOWNLOAD_CANCELED",
+	},
+	execution: []string{
+		"WEB_DOWNLOAD_EXECUTION_FAILED",
+		"WEB_DOWNLOAD_METADATA_FAILED",
+		"WEB_DOWNLOAD_NO_OUTPUT",
+	},
+}
+
 // canonicalSystemCodes keeps runtime-wide codes (job engine, service layer)
 // classified as they were before the per-domain table existed.
 // canonicalRecipeCodes classifies the duplicate-and-edit errors so the UI and
@@ -556,6 +585,7 @@ var canonicalCodeTable = buildCanonicalCodeTable(
 	canonicalRecipeCodes,
 	canonicalVideoCodes,
 	canonicalAudioCodes,
+	canonicalWebCodes,
 	canonicalSystemCodes,
 )
 

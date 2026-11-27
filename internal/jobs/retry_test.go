@@ -36,6 +36,7 @@ var registeredToolIDs = []string{
 	"tool.audio.extract",
 	"tool.audio.convert",
 	"tool.audio.normalize",
+	"tool.web.download",
 }
 
 func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
@@ -116,6 +117,9 @@ func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
 		{name: "audio normalize execution", toolID: "tool.audio.normalize", detailCode: "AUDIO_EXECUTION_FAILED", want: true},
 		{name: "audio normalize loudness", toolID: "tool.audio.normalize", detailCode: "AUDIO_LOUDNORM_FAILED", want: true},
 
+		// web.download: a failed yt-dlp run is transient; the rest is not.
+		{name: "web download execution", toolID: "tool.web.download", detailCode: "WEB_DOWNLOAD_EXECUTION_FAILED", want: true},
+
 		// Deterministic image codes never retry.
 		{name: "image crop validation", toolID: "tool.image.crop", detailCode: "IMAGE_CROP_DIMENSIONS_INVALID", want: false},
 		{name: "image compress invalid target", toolID: "tool.image.compress", detailCode: "IMAGE_COMPRESS_TARGET_INVALID", want: false},
@@ -162,6 +166,14 @@ func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
 		{name: "audio unsupported input", toolID: "tool.audio.convert", detailCode: "AUDIO_INPUT_UNSUPPORTED", want: false},
 		{name: "audio unsupported format", toolID: "tool.audio.convert", detailCode: "AUDIO_FORMAT_UNSUPPORTED", want: false},
 		{name: "audio validation", toolID: "tool.audio.normalize", detailCode: "AUDIO_TARGET_LUFS_INVALID", want: false},
+
+		// Deterministic web download codes never retry.
+		{name: "web download invalid url", toolID: "tool.web.download", detailCode: "WEB_DOWNLOAD_INVALID_URL", want: false},
+		{name: "web download items required", toolID: "tool.web.download", detailCode: "WEB_DOWNLOAD_ITEMS_REQUIRED", want: false},
+		{name: "web download runtime missing", toolID: "tool.web.download", detailCode: "WEB_DOWNLOAD_RUNTIME_UNAVAILABLE", want: false},
+		{name: "web download js runtime missing", toolID: "tool.web.download", detailCode: "WEB_DOWNLOAD_JS_RUNTIME_MISSING", want: false},
+		{name: "web download unsupported site", toolID: "tool.web.download", detailCode: "WEB_DOWNLOAD_UNSUPPORTED_SITE", want: false},
+		{name: "web download canceled", toolID: "tool.web.download", detailCode: "WEB_DOWNLOAD_CANCELED", want: false},
 
 		{name: "unknown tool", toolID: "tool.unknown", detailCode: "IMAGE_CROP_EXECUTION", want: false},
 	}

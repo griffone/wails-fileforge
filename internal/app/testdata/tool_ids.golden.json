@@ -26,5 +26,6 @@
   "tool.video.convert",
   "tool.video.merge",
   "tool.video.transcribe",
-  "tool.video.trim"
+  "tool.video.trim",
+  "tool.web.download"
 ]

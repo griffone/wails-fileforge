@@ -16,6 +16,7 @@ import (
 	"fileforge-desktop/internal/services"
 	"fileforge-desktop/internal/toolchain"
 	_ "fileforge-desktop/internal/video"
+	_ "fileforge-desktop/internal/web"
 )
 
 // stack is the headless counterpart of internal/app.New. It wires the same

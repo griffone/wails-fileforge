@@ -48,6 +48,8 @@ var toolKeys = map[string][]string{
 	"tool.audio.extract":   {"format", "bitrateKbps", "outputPath"},
 	"tool.audio.convert":   {"format", "bitrateKbps", "outputPath"},
 	"tool.audio.normalize": {"bitrateKbps", "targetLufs", "truePeak", "outputPath"},
+
+	"tool.web.download": {"kind", "maxHeight", "audioBitrateKbps", "items", "outputPath"},
 }
 
 // KnownKeys returns the sorted allowed keys for a tool. found is false for a

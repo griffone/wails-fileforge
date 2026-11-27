@@ -188,6 +188,13 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'web-download',
+    loadComponent: () =>
+      import('./components/web-download/web-download').then(
+        (m) => m.WebDownload,
+      ),
+  },
+  {
     path: 'audio-extract',
     loadComponent: () =>
       import('./components/audio/audio-extract').then((m) => m.AudioExtract),

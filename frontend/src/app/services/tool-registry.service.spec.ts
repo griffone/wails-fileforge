@@ -18,12 +18,12 @@ describe('ToolRegistryService', () => {
     localStorage.removeItem(PREFERENCES_STORAGE_KEY);
   });
 
-  it('exposes the twenty-eight conversion tools', () => {
-    expect(service.tools.length).toBe(28);
+  it('exposes the twenty-nine conversion tools', () => {
+    expect(service.tools.length).toBe(29);
   });
 
-  it('exposes thirty-two navigation entries', () => {
-    expect(service.navigation.length).toBe(33);
+  it('exposes thirty-four navigation entries', () => {
+    expect(service.navigation.length).toBe(34);
     expect(service.navigation[0].route).toBe('/');
     expect(service.navigation[service.navigation.length - 3].route).toBe(
       '/automations',
@@ -117,7 +117,7 @@ describe('ToolRegistryService', () => {
     ).toBe(11);
     expect(
       service.navGroups.find((group) => group.id === 'video')?.items.length,
-    ).toBe(4);
+    ).toBe(5);
     expect(
       service.navGroups.find((group) => group.id === 'audio')?.items.length,
     ).toBe(3);
@@ -212,8 +212,8 @@ describe('ToolRegistryService', () => {
   it('exposes the six recipes as navigation entries outside the tool counts', () => {
     expect(service.recipes.length).toBe(6);
     expect(service.recipeNav.length).toBe(6);
-    expect(service.navigation.length).toBe(33);
-    expect(service.tools.length).toBe(28);
+    expect(service.navigation.length).toBe(34);
+    expect(service.tools.length).toBe(29);
   });
 
   it('resolves recipes by route', () => {

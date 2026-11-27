@@ -883,5 +883,34 @@
     ],
     "resourceClass": "external",
     "maxWorkers": 1
+  },
+  {
+    "toolId": "tool.web.download",
+    "name": "Download Media",
+    "description": "Download a link as an MP4 video or an MP3 audio track",
+    "domain": "web",
+    "capability": "tool.web.download",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "url"
+    ],
+    "outputExtensions": [
+      "mp4",
+      "mp3"
+    ],
+    "runtimeDependencies": [
+      "yt-dlp",
+      "ffmpeg",
+      "deno"
+    ],
+    "tags": [
+      "web",
+      "download",
+      "youtube"
+    ],
+    "resourceClass": "external",
+    "maxWorkers": 2
   }
 ]

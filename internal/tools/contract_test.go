@@ -19,6 +19,7 @@ import (
 	"fileforge-desktop/internal/pdf"
 	"fileforge-desktop/internal/registry"
 	"fileforge-desktop/internal/video"
+	"fileforge-desktop/internal/web"
 )
 
 // updateGolden refreshes the golden files instead of comparing them.
@@ -55,6 +56,7 @@ var toolIDs = []string{
 	audio.ToolIDAudioNormalize,
 	doc.ToolIDDocMDToPDF,
 	doc.ToolIDDocDOCXToPDF,
+	web.ToolIDWebDownload,
 }
 
 func TestToolRegistryContract(t *testing.T) {
@@ -65,8 +67,8 @@ func TestToolRegistryContract(t *testing.T) {
 	}
 
 	catalog := reg.ListTools(context.Background())
-	if len(catalog) != 28 {
-		t.Fatalf("registered tools = %d, want 28", len(catalog))
+	if len(catalog) != 29 {
+		t.Fatalf("registered tools = %d, want 29", len(catalog))
 	}
 
 	seen := make(map[string]struct{}, len(catalog))
