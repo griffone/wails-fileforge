@@ -38,6 +38,7 @@ import { recipesEs } from './recipes';
 import { resultCardEs } from './result-card';
 import { settingsEs } from './settings';
 import { shellEs } from './shell';
+import { shortcutsEs } from './shortcuts';
 import { toastEs } from './toast';
 import { toolCatalogEs } from './tool-catalog';
 import { toolErrorEs } from './tool-error';
@@ -58,6 +59,7 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...docDocxToPdfEs,
   ...docMdToPdfEs,
   ...shellEs,
+  ...shortcutsEs,
   ...settingsEs,
   ...categoriesEs,
   ...toolsEs,

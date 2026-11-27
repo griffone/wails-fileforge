@@ -1,0 +1,54 @@
+@if (open) {
+  <div class="sheet-backdrop" (click)="onBackdropClick($event)">
+    <div
+      class="shortcut-sheet"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="titleId"
+    >
+      <header class="sheet-head">
+        <div class="sheet-heading">
+          <p class="sheet-eyebrow">{{ i18n.t('shortcuts.sheet.eyebrow') }}</p>
+          <h2 [id]="titleId" class="sheet-title">
+            {{ i18n.t('shortcuts.sheet.title') }}
+          </h2>
+        </div>
+        <button
+          #closeButton
+          type="button"
+          class="icon-btn sheet-close"
+          [attr.aria-label]="i18n.t('shortcuts.sheet.close')"
+          (click)="close()"
+        >
+          <lucide-icon [img]="closeIcon" [size]="16" [strokeWidth]="1.75"></lucide-icon>
+        </button>
+      </header>
+
+      <div class="sheet-body">
+        @for (group of groups(); track group.scope) {
+          <section class="shortcut-group" [attr.data-scope]="group.scope">
+            <h3 class="shortcut-group-label">{{ group.label }}</h3>
+            <ul class="shortcut-list">
+              @for (entry of group.entries; track entry.id) {
+                <li class="shortcut-row">
+                  <span class="shortcut-copy">
+                    <span class="shortcut-label">{{ entry.label }}</span>
+                    <span class="shortcut-description">{{ entry.description }}</span>
+                  </span>
+                  <kbd class="kbd shortcut-key">{{ entry.keys }}</kbd>
+                </li>
+              }
+            </ul>
+          </section>
+        }
+      </div>
+
+      <footer class="sheet-foot">
+        <span class="sheet-hint">
+          <kbd class="kbd">{{ closeKey }}</kbd>
+          {{ closeHint() }}
+        </span>
+      </footer>
+    </div>
+  </div>
+}

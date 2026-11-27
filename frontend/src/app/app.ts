@@ -19,16 +19,24 @@ import { filter } from 'rxjs';
 import { Activity, LucideAngularModule, Menu, Moon, Search, Sun, X } from 'lucide-angular';
 
 import { RecipeDefinition } from './config/recipes';
+import {
+  findShortcut,
+  findShortcutById,
+  formatShortcutLabel,
+  shouldIgnoreShortcutEvent,
+} from './config/shortcuts';
 import { BRAND_ICON, ToolDefinition } from './config/tools';
 import { ActivityPanel } from './components/activity-panel/activity-panel';
 import { CommandPalette } from './components/command-palette/command-palette';
 import { GlobalDrop } from './components/global-drop/global-drop';
+import { ShortcutSheet } from './components/shortcut-sheet/shortcut-sheet';
 import { ToastHost } from './components/toast-host/toast-host';
 import { ToolchainSetup } from './components/toolchain-setup/toolchain-setup';
 import { ActivityService } from './services/activity.service';
 import { GlobalDropService } from './services/global-drop.service';
 import { I18nService } from './services/i18n.service';
 import { RecentToolsService } from './services/recent-tools.service';
+import { ShortcutService } from './services/shortcut.service';
 import { ThemeService } from './services/theme.service';
 import { ToolRegistryService } from './services/tool-registry.service';
 import { UpdateStateService } from './services/update-state.service';
@@ -53,6 +61,7 @@ const LOCAL_DROP_TARGET_PREFIX = 'ff-drop-';
     GlobalDrop,
     ToolchainSetup,
     ActivityPanel,
+    ShortcutSheet,
     ToastHost,
   ],
   templateUrl: './app.html',
@@ -70,6 +79,7 @@ export class App {
   private readonly zone = inject(NgZone);
   private readonly globalDrop = inject(GlobalDropService);
   private readonly updates = inject(UpdateStateService);
+  private readonly shortcuts = inject(ShortcutService);
 
   readonly brandIcon = BRAND_ICON;
   readonly searchIcon = Search;
@@ -90,7 +100,10 @@ export class App {
   });
 
   readonly runtimeAvailable = this.wails.isRuntimeAvailable();
-  readonly shortcutLabel = this.resolveShortcutLabel();
+  readonly shortcutLabel = formatShortcutLabel(
+    findShortcutById('palette.open'),
+    this.shortcuts.platform,
+  );
 
   readonly exactMatch = { exact: true } as const;
   readonly prefixMatch = { exact: false } as const;
@@ -99,6 +112,7 @@ export class App {
   readonly currentRecipe = signal<RecipeDefinition | null>(null);
   readonly paletteOpen = signal(false);
   readonly mobileNavOpen = signal(false);
+  readonly shortcutSheetOpen = signal(false);
 
   @ViewChild('menuButton') private menuButton?: ElementRef<HTMLButtonElement>;
   @ViewChild('paletteTrigger') private paletteTrigger?: ElementRef<HTMLButtonElement>;
@@ -155,6 +169,21 @@ export class App {
     this.mobileNavOpen.set(false);
     this.activity.closePanel();
     this.paletteOpen.set(true);
+  }
+
+  openSettings(): void {
+    this.mobileNavOpen.set(false);
+    void this.router.navigateByUrl('/settings');
+  }
+
+  openShortcutSheet(): void {
+    this.mobileNavOpen.set(false);
+    this.activity.closePanel();
+    this.shortcutSheetOpen.set(true);
+  }
+
+  onShortcutSheetClosed(): void {
+    this.shortcutSheetOpen.set(false);
   }
 
   toggleActivity(): void {
@@ -251,19 +280,44 @@ export class App {
 
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
+    // The mobile drawer is shell chrome, not a dialog: it keeps its own Escape.
     if (event.key === 'Escape' && this.mobileNavOpen()) {
       event.preventDefault();
       this.closeMobileNav(true);
       return;
     }
 
-    if (!this.isPaletteShortcut(event) || this.isEditableTarget(event.target)) {
+    // Page shortcuts belong to the active ToolRunController. Escape is not one
+    // of them: dialogs close themselves, so nothing here can close a dialog
+    // twice.
+    if (this.shortcuts.handlePageShortcut(event)) {
       return;
     }
 
-    event.preventDefault();
-    if (!this.paletteOpen()) {
-      this.openPalette();
+    const shortcut = findShortcut(event, this.shortcuts.platform, 'global');
+    if (!shortcut || shouldIgnoreShortcutEvent(event, shortcut)) {
+      return;
+    }
+
+    switch (shortcut.id) {
+      case 'palette.open':
+        event.preventDefault();
+        if (!this.paletteOpen()) {
+          this.openPalette();
+        }
+        return;
+      case 'settings.open':
+        event.preventDefault();
+        this.openSettings();
+        return;
+      case 'shortcutSheet.open':
+        event.preventDefault();
+        if (!this.shortcutSheetOpen()) {
+          this.openShortcutSheet();
+        }
+        return;
+      default:
+        return;
     }
   }
 
@@ -291,41 +345,5 @@ export class App {
       // The runtime may already be gone during teardown.
     }
     this.nativeDropUnsubscribe = null;
-  }
-
-  private isPaletteShortcut(event: KeyboardEvent): boolean {
-    return (
-      event.key.toLowerCase() === 'k' &&
-      (event.metaKey || event.ctrlKey) &&
-      !event.altKey &&
-      !event.shiftKey
-    );
-  }
-
-  private isEditableTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) {
-      return false;
-    }
-
-    const tag = target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA') {
-      return true;
-    }
-
-    return (
-      target.isContentEditable ||
-      target.closest('[contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]') !==
-        null
-    );
-  }
-
-  private resolveShortcutLabel(): string {
-    if (typeof navigator === 'undefined') {
-      return 'Ctrl K';
-    }
-
-    const platform = navigator.platform ?? '';
-    const isMac = /mac/i.test(platform) || /mac os x/i.test(navigator.userAgent);
-    return isMac ? '⌘K' : 'Ctrl K';
   }
 }

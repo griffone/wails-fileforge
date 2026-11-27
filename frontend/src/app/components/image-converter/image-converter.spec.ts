@@ -14,6 +14,7 @@ import { ActivityService, ActivityTask } from '../../services/activity.service';
 import { DropIntakeService } from '../../services/drop-intake.service';
 import { I18nService } from '../../services/i18n.service';
 import { PreferencesService } from '../../services/preferences.service';
+import { ShortcutService } from '../../services/shortcut.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -215,6 +216,13 @@ describe('ImageConverter', () => {
     TestBed.inject(I18nService).setLocale('en');
     localStorage.removeItem('ff-preferences');
     clearToolStorage();
+  });
+
+  it('registers its controller as the active page for shortcuts', () => {
+    // Every page gets the page shortcuts by constructing its controller inside
+    // the component, without passing anything extra.
+    const shortcuts = TestBed.inject(ShortcutService);
+    expect(shortcuts.activePageTarget()?.toolId).toBe('tool.image.convert');
   });
 
   it('plans a single image with the default WebP preset', fakeAsync(() => {

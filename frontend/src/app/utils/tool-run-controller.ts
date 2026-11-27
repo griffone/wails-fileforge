@@ -1,10 +1,18 @@
-import { Signal, WritableSignal, computed, signal } from '@angular/core';
+import {
+  Signal,
+  WritableSignal,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { Subscription } from 'rxjs';
 
 import { ActivityService } from '../services/activity.service';
 import { DropIntakeService } from '../services/drop-intake.service';
 import { I18nService } from '../services/i18n.service';
 import { LastRequestService } from '../services/last-request.service';
+import { ShortcutService } from '../services/shortcut.service';
+import type { PageShortcutTarget } from '../services/shortcut.service';
 import {
   describeToolError,
   localizeToolError,
@@ -135,12 +143,39 @@ export interface ToolRunControllerConfig {
   onRunAccepted?: (request: JobRequest, plan: PlanJobResponse | null) => void;
   /** Applies a request's options before a run-again job is adopted. */
   onRunAgainAdopted?: (request: JobRequest) => void;
+  /**
+   * Which picker `Ctrl/Cmd+O` opens. The default is multi-select; a tool that
+   * accepts exactly one input declares `'single'` so the shortcut cannot add a
+   * second file the page would refuse to run.
+   */
+  fileDialog?: 'single' | 'multiple';
+  /**
+   * Registry of the active tool page. Defaults to the injected singleton, which
+   * is how every tool page gets the page shortcuts without extra wiring.
+   * Standalone tests may pass their own instance (or null) instead.
+   */
+  shortcuts?: ShortcutService | null;
 }
 
 const DEFAULT_PLAN_DEBOUNCE_MS = 250;
 const THUMBNAIL_SIZE = 160;
 
-export class ToolRunController {
+/**
+ * `inject()` works while a component builds its field initializers, which is
+ * where every page constructs this controller. A test that calls `new
+ * ToolRunController(...)` has no injector, and the controller stays inert
+ * there instead of throwing.
+ */
+function injectShortcutService(): ShortcutService | null {
+  try {
+    return inject(ShortcutService);
+  } catch {
+    return null;
+  }
+}
+
+export class ToolRunController implements PageShortcutTarget {
+  readonly toolId: string;
   readonly outputDir: WritableSignal<string>;
 
   readonly selectedPaths = signal<string[]>([]);
@@ -199,9 +234,56 @@ export class ToolRunController {
   private planDirty = false;
   private fileItemsGeneration = 0;
   private readonly autoVerifiedJobIds = new Set<string>();
+  private readonly shortcuts: ShortcutService | null;
 
   constructor(private readonly config: ToolRunControllerConfig) {
     this.outputDir = signal(config.initialOutputDir ?? '');
+    this.toolId = config.toolId;
+    this.shortcuts =
+      config.shortcuts === undefined
+        ? injectShortcutService()
+        : config.shortcuts;
+    this.shortcuts?.registerPage(this);
+  }
+
+  /**
+   * `Ctrl/Cmd+O`: the picker for this page, fed through the same intake path a
+   * drop or the page's "choose files" button uses.
+   */
+  requestOpenFiles(): boolean {
+    void this.openFilesFromDialog();
+    return true;
+  }
+
+  /**
+   * `Ctrl/Cmd+Enter`: exactly what the primary button does. The controller's
+   * `run()` already rejects a page that cannot run, so the shortcut reports
+   * "not handled" and leaves the key alone when the button is disabled.
+   */
+  requestRun(): boolean {
+    if (!this.config.canRun() || this.config.extraBlocked?.()) {
+      return false;
+    }
+    void this.run();
+    return true;
+  }
+
+  async openFilesFromDialog(): Promise<void> {
+    const paths = await this.pickFiles();
+    const selected = paths
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0);
+    if (selected.length > 0) {
+      this.onPathsSelected(selected);
+    }
+  }
+
+  private async pickFiles(): Promise<string[]> {
+    if (this.config.fileDialog === 'single') {
+      return [await this.config.wails.openFileDialog()];
+    }
+    const paths = await this.config.wails.openMultipleFilesDialog();
+    return Array.isArray(paths) ? paths : [];
   }
 
   /** Pulls paths queued by the global drop overlay for this page. */
@@ -541,6 +623,7 @@ export class ToolRunController {
 
   /** Stops local observation only; the backend job keeps running. */
   dispose(): void {
+    this.shortcuts?.unregisterPage(this);
     this.stopObserving();
     this.clearPlanRefreshTimer();
   }

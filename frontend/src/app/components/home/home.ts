@@ -32,6 +32,10 @@ import {
 } from 'lucide-angular';
 
 import { RecipeDefinition, RECIPES } from '../../config/recipes';
+import {
+  findShortcutById,
+  formatShortcutLabel,
+} from '../../config/shortcuts';
 import { ToolCategory, ToolDefinition } from '../../config/tools';
 import {
   RecipeOptionFields,
@@ -49,6 +53,7 @@ import {
   RecentConversionsService,
 } from '../../services/recent-conversions.service';
 import { RecentToolsService } from '../../services/recent-tools.service';
+import { ShortcutService } from '../../services/shortcut.service';
 import { ToolRegistryService } from '../../services/tool-registry.service';
 import {
   AutomationStatusResponse,
@@ -96,6 +101,7 @@ export class Home implements OnInit {
   private readonly wailsService = inject(Wails);
   private readonly document = inject(DOCUMENT);
   private readonly changeDetector = inject(ChangeDetectorRef);
+  private readonly shortcuts = inject(ShortcutService);
 
   readonly searchIcon = Search;
   readonly clearIcon = X;
@@ -769,7 +775,10 @@ export class Home implements OnInit {
 
   readonly recentConversions = this.recentConversionsService.recent;
 
-  readonly shortcutLabel = this.resolveShortcutLabel();
+  readonly shortcutLabel = formatShortcutLabel(
+    findShortcutById('palette.open'),
+    this.shortcuts.platform,
+  );
 
   /** Kept for callers and specs; the runtime catalog is not the tool source. */
   catalogTools: ToolCatalogEntry[] = [];
@@ -981,15 +990,5 @@ export class Home implements OnInit {
       this.catalogToolsCount = 0;
       this.runtimeReachable = false;
     }
-  }
-
-  private resolveShortcutLabel(): string {
-    if (typeof navigator === 'undefined') {
-      return 'Ctrl K';
-    }
-
-    const platform = navigator.platform ?? '';
-    const isMac = /mac/i.test(platform) || /mac os x/i.test(navigator.userAgent);
-    return isMac ? '⌘K' : 'Ctrl K';
   }
 }

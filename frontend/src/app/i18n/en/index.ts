@@ -35,6 +35,7 @@ import { recipesEn } from './recipes';
 import { resultCardEn } from './result-card';
 import { settingsEn } from './settings';
 import { shellEn } from './shell';
+import { shortcutsEn } from './shortcuts';
 import { toastEn } from './toast';
 import { toolCatalogEn } from './tool-catalog';
 import { toolErrorEn } from './tool-error';
@@ -55,6 +56,7 @@ export const en = {
   ...docDocxToPdfEn,
   ...docMdToPdfEn,
   ...shellEn,
+  ...shortcutsEn,
   ...settingsEn,
   ...categoriesEn,
   ...toolsEn,

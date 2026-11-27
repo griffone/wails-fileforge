@@ -141,6 +141,8 @@ export class PdfToDocx implements OnDestroy, OnInit {
     canPlan: () => this.selectedPaths().length === 1,
     canRun: () => this.canRun(),
     describeFileInfo: (info) => this.describeFileInfo(info),
+    // One PDF in, one DOCX out: the page shortcut must not queue a second file.
+    fileDialog: 'single',
     afterPathsChanged: () =>
       this.job.schedulePlanRefresh(PLAN_DEBOUNCE_MS),
     messages: {

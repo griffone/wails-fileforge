@@ -173,6 +173,11 @@
   (navigate)="onPaletteNavigate($event)"
 ></app-command-palette>
 
+<app-shortcut-sheet
+  [open]="shortcutSheetOpen()"
+  (closed)="onShortcutSheetClosed()"
+></app-shortcut-sheet>
+
 <app-activity-panel></app-activity-panel>
 
 <app-toast-host></app-toast-host>

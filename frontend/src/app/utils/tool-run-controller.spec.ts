@@ -5,6 +5,7 @@ import { ActivityService, ActivityTask } from '../services/activity.service';
 import { DropIntakeService } from '../services/drop-intake.service';
 import { I18nService } from '../services/i18n.service';
 import { LastRequestService } from '../services/last-request.service';
+import { ShortcutService } from '../services/shortcut.service';
 import {
   FileInfo,
   JobProgressEvent,
@@ -241,6 +242,10 @@ describe('ToolRunController', () => {
       revealInFolder: jasmine
         .createSpy('revealInFolder')
         .and.resolveTo({ success: true, message: 'revealed' }),
+      openFileDialog: jasmine.createSpy('openFileDialog').and.resolveTo(''),
+      openMultipleFilesDialog: jasmine
+        .createSpy('openMultipleFilesDialog')
+        .and.resolveTo([]),
     } as unknown as Wails;
 
     activity = {
@@ -528,6 +533,82 @@ describe('ToolRunController', () => {
     expect(restoreJob).toHaveBeenCalledOnceWith('job-1');
     expect(controller.undoMode()).toBe('undo');
     expect(controller.undoMessage()).toBe('Restored.');
+  });
+
+  it('opens the picker and feeds the selection through intake', fakeAsync(() => {
+    (wailsSpy.openMultipleFilesDialog as jasmine.Spy).and.resolveTo([
+      '/tmp/a.pdf',
+      '/tmp/b.pdf',
+      '/tmp/notes.txt',
+    ]);
+
+    expect(controller.requestOpenFiles()).toBeTrue();
+    flushMicrotasks();
+
+    expect(wailsSpy.openMultipleFilesDialog).toHaveBeenCalledTimes(1);
+    expect(controller.selectedPaths()).toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+    expect(controller.notice()?.text).toContain(
+      'pdfMerge.notice.rejectedOne',
+    );
+    expect(planJob).toHaveBeenCalledTimes(1);
+  }));
+
+  it('uses the one-file picker when the page accepts a single input', fakeAsync(() => {
+    const single = create({ fileDialog: 'single' });
+    (wailsSpy.openFileDialog as jasmine.Spy).and.resolveTo('/tmp/picked.pdf');
+
+    expect(single.requestOpenFiles()).toBeTrue();
+    flushMicrotasks();
+
+    expect(wailsSpy.openFileDialog).toHaveBeenCalledTimes(1);
+    expect(wailsSpy.openMultipleFilesDialog).not.toHaveBeenCalled();
+    expect(single.selectedPaths()).toEqual(['/tmp/picked.pdf']);
+  }));
+
+  it('does not run from the shortcut when the primary action is disabled', fakeAsync(() => {
+    const blocked = create({ canRun: () => false });
+
+    expect(blocked.requestRun()).toBeFalse();
+    flushMicrotasks();
+    expect(runJob).not.toHaveBeenCalled();
+
+    expect(controller.requestRun()).toBeTrue();
+    flushMicrotasks();
+    expect(runJob).toHaveBeenCalledOnceWith(REQUEST);
+  }));
+
+  it('routes Ctrl+Enter through the same run path as the button', fakeAsync(() => {
+    const shortcuts = new ShortcutService();
+    const page = create({ shortcuts });
+    page.onPathsSelected(['/tmp/a.pdf']);
+    flushMicrotasks();
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      ctrlKey: true,
+      cancelable: true,
+    });
+
+    expect(shortcuts.handlePageShortcut(event, document)).toBeTrue();
+    flushMicrotasks();
+
+    expect(runJob).toHaveBeenCalledOnceWith(REQUEST);
+    expect(event.defaultPrevented).toBeTrue();
+  }));
+
+  it('registers as the active page and releases the slot on dispose', () => {
+    const shortcuts = new ShortcutService();
+    const first = create({ shortcuts });
+    expect(shortcuts.activePageTarget()).toBe(first);
+
+    const second = create({ shortcuts });
+    expect(shortcuts.activePageTarget()).toBe(second);
+
+    first.dispose();
+    expect(shortcuts.activePageTarget()).toBe(second);
+
+    second.dispose();
+    expect(shortcuts.activePageTarget()).toBeNull();
   });
 
   it('treats Windows and UNC paths case-insensitively', () => {
