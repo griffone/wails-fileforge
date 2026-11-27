@@ -6,6 +6,7 @@ import { audioToolsEs } from './audio-tools';
 import { automationsEs } from './automations';
 import { categoriesEs } from './categories';
 import { commonEs } from './common';
+import { contextMenuEs } from './context-menu';
 import { destinationPresetsEs } from './destination-presets';
 import { docDocxToPdfEs } from './doc-docx-to-pdf';
 import { docMdToPdfEs } from './doc-md-to-pdf';
@@ -52,6 +53,7 @@ import { videoTrimEs } from './video-trim';
 
 export const es: Record<TranslationKey, DictionaryValue> = {
   ...commonEs,
+  ...contextMenuEs,
   ...destinationPresetsEs,
   ...audioToolsEs,
   ...automationsEs,

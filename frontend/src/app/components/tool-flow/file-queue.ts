@@ -2,7 +2,10 @@ import { Component, EventEmitter, Input, Output, inject, signal } from '@angular
 import {
   ArrowDown,
   ArrowUp,
+  Copy,
+  ExternalLink,
   File,
+  FolderOpen,
   GripVertical,
   Image,
   LucideAngularModule,
@@ -10,7 +13,11 @@ import {
   X,
 } from 'lucide-angular';
 import { I18nService } from '../../services/i18n.service';
+import { ClipboardService } from '../../services/clipboard.service';
+import { Wails } from '../../services/wails';
 import { fileExtension } from '../../utils/format';
+import { ContextMenu } from '../context-menu/context-menu';
+import { ContextMenuItem } from '../context-menu/context-menu.types';
 import { FileQueueItem } from './tool-flow.types';
 
 const IMAGE_EXTENSIONS = new Set([
@@ -38,6 +45,13 @@ export interface FileQueueReorder {
   to: number;
 }
 
+type ActionTone = 'success' | 'danger';
+
+interface ActionMessage {
+  tone: ActionTone;
+  text: string;
+}
+
 /**
  * Ordered file queue shared by every tool page.
  *
@@ -45,11 +59,17 @@ export interface FileQueueReorder {
  * buttons stay as the keyboard-accessible path. The component never owns the
  * order: it emits the requested move and the page reorders its own state, so
  * per-file metadata keyed by path follows the file.
+ *
+ * Right-click on a row (or Shift+F10 / the context-menu key on the focused row)
+ * opens the shared context menu with Open, Reveal, Copy path and Remove. Remove
+ * reuses the existing `remove` output; Open and Reveal call the same Wails path
+ * actions the pages use, and copy goes through ClipboardService. A failed copy
+ * is reported inline with the same banner tone the duplicates page uses.
  */
 @Component({
   selector: 'app-file-queue',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, ContextMenu],
   templateUrl: './file-queue.html',
   styleUrl: './file-queue.css',
 })
@@ -66,6 +86,9 @@ export class FileQueue {
   @Output() moveDown = new EventEmitter<string>();
   @Output() reorder = new EventEmitter<FileQueueReorder>();
 
+  private readonly clipboard = inject(ClipboardService);
+  private readonly wails = inject(Wails);
+
   readonly i18n = inject(I18nService);
 
   readonly imageIcon = Image;
@@ -75,11 +98,23 @@ export class FileQueue {
   readonly upIcon = ArrowUp;
   readonly downIcon = ArrowDown;
   readonly dragIcon = GripVertical;
+  readonly openIcon = ExternalLink;
+  readonly revealIcon = FolderOpen;
+  readonly copyIcon = Copy;
 
   /** Path being dragged, so a row removed mid-drag cannot move another one. */
   readonly draggingPath = signal<string | null>(null);
   /** Insertion slot 0..items.length under the pointer, or null. */
   readonly dropIndex = signal<number | null>(null);
+
+  /** Context-menu state; one menu instance serves every row. */
+  readonly menuOpen = signal(false);
+  readonly menuX = signal(0);
+  readonly menuY = signal(0);
+  readonly menuPath = signal('');
+  readonly menuOpener = signal<HTMLElement | null>(null);
+  /** Inline feedback for a failed open, reveal or copy. */
+  readonly actionMessage = signal<ActionMessage | null>(null);
 
   itemIcon(item: FileQueueItem) {
     const extension = fileExtension(item.name).toLowerCase();
@@ -98,6 +133,162 @@ export class FileQueue {
 
   dragLabel(item: FileQueueItem): string {
     return this.i18n.t('fileQueue.dragHandle', { name: item.name });
+  }
+
+  /** True while `path` is still in the queue; a removed row disables actions. */
+  private rowExists(path: string): boolean {
+    return path.length > 0 && this.items.some((item) => item.path === path);
+  }
+
+  /** Items for the row currently targeted by the menu. */
+  menuItems(): ContextMenuItem[] {
+    const path = this.menuPath();
+    const available = this.rowExists(path);
+
+    return [
+      {
+        id: 'open',
+        label: this.i18n.t('contextMenu.open'),
+        icon: this.openIcon,
+        disabled: !available,
+      },
+      {
+        id: 'reveal',
+        label: this.i18n.t('contextMenu.reveal'),
+        icon: this.revealIcon,
+        disabled: !available,
+      },
+      {
+        id: 'copyPath',
+        label: this.i18n.t('contextMenu.copyPath'),
+        icon: this.copyIcon,
+        disabled: !available,
+      },
+      {
+        id: 'remove',
+        label: this.i18n.t('contextMenu.remove'),
+        icon: this.removeIcon,
+        disabled: !available,
+        danger: true,
+      },
+    ];
+  }
+
+  onRowContextMenu(event: MouseEvent, item: FileQueueItem): void {
+    // Never let the browser menu, a row click or a page shortcut see this.
+    event.preventDefault();
+    event.stopPropagation();
+
+    const row = event.currentTarget;
+    if (row instanceof HTMLElement) {
+      // Focus is not selection, but it keeps focus restore and Shift+F10
+      // consistent after a mouse-driven open.
+      row.focus();
+    }
+
+    this.openMenu(event.clientX, event.clientY, item, row);
+  }
+
+  onRowKeydown(event: KeyboardEvent, item: FileQueueItem): void {
+    if (
+      event.key !== 'ContextMenu' &&
+      !(event.shiftKey && event.key === 'F10')
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const row = event.currentTarget;
+    const rect =
+      row instanceof HTMLElement ? row.getBoundingClientRect() : null;
+    this.openMenu(rect ? rect.left : 0, rect ? rect.bottom : 0, item, row);
+  }
+
+  onMenuSelect(id: string): void {
+    const path = this.menuPath();
+    if (!this.rowExists(path)) {
+      return;
+    }
+
+    switch (id) {
+      case 'open':
+        void this.runPathAction('open', path);
+        return;
+      case 'reveal':
+        void this.runPathAction('reveal', path);
+        return;
+      case 'copyPath':
+        void this.copyPath(path);
+        return;
+      case 'remove':
+        this.remove.emit(path);
+        return;
+      default:
+        return;
+    }
+  }
+
+  onMenuClosed(): void {
+    this.menuOpen.set(false);
+    this.menuPath.set('');
+    this.menuOpener.set(null);
+  }
+
+  private openMenu(
+    x: number,
+    y: number,
+    item: FileQueueItem,
+    opener: EventTarget | null,
+  ): void {
+    this.menuX.set(x);
+    this.menuY.set(y);
+    this.menuPath.set(item.path);
+    this.menuOpener.set(opener instanceof HTMLElement ? opener : null);
+    this.actionMessage.set(null);
+    this.menuOpen.set(true);
+  }
+
+  private async runPathAction(
+    action: 'open' | 'reveal',
+    path: string,
+  ): Promise<void> {
+    let success = false;
+    let message = '';
+
+    try {
+      const response =
+        action === 'open'
+          ? await this.wails.openPath(path)
+          : await this.wails.revealInFolder(path);
+      success = response.success;
+      message = response.message ?? '';
+    } catch {
+      success = false;
+    }
+
+    if (!success) {
+      this.actionMessage.set({
+        tone: 'danger',
+        text:
+          message ||
+          this.i18n.t(
+            action === 'open'
+              ? 'contextMenu.openFailed'
+              : 'contextMenu.revealFailed',
+          ),
+      });
+    }
+  }
+
+  private async copyPath(path: string): Promise<void> {
+    const copied = await this.clipboard.writeText(path);
+    this.actionMessage.set(
+      copied
+        ? { tone: 'success', text: this.i18n.t('contextMenu.copied') }
+        : { tone: 'danger', text: this.i18n.t('contextMenu.copyFailed') },
+    );
   }
 
   onDragStart(event: DragEvent, item: FileQueueItem): void {

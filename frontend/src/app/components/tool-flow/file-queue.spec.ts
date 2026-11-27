@@ -1,19 +1,40 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { I18nService } from '../../services/i18n.service';
 import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
+import { ClipboardService } from '../../services/clipboard.service';
+import { Wails } from '../../services/wails';
 import { FileQueue } from './file-queue';
 import { FileQueueItem } from './tool-flow.types';
 
 describe('FileQueue', () => {
   let fixture: ComponentFixture<FileQueue>;
   let component: FileQueue;
+  let clipboardSpy: jasmine.SpyObj<ClipboardService>;
+  let wailsSpy: jasmine.SpyObj<Wails>;
 
   beforeEach(async () => {
     localStorage.setItem(
       PREFERENCES_STORAGE_KEY,
       JSON.stringify({ language: 'en' }),
     );
-    await TestBed.configureTestingModule({ imports: [FileQueue] }).compileComponents();
+    clipboardSpy = jasmine.createSpyObj<ClipboardService>('ClipboardService', [
+      'writeText',
+    ]);
+    clipboardSpy.writeText.and.resolveTo(true);
+    wailsSpy = jasmine.createSpyObj<Wails>('Wails', [
+      'openPath',
+      'revealInFolder',
+    ]);
+    wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
+    wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+
+    await TestBed.configureTestingModule({
+      imports: [FileQueue],
+      providers: [
+        { provide: ClipboardService, useValue: clipboardSpy },
+        { provide: Wails, useValue: wailsSpy },
+      ],
+    }).compileComponents();
     fixture = TestBed.createComponent(FileQueue);
     component = fixture.componentInstance;
   });
@@ -111,6 +132,259 @@ describe('FileQueue', () => {
     firstDown.click();
     expect(down).toHaveBeenCalledOnceWith('/tmp/a.pdf');
     expect(up).not.toHaveBeenCalled();
+  });
+
+  describe('context menu', () => {
+    function rowAt(index = 0): HTMLElement {
+      return fixture.nativeElement.querySelectorAll('.file-queue-row')[
+        index
+      ] as HTMLElement;
+    }
+
+    function item(id: string): HTMLButtonElement {
+      return fixture.nativeElement.querySelector(
+        `.context-menu-item[data-item-id="${id}"]`,
+      ) as HTMLButtonElement;
+    }
+
+    function menu(): HTMLElement | null {
+      return fixture.nativeElement.querySelector('.context-menu') as HTMLElement | null;
+    }
+
+    function labels(): string[] {
+      return Array.from(
+        fixture.nativeElement.querySelectorAll('.context-menu-label'),
+      ).map((label) => (label as HTMLElement).textContent?.trim() ?? '');
+    }
+
+    function rightClick(target: HTMLElement, x = 32, y = 44): MouseEvent {
+      const event = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+      });
+      target.dispatchEvent(event);
+      fixture.detectChanges();
+      return event;
+    }
+
+    function rect(left: number, bottom: number): DOMRect {
+      return {
+        top: bottom - 60,
+        bottom,
+        height: 60,
+        left,
+        right: left + 200,
+        width: 200,
+        x: left,
+        y: bottom - 60,
+        toJSON: () => ({}),
+      } as DOMRect;
+    }
+
+    beforeEach(() => {
+      component.items = [
+        { path: '/tmp/a.pdf', name: 'a.pdf', meta: '1 page' },
+        { path: '/tmp/b.pdf', name: 'b.pdf', meta: '2 pages' },
+      ];
+      fixture.detectChanges();
+    });
+
+    it('opens at the pointer with Open, Reveal, Copy path and Remove', () => {
+      const removeSpy = jasmine.createSpy('remove');
+      component.remove.subscribe(removeSpy);
+      const clickSpy = jasmine.createSpy('click');
+      const row = rowAt();
+      row.addEventListener('click', clickSpy);
+
+      const event = rightClick(row);
+
+      expect(event.defaultPrevented).toBeTrue();
+      expect(clickSpy).not.toHaveBeenCalled();
+      expect(removeSpy).not.toHaveBeenCalled();
+
+      const element = menu();
+      expect(element).not.toBeNull();
+      expect(element?.getAttribute('role')).toBe('menu');
+      expect(element?.style.left).toBe('32px');
+      expect(element?.style.top).toBe('44px');
+      expect(labels()).toEqual([
+        'Open',
+        'Reveal in folder',
+        'Copy path',
+        'Remove from queue',
+      ]);
+    });
+
+    it('does not select or remove when the row is right-clicked', () => {
+      const removeSpy = jasmine.createSpy('remove');
+      component.remove.subscribe(removeSpy);
+
+      rightClick(rowAt(1));
+
+      expect(removeSpy).not.toHaveBeenCalled();
+      expect(component.menuPath()).toBe('/tmp/b.pdf');
+    });
+
+    it('opens from Shift+F10 on the focused row at the row position', () => {
+      const row = rowAt();
+      row.focus();
+      spyOn(row, 'getBoundingClientRect').and.returnValue(rect(24, 96));
+
+      row.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'F10',
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      fixture.detectChanges();
+
+      const element = menu();
+      expect(element?.style.left).toBe('24px');
+      expect(element?.style.top).toBe('96px');
+      expect(labels().length).toBe(4);
+    });
+
+    it('opens from the context-menu key', () => {
+      const row = rowAt(1);
+      row.focus();
+
+      row.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'ContextMenu',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(menu()).not.toBeNull();
+      expect(component.menuPath()).toBe('/tmp/b.pdf');
+    });
+
+    it('calls the clipboard service and reports a failed copy in a danger banner', async () => {
+      clipboardSpy.writeText.and.resolveTo(false);
+      rightClick(rowAt());
+
+      item('copyPath').click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(clipboardSpy.writeText).toHaveBeenCalledWith('/tmp/a.pdf');
+      const banner = fixture.nativeElement.querySelector(
+        '.file-queue-banner',
+      ) as HTMLElement;
+      expect(banner.classList).toContain('banner-danger');
+      expect(banner.textContent).toContain('The path could not be copied');
+    });
+
+    it('reports a successful copy without a danger banner', async () => {
+      rightClick(rowAt());
+
+      item('copyPath').click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const banner = fixture.nativeElement.querySelector(
+        '.file-queue-banner',
+      ) as HTMLElement;
+      expect(banner.classList).toContain('banner-success');
+      expect(banner.textContent).toContain('Path copied');
+    });
+
+    it('opens and reveals through the shared path actions', async () => {
+      rightClick(rowAt());
+      item('open').click();
+      await fixture.whenStable();
+
+      rightClick(rowAt());
+      item('reveal').click();
+      await fixture.whenStable();
+
+      expect(wailsSpy.openPath).toHaveBeenCalledOnceWith('/tmp/a.pdf');
+      expect(wailsSpy.revealInFolder).toHaveBeenCalledOnceWith('/tmp/a.pdf');
+    });
+
+    it('reports a failed open through the inline banner', async () => {
+      wailsSpy.openPath.and.resolveTo({
+        success: false,
+        message: 'Permission denied',
+      });
+      rightClick(rowAt());
+
+      item('open').click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const banner = fixture.nativeElement.querySelector(
+        '.file-queue-banner',
+      ) as HTMLElement;
+      expect(banner.classList).toContain('banner-danger');
+      expect(banner.textContent).toContain('Permission denied');
+    });
+
+    it('removes through the existing removal path', () => {
+      const removeSpy = jasmine.createSpy('remove');
+      component.remove.subscribe(removeSpy);
+      rightClick(rowAt());
+
+      item('remove').click();
+
+      expect(removeSpy).toHaveBeenCalledOnceWith('/tmp/a.pdf');
+    });
+
+    it('disables every action for a row removed while the menu is open', () => {
+      const removeSpy = jasmine.createSpy('remove');
+      component.remove.subscribe(removeSpy);
+      rightClick(rowAt());
+
+      component.items = [];
+      fixture.detectChanges();
+
+      for (const id of ['open', 'reveal', 'copyPath', 'remove']) {
+        expect(item(id).disabled).toBeTrue();
+      }
+
+      item('remove').click();
+      item('open').click();
+
+      expect(removeSpy).not.toHaveBeenCalled();
+      expect(wailsSpy.openPath).not.toHaveBeenCalled();
+    });
+
+    it('closes on Escape and restores focus to the row', () => {
+      const row = rowAt();
+      rightClick(row);
+
+      menu()?.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(menu()).toBeNull();
+      expect(document.activeElement).toBe(row);
+    });
+
+    it('renders the Spanish menu copy', () => {
+      TestBed.inject(I18nService).setLocale('es');
+      fixture.detectChanges();
+
+      rightClick(rowAt());
+
+      expect(labels()).toEqual([
+        'Abrir',
+        'Mostrar en la carpeta',
+        'Copiar ruta',
+        'Quitar de la cola',
+      ]);
+    });
   });
 
   describe('drag reordering', () => {

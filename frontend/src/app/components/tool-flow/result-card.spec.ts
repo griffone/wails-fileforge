@@ -13,6 +13,7 @@ import {
 } from '../../services/last-request.service';
 import { I18nService } from '../../services/i18n.service';
 import { PREFERENCES_STORAGE_KEY } from '../../services/preferences.service';
+import { ClipboardService } from '../../services/clipboard.service';
 import { ResultCard } from './result-card';
 
 describe('ResultCard', () => {
@@ -20,6 +21,7 @@ describe('ResultCard', () => {
   let component: ResultCard;
   let recentSpy: jasmine.SpyObj<RecentConversionsService>;
   let wailsSpy: jasmine.SpyObj<Wails>;
+  let clipboardSpy: jasmine.SpyObj<ClipboardService>;
 
   function clearLastRequests(): void {
     try {
@@ -80,12 +82,17 @@ describe('ResultCard', () => {
       moved: ['/tmp/a.webp'],
       skipped: [],
     });
+    clipboardSpy = jasmine.createSpyObj<ClipboardService>('ClipboardService', [
+      'writeText',
+    ]);
+    clipboardSpy.writeText.and.resolveTo(true);
 
     await TestBed.configureTestingModule({
       imports: [ResultCard],
       providers: [
         { provide: RecentConversionsService, useValue: recentSpy },
         { provide: Wails, useValue: wailsSpy },
+        { provide: ClipboardService, useValue: clipboardSpy },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(ResultCard);
@@ -1029,5 +1036,310 @@ describe('ResultCard', () => {
     );
     expect(block.textContent).toContain('Destino planificado');
     expect(block.textContent).toContain('Ejecutar de nuevo');
+  });
+
+  describe('context menu', () => {
+    function outputRow(index = 0): HTMLElement {
+      return fixture.nativeElement.querySelectorAll(
+        '.result-list:not(.result-failures) .result-row',
+      )[index] as HTMLElement;
+    }
+
+    function failedRow(index = 0): HTMLElement {
+      return fixture.nativeElement.querySelectorAll('.result-row-failed')[
+        index
+      ] as HTMLElement;
+    }
+
+    function item(id: string): HTMLButtonElement {
+      return fixture.nativeElement.querySelector(
+        `.context-menu-item[data-item-id="${id}"]`,
+      ) as HTMLButtonElement;
+    }
+
+    function menu(): HTMLElement | null {
+      return fixture.nativeElement.querySelector('.context-menu') as HTMLElement | null;
+    }
+
+    function labels(): string[] {
+      return Array.from(
+        fixture.nativeElement.querySelectorAll('.context-menu-label'),
+      ).map((label) => (label as HTMLElement).textContent?.trim() ?? '');
+    }
+
+    function rightClick(target: HTMLElement, x = 42, y = 24): MouseEvent {
+      const event = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+      });
+      target.dispatchEvent(event);
+      fixture.detectChanges();
+      return event;
+    }
+
+    function rect(left: number, bottom: number): DOMRect {
+      return {
+        top: bottom - 40,
+        bottom,
+        height: 40,
+        left,
+        right: left + 200,
+        width: 200,
+        x: left,
+        y: bottom - 40,
+        toJSON: () => ({}),
+      } as DOMRect;
+    }
+
+    function partialJob(): JobResult {
+      return job({
+        status: 'partial_success',
+        toolId: 'tool.pdf.optimize',
+        items: [
+          {
+            inputPath: '/tmp/source.pdf',
+            outputPath: '/tmp/out/a.pdf',
+            outputs: ['/tmp/out/a.pdf'],
+            success: true,
+            message: 'ok',
+          },
+          {
+            inputPath: '/tmp/broken.pdf',
+            outputPath: '',
+            success: false,
+            message: 'failed',
+            error: {
+              code: 'UNSUPPORTED_FORMAT',
+              message: 'unsupported input',
+            },
+          },
+        ],
+      });
+    }
+
+    it('opens the output menu at the pointer with Open, Reveal and Copy path', () => {
+      const openSpy = jasmine.createSpy('open');
+      component.open.subscribe(openSpy);
+      component.job = partialJob();
+      fixture.detectChanges();
+
+      const row = outputRow();
+      const clickSpy = jasmine.createSpy('click');
+      row.addEventListener('click', clickSpy);
+
+      const event = rightClick(row, 64, 90);
+
+      expect(event.defaultPrevented).toBeTrue();
+      expect(clickSpy).not.toHaveBeenCalled();
+      expect(openSpy).not.toHaveBeenCalled();
+
+      const element = menu();
+      expect(element?.getAttribute('role')).toBe('menu');
+      expect(element?.style.left).toBe('64px');
+      expect(element?.style.top).toBe('90px');
+      expect(labels()).toEqual(['Open', 'Reveal in folder', 'Copy path']);
+    });
+
+    it('opens the failed-row menu with a Retry item', () => {
+      component.job = partialJob();
+      fixture.detectChanges();
+
+      rightClick(failedRow());
+
+      expect(labels()).toEqual([
+        'Open',
+        'Reveal in folder',
+        'Copy path',
+        'Retry',
+      ]);
+      expect(item('remove')).toBeNull();
+    });
+
+    it('reuses the existing open, reveal and retry paths', async () => {
+      const openSpy = jasmine.createSpy('open');
+      const revealSpy = jasmine.createSpy('reveal');
+      const retrySpy = jasmine.createSpy('retry');
+      component.open.subscribe(openSpy);
+      component.reveal.subscribe(revealSpy);
+      component.retryFailed.subscribe(retrySpy);
+      component.job = partialJob();
+      fixture.detectChanges();
+
+      rightClick(outputRow());
+      item('open').click();
+      await fixture.whenStable();
+
+      rightClick(outputRow());
+      item('reveal').click();
+      await fixture.whenStable();
+
+      rightClick(failedRow());
+      item('retry').click();
+
+      expect(openSpy).toHaveBeenCalledOnceWith('/tmp/out/a.pdf');
+      expect(revealSpy).toHaveBeenCalledOnceWith('/tmp/out/a.pdf');
+      expect(retrySpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens the input file from a failed row', () => {
+      const openSpy = jasmine.createSpy('open');
+      component.open.subscribe(openSpy);
+      component.job = partialJob();
+      fixture.detectChanges();
+
+      rightClick(failedRow());
+      item('open').click();
+
+      expect(openSpy).toHaveBeenCalledOnceWith('/tmp/broken.pdf');
+    });
+
+    it('disables Open for a collapsed folder summary but keeps reveal and copy', () => {
+      component.job = job({
+        toolId: 'tool.pdf.split',
+        items: [
+          {
+            inputPath: '/tmp/source.pdf',
+            outputPath: '/tmp/out',
+            outputCount: 8,
+            outputs: [
+              '/tmp/out/1.pdf',
+              '/tmp/out/2.pdf',
+              '/tmp/out/3.pdf',
+              '/tmp/out/4.pdf',
+              '/tmp/out/5.pdf',
+              '/tmp/out/6.pdf',
+              '/tmp/out/7.pdf',
+              '/tmp/out/8.pdf',
+            ],
+            success: true,
+            message: 'ok',
+          },
+        ],
+      });
+      fixture.detectChanges();
+
+      const grouped = fixture.nativeElement.querySelector(
+        '.result-row-grouped',
+      ) as HTMLElement;
+      expect(grouped).not.toBeNull();
+
+      rightClick(grouped);
+
+      expect(item('open').disabled).toBeTrue();
+      expect(item('reveal').disabled).toBeFalse();
+      expect(item('copyPath').disabled).toBeFalse();
+    });
+
+    it('does not act on an action that does not apply', () => {
+      const openSpy = jasmine.createSpy('open');
+      const revealSpy = jasmine.createSpy('reveal');
+      component.open.subscribe(openSpy);
+      component.reveal.subscribe(revealSpy);
+      component.job = job({
+        status: 'failed',
+        toolId: 'tool.pdf.optimize',
+        items: [
+          {
+            inputPath: '',
+            outputPath: '',
+            success: false,
+            message: 'failed',
+            error: { code: 'EXEC_IO_TRANSIENT', message: 'io' },
+          },
+        ],
+      });
+      fixture.detectChanges();
+
+      rightClick(failedRow());
+
+      expect(item('open').disabled).toBeTrue();
+      expect(item('reveal').disabled).toBeTrue();
+      expect(item('copyPath').disabled).toBeTrue();
+      expect(item('retry').disabled).toBeFalse();
+
+      item('open').click();
+      item('copyPath').click();
+
+      expect(openSpy).not.toHaveBeenCalled();
+      expect(revealSpy).not.toHaveBeenCalled();
+      expect(clipboardSpy.writeText).not.toHaveBeenCalled();
+    });
+
+    it('copies through ClipboardService and reports failure in a danger banner', async () => {
+      clipboardSpy.writeText.and.resolveTo(false);
+      component.job = partialJob();
+      fixture.detectChanges();
+
+      rightClick(outputRow());
+      item('copyPath').click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(clipboardSpy.writeText).toHaveBeenCalledWith('/tmp/out/a.pdf');
+      const banner = fixture.nativeElement.querySelector(
+        '.result-copy-banner',
+      ) as HTMLElement;
+      expect(banner.classList).toContain('banner-danger');
+      expect(banner.textContent).toContain('The path could not be copied');
+    });
+
+    it('opens from Shift+F10 on the focused output row', () => {
+      component.job = partialJob();
+      fixture.detectChanges();
+
+      const row = outputRow();
+      row.focus();
+      spyOn(row, 'getBoundingClientRect').and.returnValue(rect(18, 72));
+
+      row.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'F10',
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(menu()?.style.left).toBe('18px');
+      expect(menu()?.style.top).toBe('72px');
+    });
+
+    it('closes on Escape and restores focus to the row', () => {
+      component.job = partialJob();
+      fixture.detectChanges();
+
+      const row = outputRow();
+      rightClick(row);
+
+      menu()?.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(menu()).toBeNull();
+      expect(document.activeElement).toBe(row);
+    });
+
+    it('renders the Spanish menu copy', () => {
+      TestBed.inject(I18nService).setLocale('es');
+      component.job = partialJob();
+      fixture.detectChanges();
+
+      rightClick(failedRow());
+
+      expect(labels()).toEqual([
+        'Abrir',
+        'Mostrar en la carpeta',
+        'Copiar ruta',
+        'Reintentar',
+      ]);
+    });
   });
 });

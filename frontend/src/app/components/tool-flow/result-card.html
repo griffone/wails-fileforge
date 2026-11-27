@@ -23,7 +23,14 @@
       @if (outputRows().length > 0) {
         <ul class="result-list" [attr.aria-label]="i18n.t('resultCard.convertedAria')">
           @for (row of outputRows(); track row.path) {
-            <li class="result-row" [class.result-row-grouped]="row.grouped">
+            <li
+              class="result-row"
+              tabindex="0"
+              aria-haspopup="menu"
+              [class.result-row-grouped]="row.grouped"
+              (contextmenu)="onOutputContextMenu($event, row)"
+              (keydown)="onOutputRowKeydown($event, row)"
+            >
               <span class="result-file">
                 <span class="result-name" [title]="row.path">{{ row.name }}</span>
                 @if (row.grouped) {
@@ -102,7 +109,13 @@
       @if (failedRows().length > 0) {
         <ul class="result-list result-failures" [attr.aria-label]="i18n.t('resultCard.failedAria')">
           @for (row of failedRows(); track row.path) {
-            <li class="result-row result-row-failed">
+            <li
+              class="result-row result-row-failed"
+              tabindex="0"
+              aria-haspopup="menu"
+              (contextmenu)="onFailedRowContextMenu($event, row)"
+              (keydown)="onFailedRowKeydown($event, row)"
+            >
               <lucide-icon
                 [img]="alertIcon"
                 [size]="16"
@@ -116,6 +129,16 @@
             </li>
           }
         </ul>
+      }
+
+      @if (copyMessage(); as message) {
+        <div
+          [class]="'result-copy-banner banner banner-' + message.tone"
+          role="status"
+          aria-live="polite"
+        >
+          <span>{{ message.text }}</span>
+        </div>
       }
 
       @if (showVerifyBlock()) {
@@ -400,5 +423,16 @@
         }
       </details>
     </div>
+
+    <app-context-menu
+      [open]="menuOpen()"
+      [x]="menuX()"
+      [y]="menuY()"
+      [items]="menuItems()"
+      [opener]="menuOpener()"
+      [label]="i18n.t('contextMenu.label')"
+      (select)="onMenuSelect($event)"
+      (closed)="onMenuClosed()"
+    ></app-context-menu>
   </section>
 }

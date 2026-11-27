@@ -1,0 +1,37 @@
+@if (open) {
+  <div
+    #menu
+    class="context-menu"
+    role="menu"
+    tabindex="-1"
+    [attr.aria-label]="label || null"
+    [style.left.px]="position().left"
+    [style.top.px]="position().top"
+    (keydown)="onKeydown($event)"
+    (focusout)="onFocusOut($event)"
+  >
+    @for (item of items; track item.id) {
+      <button
+        type="button"
+        class="context-menu-item"
+        role="menuitem"
+        [class.is-danger]="item.danger"
+        [attr.data-item-id]="item.id"
+        [disabled]="item.disabled === true"
+        [attr.aria-disabled]="item.disabled === true ? 'true' : null"
+        (click)="onItemClick(item)"
+      >
+        @if (item.icon) {
+          <lucide-icon
+            class="context-menu-icon"
+            [img]="item.icon"
+            [size]="14"
+            [strokeWidth]="1.75"
+            aria-hidden="true"
+          ></lucide-icon>
+        }
+        <span class="context-menu-label">{{ item.label }}</span>
+      </button>
+    }
+  </div>
+}

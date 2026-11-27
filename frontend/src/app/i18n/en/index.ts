@@ -3,6 +3,7 @@ import { audioToolsEn } from './audio-tools';
 import { automationsEn } from './automations';
 import { categoriesEn } from './categories';
 import { commonEn } from './common';
+import { contextMenuEn } from './context-menu';
 import { destinationPresetsEn } from './destination-presets';
 import { docDocxToPdfEn } from './doc-docx-to-pdf';
 import { docMdToPdfEn } from './doc-md-to-pdf';
@@ -49,6 +50,7 @@ import { videoTrimEn } from './video-trim';
 
 export const en = {
   ...commonEn,
+  ...contextMenuEn,
   ...destinationPresetsEn,
   ...audioToolsEn,
   ...automationsEn,

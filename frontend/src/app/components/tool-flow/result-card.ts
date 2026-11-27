@@ -5,9 +5,11 @@ import {
   Input,
   Output,
   inject,
+  signal,
 } from '@angular/core';
 import {
   Check,
+  Copy,
   ExternalLink,
   FolderOpen,
   LucideAngularModule,
@@ -45,12 +47,15 @@ import {
   LastSubmittedRequest,
 } from '../../services/last-request.service';
 import { I18nService } from '../../services/i18n.service';
+import { ClipboardService } from '../../services/clipboard.service';
 import type { TranslationKey } from '../../i18n';
 import { fileDir, fileName, formatBytes, formatCount } from '../../utils/format';
 import {
   isTerminalJobStatus,
   jobStatusDefinition,
 } from '../../utils/job-status';
+import { ContextMenu } from '../context-menu/context-menu';
+import { ContextMenuItem } from '../context-menu/context-menu.types';
 
 const GROUP_OUTPUT_LIMIT = 4;
 
@@ -113,10 +118,24 @@ type SummaryTone = 'success' | 'warning' | 'danger' | 'neutral';
 type UndoMode = 'undo' | 'restore';
 const RUN_AGAIN_DESTINATION_LIMIT = 3;
 
+type ResultRowKind = 'output' | 'failed';
+
+interface ResultMenuTarget {
+  kind: ResultRowKind;
+  path: string;
+  /** A collapsed folder summary has no file to open. */
+  grouped: boolean;
+}
+
+interface CopyMessage {
+  tone: 'success' | 'danger';
+  text: string;
+}
+
 @Component({
   selector: 'app-result-card',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, ContextMenu],
   templateUrl: './result-card.html',
   styleUrl: './result-card.css',
 })
@@ -167,6 +186,10 @@ export class ResultCard implements DoCheck {
       this.resetUndoState();
       this.resetRunAgainState();
       this.showAllOutputs = false;
+      this.copyMessage.set(null);
+      this.menuOpen.set(false);
+      this.menuTarget.set(null);
+      this.menuOpener.set(null);
     }
 
     this.pendingRecord = true;
@@ -223,6 +246,7 @@ export class ResultCard implements DoCheck {
   private readonly recentConversions = inject(RecentConversionsService);
   private readonly lastRequests = inject(LastRequestService);
   private readonly wailsService = inject(Wails);
+  private readonly clipboard = inject(ClipboardService);
   readonly i18n = inject(I18nService);
   private readonly recordedJobIds = new Set<string>();
 
@@ -236,6 +260,16 @@ export class ResultCard implements DoCheck {
   readonly verifyAttentionIcon = ShieldAlert;
   readonly undoIcon = Undo2;
   readonly restoreIcon = Redo2;
+  readonly copyIcon = Copy;
+
+  /** Context-menu state; one menu instance serves every result row. */
+  readonly menuOpen = signal(false);
+  readonly menuX = signal(0);
+  readonly menuY = signal(0);
+  readonly menuTarget = signal<ResultMenuTarget | null>(null);
+  readonly menuOpener = signal<HTMLElement | null>(null);
+  /** Inline feedback for a failed clipboard write. */
+  readonly copyMessage = signal<CopyMessage | null>(null);
 
   ngDoCheck(): void {
     if (this.pendingRecord) {
@@ -964,6 +998,175 @@ export class ResultCard implements DoCheck {
           describeToolError(item.error),
         ).description,
       }));
+  }
+
+  onOutputContextMenu(event: MouseEvent, row: ResultOutputRow): void {
+    this.openRowMenu(event, {
+      kind: 'output',
+      path: row.path,
+      grouped: row.grouped === true,
+    });
+  }
+
+  onFailedRowContextMenu(event: MouseEvent, row: ResultFailedRow): void {
+    this.openRowMenu(event, {
+      kind: 'failed',
+      path: row.path,
+      grouped: false,
+    });
+  }
+
+  onOutputRowKeydown(event: KeyboardEvent, row: ResultOutputRow): void {
+    this.openRowMenuFromKeyboard(event, {
+      kind: 'output',
+      path: row.path,
+      grouped: row.grouped === true,
+    });
+  }
+
+  onFailedRowKeydown(event: KeyboardEvent, row: ResultFailedRow): void {
+    this.openRowMenuFromKeyboard(event, {
+      kind: 'failed',
+      path: row.path,
+      grouped: false,
+    });
+  }
+
+  /** Items for the row currently targeted by the menu. */
+  menuItems(): ContextMenuItem[] {
+    const target = this.menuTarget();
+    if (!target) {
+      return [];
+    }
+
+    const hasPath = target.path.trim().length > 0;
+    const items: ContextMenuItem[] = [
+      {
+        id: 'open',
+        label: this.i18n.t('contextMenu.open'),
+        icon: this.externalIcon,
+        // A collapsed folder summary stands for many files; opening "it"
+        // would open an arbitrary one.
+        disabled: !hasPath || target.grouped,
+      },
+      {
+        id: 'reveal',
+        label: this.i18n.t('contextMenu.reveal'),
+        icon: this.folderIcon,
+        disabled: !hasPath,
+      },
+      {
+        id: 'copyPath',
+        label: this.i18n.t('contextMenu.copyPath'),
+        icon: this.copyIcon,
+        disabled: !hasPath,
+      },
+    ];
+
+    if (target.kind === 'failed') {
+      items.push({
+        id: 'retry',
+        label: this.i18n.t('contextMenu.retry'),
+        icon: this.retryIcon,
+      });
+    }
+
+    return items;
+  }
+
+  onMenuSelect(id: string): void {
+    const target = this.menuTarget();
+    if (!target) {
+      return;
+    }
+
+    const hasPath = target.path.trim().length > 0;
+
+    switch (id) {
+      case 'open':
+        if (hasPath && !target.grouped) {
+          this.open.emit(target.path);
+        }
+        return;
+      case 'reveal':
+        if (hasPath) {
+          this.reveal.emit(target.path);
+        }
+        return;
+      case 'copyPath':
+        if (hasPath) {
+          void this.copyPath(target.path);
+        }
+        return;
+      case 'retry':
+        // The card already owns the retry path; the menu reuses it.
+        this.retryFailed.emit();
+        return;
+      default:
+        return;
+    }
+  }
+
+  onMenuClosed(): void {
+    this.menuOpen.set(false);
+    this.menuTarget.set(null);
+    this.menuOpener.set(null);
+  }
+
+  private openRowMenu(event: MouseEvent, target: ResultMenuTarget): void {
+    // A right click must never read as a click on the row or its buttons.
+    event.preventDefault();
+    event.stopPropagation();
+
+    const row = event.currentTarget;
+    if (row instanceof HTMLElement) {
+      row.focus();
+    }
+
+    this.showMenu(event.clientX, event.clientY, target, row);
+  }
+
+  private openRowMenuFromKeyboard(
+    event: KeyboardEvent,
+    target: ResultMenuTarget,
+  ): void {
+    if (
+      event.key !== 'ContextMenu' &&
+      !(event.shiftKey && event.key === 'F10')
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const row = event.currentTarget;
+    const rect =
+      row instanceof HTMLElement ? row.getBoundingClientRect() : null;
+    this.showMenu(rect ? rect.left : 0, rect ? rect.bottom : 0, target, row);
+  }
+
+  private showMenu(
+    x: number,
+    y: number,
+    target: ResultMenuTarget,
+    opener: EventTarget | null,
+  ): void {
+    this.menuX.set(x);
+    this.menuY.set(y);
+    this.menuTarget.set(target);
+    this.menuOpener.set(opener instanceof HTMLElement ? opener : null);
+    this.copyMessage.set(null);
+    this.menuOpen.set(true);
+  }
+
+  private async copyPath(path: string): Promise<void> {
+    const copied = await this.clipboard.writeText(path);
+    this.copyMessage.set(
+      copied
+        ? { tone: 'success', text: this.i18n.t('contextMenu.copied') }
+        : { tone: 'danger', text: this.i18n.t('contextMenu.copyFailed') },
+    );
   }
 
   successCount(): number {
