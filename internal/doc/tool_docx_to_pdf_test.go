@@ -18,6 +18,7 @@ import (
 
 	"fileforge-desktop/internal/doc/engine"
 	"fileforge-desktop/internal/models"
+	"fileforge-desktop/internal/toolchain"
 )
 
 type stubDOCXRenderer struct {
@@ -653,14 +654,19 @@ func TestDOCXExecuteBatchKeepsPartialSuccess(t *testing.T) {
 }
 
 func TestDOCXExecutePDFAUsesGhostscript(t *testing.T) {
+	ghostscript, found := toolchain.ResolveGhostscript(nil)
+	if !found {
+		t.Skip("ghostscript is not installed")
+	}
+
 	dir := t.TempDir()
 	input := filepath.Join(dir, "report.docx")
 	writePlainDOCXFixture(t, input)
 
 	var ghostscriptArgs []string
 	runner := stubDOCXRunner{run: func(_ context.Context, name string, args ...string) (engine.CommandResult, error) {
-		if name != "gs" {
-			t.Fatalf("expected gs, got %q", name)
+		if name != ghostscript.Path {
+			t.Fatalf("expected the resolved path %q, got %q", ghostscript.Path, name)
 		}
 		ghostscriptArgs = args
 

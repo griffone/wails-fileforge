@@ -88,7 +88,7 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 
 	pdftoppm := binaryAvailable("pdftoppm")
 	pdftotext := binaryAvailable("pdftotext")
-	gs := binaryAvailable("gs")
+	_, gs := toolchain.ResolveGhostscript(lookPath)
 	ffmpeg := binaryAvailable("ffmpeg")
 	ffprobe := binaryAvailable("ffprobe")
 	cwebp := binaryAvailable("cwebp")
@@ -188,7 +188,7 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 			Available:  gs,
 			Required:   false,
 			Detail:     "PDF compression for target sizes",
-			Suggestion: suggestion(gs, "Install Ghostscript to reach PDF target sizes."),
+			Suggestion: suggestion(gs, "Install Ghostscript (gswin64c on Windows) to reach PDF target sizes."),
 		},
 		{
 			ID:         "ffmpeg",

@@ -294,6 +294,11 @@ func TestPlanArchiveDocumentRequiresGhostscript(t *testing.T) {
 	if !strings.Contains(plan.Error.Message, "Ghostscript") || !strings.Contains(plan.Error.Message, "Install") {
 		t.Fatalf("expected install guidance, got %q", plan.Error.Message)
 	}
+	for _, candidate := range []string{"gs", "gswin64c", "gswin32c"} {
+		if !strings.Contains(plan.Error.Message, candidate) {
+			t.Fatalf("expected the error to list %q, got %q", candidate, plan.Error.Message)
+		}
+	}
 
 	// Nothing was written before the dependency check.
 	assertDirContainsOnly(t, dir, "report.docx")

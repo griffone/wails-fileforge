@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -21,6 +20,7 @@ import (
 	"fileforge-desktop/internal/models"
 	"fileforge-desktop/internal/outputplan"
 	"fileforge-desktop/internal/platform/fsx"
+	"fileforge-desktop/internal/toolchain"
 	"fileforge-desktop/internal/tools"
 )
 
@@ -59,7 +59,6 @@ const (
 	archiveProgressEnd         = 100
 	archiveProgressPublish     = 95
 	archiveVerificationCode    = "RECIPE_ARCHIVE_VERIFICATION_FAILED"
-	archiveGhostscriptBinary   = "gs"
 	archiveGhostscriptGuidance = "Install Ghostscript (for example `sudo apt install ghostscript`, `brew install ghostscript` or the managed runtime in Settings) and try again."
 )
 
@@ -69,12 +68,13 @@ const (
 const archiveComplianceCaveat = "PDF/A-2 is produced by Ghostscript and is not validated with veraPDF."
 
 // archiveGhostscriptAvailable is the plan-time dependency detector. The PDF/A
-// step in internal/doc/engine runs the `gs` binary, so the recipe checks that
-// exact binary before any work starts. It is a package variable so tests can
-// simulate a machine without Ghostscript.
+// step in internal/doc/engine resolves the same candidate list before running,
+// so plan and execution agree on what counts as an installed Ghostscript. It is
+// a package variable so tests can simulate a machine without Ghostscript.
 var archiveGhostscriptAvailable = func() bool {
-	_, err := exec.LookPath(archiveGhostscriptBinary)
-	return err == nil
+	_, found := toolchain.ResolveGhostscript(nil)
+
+	return found
 }
 
 // archivePDFAPartPattern and archivePDFAConformancePattern read the XMP PDF/A
@@ -160,10 +160,11 @@ func (s *Service) resolveArchiveDocument(recipe *models.Recipe, req models.Recip
 	}
 
 	if !archiveGhostscriptAvailable() {
+		candidates := strings.Join(toolchain.GhostscriptBinaryNames, ", ")
 		return nil, newRecipeError(
 			docengine.ErrorCodeDocxPDFAGhostscriptMissing,
-			"Ghostscript (gs) is required for PDF/A-2 export but is not installed. "+archiveGhostscriptGuidance,
-			map[string]any{"runtime": archiveGhostscriptBinary, "recipeId": recipe.ID},
+			"Ghostscript ("+candidates+") is required for PDF/A-2 export but is not installed. "+archiveGhostscriptGuidance,
+			map[string]any{"runtime": "gs", "candidates": candidates, "recipeId": recipe.ID},
 		)
 	}
 

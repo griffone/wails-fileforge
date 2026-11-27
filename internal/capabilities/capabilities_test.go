@@ -200,7 +200,7 @@ func TestDetectWithMissingOptionalAndRequiredTools(t *testing.T) {
 	if gsCheck.Available || gsCheck.Required {
 		t.Fatalf("gs must be an unavailable optional tool: %+v", gsCheck)
 	}
-	if gsCheck.Suggestion != "Install Ghostscript to reach PDF target sizes." {
+	if gsCheck.Suggestion != "Install Ghostscript (gswin64c on Windows) to reach PDF target sizes." {
 		t.Fatalf("unexpected gs suggestion: %q", gsCheck.Suggestion)
 	}
 	if gsCheck.Detail != "PDF compression for target sizes" {
@@ -218,6 +218,21 @@ func TestDetectWithMissingOptionalAndRequiredTools(t *testing.T) {
 	ffprobeCheck := byID["ffprobe"]
 	if !ffprobeCheck.Available || !ffprobeCheck.Required {
 		t.Fatalf("ffprobe should be available and required: %+v", ffprobeCheck)
+	}
+}
+
+func TestDetectGhostscriptRowUsesResolvedWindowsName(t *testing.T) {
+	response := DetectWith(context.Background(), baseOptions(
+		fakeLookPath("pdftoppm", "tesseract", "pdftotext", "gswin64c", "ffmpeg", "ffprobe"),
+		fakeOCR(models.OCRCapabilitiesResponse{Tesseract: true, Languages: []string{"eng"}}),
+	))
+
+	gsCheck := checksByID(t, response)["gs"]
+	if !gsCheck.Available {
+		t.Fatal("gs must be available when only gswin64c resolves")
+	}
+	if gsCheck.Suggestion != "" {
+		t.Fatalf("an available gs row must not suggest an install, got %q", gsCheck.Suggestion)
 	}
 }
 

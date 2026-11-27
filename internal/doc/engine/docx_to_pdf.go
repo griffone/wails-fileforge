@@ -15,6 +15,7 @@ import (
 
 	"fileforge-desktop/internal/platform/execx"
 	"fileforge-desktop/internal/platform/fsx"
+	"fileforge-desktop/internal/toolchain"
 )
 
 const (
@@ -52,6 +53,13 @@ type CommandResult struct {
 // CommandRunner runs the external process used for PDF/A post-processing.
 type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) (CommandResult, error)
+}
+
+// resolveGhostscriptBinary returns the executable used for the PDF/A
+// post-process. It is a package variable so tests can simulate a machine with a
+// specific Ghostscript installation.
+var resolveGhostscriptBinary = func() (toolchain.GhostscriptBinary, bool) {
+	return toolchain.ResolveGhostscript(nil)
 }
 
 // DOCXRenderer renders one DOCX file to a PDF at outputPath. The production
@@ -207,6 +215,11 @@ func ConvertDOCX(ctx context.Context, renderer DOCXRenderer, runner CommandRunne
 // reported as a dependency error with install guidance; every other failure is
 // an explicit PDF/A error. Neither path falls back to a plain PDF.
 func applyPDFA(ctx context.Context, runner CommandRunner, inputPath, outputPath string) error {
+	binary, found := resolveGhostscriptBinary()
+	if !found {
+		return ghostscriptMissingError(nil)
+	}
+
 	args := []string{
 		"-q",
 		"-dPDFA=2",
@@ -218,24 +231,19 @@ func applyPDFA(ctx context.Context, runner CommandRunner, inputPath, outputPath 
 		inputPath,
 	}
 
-	result, err := runner.Run(ctx, "gs", args...)
+	result, err := runner.Run(ctx, binary.Path, args...)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
 		if errors.Is(err, exec.ErrNotFound) {
-			return &DOCXError{
-				Code:    ErrorCodeDocxPDFAGhostscriptMissing,
-				Message: "Ghostscript (gs) is required for PDF/A export but is not installed. Install Ghostscript or turn off the archival option.",
-				Cause:   err,
-				Details: map[string]any{"runtime": "gs"},
-			}
+			return ghostscriptMissingError(err)
 		}
 		return &DOCXError{
 			Code:    ErrorCodeDocxPDFAUnsupported,
 			Message: "Ghostscript could not produce the requested PDF/A file",
 			Cause:   err,
-			Details: map[string]any{"stderr": strings.TrimSpace(result.Stderr)},
+			Details: map[string]any{"runtime": binary.Name, "stderr": strings.TrimSpace(result.Stderr)},
 		}
 	}
 
@@ -247,11 +255,25 @@ func applyPDFA(ctx context.Context, runner CommandRunner, inputPath, outputPath 
 			Code:    ErrorCodeDocxPDFAUnsupported,
 			Message: "Ghostscript did not produce a PDF/A file",
 			Cause:   statErr,
-			Details: map[string]any{"stderr": strings.TrimSpace(result.Stderr)},
+			Details: map[string]any{"runtime": binary.Name, "stderr": strings.TrimSpace(result.Stderr)},
 		}
 	}
 
 	return nil
+}
+
+// ghostscriptMissingError keeps the canonical dependency code while naming
+// every candidate the resolver tried, so a Windows report shows why gswin64c was
+// not enough.
+func ghostscriptMissingError(cause error) error {
+	candidates := strings.Join(toolchain.GhostscriptBinaryNames, ", ")
+
+	return &DOCXError{
+		Code:    ErrorCodeDocxPDFAGhostscriptMissing,
+		Message: fmt.Sprintf("Ghostscript (%s) is required for PDF/A export but is not installed. Install Ghostscript or turn off the archival option.", candidates),
+		Cause:   cause,
+		Details: map[string]any{"runtime": "gs", "candidates": candidates},
+	}
 }
 
 // mapRenderError keeps font failures distinguishable from generic render

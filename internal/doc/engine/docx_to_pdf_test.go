@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"fileforge-desktop/internal/toolchain"
 )
 
 type stubRenderer struct {
@@ -253,6 +255,56 @@ func TestConvertDOCXPDFAUsesGhostscript(t *testing.T) {
 	}
 }
 
+func TestConvertDOCXPDFAUsesResolvedGhostscriptBinary(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "report.docx")
+	outputPath := filepath.Join(dir, "report.pdf")
+	resolvedPath := filepath.Join(dir, "gswin64c")
+	writeDOCXFixture(t, inputPath, 1)
+
+	original := resolveGhostscriptBinary
+	resolveGhostscriptBinary = func() (toolchain.GhostscriptBinary, bool) {
+		return toolchain.GhostscriptBinary{Name: "gswin64c", Path: resolvedPath}, true
+	}
+	t.Cleanup(func() {
+		resolveGhostscriptBinary = original
+	})
+
+	var invokedName string
+	renderer := stubRenderer{render: func(_ context.Context, _ string, out string) error {
+		writeMultiPagePDF(t, out, 1)
+		return nil
+	}}
+	runner := stubCommandRunner{run: func(_ context.Context, name string, args ...string) (CommandResult, error) {
+		invokedName = name
+		content, readErr := os.ReadFile(inputPath)
+		if readErr != nil {
+			t.Fatalf("read rendered input: %v", readErr)
+		}
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "-sOutputFile=") {
+				return CommandResult{}, os.WriteFile(strings.TrimPrefix(arg, "-sOutputFile="), content, 0o644)
+			}
+		}
+		t.Fatalf("expected -sOutputFile in args, got %v", args)
+
+		return CommandResult{}, nil
+	}}
+
+	_, err := ConvertDOCX(context.Background(), renderer, runner, ConvertDOCXRequest{
+		InputPath:          inputPath,
+		OutputPath:         outputPath,
+		PDFA:               true,
+		SkipProtectedCheck: true,
+	})
+	if err != nil {
+		t.Fatalf("expected PDF/A conversion to succeed, got %v", err)
+	}
+	if invokedName != resolvedPath {
+		t.Fatalf("expected the resolved path %q, got %q", resolvedPath, invokedName)
+	}
+}
+
 func TestConvertDOCXPDFAReportsMissingGhostscript(t *testing.T) {
 	dir := t.TempDir()
 	inputPath := filepath.Join(dir, "report.docx")
@@ -278,6 +330,15 @@ func TestConvertDOCXPDFAReportsMissingGhostscript(t *testing.T) {
 	}
 	if code := docxErrorCode(t, err); code != ErrorCodeDocxPDFAGhostscriptMissing {
 		t.Fatalf("expected %s, got %s", ErrorCodeDocxPDFAGhostscriptMissing, code)
+	}
+	var docxErr *DOCXError
+	if !errors.As(err, &docxErr) {
+		t.Fatalf("expected *DOCXError, got %T", err)
+	}
+	for _, candidate := range toolchain.GhostscriptBinaryNames {
+		if !strings.Contains(docxErr.Message, candidate) {
+			t.Fatalf("expected the error to list %q, got %q", candidate, docxErr.Message)
+		}
 	}
 	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("expected no silent non-archival output, got %v", statErr)
