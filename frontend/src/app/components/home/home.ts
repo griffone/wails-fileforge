@@ -33,6 +33,16 @@ import {
 
 import { RecipeDefinition, RECIPES } from '../../config/recipes';
 import { ToolCategory, ToolDefinition } from '../../config/tools';
+import {
+  RecipeOptionFields,
+  type RecipeOptionChange,
+} from '../recipe-options/recipe-option-fields';
+import {
+  optionInitialValues,
+  optionRequestValues,
+  optionValidationError,
+  type RecipeOptionValue,
+} from '../recipe-options/recipe-option-values';
 import { I18nService } from '../../services/i18n.service';
 import {
   RecentConversion,
@@ -45,7 +55,6 @@ import {
   ImportUserRecipesResponse,
   PathActionResponse,
   Recipe,
-  RecipeOptionChoice,
   RecipeOptionField,
   ToolCatalogEntry,
   UserRecipeResponse,
@@ -73,7 +82,7 @@ function normalize(value: string): string {
 @Component({
   selector: 'app-home',
   standalone: true,
-  imports: [RouterLink, LucideAngularModule],
+  imports: [RouterLink, LucideAngularModule, RecipeOptionFields],
   templateUrl: './home.html',
   styleUrl: './home.css',
 })
@@ -364,52 +373,8 @@ export class Home implements OnInit {
     this.updateDialogNameError();
   }
 
-  onRecipeOptionInput(field: RecipeOptionField, event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    this.setDialogFieldValue(field, target?.value ?? '');
-  }
-
-  onRecipeOptionBoolean(field: RecipeOptionField, event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    this.setDialogFieldValue(field, target?.checked === true);
-  }
-
-  dialogFieldText(field: RecipeOptionField): string {
-    const value = this.recipeDialogValues()[field.key];
-    return typeof value === 'boolean' ? '' : (value ?? '');
-  }
-
-  dialogFieldChecked(field: RecipeOptionField): boolean {
-    return this.recipeDialogValues()[field.key] === true;
-  }
-
-  dialogOptionLabel(field: RecipeOptionField): string {
-    return this.i18n.tOr(
-      `home.recipeDialog.option.${field.key}`,
-      field.label,
-    );
-  }
-
-  dialogOptionChoiceLabel(choice: RecipeOptionChoice): string {
-    return this.i18n.tOr(
-      `home.recipeDialog.choice.${choice.value}`,
-      choice.label,
-    );
-  }
-
-  dialogOptionHelp(field: RecipeOptionField): string {
-    return this.i18n.tOr(
-      `home.recipeDialog.help.${field.key}`,
-      field.help ?? '',
-    );
-  }
-
-  dialogOptionMin(field: RecipeOptionField): number | null {
-    return this.optionBound(field, field.min);
-  }
-
-  dialogOptionMax(field: RecipeOptionField): number | null {
-    return this.optionBound(field, field.max);
+  onRecipeOptionChange(change: RecipeOptionChange): void {
+    this.setDialogFieldValue(change.field, change.value);
   }
 
   async saveRecipeDialog(): Promise<void> {
@@ -710,48 +675,16 @@ export class Home implements OnInit {
   private initialDialogValues(
     recipe: Recipe,
     useOverrides: boolean,
-  ): Record<string, string | boolean> {
-    const values: Record<string, string | boolean> = {};
-    for (const field of recipe.optionSchema ?? []) {
-      const override = useOverrides
-        ? recipe.optionOverrides?.[field.key]
-        : undefined;
-      const raw = override ?? field.default;
-      if (field.kind === 'boolean') {
-        values[field.key] = raw === true;
-        continue;
-      }
-      if (field.kind === 'integer') {
-        const numeric = typeof raw === 'number' ? raw : Number(raw);
-        const scale = this.fieldScale(field);
-        values[field.key] = Number.isFinite(numeric)
-          ? String(Number((numeric / scale).toFixed(2)))
-          : '';
-        continue;
-      }
-      values[field.key] = raw == null ? '' : String(raw);
-    }
-
-    return values;
-  }
-
-  private fieldScale(field: RecipeOptionField): number {
-    return field.scale && field.scale > 0 ? field.scale : 1;
-  }
-
-  private optionBound(
-    field: RecipeOptionField,
-    bound: number | null | undefined,
-  ): number | null {
-    if (bound === null || bound === undefined) {
-      return null;
-    }
-    return bound / this.fieldScale(field);
+  ): Record<string, RecipeOptionValue> {
+    return optionInitialValues(
+      recipe.optionSchema ?? [],
+      useOverrides ? recipe.optionOverrides : undefined,
+    );
   }
 
   private setDialogFieldValue(
     field: RecipeOptionField,
-    value: string | boolean,
+    value: RecipeOptionValue,
   ): void {
     this.recipeDialogValues.update((values) => ({
       ...values,
@@ -809,97 +742,26 @@ export class Home implements OnInit {
     field: RecipeOptionField,
     raw: string | boolean,
   ): string {
-    const label = this.dialogOptionLabel(field);
+    const error = optionValidationError(
+      field,
+      raw,
+      this.optionLabel(field),
+      (choice) =>
+        this.i18n.tOr(`recipeRun.choice.${choice.value}`, choice.label),
+    );
 
-    switch (field.kind) {
-      case 'integer': {
-        const text = String(raw ?? '').trim();
-        if (!text) {
-          return this.i18n.t('home.recipeDialog.error.required', { label });
-        }
-        const value = Number(text);
-        if (!Number.isFinite(value) || !Number.isInteger(value)) {
-          return this.i18n.t('home.recipeDialog.error.integer', {
-            label,
-            unit: field.unit ?? '',
-          });
-        }
-        const minimum = this.optionBound(field, field.min);
-        const maximum = this.optionBound(field, field.max);
-        if (minimum !== null && value < minimum) {
-          return this.rangeError(label, minimum, maximum, field.unit);
-        }
-        if (maximum !== null && value > maximum) {
-          return this.rangeError(label, minimum, maximum, field.unit);
-        }
-        return '';
-      }
-
-      case 'enum': {
-        const value = String(raw ?? '');
-        const allowed = (field.values ?? []).some(
-          (choice) => choice.value === value,
-        );
-        if (!allowed) {
-          return this.i18n.t('home.recipeDialog.error.enum', {
-            label,
-            values: (field.values ?? [])
-              .map((choice) => this.dialogOptionChoiceLabel(choice))
-              .join(', '),
-          });
-        }
-        return '';
-      }
-
-      case 'text': {
-        return String(raw ?? '').trim()
-          ? ''
-          : this.i18n.t('home.recipeDialog.error.required', { label });
-      }
-
-      default:
-        return '';
-    }
+    return error ? this.i18n.t(error.key, error.params) : '';
   }
 
-  private rangeError(
-    label: string,
-    minimum: number | null,
-    maximum: number | null,
-    unit: string | undefined,
-  ): string {
-    const min = minimum !== null ? String(minimum) : '';
-    const max = maximum !== null ? String(maximum) : '';
-    return this.i18n.t('home.recipeDialog.error.range', {
-      label,
-      min,
-      max,
-      unit: unit ?? '',
-    });
+  private optionLabel(field: RecipeOptionField): string {
+    return this.i18n.tOr(`recipeRun.option.${field.key}`, field.label);
   }
 
   private buildDialogOptions(): Record<string, unknown> {
-    const fields = this.recipeDialogFields();
-    const values = this.recipeDialogValues();
-    const options: Record<string, unknown> = {};
-    for (const field of fields) {
-      const raw = values[field.key];
-      switch (field.kind) {
-        case 'integer':
-          options[field.key] = Math.round(
-            Number(raw ?? 0) * this.fieldScale(field),
-          );
-          break;
-        case 'boolean':
-          options[field.key] = raw === true;
-          break;
-        default:
-          options[field.key] = String(raw ?? '');
-          break;
-      }
-    }
-
-    return options;
+    return optionRequestValues(
+      this.recipeDialogFields(),
+      this.recipeDialogValues(),
+    );
   }
 
   readonly recent = this.recentTools.recent;

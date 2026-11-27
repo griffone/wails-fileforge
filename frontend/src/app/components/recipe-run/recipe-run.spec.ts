@@ -55,6 +55,19 @@ const emailPdfRecipe: Recipe = {
   ],
   defaultTargetSizeBytes: TARGET_BYTES,
   duplicable: false,
+  optionSchema: [
+    {
+      key: 'targetSizeBytes',
+      label: 'Target size',
+      kind: 'integer' as RecipeOptionKind,
+      unit: 'MB',
+      min: 1 * 1024 * 1024,
+      max: 100 * 1024 * 1024,
+      scale: 1024 * 1024,
+      default: TARGET_BYTES,
+      help: 'Best effort: the output may stay above the target.',
+    },
+  ],
 };
 
 const webImageSetRecipe: Recipe = {
@@ -175,10 +188,6 @@ const CLEAN_SCAN_OUTPUTS = [
 
 function statusResponse(result: RecipeResult): RecipeStatusResponse {
   return { success: true, found: true, message: result.status, result };
-}
-
-function inputEvent(value: string): Event {
-  return { target: { value } } as unknown as Event;
 }
 
 function createWailsSpy(): jasmine.SpyObj<Wails> {
@@ -428,10 +437,12 @@ describe('RecipeRun (Email PDF)', () => {
     fixture.detectChanges();
 
     expect(component.recipe()?.id).toBe(EMAIL_RECIPE_ID);
-    expect(component.targetMb()).toBe(10);
-    expect(component.showTargetSize()).toBeTrue();
+    expect(component.optionValues()['targetSizeBytes']).toBe('10');
+    expect(component.optionFields().map((field) => field.key)).toEqual([
+      'targetSizeBytes',
+    ]);
     expect(component.multipleInputs()).toBeTrue();
-    expect(query<HTMLInputElement>('#recipe-target-mb')?.value).toBe('10');
+    expect(query<HTMLInputElement>('#recipe-option-targetSizeBytes')?.value).toBe('10');
     expect(fixture.nativeElement.textContent).toContain('Email PDF');
     expect(fixture.nativeElement.textContent).toContain('Optimize to target');
     expect(fixture.nativeElement.textContent).toContain('Target size');
@@ -455,7 +466,7 @@ describe('RecipeRun (Email PDF)', () => {
       'Optimize to target',
     ]);
     expect(
-      (fresh.nativeElement.querySelector('#recipe-target-mb') as HTMLInputElement)
+      (fresh.nativeElement.querySelector('#recipe-option-targetSizeBytes') as HTMLInputElement)
         .value,
     ).toBe('10');
     fresh.destroy();
@@ -606,18 +617,22 @@ describe('RecipeRun (Email PDF)', () => {
     flushMicrotasks();
     fixture.detectChanges();
 
-    component.onTargetInput(inputEvent('0'));
+    const target = query<HTMLInputElement>(
+      '#recipe-option-targetSizeBytes',
+    ) as HTMLInputElement;
+    target.value = '0';
+    target.dispatchEvent(new Event('input'));
     tick(250);
     flushMicrotasks();
     fixture.detectChanges();
 
-    expect(component.targetInvalid()).toBeTrue();
+    expect(component.optionsInvalid()).toBeTrue();
     expect(component.canRun()).toBeFalse();
     expect(
       (query<HTMLButtonElement>('.action-primary') as HTMLButtonElement).disabled,
     ).toBeTrue();
     expect(fixture.nativeElement.textContent).toContain(
-      'Enter a target size larger than 0 MB.',
+      'Target size must be between 1 and 100 MB.',
     );
 
     void component.run();
@@ -827,9 +842,9 @@ describe('RecipeRun (Web image set)', () => {
     fixture.detectChanges();
 
     expect(component.recipe()?.id).toBe(WEB_RECIPE_ID);
-    expect(component.showTargetSize()).toBeFalse();
+    expect(component.optionFields()).toEqual([]);
     expect(component.multipleInputs()).toBeFalse();
-    expect(query('#recipe-target-mb')).toBeNull();
+    expect(query('#recipe-option-targetSizeBytes')).toBeNull();
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Web image set');
@@ -885,7 +900,7 @@ describe('RecipeRun (Web image set)', () => {
       .args[0] as RecipeRequest;
     expect(request.options).toEqual({});
     expect('targetSizeBytes' in request.options).toBeFalse();
-    expect(component.targetBytes()).toBe(0);
+    expect(component.optionFields()).toEqual([]);
   }));
 
   it('shows live recipe progress from recipes/progress while running', fakeAsync(() => {
@@ -1142,9 +1157,9 @@ describe('RecipeRun (Social clip)', () => {
     fixture.detectChanges();
 
     expect(component.recipe()?.id).toBe(SOCIAL_RECIPE_ID);
-    expect(component.showTargetSize()).toBeFalse();
+    expect(component.optionFields()).toEqual([]);
     expect(component.multipleInputs()).toBeFalse();
-    expect(query('#recipe-target-mb')).toBeNull();
+    expect(query('#recipe-option-targetSizeBytes')).toBeNull();
 
     expect(component.inputTitle()).toBe('Video');
     expect(component.dropTitle()).toBe('Drop a video here');
@@ -1193,7 +1208,7 @@ describe('RecipeRun (Social clip)', () => {
     expect(request.recipeId).toBe(SOCIAL_RECIPE_ID);
     expect(request.inputPaths).toEqual(['/tmp/in/clip.mp4']);
     expect(request.options).toEqual({});
-    expect(component.targetBytes()).toBe(0);
+    expect(component.optionFields()).toEqual([]);
   }));
 
   it('runs, observes to terminal and lists the three verified outputs', fakeAsync(() => {
@@ -1383,9 +1398,9 @@ describe('RecipeRun (Clean scan)', () => {
     fixture.detectChanges();
 
     expect(component.recipe()?.id).toBe(CLEAN_SCAN_RECIPE_ID);
-    expect(component.showTargetSize()).toBeFalse();
+    expect(component.optionFields()).toEqual([]);
     expect(component.multipleInputs()).toBeFalse();
-    expect(query('#recipe-target-mb')).toBeNull();
+    expect(query('#recipe-option-targetSizeBytes')).toBeNull();
     expect(component.inputTitle()).toBe('PDFs');
     expect(component.chooseLabel()).toBe('Choose PDF');
 
@@ -1412,7 +1427,7 @@ describe('RecipeRun (Clean scan)', () => {
     expect(request.inputPaths).toEqual(['/tmp/in/report.pdf']);
     expect(request.outputDir).toBe('');
     expect(request.options).toEqual({});
-    expect(component.targetBytes()).toBe(0);
+    expect(component.optionFields()).toEqual([]);
     expect(component.plan()?.outputs.map((output) => output.outputPath)).toEqual(
       CLEAN_SCAN_OUTPUTS,
     );
@@ -1618,9 +1633,9 @@ describe('RecipeRun (Burned-in subtitles)', () => {
 
     expect(component.recipe()?.id).toBe(BURNED_RECIPE_ID);
     expect(component.recipe()?.name).toBe('Burned-in subtitles');
-    expect(component.showTargetSize()).toBeFalse();
+    expect(component.optionFields()).toEqual([]);
     expect(component.multipleInputs()).toBeFalse();
-    expect(query('#recipe-target-mb')).toBeNull();
+    expect(query('#recipe-option-targetSizeBytes')).toBeNull();
 
     expect(component.inputTitle()).toBe('Video');
     expect(component.dropTitle()).toBe('Drop a video here');
@@ -1657,7 +1672,7 @@ describe('RecipeRun (Burned-in subtitles)', () => {
     expect(planRequest.recipeId).toBe(BURNED_RECIPE_ID);
     expect(planRequest.inputPaths).toEqual(['/tmp/in/lecture.mp4']);
     expect(planRequest.options).toEqual({});
-    expect(component.targetBytes()).toBe(0);
+    expect(component.optionFields()).toEqual([]);
 
     void component.run();
     flushMicrotasks();
@@ -1742,6 +1757,26 @@ describe('RecipeRun (Spanish)', () => {
     expect(text).toContain('Pasos');
     expect(text).toContain('2 pasos');
 
+    // The generic option renderer localizes the label, help and inline error.
+    const target = query<HTMLInputElement>(
+      '#recipe-option-targetSizeBytes',
+    ) as HTMLInputElement;
+    expect(target.value).toBe('10');
+    expect(text).toContain(
+      'Mejor esfuerzo: la salida puede superar el objetivo.',
+    );
+    expect(text).toContain(
+      'Define las opciones de la receta y dónde se guardan los resultados.',
+    );
+
+    target.value = '0';
+    target.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Tamaño objetivo debe estar entre 1 y 100 MB.',
+    );
+
     expect(
       query<HTMLButtonElement>('.action-primary')?.textContent?.trim(),
     ).toBe('Crear PDF por email');
@@ -1781,6 +1816,10 @@ describe('RecipeRun (user recipe)', () => {
   let fixture: ComponentFixture<RecipeRun>;
   let component: RecipeRun;
   let wailsSpy: jasmine.SpyObj<Wails>;
+
+  function query<T extends Element>(selector: string): T | null {
+    return fixture.nativeElement.querySelector(selector) as T | null;
+  }
 
   function createUserRoute(recipeId: string): ActivatedRoute {
     return {
@@ -1887,10 +1926,17 @@ describe('RecipeRun (user recipe)', () => {
 
     expect(component.recipe()?.id).toBe(USER_RECIPE_ID);
     expect(component.recipe()?.userDefined).toBeTrue();
-    expect(component.showTargetSize()).toBeFalse();
+    expect(component.optionFields()).toEqual([]);
     expect(component.userOptionSummaries()).toEqual([
       { key: 'targetSizeBytes', label: 'Target size', value: '5 MB' },
     ]);
+
+    // The page must not offer to edit what the recipe already stores.
+    expect(query('#recipe-option-targetSizeBytes')).toBeNull();
+    expect(query('.settings-grid input')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain(
+      'This recipe saves these values. Edit the recipe to change them.',
+    );
 
     component.onPathsSelected(['/tmp/a.pdf']);
     tick(250);
@@ -1914,5 +1960,506 @@ describe('RecipeRun (user recipe)', () => {
 
     component.resetRun();
     fixture.detectChanges();
+  }));
+});
+
+describe('RecipeRun (generic option schema)', () => {
+  let fixture: ComponentFixture<RecipeRun>;
+  let component: RecipeRun;
+  let wailsSpy: jasmine.SpyObj<Wails>;
+
+  function query<T extends Element>(selector: string): T | null {
+    return fixture.nativeElement.querySelector(selector) as T | null;
+  }
+
+  function emailPlan(request: RecipeRequest): RecipePlanResponse {
+    return {
+      success: true,
+      message: 'Ready to email 1 PDF.',
+      recipe: emailPdfRecipe,
+      inputPaths: request.inputPaths,
+      outputDir: '/tmp',
+      outputs: [
+        {
+          inputPath: request.inputPaths[0] ?? '',
+          outputPath: '/tmp/a_email.pdf',
+          outputKind: 'file',
+          outputCount: 1,
+          exists: false,
+          adjusted: false,
+        },
+      ],
+      warnings: [],
+    };
+  }
+
+  beforeEach(async () => {
+    clearPreferences();
+    wailsSpy = createWailsSpy();
+
+    wailsSpy.listRecipes.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [emailPdfRecipe, webImageSetRecipe],
+    });
+    wailsSpy.planRecipe.and.callFake((request: RecipeRequest) =>
+      Promise.resolve(emailPlan(request)),
+    );
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map((path) => ({
+          path,
+          name: path.split(/[\\/]/).pop() ?? path,
+          directory: '/tmp',
+          extension: 'pdf',
+          sizeBytes: 1024,
+          kind: 'pdf',
+          exists: true,
+        })),
+      }),
+    );
+    wailsSpy.runRecipe.and.resolveTo({
+      success: true,
+      message: 'recipe submitted',
+      jobId: 'email-job-1',
+      status: 'queued',
+    });
+    wailsSpy.openFileDialog.and.resolveTo('');
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
+    wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+
+    await TestBed.configureTestingModule({
+      imports: [RecipeRun],
+      providers: [
+        { provide: Wails, useValue: wailsSpy },
+        { provide: ActivatedRoute, useValue: createRoute(EMAIL_RECIPE_ID) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(RecipeRun);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('renders the byte-based target default in MB with declared bounds', () => {
+    const input = query<HTMLInputElement>('#recipe-option-targetSizeBytes');
+
+    expect(input).not.toBeNull();
+    expect(input?.value).toBe('10');
+    expect(input?.getAttribute('min')).toBe('1');
+    expect(input?.getAttribute('max')).toBe('100');
+    expect(input?.getAttribute('step')).toBe('1');
+
+    const suffix = fixture.nativeElement.querySelector(
+      '#recipe-option-targetSizeBytes + .input-suffix-label',
+    ) as HTMLElement | null;
+    expect(suffix?.textContent?.trim()).toBe('MB');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Best effort: the output may stay above the target.',
+    );
+  });
+
+  it('re-plans after a short debounce and sends canonical bytes', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(1);
+    expect(
+      (wailsSpy.planRecipe.calls.mostRecent().args[0] as RecipeRequest).options,
+    ).toEqual({ targetSizeBytes: TARGET_BYTES });
+
+    const input = query<HTMLInputElement>(
+      '#recipe-option-targetSizeBytes',
+    ) as HTMLInputElement;
+    input.value = '5';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    // Nothing is planned before the debounce elapses.
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(1);
+    tick(249);
+    flushMicrotasks();
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(1);
+
+    tick(1);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(2);
+    expect(
+      (wailsSpy.planRecipe.calls.mostRecent().args[0] as RecipeRequest).options,
+    ).toEqual({ targetSizeBytes: 5 * 1024 * 1024 });
+  }));
+
+  it('blocks a fractional or out-of-range integer with an inline message', fakeAsync(() => {
+    component.onPathsSelected(['/tmp/a.pdf']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const input = query<HTMLInputElement>(
+      '#recipe-option-targetSizeBytes',
+    ) as HTMLInputElement;
+
+    input.value = '2.5';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(component.optionErrors()['targetSizeBytes']).toContain(
+      'whole number',
+    );
+    expect(component.canRun()).toBeFalse();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Target size must be a whole number (MB).',
+    );
+
+    input.value = '500';
+    input.dispatchEvent(new Event('input'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(component.optionErrors()['targetSizeBytes']).toBe(
+      'Target size must be between 1 and 100 MB.',
+    );
+    expect(component.canRun()).toBeFalse();
+
+    void component.run();
+    flushMicrotasks();
+    expect(wailsSpy.runRecipe).not.toHaveBeenCalled();
+  }));
+});
+
+describe('RecipeRun (built-in enum option)', () => {
+  const ENUM_OUTPUTS = ['/tmp/in/hero-1600.webp'];
+
+  const enumRecipe: Recipe = {
+    ...webImageSetRecipe,
+    defaultTargetSizeBytes: 0,
+    optionSchema: [
+      {
+        key: 'variantPreset',
+        label: 'Variant preset',
+        kind: 'enum' as RecipeOptionKind,
+        default: 'standard',
+        values: [
+          { value: 'standard', label: '1600 / 800 px (default)' },
+          { value: 'compact', label: '1200 / 600 px' },
+          { value: 'large', label: '2400 / 1200 px' },
+        ],
+        help: 'Widths are capped at the source width; images are never upscaled.',
+      },
+    ],
+  };
+
+  let fixture: ComponentFixture<RecipeRun>;
+  let component: RecipeRun;
+  let wailsSpy: jasmine.SpyObj<Wails>;
+
+  function query<T extends Element>(selector: string): T | null {
+    return fixture.nativeElement.querySelector(selector) as T | null;
+  }
+
+  beforeEach(async () => {
+    clearPreferences();
+    wailsSpy = createWailsSpy();
+
+    wailsSpy.listRecipes.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [emailPdfRecipe, enumRecipe],
+    });
+    wailsSpy.planRecipe.and.callFake((request: RecipeRequest) =>
+      Promise.resolve({
+        success: true,
+        message: 'Ready to build 1 file.',
+        recipe: enumRecipe,
+        inputPaths: request.inputPaths,
+        outputDir: '/tmp/in',
+        outputs: ENUM_OUTPUTS.map((path) => ({
+          inputPath: request.inputPaths[0] ?? '',
+          outputPath: path,
+          outputKind: 'file',
+          exists: false,
+          adjusted: false,
+        })),
+        warnings: [],
+      }),
+    );
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map((path) => ({
+          path,
+          name: path.split(/[\\/]/).pop() ?? path,
+          directory: '/tmp/in',
+          extension: 'png',
+          sizeBytes: 1024,
+          kind: 'image',
+          exists: true,
+        })),
+      }),
+    );
+    wailsSpy.runRecipe.and.resolveTo({
+      success: true,
+      message: 'recipe submitted',
+      jobId: 'enum-job-1',
+      status: 'queued',
+    });
+    wailsSpy.openFileDialog.and.resolveTo('');
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
+    wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+
+    await TestBed.configureTestingModule({
+      imports: [RecipeRun],
+      providers: [
+        { provide: Wails, useValue: wailsSpy },
+        { provide: ActivatedRoute, useValue: createRoute(WEB_RECIPE_ID) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(RecipeRun);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('renders a select with the declared values and sends the chosen value', fakeAsync(() => {
+    const select = query<HTMLSelectElement>(
+      '#recipe-option-variantPreset',
+    ) as HTMLSelectElement;
+
+    expect(select).not.toBeNull();
+    expect(select.value).toBe('standard');
+    expect(select.querySelectorAll('option').length).toBe(3);
+    expect(fixture.nativeElement.textContent).toContain('1200 / 600 px');
+
+    component.onPathsSelected(['/tmp/in/hero.png']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      (wailsSpy.planRecipe.calls.mostRecent().args[0] as RecipeRequest).options,
+    ).toEqual({ variantPreset: 'standard' });
+
+    select.value = 'compact';
+    select.dispatchEvent(new Event('change'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(2);
+    expect(
+      (wailsSpy.planRecipe.calls.mostRecent().args[0] as RecipeRequest).options,
+    ).toEqual({ variantPreset: 'compact' });
+  }));
+});
+
+describe('RecipeRun (built-in boolean option)', () => {
+  const ARCHIVE_ID = 'recipe.archive_document';
+  const ARCHIVE_OUTPUTS = ['/tmp/in/contract_archived.pdf'];
+
+  const archiveRecipe: Recipe = {
+    id: ARCHIVE_ID,
+    name: 'Archive document',
+    description:
+      'Turn a DOCX into a PDF/A-2 file and report its SHA-256 for long-term storage.',
+    category: 'documents',
+    inputKind: 'document',
+    acceptExtensions: ['docx'],
+    maxInputs: 1,
+    highlights: ['PDF/A-2', 'SHA-256 checksum', 'Optional sidecar'],
+    steps: [
+      {
+        id: 'render',
+        name: 'Render PDF/A-2',
+        toolId: 'tool.doc.docx_to_pdf',
+        detail: 'Bundled DOCX renderer, then Ghostscript distils the PDF',
+      },
+      {
+        id: 'verify',
+        name: 'Hash and verify',
+        toolId: '',
+        detail: 'PDF signature, PDF/A marker, page count and SHA-256',
+      },
+    ],
+    defaultTargetSizeBytes: 0,
+    duplicable: true,
+    optionSchema: [
+      {
+        key: 'writeSidecar',
+        label: 'SHA-256 sidecar',
+        kind: 'boolean' as RecipeOptionKind,
+        default: false,
+        help: 'Write <pdf>.sha256 next to the PDF with a `hash  filename` line.',
+      },
+    ],
+  };
+
+  let fixture: ComponentFixture<RecipeRun>;
+  let component: RecipeRun;
+  let wailsSpy: jasmine.SpyObj<Wails>;
+
+  function query<T extends Element>(selector: string): T | null {
+    return fixture.nativeElement.querySelector(selector) as T | null;
+  }
+
+  function archivePlan(request: RecipeRequest): RecipePlanResponse {
+    const options = request.options ?? {};
+    const outputs = options['writeSidecar']
+      ? [...ARCHIVE_OUTPUTS, '/tmp/in/contract_archived.pdf.sha256']
+      : [...ARCHIVE_OUTPUTS];
+
+    return {
+      success: true,
+      message: 'Ready to archive contract.docx as PDF/A-2.',
+      recipe: archiveRecipe,
+      inputPaths: request.inputPaths,
+      outputDir: '/tmp/in',
+      outputs: outputs.map((path) => ({
+        inputPath: request.inputPaths[0] ?? '',
+        outputPath: path,
+        outputKind: 'file',
+        outputCount: 1,
+        exists: false,
+        adjusted: false,
+      })),
+      warnings: [],
+    };
+  }
+
+  beforeEach(async () => {
+    clearPreferences();
+    wailsSpy = createWailsSpy();
+
+    wailsSpy.listRecipes.and.resolveTo({
+      success: true,
+      message: 'ok',
+      recipes: [emailPdfRecipe, archiveRecipe],
+    });
+    wailsSpy.planRecipe.and.callFake((request: RecipeRequest) =>
+      Promise.resolve(archivePlan(request)),
+    );
+    wailsSpy.inspectFiles.and.callFake((paths: string[]) =>
+      Promise.resolve({
+        success: true,
+        message: 'ok',
+        files: paths.map((path) => ({
+          path,
+          name: path.split(/[\\/]/).pop() ?? path,
+          directory: '/tmp/in',
+          extension: 'docx',
+          sizeBytes: 4096,
+          kind: 'document',
+          exists: true,
+        })),
+      }),
+    );
+    wailsSpy.runRecipe.and.resolveTo({
+      success: true,
+      message: 'recipe submitted',
+      jobId: 'archive-job-1',
+      status: 'queued',
+    });
+    wailsSpy.openFileDialog.and.resolveTo('');
+    wailsSpy.openMultipleFilesDialog.and.resolveTo([]);
+    wailsSpy.openDirectoryDialog.and.resolveTo('');
+    wailsSpy.openPath.and.resolveTo({ success: true, message: '' });
+    wailsSpy.revealInFolder.and.resolveTo({ success: true, message: '' });
+
+    await TestBed.configureTestingModule({
+      imports: [RecipeRun],
+      providers: [
+        { provide: Wails, useValue: wailsSpy },
+        { provide: ActivatedRoute, useValue: createRoute(ARCHIVE_ID) },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(RecipeRun);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    clearPreferences();
+  });
+
+  it('renders the checkbox off by default and omits the key until ticked', fakeAsync(() => {
+    const checkbox = query<HTMLInputElement>(
+      '#recipe-option-writeSidecar',
+    ) as HTMLInputElement;
+    expect(checkbox).not.toBeNull();
+    expect(checkbox.checked).toBeFalse();
+    expect(fixture.nativeElement.textContent).toContain('SHA-256 sidecar');
+
+    component.onPathsSelected(['/tmp/in/contract.docx']);
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      (wailsSpy.planRecipe.calls.mostRecent().args[0] as RecipeRequest).options,
+    ).toEqual({});
+
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change'));
+    tick(250);
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(wailsSpy.planRecipe).toHaveBeenCalledTimes(2);
+    expect(
+      (wailsSpy.planRecipe.calls.mostRecent().args[0] as RecipeRequest).options,
+    ).toEqual({ writeSidecar: true });
+
+    void component.run();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      (wailsSpy.runRecipe.calls.mostRecent().args[0] as RecipeRequest).options,
+    ).toEqual({ writeSidecar: true });
+  }));
+
+  it('sends the sidecar in Spanish and translates the new copy', fakeAsync(() => {
+    const i18n = TestBed.inject(I18nService);
+    i18n.setLocale('es');
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Archivo SHA-256');
+    expect(text).toContain(
+      'Escribe <pdf>.sha256 junto al PDF con una línea `hash  nombre`.',
+    );
+    expect(text).toContain('Ajustes');
+    expect(text).toContain(
+      'Define las opciones de la receta y dónde se guardan los resultados.',
+    );
+
+    i18n.setLocale('en');
   }));
 });

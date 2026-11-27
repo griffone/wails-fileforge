@@ -67,6 +67,19 @@ export const RECIPES: readonly RecipeDefinition[] = [
       ],
       defaultTargetSizeBytes: 10 * MEGABYTE,
       duplicable: false,
+      optionSchema: [
+        {
+          key: 'targetSizeBytes',
+          label: 'Target size',
+          kind: RecipeOptionKind.RecipeOptionInteger,
+          unit: 'MB',
+          min: 1 * MEGABYTE,
+          max: 100 * MEGABYTE,
+          scale: MEGABYTE,
+          default: 10 * MEGABYTE,
+          help: 'Best effort: the output may stay above the target.',
+        },
+      ],
     },
   },
   {

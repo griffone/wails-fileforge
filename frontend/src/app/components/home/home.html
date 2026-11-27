@@ -617,78 +617,12 @@
           }
         </div>
 
-        @for (field of recipeDialogFields(); track field.key) {
-          <div class="field">
-            <label class="label" [attr.for]="'recipe-option-' + field.key">
-              {{ dialogOptionLabel(field) }}
-            </label>
-
-            @switch (field.kind) {
-              @case ('integer') {
-                <div class="input-suffix">
-                  <input
-                    [id]="'recipe-option-' + field.key"
-                    class="input"
-                    type="number"
-                    step="1"
-                    [attr.min]="dialogOptionMin(field)"
-                    [attr.max]="dialogOptionMax(field)"
-                    [value]="dialogFieldText(field)"
-                    [attr.aria-invalid]="recipeDialogErrors()[field.key] ? 'true' : null"
-                    (input)="onRecipeOptionInput(field, $event)"
-                  />
-                  @if (field.unit) {
-                    <span class="input-suffix-label mono" aria-hidden="true">{{ field.unit }}</span>
-                  }
-                </div>
-              }
-              @case ('boolean') {
-                <label class="checkbox-row">
-                  <input
-                    [id]="'recipe-option-' + field.key"
-                    type="checkbox"
-                    [checked]="dialogFieldChecked(field)"
-                    (change)="onRecipeOptionBoolean(field, $event)"
-                  />
-                  <span>{{ dialogOptionLabel(field) }}</span>
-                </label>
-              }
-              @case ('enum') {
-                <select
-                  [id]="'recipe-option-' + field.key"
-                  class="input"
-                  [value]="dialogFieldText(field)"
-                  [attr.aria-invalid]="recipeDialogErrors()[field.key] ? 'true' : null"
-                  (change)="onRecipeOptionInput(field, $event)"
-                >
-                  @for (choice of field.values ?? []; track choice.value) {
-                    <option
-                      [value]="choice.value"
-                      [selected]="choice.value === dialogFieldText(field)"
-                    >{{ dialogOptionChoiceLabel(choice) }}</option>
-                  }
-                </select>
-              }
-              @default {
-                <input
-                  [id]="'recipe-option-' + field.key"
-                  class="input"
-                  type="text"
-                  autocomplete="off"
-                  [value]="dialogFieldText(field)"
-                  [attr.aria-invalid]="recipeDialogErrors()[field.key] ? 'true' : null"
-                  (input)="onRecipeOptionInput(field, $event)"
-                />
-              }
-            }
-
-            @if (recipeDialogErrors()[field.key]; as error) {
-              <p class="field-help field-error" role="alert">{{ error }}</p>
-            } @else if (dialogOptionHelp(field); as help) {
-              <p class="field-help">{{ help }}</p>
-            }
-          </div>
-        }
+        <app-recipe-option-fields
+          [fields]="recipeDialogFields()"
+          [values]="recipeDialogValues()"
+          [errors]="recipeDialogErrors()"
+          (valueChange)="onRecipeOptionChange($event)"
+        ></app-recipe-option-fields>
       </div>
 
       <div class="modal-foot">

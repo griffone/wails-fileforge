@@ -1,0 +1,44 @@
+/*
+ * The host renders no box of its own: its fields become direct children of the
+ * surrounding form or grid (dialog body or recipe settings grid).
+ */
+:host {
+  display: contents;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.input-suffix {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-suffix .input {
+  padding-right: 3.25rem;
+}
+
+.input-suffix-label {
+  position: absolute;
+  right: 0.75rem;
+  font-size: 0.6875rem;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.field-help {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.field-error {
+  color: var(--danger);
+}

@@ -104,39 +104,16 @@
               </div>
             }
           </dl>
+          <p class="field-help">{{ i18n.t('recipeRun.options.userSaved') }}</p>
         }
 
-        <div class="settings-grid" [class.settings-grid-single]="!showTargetSize()">
-          @if (showTargetSize()) {
-            <div class="field">
-              <label class="label" for="recipe-target-mb">{{ i18n.t('recipeRun.target.label') }}</label>
-              <div class="input-suffix">
-                <input
-                  id="recipe-target-mb"
-                  class="input"
-                  type="number"
-                  min="0.1"
-                  step="0.5"
-                  inputmode="decimal"
-                  autocomplete="off"
-                  aria-describedby="recipe-target-help"
-                  [attr.aria-invalid]="targetInvalid() ? 'true' : null"
-                  [value]="targetText()"
-                  (input)="onTargetInput($event)"
-                />
-                <span class="input-suffix-label mono" aria-hidden="true">MB</span>
-              </div>
-              @if (targetInvalid()) {
-                <p id="recipe-target-help" class="field-help field-error" role="alert">
-                  {{ i18n.t('recipeRun.target.invalid') }}
-                </p>
-              } @else {
-                <p id="recipe-target-help" class="field-help">
-                  {{ i18n.t('recipeRun.target.help') }}
-                </p>
-              }
-            </div>
-          }
+        <div class="settings-grid" [class.settings-grid-single]="optionFields().length === 0">
+          <app-recipe-option-fields
+            [fields]="optionFields()"
+            [values]="optionValues()"
+            [errors]="optionErrors()"
+            (valueChange)="onOptionValueChange($event)"
+          ></app-recipe-option-fields>
 
           <div class="field">
             <span class="label">{{ i18n.t('recipeRun.output.label') }}</span>
@@ -154,7 +131,7 @@
                 {{ i18n.t('recipeRun.output.useDefault') }}
               </button>
             }
-            @if (!showTargetSize()) {
+            @if (optionFields().length === 0) {
               <p class="field-help">{{ i18n.t('recipeRun.output.fixedFormats') }}</p>
             }
           </div>

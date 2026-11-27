@@ -1,0 +1,84 @@
+@for (field of fields; track field.key) {
+  <div class="field">
+    <label class="label" [attr.for]="optionId(field)">
+      {{ optionLabel(field) }}
+    </label>
+
+    @switch (field.kind) {
+      @case ('integer') {
+        <div class="input-suffix">
+          <input
+            [id]="optionId(field)"
+            class="input"
+            type="number"
+            step="1"
+            inputmode="decimal"
+            autocomplete="off"
+            [attr.min]="optionMin(field)"
+            [attr.max]="optionMax(field)"
+            [value]="optionText(field)"
+            [attr.aria-invalid]="errors[field.key] ? 'true' : null"
+            [attr.aria-describedby]="optionId(field) + '-help'"
+            (input)="onTextInput(field, $event)"
+          />
+          @if (field.unit) {
+            <span class="input-suffix-label mono" aria-hidden="true">{{ field.unit }}</span>
+          }
+        </div>
+      }
+      @case ('boolean') {
+        <label class="checkbox-row">
+          <input
+            [id]="optionId(field)"
+            type="checkbox"
+            [checked]="optionChecked(field)"
+            [attr.aria-invalid]="errors[field.key] ? 'true' : null"
+            [attr.aria-describedby]="optionId(field) + '-help'"
+            (change)="onBooleanChange(field, $event)"
+          />
+          <span>{{ optionLabel(field) }}</span>
+        </label>
+      }
+      @case ('enum') {
+        <select
+          [id]="optionId(field)"
+          class="input"
+          [value]="optionText(field)"
+          [attr.aria-invalid]="errors[field.key] ? 'true' : null"
+          [attr.aria-describedby]="optionId(field) + '-help'"
+          (change)="onTextInput(field, $event)"
+        >
+          @if (!optionText(field)) {
+            <option value="" disabled selected></option>
+          }
+          @for (choice of field.values ?? []; track choice.value) {
+            <option
+              [value]="choice.value"
+              [selected]="choice.value === optionText(field)"
+            >{{ optionChoiceLabel(choice) }}</option>
+          }
+        </select>
+      }
+      @default {
+        <input
+          [id]="optionId(field)"
+          class="input"
+          type="text"
+          autocomplete="off"
+          [value]="optionText(field)"
+          [attr.aria-invalid]="errors[field.key] ? 'true' : null"
+          [attr.aria-describedby]="optionId(field) + '-help'"
+          (input)="onTextInput(field, $event)"
+        />
+      }
+    }
+
+    @if (errors[field.key]; as error) {
+      <p class="field-help field-error" role="alert" [id]="optionId(field) + '-help'">
+        {{ error }}
+      </p>
+    } @else if (optionHelp(field); as help) {
+      <p class="field-help" [id]="optionId(field) + '-help'">{{ help }}</p>
+    }
+  </div>
+}
