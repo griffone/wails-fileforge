@@ -51,6 +51,7 @@ var toolIDs = []string{
 	video.ToolIDVideoTrim,
 	video.ToolIDVideoMerge,
 	video.ToolIDVideoTranscribe,
+	video.ToolIDVideoAudioSync,
 	audio.ToolIDAudioExtract,
 	audio.ToolIDAudioConvert,
 	audio.ToolIDAudioNormalize,
@@ -67,8 +68,8 @@ func TestToolRegistryContract(t *testing.T) {
 	}
 
 	catalog := reg.ListTools(context.Background())
-	if len(catalog) != 29 {
-		t.Fatalf("registered tools = %d, want 29", len(catalog))
+	if len(catalog) != 30 {
+		t.Fatalf("registered tools = %d, want 30", len(catalog))
 	}
 
 	seen := make(map[string]struct{}, len(catalog))

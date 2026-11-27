@@ -48,14 +48,15 @@ var videoDurationCommand = func(ctx context.Context, path string) ([]byte, error
 	).Output()
 }
 
-// videoMetadataCommand reads duration, stream codecs and video dimensions in a
-// single ffprobe JSON call. It is a package variable so tests can mock it.
+// videoMetadataCommand reads duration, stream codecs, video dimensions and the
+// frame rate in a single ffprobe JSON call. It is a package variable so tests
+// can mock it.
 var videoMetadataCommand = func(ctx context.Context, path string) ([]byte, error) {
 	return execx.CommandContext(
 		ctx,
 		"ffprobe",
 		"-v", "error",
-		"-show_entries", "stream=codec_type,codec_name,width,height:format=duration",
+		"-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate:format=duration",
 		"-of", "json",
 		path,
 	).Output()
@@ -69,15 +70,20 @@ type VideoMetadata struct {
 	Height          int
 	VideoCodec      string
 	AudioCodec      string
+	// FrameRate is the nominal frame rate of the first video stream. A 0/0 rate
+	// or a malformed value is reported as zero instead of failing the probe.
+	FrameRate float64
 }
 
 // videoProbeStream, videoProbeFormat and videoProbeOutput mirror the ffprobe
 // JSON shape produced by videoMetadataCommand.
 type videoProbeStream struct {
-	CodecType string `json:"codec_type"`
-	CodecName string `json:"codec_name"`
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
+	CodecType    string `json:"codec_type"`
+	CodecName    string `json:"codec_name"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	RFrameRate   string `json:"r_frame_rate"`
+	AvgFrameRate string `json:"avg_frame_rate"`
 }
 
 type videoProbeFormat struct {
@@ -232,6 +238,10 @@ func ProbeVideoMetadata(ctx context.Context, path string) (VideoMetadata, bool) 
 			metadata.Width = stream.Width
 			metadata.Height = stream.Height
 			metadata.VideoCodec = strings.ToLower(strings.TrimSpace(stream.CodecName))
+			metadata.FrameRate = parseFrameRate(stream.RFrameRate)
+			if metadata.FrameRate == 0 {
+				metadata.FrameRate = parseFrameRate(stream.AvgFrameRate)
+			}
 		case "audio":
 			if metadata.AudioCodec != "" {
 				continue
@@ -254,6 +264,32 @@ func InspectFiles(paths []string) []models.FileInfo {
 		files = append(files, InspectFile(path))
 	}
 	return files
+}
+
+// parseFrameRate converts ffprobe's "num/den" rate into frames per second. An
+// unparsable or zero-denominator value returns 0 so a stream with r_frame_rate
+// 0/0 does not break metadata.
+func parseFrameRate(raw string) float64 {
+	parts := strings.Split(strings.TrimSpace(raw), "/")
+	if len(parts) != 2 {
+		return 0
+	}
+
+	numerator, numeratorErr := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	denominator, denominatorErr := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if numeratorErr != nil || denominatorErr != nil {
+		return 0
+	}
+	if denominator == 0 || numerator <= 0 {
+		return 0
+	}
+
+	rate := numerator / denominator
+	if math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return 0
+	}
+
+	return rate
 }
 
 func decodeImageConfig(path string) (int, int, error) {

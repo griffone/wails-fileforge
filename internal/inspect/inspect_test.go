@@ -414,6 +414,40 @@ func TestProbeVideoMetadataToleratesPartialAndBrokenOutput(t *testing.T) {
 	}
 }
 
+func TestProbeVideoMetadataParsesFrameRate(t *testing.T) {
+	original := videoMetadataCommand
+	t.Cleanup(func() {
+		videoMetadataCommand = original
+	})
+
+	tests := []struct {
+		name     string
+		stream   string
+		wantRate float64
+	}{
+		{name: "r_frame_rate", stream: `{"codec_type":"video","codec_name":"h264","r_frame_rate":"30000/1001","avg_frame_rate":"30/1"}`, wantRate: 30000.0 / 1001.0},
+		{name: "falls back to avg_frame_rate", stream: `{"codec_type":"video","codec_name":"h264","r_frame_rate":"0/0","avg_frame_rate":"25/1"}`, wantRate: 25},
+		{name: "both zero", stream: `{"codec_type":"video","codec_name":"h264","r_frame_rate":"0/0","avg_frame_rate":"0/0"}`, wantRate: 0},
+		{name: "malformed", stream: `{"codec_type":"video","codec_name":"h264","r_frame_rate":"n/a","avg_frame_rate":"also-n/a"}`, wantRate: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			videoMetadataCommand = func(context.Context, string) ([]byte, error) {
+				return []byte(`{"streams": [` + tt.stream + `], "format": {"duration": "5"}}`), nil
+			}
+
+			metadata, ok := ProbeVideoMetadata(context.Background(), "/videos/clip.mp4")
+			if !ok {
+				t.Fatal("expected the metadata to parse")
+			}
+			if metadata.FrameRate != tt.wantRate {
+				t.Fatalf("frame rate = %v, want %v", metadata.FrameRate, tt.wantRate)
+			}
+		})
+	}
+}
+
 func TestInspectFilesKeepsBatchAlive(t *testing.T) {
 	dir := t.TempDir()
 	pngPath := filepath.Join(dir, "photo.png")

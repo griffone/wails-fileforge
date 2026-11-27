@@ -145,6 +145,11 @@ var transientDetailCodesByTool = map[string]map[string]struct{}{
 	"tool.video.merge": {
 		"VIDEO_MERGE_EXECUTION_FAILED": {}, // ffmpeg process failure
 	},
+	// Audio sync encodes only the rebuilt audio track. Validation, source and
+	// loudnorm-measurement failures are deterministic and stay out.
+	"tool.video.audio_sync": {
+		"VIDEO_AUDIO_SYNC_EXECUTION_FAILED": {}, // ffmpeg process failure
+	},
 	// Audio extraction, Whisper execution and subtitle writing are the
 	// transient stages. Runtime, model and validation codes are excluded.
 	"tool.video.transcribe": {

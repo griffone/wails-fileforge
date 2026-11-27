@@ -50,6 +50,7 @@ import { toolsEs } from './tools';
 import { videoConvertEs } from './video-convert';
 import { videoMergeEs } from './video-merge';
 import { videoTargetEs } from './video-target';
+import { videoAudioSyncEs } from './video-audio-sync';
 import { videoTranscribeEs } from './video-transcribe';
 import { videoTrimEs } from './video-trim';
 import { webDownloadEs } from './web-download';
@@ -104,6 +105,7 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...videoMergeEs,
   ...videoTargetEs,
   ...videoTranscribeEs,
+  ...videoAudioSyncEs,
   ...webDownloadEs,
   ...pdfRendererEs,
   ...windowEs,

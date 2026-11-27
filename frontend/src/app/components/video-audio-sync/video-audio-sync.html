@@ -1,0 +1,30 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head-row">
+      <div class="page-head-copy">
+        <p class="eyebrow">{{ i18n.t('videoAudioSync.page.eyebrow') }}</p>
+        <h1 class="page-title">{{ i18n.t('videoAudioSync.page.title') }}</h1>
+        <p class="page-sub">{{ i18n.t('videoAudioSync.page.sub') }}</p>
+      </div>
+
+      <span class="badge badge-neutral page-local">
+        <lucide-icon
+          [img]="shieldIcon"
+          [size]="12"
+          [strokeWidth]="2"
+          aria-hidden="true"
+        ></lucide-icon>
+        {{ i18n.t('videoAudioSync.page.localBadge') }}
+      </span>
+    </div>
+  </header>
+
+  <section class="panel" aria-labelledby="video-audio-sync-placeholder-title">
+    <div class="panel-body">
+      <h2 class="panel-title" id="video-audio-sync-placeholder-title">
+        {{ i18n.t('videoAudioSync.placeholder.title') }}
+      </h2>
+      <p class="panel-sub">{{ i18n.t('videoAudioSync.placeholder.body') }}</p>
+    </div>
+  </section>
+</div>

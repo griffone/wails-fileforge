@@ -47,6 +47,7 @@ import { toolsEn } from './tools';
 import { videoConvertEn } from './video-convert';
 import { videoMergeEn } from './video-merge';
 import { videoTargetEn } from './video-target';
+import { videoAudioSyncEn } from './video-audio-sync';
 import { videoTranscribeEn } from './video-transcribe';
 import { videoTrimEn } from './video-trim';
 import { webDownloadEn } from './web-download';
@@ -101,6 +102,7 @@ export const en = {
   ...videoMergeEn,
   ...videoTargetEn,
   ...videoTranscribeEn,
+  ...videoAudioSyncEn,
   ...webDownloadEn,
   ...pdfRendererEn,
   ...windowEn,

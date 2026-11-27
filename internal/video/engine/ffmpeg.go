@@ -22,6 +22,11 @@ func withFFmpegGlobalArgs(args []string) []string {
 // CommandRunner runs one external command.
 type CommandRunner = ffmpegex.CommandRunner
 
+// CaptureCommandRunner runs one ffmpeg command and returns its stdout and the
+// bounded stderr tail. The audio sync normalization pass needs loudnorm's JSON
+// summary, which only this runner shape exposes.
+type CaptureCommandRunner = ffmpegex.CaptureCommandRunner
+
 // ExecCommandRunner runs real ffmpeg processes through execx.
 type ExecCommandRunner = ffmpegex.ExecCommandRunner
 

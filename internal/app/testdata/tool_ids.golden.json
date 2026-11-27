@@ -23,6 +23,7 @@
   "tool.pdf.rotate",
   "tool.pdf.split",
   "tool.pdf.to_docx",
+  "tool.video.audio_sync",
   "tool.video.convert",
   "tool.video.merge",
   "tool.video.transcribe",

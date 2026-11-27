@@ -159,7 +159,7 @@ export const DUPLICATES_TOOL: ToolDefinition = {
   ],
 };
 
-/** The twenty-eight conversion tools. Ids mirror the backend toolId contract. */
+/** The thirty conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -513,6 +513,18 @@ export const TOOLS: readonly ToolDefinition[] = [
     icon: Captions,
     formats: ['SRT', 'VTT', 'TXT'],
     keywords: ['video', 'audio', 'transcribe', 'whisper', 'subtitles', 'srt', 'vtt'],
+  },
+  {
+    id: 'tool.video.audio_sync',
+    name: 'Audio in Video',
+    navName: 'Audio Sync',
+    description:
+      'Replace or repair a video audio track with a separately recorded source and keep the video untouched.',
+    route: '/video-audio-sync',
+    category: 'video',
+    icon: Captions,
+    formats: ['MP4', 'MKV'],
+    keywords: ['video', 'audio', 'sync', 'align', 'offset', 'replace', 'track', 'recorder'],
   },
   {
     id: 'tool.web.download',

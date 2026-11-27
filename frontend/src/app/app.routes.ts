@@ -188,6 +188,13 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'video-audio-sync',
+    loadComponent: () =>
+      import('./components/video-audio-sync/video-audio-sync').then(
+        (m) => m.VideoAudioSync,
+      ),
+  },
+  {
     path: 'web-download',
     loadComponent: () =>
       import('./components/web-download/web-download').then(

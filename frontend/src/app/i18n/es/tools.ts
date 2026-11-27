@@ -123,6 +123,11 @@ export const toolsEs = {
   'tools.tool.video.transcribe.description':
     'Transcribe video y audio localmente con Whisper. Sin subidas.',
 
+  'tools.tool.video.audio_sync.name': 'Audio en video',
+  'tools.tool.video.audio_sync.navName': 'Audio sync',
+  'tools.tool.video.audio_sync.description':
+    'Reemplaza o repara la pista de audio de un video con una fuente grabada aparte y mantén el video intacto.',
+
   'tools.tool.web.download.name': 'Descargar contenido',
   'tools.tool.web.download.navName': 'Descargar',
   'tools.tool.web.download.description':

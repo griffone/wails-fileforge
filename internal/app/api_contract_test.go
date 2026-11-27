@@ -42,8 +42,8 @@ func TestListToolsContract(t *testing.T) {
 	if !response.Success {
 		t.Fatalf("ListTools failed: %s", response.Message)
 	}
-	if len(response.Tools) != 29 {
-		t.Fatalf("listed tools = %d, want 29", len(response.Tools))
+	if len(response.Tools) != 30 {
+		t.Fatalf("listed tools = %d, want 30", len(response.Tools))
 	}
 
 	ids := make([]string, 0, len(response.Tools))

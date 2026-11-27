@@ -62,6 +62,10 @@ func TestIsRetryableErrorMatchesEmittedDetailCodes(t *testing.T) {
 		{name: "video convert", toolID: "tool.video.convert", detailCode: "VIDEO_CONVERT_EXECUTION_FAILED", want: true},
 		{name: "video trim", toolID: "tool.video.trim", detailCode: "VIDEO_TRIM_EXECUTION_FAILED", want: true},
 		{name: "video merge", toolID: "tool.video.merge", detailCode: "VIDEO_MERGE_EXECUTION_FAILED", want: true},
+		{name: "video audio sync", toolID: "tool.video.audio_sync", detailCode: "VIDEO_AUDIO_SYNC_EXECUTION_FAILED", want: true},
+		{name: "video audio sync validation", toolID: "tool.video.audio_sync", detailCode: "VIDEO_AUDIO_SYNC_SEGMENT_OVERLAP", want: false},
+		{name: "video audio sync cancellation", toolID: "tool.video.audio_sync", detailCode: "VIDEO_AUDIO_SYNC_CANCELLED", want: false},
+		{name: "video audio sync loudnorm", toolID: "tool.video.audio_sync", detailCode: "VIDEO_AUDIO_SYNC_LOUDNORM_FAILED", want: false},
 
 		// image.compress: read/encode/write failures.
 		{name: "image compress single execution", toolID: "tool.image.compress", detailCode: "IMAGE_COMPRESS_EXECUTION", want: true},

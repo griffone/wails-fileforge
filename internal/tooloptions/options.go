@@ -44,6 +44,7 @@ var toolKeys = map[string][]string{
 	"tool.video.trim":       {"startTime", "endTime", "trimMode", "targetFormat", "qualityPreset", "targetSizeBytes", "outputPath"},
 	"tool.video.merge":      {"mergeMode", "transition", "transitionDuration", "targetFormat", "qualityPreset", "removeAudio", "targetSizeBytes", "outputPath"},
 	"tool.video.transcribe": {"language", "whisperPath", "modelPath", "formats"},
+	"tool.video.audio_sync": {"mode", "sourcePath", "offsetSeconds", "sourceStartSeconds", "segments", "originalAudio", "originalGainDb", "sourceGainDb", "audioBitrateKbps", "normalize", "outputPath"},
 
 	"tool.audio.extract":   {"format", "bitrateKbps", "outputPath"},
 	"tool.audio.convert":   {"format", "bitrateKbps", "outputPath"},

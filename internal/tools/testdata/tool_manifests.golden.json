@@ -753,6 +753,47 @@
     ]
   },
   {
+    "toolId": "tool.video.audio_sync",
+    "name": "Audio in Video",
+    "description": "Replace or repair a video's audio with a separately recorded source while the video stream is copied untouched",
+    "domain": "video",
+    "capability": "tool.video.audio_sync",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": false,
+    "inputExtensions": [
+      "mp4",
+      "mov",
+      "mkv",
+      "webm",
+      "avi",
+      "mp3",
+      "m4a",
+      "wav",
+      "aac",
+      "flac",
+      "ogg",
+      "opus"
+    ],
+    "outputExtensions": [
+      "mp4",
+      "mkv"
+    ],
+    "runtimeDependencies": [
+      "ffmpeg",
+      "ffprobe"
+    ],
+    "tags": [
+      "video",
+      "audio",
+      "sync",
+      "align",
+      "ffmpeg"
+    ],
+    "resourceClass": "external",
+    "maxWorkers": 1
+  },
+  {
     "toolId": "tool.video.convert",
     "name": "Video Convert",
     "description": "Convert videos to mp4 or webm with quality presets",
