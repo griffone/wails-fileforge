@@ -412,6 +412,46 @@ func TestRegisterPrefersExpiredEviction(t *testing.T) {
 	}
 }
 
+// TestMiddlewarePinsAudioContentTypes proves the audio formats the sync editor
+// streams are served with a usable Content-Type on every host, independent of
+// the platform MIME database.
+func TestMiddlewarePinsAudioContentTypes(t *testing.T) {
+	setupRegistry(t)
+
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"track.mp3", "audio/mpeg"},
+		{"track.m4a", "audio/mp4"},
+		{"track.aac", "audio/aac"},
+		{"track.wav", "audio/wav"},
+		{"track.flac", "audio/flac"},
+		{"track.ogg", "audio/ogg"},
+		{"track.opus", "audio/ogg"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			token, err := Register(writeTempFile(t, tc.name, "audio body"))
+			if err != nil {
+				t.Fatalf("Register() error = %v", err)
+			}
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/media/"+token, nil)
+			Middleware(http.NotFoundHandler()).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+			if got := rec.Header().Get("Content-Type"); got != tc.want {
+				t.Fatalf("Content-Type = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func writeTempFile(t *testing.T, name, content string) string {
 	t.Helper()
 

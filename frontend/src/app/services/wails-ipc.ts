@@ -323,6 +323,30 @@ export class WailsIpc {
     return MediaService.ProbeLink(url);
   }
 
+  // Sync editor: waveform peaks, stream metadata, offset detection and the
+  // short preview render. Every call returns a DTO, never a Go error.
+  analyzeMediaPeaks(
+    req: Models.MediaPeaksRequest,
+  ): Promise<Models.MediaPeaksResponse> {
+    return MediaService.AnalyzePeaks(req);
+  }
+
+  probeMedia(path: string): Promise<Models.MediaProbeResponse> {
+    return MediaService.ProbeMedia(path);
+  }
+
+  detectMediaSync(
+    req: Models.MediaSyncRequest,
+  ): Promise<Models.MediaSyncResponse> {
+    return MediaService.DetectSync(req);
+  }
+
+  renderSyncPreview(
+    req: Models.MediaSyncPreviewRequest,
+  ): Promise<Models.MediaSourceResponse> {
+    return MediaService.RenderSyncPreview(req);
+  }
+
   startPreview(
     request: PreviewModels.PreviewRequest,
   ): Promise<PreviewModels.PreviewStartResponse> {

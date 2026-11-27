@@ -702,11 +702,133 @@ export interface LocalCapability {
     "suggestion"?: string;
 }
 
+/**
+ * MediaPeaksRequest asks for the min/max waveform of one visible window. The
+ * editor requests the window it shows, never a whole multi-hour file.
+ */
+export interface MediaPeaksRequest {
+    "path": string;
+    "startSeconds": number;
+    "spanSeconds": number;
+    "buckets": number;
+}
+
+/**
+ * MediaPeaksResponse is one window of waveform data. Min and Max are always
+ * initialised so the waveform lanes never receive null; HasAudio is false when
+ * the file has no audio stream, in which case both are flat zero.
+ */
+export interface MediaPeaksResponse {
+    "success": boolean;
+    "message": string;
+    "durationSeconds": number;
+    "startSeconds": number;
+    "spanSeconds": number;
+    "hasAudio": boolean;
+    "min": number[] | null;
+    "max": number[] | null;
+}
+
+/**
+ * MediaProbeResponse is the container and stream metadata the sync editor needs
+ * before it can place lanes or snap to frames.
+ */
+export interface MediaProbeResponse {
+    "success": boolean;
+    "message": string;
+    "path": string;
+    "durationSeconds": number;
+    "width": number;
+    "height": number;
+    "videoCodec": string;
+    "audioCodec": string;
+    "frameRate": number;
+    "hasVideo": boolean;
+    "hasAudio": boolean;
+}
+
 export interface MediaSourceResponse {
     "success": boolean;
     "url"?: string;
     "fallbackUrl"?: string;
     "message": string;
+}
+
+/**
+ * MediaSyncPreviewRequest describes a short preview render of the sync plan.
+ * The field set mirrors the tool options plus the render span, so the editor
+ * can preview exactly what it would export.
+ */
+export interface MediaSyncPreviewRequest {
+    "videoPath": string;
+    "startSeconds": number;
+    "spanSeconds": number;
+    "mode": string;
+    "sourcePath": string;
+    "offsetSeconds": number;
+    "sourceStartSeconds": number;
+    "originalAudio": string;
+    "originalGainDb": number;
+    "sourceGainDb": number;
+    "segments": MediaSyncSegment[] | null;
+    "audioBitrateKbps": number;
+    "durationSeconds": number;
+}
+
+/**
+ * MediaSyncRequest measures the offset between the reference (the video's own
+ * audio) and the source recording. Zero MaxOffsetSeconds searches the full
+ * representable range; zero WindowSeconds uses the analyzer default.
+ */
+export interface MediaSyncRequest {
+    "referencePath": string;
+    "sourcePath": string;
+    "maxOffsetSeconds": number;
+    "windowSeconds": number;
+}
+
+/**
+ * MediaSyncResponse is the detection result. Low confidence is a successful
+ * measurement with a warning, not a failure: the editor renders it as "could
+ * not measure" and leaves the decision to the operator. DriftPPM is nil when
+ * fewer than two windows could be measured.
+ */
+export interface MediaSyncResponse {
+    "success": boolean;
+    "message": string;
+    "offsetSeconds": number;
+    "confidence": number;
+    "driftPpm": number | null;
+    "windows": MediaSyncWindow[] | null;
+    "notes": string[] | null;
+    "referenceDurationSeconds": number;
+    "sourceDurationSeconds": number;
+}
+
+/**
+ * MediaSyncSegment is one placed block of a source recording on the video
+ * timeline. FadeMs is converted to seconds before it reaches the engine.
+ */
+export interface MediaSyncSegment {
+    "videoStart": number;
+    "videoEnd": number;
+    "sourcePath": string;
+    "sourceStart": number;
+    "gainDb": number;
+    "fadeMs": number;
+}
+
+/**
+ * MediaSyncWindow is one verification window of the sync detection. Label is
+ * "head", "middle" or "tail"; ResidualMs is the window offset minus the
+ * reported global offset.
+ */
+export interface MediaSyncWindow {
+    "label": string;
+    "anchorSeconds": number;
+    "offsetSeconds": number;
+    "confidence": number;
+    "residualMs": number;
 }
 
 /**

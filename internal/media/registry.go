@@ -33,6 +33,29 @@ const (
 	defaultTokenTTL = time.Hour
 )
 
+// audioContentTypes pins the Content-Type of the audio formats the sync editor
+// streams. Go's built-in mime table carries no audio entries, so without this
+// map the served type depends on the host MIME database: it exists on Linux,
+// but a Windows or minimal container environment may resolve nothing and fall
+// back to content sniffing, which can hand <audio> an unusable type. Video
+// formats resolve consistently enough on every supported host and are left to
+// the platform table.
+var audioContentTypes = map[string]string{
+	".mp3":  "audio/mpeg",
+	".m4a":  "audio/mp4",
+	".aac":  "audio/aac",
+	".wav":  "audio/wav",
+	".flac": "audio/flac",
+	".ogg":  "audio/ogg",
+	".opus": "audio/ogg",
+}
+
+// contentTypeFor returns the pinned content type for a known media extension,
+// or an empty string when the platform table should decide.
+func contentTypeFor(path string) string {
+	return audioContentTypes[strings.ToLower(filepath.Ext(path))]
+}
+
 type entry struct {
 	path      string
 	createdAt time.Time
@@ -216,6 +239,12 @@ func Middleware(next http.Handler) http.Handler {
 		if !info.Mode().IsRegular() {
 			http.NotFound(w, r)
 			return
+		}
+
+		// Pin the audio content type before ServeContent: it only fills the
+		// header when it is empty, so this keeps <audio> seeking on every host.
+		if contentType := contentTypeFor(path); contentType != "" {
+			w.Header().Set("Content-Type", contentType)
 		}
 
 		// ServeContent handles Range, HEAD and conditional requests.

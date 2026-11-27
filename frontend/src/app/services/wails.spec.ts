@@ -136,6 +136,133 @@ describe('Wails', () => {
     expect(failed.message).toContain('ipc down');
   });
 
+  it('forwards the sync editor calls and falls back safely when IPC fails', async () => {
+    const peaks = spyOn(ipc, 'analyzeMediaPeaks').and.resolveTo({
+      success: true,
+      message: 'ok',
+      durationSeconds: 10,
+      startSeconds: 0,
+      spanSeconds: 10,
+      hasAudio: true,
+      min: null,
+      max: null,
+    });
+    const probe = spyOn(ipc, 'probeMedia').and.resolveTo({
+      success: true,
+      message: 'ok',
+      path: '/tmp/a.mp4',
+      durationSeconds: 10,
+      width: 1920,
+      height: 1080,
+      videoCodec: 'h264',
+      audioCodec: 'aac',
+      frameRate: 30,
+      hasVideo: true,
+      hasAudio: true,
+    });
+    const detect = spyOn(ipc, 'detectMediaSync').and.resolveTo({
+      success: true,
+      message: 'ok',
+      offsetSeconds: 2,
+      confidence: 0.9,
+      driftPpm: null,
+      windows: null,
+      notes: null,
+      referenceDurationSeconds: 10,
+      sourceDurationSeconds: 8,
+    });
+    const preview = spyOn(ipc, 'renderSyncPreview').and.resolveTo({
+      success: true,
+      url: '/media/abc',
+      message: 'ok',
+    });
+
+    const peaksResult = await service.analyzeMediaPeaks({
+      path: '/tmp/a.mp4',
+      startSeconds: 0,
+      spanSeconds: 10,
+      buckets: 128,
+    });
+    expect(peaksResult.min).toEqual([]);
+    expect(peaksResult.max).toEqual([]);
+    expect(peaks.toHaveBeenCalledTimes(1));
+
+    const probeResult = await service.probeMedia('/tmp/a.mp4');
+    expect(probeResult.hasVideo).toBeTrue();
+    expect(probeResult.frameRate).toBe(30);
+
+    const detectResult = await service.detectMediaSync({
+      referencePath: '/tmp/a.mp4',
+      sourcePath: '/tmp/a.wav',
+      maxOffsetSeconds: 0,
+      windowSeconds: 10,
+    });
+    expect(detectResult.windows).toEqual([]);
+    expect(detectResult.notes).toEqual([]);
+
+    const previewResult = await service.renderSyncPreview({
+      videoPath: '/tmp/a.mp4',
+      startSeconds: 0,
+      spanSeconds: 5,
+      mode: 'replace',
+      sourcePath: '/tmp/a.wav',
+      offsetSeconds: 2,
+      sourceStartSeconds: 0,
+      originalAudio: 'remove',
+      originalGainDb: -18,
+      sourceGainDb: 0,
+      segments: [],
+      audioBitrateKbps: 256,
+      durationSeconds: 10,
+    });
+    expect(previewResult.url).toBe('/media/abc');
+
+    peaks.and.rejectWith(new Error('ipc down'));
+    probe.and.rejectWith(new Error('ipc down'));
+    detect.and.rejectWith(new Error('ipc down'));
+    preview.and.rejectWith(new Error('ipc down'));
+
+    const failedPeaks = await service.analyzeMediaPeaks({
+      path: '/tmp/a.mp4',
+      startSeconds: 0,
+      spanSeconds: 10,
+      buckets: 128,
+    });
+    expect(failedPeaks.success).toBeFalse();
+    expect(failedPeaks.message).toContain('ipc down');
+
+    const failedProbe = await service.probeMedia('/tmp/a.mp4');
+    expect(failedProbe.success).toBeFalse();
+    expect(failedProbe.path).toBe('/tmp/a.mp4');
+
+    const failedDetect = await service.detectMediaSync({
+      referencePath: '/tmp/a.mp4',
+      sourcePath: '/tmp/a.wav',
+      maxOffsetSeconds: 0,
+      windowSeconds: 10,
+    });
+    expect(failedDetect.success).toBeFalse();
+    expect(failedDetect.driftPpm).toBeNull();
+
+    const failedPreview = await service.renderSyncPreview({
+      videoPath: '/tmp/a.mp4',
+      startSeconds: 0,
+      spanSeconds: 5,
+      mode: 'replace',
+      sourcePath: '',
+      offsetSeconds: 0,
+      sourceStartSeconds: 0,
+      originalAudio: 'remove',
+      originalGainDb: -18,
+      sourceGainDb: 0,
+      segments: [],
+      audioBitrateKbps: 256,
+      durationSeconds: 10,
+    });
+    expect(failedPreview.success).toBeFalse();
+    expect(failedPreview.message).toContain('ipc down');
+  });
+
   it('returns a data URL thumbnail when the preview succeeds', async () => {
     spyOn(service, 'StartPreview').and.resolveTo({ success: true, jobID: 'preview-1' });
     spyOn(service, 'GetPreviewStatus').and.resolveTo({ status: 'succeeded' });

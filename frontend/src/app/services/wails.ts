@@ -450,6 +450,30 @@ export interface DownloadLinkInfoResponse
   audio: DownloadAudioOption[];
 }
 
+// Sync editor models. The generated types mark every slice nullable; the UI
+// always iterates them, so the facade narrows the ones it returns.
+export type MediaPeaksRequest = Models.MediaPeaksRequest;
+
+export interface MediaPeaksResponse extends Models.MediaPeaksResponse {
+  min: number[];
+  max: number[];
+}
+
+export type MediaProbeResponse = Models.MediaProbeResponse;
+
+export type MediaSyncRequest = Models.MediaSyncRequest;
+
+export type MediaSyncWindow = Models.MediaSyncWindow;
+
+export interface MediaSyncResponse extends Models.MediaSyncResponse {
+  windows: MediaSyncWindow[];
+  notes: string[];
+}
+
+export type MediaSyncSegment = Models.MediaSyncSegment;
+
+export type MediaSyncPreviewRequest = Models.MediaSyncPreviewRequest;
+
 @Injectable({
   providedIn: 'root',
 })
@@ -1019,6 +1043,99 @@ export class Wails {
         entries: [],
         video: [],
         audio: [],
+      };
+    }
+  }
+
+  /**
+   * Requests the waveform of one visible window. The backend always returns
+   * initialised arrays, so the lanes can iterate without a null check.
+   */
+  async analyzeMediaPeaks(
+    req: MediaPeaksRequest,
+  ): Promise<MediaPeaksResponse> {
+    try {
+      const response = await this.ipc.analyzeMediaPeaks(req);
+      return {
+        ...response,
+        min: response.min ?? [],
+        max: response.max ?? [],
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Analyze media peaks failed', error),
+        durationSeconds: 0,
+        startSeconds: req.startSeconds,
+        spanSeconds: req.spanSeconds,
+        hasAudio: false,
+        min: [],
+        max: [],
+      };
+    }
+  }
+
+  /** Reads duration, dimensions, codecs and frame rate for one file. */
+  async probeMedia(path: string): Promise<MediaProbeResponse> {
+    try {
+      return await this.ipc.probeMedia(path);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Probe media failed', error),
+        path,
+        durationSeconds: 0,
+        width: 0,
+        height: 0,
+        videoCodec: '',
+        audioCodec: '',
+        frameRate: 0,
+        hasVideo: false,
+        hasAudio: false,
+      };
+    }
+  }
+
+  /**
+   * Measures the source offset against the reference. Low confidence is a
+   * successful result the editor renders as "could not measure", not an IPC
+   * failure.
+   */
+  async detectMediaSync(req: MediaSyncRequest): Promise<MediaSyncResponse> {
+    try {
+      const response = await this.ipc.detectMediaSync(req);
+      return {
+        ...response,
+        windows: response.windows ?? [],
+        notes: response.notes ?? [],
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Detect media sync failed', error),
+        offsetSeconds: 0,
+        confidence: 0,
+        driftPpm: null,
+        windows: [],
+        notes: [],
+        referenceDurationSeconds: 0,
+        sourceDurationSeconds: 0,
+      };
+    }
+  }
+
+  /** Renders a short span of the sync plan and returns the playable URL. */
+  async renderSyncPreview(
+    req: MediaSyncPreviewRequest,
+  ): Promise<MediaSourceResponse> {
+    try {
+      return await this.ipc.renderSyncPreview(req);
+    } catch (error) {
+      return {
+        success: false,
+        message: this.formatMessage('Render sync preview failed', error),
+        url: '',
+        fallbackUrl: '',
       };
     }
   }
