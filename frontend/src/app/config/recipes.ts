@@ -1,4 +1,5 @@
 import {
+  Archive,
   Captions,
   Clapperboard,
   Images,
@@ -7,6 +8,7 @@ import {
   type LucideIconData,
 } from 'lucide-angular';
 
+import { RecipeOptionKind } from '../../../bindings/fileforge-desktop/internal/models/models';
 import { Recipe } from '../services/wails';
 import type { NavGroup, ToolCategory, ToolDefinition } from './tools';
 
@@ -219,6 +221,49 @@ export const RECIPES: readonly RecipeDefinition[] = [
       ],
       defaultTargetSizeBytes: 0,
       duplicable: false,
+    },
+  },
+  {
+    id: 'recipe.archive_document',
+    route: '/recipe/archive-document',
+    inputLabel: '1 DOCX',
+    formats: ['PDF/A-2', 'SHA-256'],
+    icon: Archive,
+    fallback: {
+      id: 'recipe.archive_document',
+      name: 'Archive document',
+      description:
+        'Turn a DOCX into a PDF/A-2 file and report its SHA-256 for long-term storage.',
+      category: 'documents',
+      inputKind: 'document',
+      acceptExtensions: ['docx'],
+      maxInputs: 1,
+      highlights: ['PDF/A-2', 'SHA-256 checksum', 'Optional sidecar'],
+      steps: [
+        {
+          id: 'render',
+          name: 'Render PDF/A-2',
+          toolId: 'tool.doc.docx_to_pdf',
+          detail: 'Bundled DOCX renderer, then Ghostscript distils the PDF',
+        },
+        {
+          id: 'verify',
+          name: 'Hash and verify',
+          toolId: '',
+          detail: 'PDF signature, PDF/A marker, page count and SHA-256',
+        },
+      ],
+      defaultTargetSizeBytes: 0,
+      duplicable: true,
+      optionSchema: [
+        {
+          key: 'writeSidecar',
+          label: 'SHA-256 sidecar',
+          kind: RecipeOptionKind.RecipeOptionBoolean,
+          default: false,
+          help: 'Write <pdf>.sha256 next to the PDF with a `hash  filename` line.',
+        },
+      ],
     },
   },
 ];

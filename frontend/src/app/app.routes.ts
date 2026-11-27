@@ -228,6 +228,12 @@ export const routes: Routes = [
     data: { recipeId: 'recipe.burned_subtitles' },
   },
   {
+    path: 'recipe/archive-document',
+    loadComponent: () =>
+      import('./components/recipe-run/recipe-run').then((m) => m.RecipeRun),
+    data: { recipeId: 'recipe.archive_document' },
+  },
+  {
     path: 'recipe/user/:recipeId',
     loadComponent: () =>
       import('./components/recipe-run/recipe-run').then((m) => m.RecipeRun),

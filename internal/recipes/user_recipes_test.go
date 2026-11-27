@@ -45,8 +45,8 @@ func TestRecipeOptionSchemaIsDeclaredOnlyForSupportedRecipes(t *testing.T) {
 	service := NewService(registry.NewRegistry(), nil, nil)
 
 	recipes := service.List()
-	if len(recipes) != 5 {
-		t.Fatalf("expected 5 built-in recipes, got %d", len(recipes))
+	if len(recipes) != 6 {
+		t.Fatalf("expected 6 built-in recipes, got %d", len(recipes))
 	}
 
 	email := findListedRecipe(recipes, RecipeIDEmailPDF)
@@ -90,6 +90,18 @@ func TestRecipeOptionSchemaIsDeclaredOnlyForSupportedRecipes(t *testing.T) {
 		if len(recipe.OptionSchema) != 0 || recipe.Duplicable {
 			t.Fatalf("expected %s to have no schema and not be duplicable, got %+v", id, recipe)
 		}
+	}
+
+	archive := findListedRecipe(recipes, RecipeIDArchiveDocument)
+	if archive == nil {
+		t.Fatal("expected Archive document in the catalog")
+	}
+	if !archive.Duplicable || len(archive.OptionSchema) != 1 {
+		t.Fatalf("expected Archive document to declare one duplicable option, got %+v", archive)
+	}
+	sidecar := archive.OptionSchema[0]
+	if sidecar.Key != archiveSidecarOptionKey || sidecar.Kind != models.RecipeOptionBoolean || sidecar.Default != false {
+		t.Fatalf("unexpected Archive document option: %+v", sidecar)
 	}
 }
 
@@ -260,8 +272,8 @@ func TestUserRecipeCorruptOrUnknownVersionStartsEmpty(t *testing.T) {
 			service.SetUserRecipesPath(path)
 
 			recipes := service.List()
-			if len(recipes) != 5 {
-				t.Fatalf("expected only the 5 built-ins, got %+v", recipes)
+			if len(recipes) != 6 {
+				t.Fatalf("expected only the 6 built-ins, got %+v", recipes)
 			}
 			for _, recipe := range recipes {
 				if recipe.UserDefined {

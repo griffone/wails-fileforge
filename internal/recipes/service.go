@@ -3,9 +3,10 @@
 // Email PDF (linear: merge when needed, optimize to a target size), Web image
 // set (fan-out: responsive WebP/JPEG variants plus a ZIP and srcset snippet),
 // Social clip (fan-out: MP4 + WebM encodes plus a poster frame), Clean scan
-// (local OCR into a searchable PDF plus a text sidecar) and Burned-in subtitles
-// (local Whisper transcription burned into a new MP4 plus an SRT sidecar). All
-// of them verify their outputs and record them for undo.
+// (local OCR into a searchable PDF plus a text sidecar), Burned-in subtitles
+// (local Whisper transcription burned into a new MP4 plus an SRT sidecar) and
+// Archive document (DOCX to PDF/A-2 plus its SHA-256). All of them verify their
+// outputs and record them for undo.
 package recipes
 
 import (
@@ -78,6 +79,7 @@ const (
 	socialClipHistoryToolID      = "recipe.social_clip"
 	cleanScanHistoryToolID       = "recipe.clean_scan"
 	burnedSubtitlesHistoryToolID = "recipe.burned_subtitles"
+	archiveDocumentHistoryToolID = "recipe.archive_document"
 
 	// recipeStepSettleTimeout bounds how long a cancelled step job may take to
 	// reach its terminal state before the recipe cleans up partial outputs.
@@ -205,7 +207,7 @@ func (s *Service) ListRuns(limit int) []models.RecipeResult {
 // overrides and the duplicable marker; built-ins without a schema are not
 // duplicable.
 func (s *Service) List() []models.Recipe {
-	builtins := []models.Recipe{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe()}
+	builtins := []models.Recipe{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe(), archiveDocumentRecipe()}
 	users := s.userRecipeModels()
 
 	recipes := make([]models.Recipe, 0, len(builtins)+len(users))
@@ -410,6 +412,8 @@ func (s *Service) resolve(req models.RecipeRequest) (*resolvedRecipe, *models.Jo
 		resolved, jobErr = s.resolveCleanScan(base, request)
 	case RecipeIDBurnedSubtitles:
 		resolved, jobErr = resolveBurnedSubtitles(base, request)
+	case RecipeIDArchiveDocument:
+		resolved, jobErr = s.resolveArchiveDocument(base, request)
 	default:
 		return nil, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", base.ID), nil)
 	}
@@ -660,6 +664,8 @@ func (s *Service) execute(ctx context.Context, tracked *recipeJob, resolved *res
 		s.executeCleanScan(ctx, tracked, resolved)
 	case RecipeIDBurnedSubtitles:
 		s.executeBurnedSubtitles(ctx, tracked, resolved)
+	case RecipeIDArchiveDocument:
+		s.executeArchiveDocument(ctx, tracked, resolved)
 	default:
 		s.failJob(tracked, newRecipeError("RECIPE_NOT_FOUND", fmt.Sprintf("recipe '%s' is not supported yet", base.ID), nil))
 	}

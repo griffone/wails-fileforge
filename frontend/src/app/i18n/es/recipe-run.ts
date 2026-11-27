@@ -45,6 +45,7 @@ export const recipeRunEs = {
   'recipeRun.target.label': 'Tamaño objetivo',
   'recipeRun.option.targetSizeBytes': 'Tamaño objetivo',
   'recipeRun.option.variantPreset': 'Preajuste de variantes',
+  'recipeRun.option.writeSidecar': 'Archivo SHA-256',
   'recipeRun.choice.standard': '1600 / 800 px',
   'recipeRun.choice.compact': '1200 / 600 px',
   'recipeRun.choice.large': '2400 / 1200 px',

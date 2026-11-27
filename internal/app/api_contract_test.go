@@ -65,8 +65,8 @@ func TestListRecipesContract(t *testing.T) {
 	if !response.Success {
 		t.Fatalf("ListRecipes failed: %s", response.Message)
 	}
-	if len(response.Recipes) != 5 {
-		t.Fatalf("listed recipes = %d, want 5", len(response.Recipes))
+	if len(response.Recipes) != 6 {
+		t.Fatalf("listed recipes = %d, want 6", len(response.Recipes))
 	}
 
 	// The built-in order is part of the contract (Email PDF first).

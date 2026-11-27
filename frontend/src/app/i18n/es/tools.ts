@@ -187,4 +187,9 @@ export const toolsEs = {
   'tools.recipe.burned_subtitles.navName': 'Subtítulos',
   'tools.recipe.burned_subtitles.description':
     'Transcribe un video localmente e incrusta subtítulos sincronizados en un nuevo MP4.',
+
+  'tools.recipe.archive_document.name': 'Documento de archivo',
+  'tools.recipe.archive_document.navName': 'Archivo',
+  'tools.recipe.archive_document.description':
+    'Convierte un DOCX en un archivo PDF/A-2 e informa su SHA-256 para guardarlo a largo plazo.',
 };

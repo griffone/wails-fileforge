@@ -137,8 +137,8 @@ func TestImportUserRecipesOverwriteUpdatesOptions(t *testing.T) {
 		t.Fatalf("first import failed: %+v", imported)
 	}
 	original := target.List()
-	if len(original) != 6 {
-		t.Fatalf("expected five built-ins plus one user recipe, got %d", len(original))
+	if len(original) != 7 {
+		t.Fatalf("expected six built-ins plus one user recipe, got %d", len(original))
 	}
 
 	var payload userRecipeExportFile

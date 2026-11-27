@@ -78,11 +78,11 @@ func TestListIncludesCleanScanLast(t *testing.T) {
 	service, _, _ := newCleanScanTestService(t)
 
 	recipes := service.List()
-	if len(recipes) != 5 {
-		t.Fatalf("expected 5 recipes, got %+v", recipes)
+	if len(recipes) != 6 {
+		t.Fatalf("expected 6 recipes, got %+v", recipes)
 	}
 
-	wantIDs := []string{RecipeIDEmailPDF, RecipeIDWebImageSet, RecipeIDSocialClip, RecipeIDCleanScan, RecipeIDBurnedSubtitles}
+	wantIDs := []string{RecipeIDEmailPDF, RecipeIDWebImageSet, RecipeIDSocialClip, RecipeIDCleanScan, RecipeIDBurnedSubtitles, RecipeIDArchiveDocument}
 	for index, recipe := range recipes {
 		if recipe.ID != wantIDs[index] {
 			t.Fatalf("expected recipe %d to be %q, got %q", index, wantIDs[index], recipe.ID)

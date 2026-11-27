@@ -189,4 +189,9 @@ export const toolsEn = {
   'tools.recipe.burned_subtitles.navName': 'Burned-in subtitles',
   'tools.recipe.burned_subtitles.description':
     'Transcribe a video locally and burn synchronized subtitles into a new MP4.',
+
+  'tools.recipe.archive_document.name': 'Archive document',
+  'tools.recipe.archive_document.navName': 'Archive document',
+  'tools.recipe.archive_document.description':
+    'Turn a DOCX into a PDF/A-2 file and report its SHA-256 for long-term storage.',
 } as const;

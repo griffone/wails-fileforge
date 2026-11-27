@@ -108,7 +108,7 @@ describe('ToolRegistryService', () => {
     ]);
     expect(
       service.navGroups.find((group) => group.id === 'recipes')?.items.length,
-    ).toBe(5);
+    ).toBe(6);
     expect(
       service.navGroups.find((group) => group.id === 'image')?.items.length,
     ).toBe(7);
@@ -209,9 +209,9 @@ describe('ToolRegistryService', () => {
     expect(service.findById('system.duplicates')?.route).toBe('/duplicates');
   });
 
-  it('exposes the five recipes as navigation entries outside the tool counts', () => {
-    expect(service.recipes.length).toBe(5);
-    expect(service.recipeNav.length).toBe(5);
+  it('exposes the six recipes as navigation entries outside the tool counts', () => {
+    expect(service.recipes.length).toBe(6);
+    expect(service.recipeNav.length).toBe(6);
     expect(service.navigation.length).toBe(32);
     expect(service.tools.length).toBe(27);
   });

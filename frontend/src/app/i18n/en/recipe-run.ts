@@ -45,6 +45,7 @@ export const recipeRunEn = {
   'recipeRun.target.label': 'Target size',
   'recipeRun.option.targetSizeBytes': 'Target size',
   'recipeRun.option.variantPreset': 'Variant preset',
+  'recipeRun.option.writeSidecar': 'SHA-256 sidecar',
   'recipeRun.choice.standard': '1600 / 800 px',
   'recipeRun.choice.compact': '1200 / 600 px',
   'recipeRun.choice.large': '2400 / 1200 px',

@@ -25,13 +25,17 @@ type outputEntry struct {
 	SizeBytes int64  `json:"sizeBytes"`
 }
 
-// runReport is the single JSON object a run prints on stdout.
+// runReport is the single JSON object a run prints on stdout. Message and
+// Verification are populated for recipe runs, where the result explains the
+// outcome beyond the produced paths.
 type runReport struct {
-	JobID   string           `json:"jobId"`
-	Status  string           `json:"status"`
-	Success bool             `json:"success"`
-	Outputs []outputEntry    `json:"outputs"`
-	Error   *models.JobError `json:"error,omitempty"`
+	JobID        string                     `json:"jobId"`
+	Status       string                     `json:"status"`
+	Success      bool                       `json:"success"`
+	Message      string                     `json:"message,omitempty"`
+	Outputs      []outputEntry              `json:"outputs"`
+	Verification *models.VerificationReport `json:"verification,omitempty"`
+	Error        *models.JobError           `json:"error,omitempty"`
 }
 
 // exitCodeForStatus maps a terminal job or recipe status to the documented CLI
@@ -117,6 +121,9 @@ func emitRun(stdout, stderr io.Writer, asJSON bool, report runReport) int {
 		fmt.Fprintf(stdout, "job %s: %s\n", report.JobID, report.Status)
 		for _, output := range report.Outputs {
 			fmt.Fprintf(stdout, "%s\t%d\n", output.Path, output.SizeBytes)
+		}
+		if report.Message != "" {
+			fmt.Fprintln(stdout, report.Message)
 		}
 		if report.Error != nil {
 			writeError(stderr, report.Error)

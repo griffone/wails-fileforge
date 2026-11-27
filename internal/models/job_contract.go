@@ -484,6 +484,10 @@ var canonicalAudioCodes = canonicalCodeFamilies{
 // instead of an unknown or transient one.
 var canonicalRecipeCodes = canonicalCodeFamilies{
 	validation: []string{
+		// An archive result that fails its own verification is deterministic:
+		// retrying the same input cannot fix a missing PDF/A marker or a
+		// checksum mismatch, so it must never be retried automatically.
+		"RECIPE_ARCHIVE_VERIFICATION_FAILED",
 		"RECIPE_BASE_NOT_FOUND",
 		"RECIPE_NOT_DUPLICABLE",
 		"RECIPE_OPTION_INVALID_TYPE",

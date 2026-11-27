@@ -151,11 +151,13 @@ func runRecipe(ctx context.Context, s *stack, recipeID string, flags runFlags, s
 	}
 
 	report := runReport{
-		JobID:   result.JobID,
-		Status:  result.Status,
-		Success: result.Status == models.JobStatusSuccess,
-		Outputs: outputEntries(result.Outputs),
-		Error:   result.Error,
+		JobID:        result.JobID,
+		Status:       result.Status,
+		Success:      result.Status == models.JobStatusSuccess,
+		Message:      result.Message,
+		Outputs:      outputEntries(result.Outputs),
+		Verification: result.Verification,
+		Error:        result.Error,
 	}
 
 	return emitRun(stdout, stderr, flags.asJSON, report)

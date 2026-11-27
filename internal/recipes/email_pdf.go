@@ -51,8 +51,8 @@ const (
 // resolvedRecipe is a validated request: inputs, destination, planned outputs
 // and the plan warnings. It contains no intermediate paths. Web is set only for
 // the Web image set recipe, Social for the Social clip recipe, Scan for the
-// Clean scan recipe and Burn for the Burned-in subtitles recipe, whose plans are
-// fully resolved before execution.
+// Clean scan recipe, Burn for the Burned-in subtitles recipe and Archive for the
+// Archive document recipe, whose plans are fully resolved before execution.
 type resolvedRecipe struct {
 	// Recipe is the recipe shown to the caller: the built-in definition for a
 	// curated recipe, or the user recipe (base metadata plus its own id and
@@ -71,6 +71,7 @@ type resolvedRecipe struct {
 	Social          *socialClipResolution
 	Scan            *cleanScanResolution
 	Burn            *burnedSubtitlesResolution
+	Archive         *archiveDocumentResolution
 	Warnings        []string
 }
 
@@ -128,7 +129,7 @@ func emailPDFOptionSchema() []models.RecipeOptionField {
 
 func recipeByID(recipeID string) *models.Recipe {
 	trimmed := strings.TrimSpace(recipeID)
-	for _, recipe := range []models.Recipe{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe()} {
+	for _, recipe := range []models.Recipe{emailPDFRecipe(), webImageSetRecipe(), socialClipRecipe(), cleanScanRecipe(), burnSubtitlesRecipe(), archiveDocumentRecipe()} {
 		if recipe.ID == trimmed {
 			candidate := recipe
 			return &candidate
