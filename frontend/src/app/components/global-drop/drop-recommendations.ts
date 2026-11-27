@@ -107,6 +107,7 @@ export function recommendDropTools(
     routes.add('/image-watermark');
     routes.add('/image-ocr');
     routes.add('/image-background');
+    routes.add('/image-upscale');
     routes.add('/pdf-from-images');
   }
 

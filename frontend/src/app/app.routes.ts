@@ -76,6 +76,13 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'image-upscale',
+    loadComponent: () =>
+      import('./components/image-upscale/image-upscale').then(
+        (m) => m.ImageUpscale,
+      ),
+  },
+  {
     path: 'pdf-merge',
     loadComponent: () =>
       import('./components/pdf-merge/pdf-merge').then((m) => m.PdfMerge),

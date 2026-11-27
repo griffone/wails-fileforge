@@ -51,6 +51,7 @@ var toolWindowRoutes = map[string]string{
 	"/image-watermark":    "tool.image.watermark",
 	"/image-ocr":          "tool.image.ocr",
 	"/image-background":   "tool.image.background",
+	"/image-upscale":      "tool.image.upscale",
 	"/pdf-merge":          "tool.pdf.merge",
 	"/pdf-split":          "tool.pdf.split",
 	"/pdf-crop":           "tool.pdf.crop",

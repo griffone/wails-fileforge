@@ -125,6 +125,11 @@ export class Settings implements OnInit {
   readonly whisperPath = this.preferences.whisperPath;
   readonly whisperModelPath = this.preferences.whisperModelPath;
 
+  readonly upscaleAnimeModelPath = this.preferences.upscaleAnimeModelPath;
+  readonly hasUpscaleAnimeModel = computed(
+    () => this.upscaleAnimeModelPath().trim().length > 0,
+  );
+
   readonly transcriptionReady = computed(
     () => this.transcriptionCapabilities()?.available === true,
   );
@@ -143,6 +148,26 @@ export class Settings implements OnInit {
   readonly toolchainComponents = computed(
     () => this.toolchainStatus()?.components ?? [],
   );
+
+  /**
+   * True when an optional pack is missing even though the required toolchain
+   * is ready. Without this the Install / repair button disappeared after the
+   * first run and there was no way to install background removal or upscaling
+   * later.
+   */
+  readonly optionalPackMissing = computed(() => {
+    const optionalPackIDs = new Set([
+      'pdf2docx',
+      'rembg',
+      'rembg-model',
+      'upscale',
+      'upscale-model',
+    ]);
+
+    return this.toolchainComponents().some(
+      (component) => optionalPackIDs.has(component.id) && !component.ready,
+    );
+  });
   readonly toolchainBusy = this.toolchain.isBusy;
 
   readonly toolchainModel = computed(() => {
@@ -222,6 +247,12 @@ export class Settings implements OnInit {
 
   readonly toolchainStorageDir = computed(
     () => this.toolchainStatus()?.storageDir?.trim() ?? '',
+  );
+
+  readonly installButtonLabel = computed(() =>
+    this.toolchainReady() && this.optionalPackMissing()
+      ? this.i18n.t('settings.toolchain.installRepair')
+      : this.i18n.t('settings.toolchain.install'),
   );
 
   private lastToolchainReady = false;
@@ -533,6 +564,32 @@ export class Settings implements OnInit {
     await this.loadTranscriptionCapabilities();
   }
 
+  async chooseUpscaleAnimeModel(): Promise<void> {
+    const path = (await this.wails.openFileDialog()).trim();
+    if (!path) {
+      return;
+    }
+
+    this.preferences.setUpscaleAnimeModelPath(path);
+    this.actionMessage.set('');
+  }
+
+  clearUpscaleAnimeModel(): void {
+    if (!this.hasUpscaleAnimeModel()) {
+      return;
+    }
+
+    this.preferences.clearUpscaleAnimeModelPath();
+    this.actionMessage.set('');
+  }
+
+  upscaleAnimeModelLabel(): string {
+    return (
+      this.upscaleAnimeModelPath().trim() ||
+      this.i18n.t('settings.upscale.animeModelNotSet')
+    );
+  }
+
   async useDetectedWhisperPaths(): Promise<void> {
     if (!this.hasWhisperOverrides()) {
       return;
@@ -708,6 +765,8 @@ export class Settings implements OnInit {
         return this.i18n.t('toolchain.phase.installingLanguages');
       case 'rembg':
         return this.i18n.t('toolchain.phase.installingBackgroundRemoval');
+      case 'upscale':
+        return this.i18n.t('toolchain.phase.installingUpscale');
       case 'finalize':
         return this.i18n.t('toolchain.phase.verifying');
       case 'ready':

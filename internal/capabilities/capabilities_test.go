@@ -12,7 +12,7 @@ import (
 
 var allChecks = []string{
 	"pdftoppm", "tesseract", "pdftotext", "gs", "ffmpeg", "ffprobe",
-	"libvips", "cwebp", "pdf2docx", "rembg", "whisper",
+	"libvips", "cwebp", "pdf2docx", "rembg", "upscale", "whisper",
 }
 
 var allBinaries = []string{
@@ -50,12 +50,16 @@ func fakeVips(version string, formats int) func() (string, int) {
 // environment, background removal pack and Whisper runtime/model.
 func managedReadyRuntime() ManagedRuntime {
 	return ManagedRuntime{
-		DataDir:          "/data/fileforge",
-		PDF2DOCX:         true,
-		RembgReady:       true,
-		RembgReason:      "Local background removal engine",
-		RembgModelReady:  true,
-		RembgModelReason: "Local background removal model",
+		DataDir:            "/data/fileforge",
+		PDF2DOCX:           true,
+		RembgReady:         true,
+		RembgReason:        "Local background removal engine",
+		RembgModelReady:    true,
+		RembgModelReason:   "Local background removal model",
+		UpscaleReady:       true,
+		UpscaleReason:      "Local upscale engine",
+		UpscaleModelReady:  true,
+		UpscaleModelReason: "Local upscale model",
 		Whisper: engine.TranscriptionCapabilities{
 			WhisperPath:    "/data/fileforge/toolchain/whisper/whisper-cli",
 			WhisperPresent: true,
@@ -134,6 +138,7 @@ func TestDetectWithAllToolsAvailable(t *testing.T) {
 		"cwebp":     false,
 		"pdf2docx":  false,
 		"rembg":     false,
+		"upscale":   false,
 		"whisper":   true,
 	}
 	for id, wantRequired := range required {
@@ -167,6 +172,9 @@ func TestDetectWithAllToolsAvailable(t *testing.T) {
 	if got := byID["rembg"].Detail; got != "Background removal engine and model" {
 		t.Fatalf("unexpected rembg detail: %q", got)
 	}
+	if got := byID["upscale"].Detail; got != "Upscale engine and general model" {
+		t.Fatalf("unexpected upscale detail: %q", got)
+	}
 	if got := byID["whisper"].Detail; got != "Model: ggml-medium.bin" {
 		t.Fatalf("unexpected whisper detail: %q", got)
 	}
@@ -175,6 +183,9 @@ func TestDetectWithAllToolsAvailable(t *testing.T) {
 	}
 	if byID["whisper"].Label != "Whisper model" {
 		t.Fatalf("unexpected whisper label: %q", byID["whisper"].Label)
+	}
+	if byID["upscale"].Label != "Local upscale pack" {
+		t.Fatalf("unexpected upscale label: %q", byID["upscale"].Label)
 	}
 	if len(response.OCRLanguages) != 2 || response.OCRLanguages[0] != "afr" || response.OCRLanguages[1] != "eng" {
 		t.Fatalf("unexpected OCR languages: %+v", response.OCRLanguages)
@@ -363,6 +374,76 @@ func TestDetectBackgroundRemovalPackStates(t *testing.T) {
 			}
 			if check.Required {
 				t.Fatal("the background removal pack must stay optional")
+			}
+			if check.Detail != test.wantDetail {
+				t.Fatalf("detail = %q, want %q", check.Detail, test.wantDetail)
+			}
+			if check.Suggestion != test.wantSuggestion {
+				t.Fatalf("suggestion = %q, want %q", check.Suggestion, test.wantSuggestion)
+			}
+		})
+	}
+}
+
+func TestDetectUpscalePackStates(t *testing.T) {
+	tests := []struct {
+		name           string
+		engineReady    bool
+		engineReason   string
+		modelReady     bool
+		modelReason    string
+		wantAvailable  bool
+		wantDetail     string
+		wantSuggestion string
+	}{
+		{
+			name:           "engine missing",
+			engineReady:    false,
+			engineReason:   "The upscale engine is not installed. Open Settings and run Install / repair.",
+			wantDetail:     "Not installed",
+			wantSuggestion: "The upscale engine is not installed. Open Settings and run Install / repair.",
+		},
+		{
+			name:           "model missing",
+			engineReady:    true,
+			engineReason:   "Local upscale engine",
+			modelReady:     false,
+			modelReason:    "Upscale model is not installed. Run Install / repair.",
+			wantAvailable:  false,
+			wantDetail:     "Engine installed, but the model is not ready",
+			wantSuggestion: "Upscale model is not installed. Run Install / repair.",
+		},
+		{
+			name:          "pack ready",
+			engineReady:   true,
+			engineReason:  "Local upscale engine",
+			modelReady:    true,
+			modelReason:   "Local upscale model",
+			wantAvailable: true,
+			wantDetail:    "Upscale engine and general model",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := managedReadyRuntime()
+			state.UpscaleReady = test.engineReady
+			state.UpscaleReason = test.engineReason
+			state.UpscaleModelReady = test.modelReady
+			state.UpscaleModelReason = test.modelReason
+
+			opts := baseOptions(
+				fakeLookPath(allBinaries...),
+				fakeOCR(models.OCRCapabilitiesResponse{}),
+			)
+			opts.Managed = fakeManaged(state)
+
+			check := checksByID(t, DetectWith(context.Background(), opts))["upscale"]
+			if check.Available != test.wantAvailable {
+				t.Fatalf("available = %t, want %t", check.Available, test.wantAvailable)
+			}
+			if check.Required {
+				t.Fatal("the upscale pack must stay optional")
 			}
 			if check.Detail != test.wantDetail {
 				t.Fatalf("detail = %q, want %q", check.Detail, test.wantDetail)

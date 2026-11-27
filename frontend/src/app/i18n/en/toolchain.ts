@@ -19,6 +19,8 @@ export const toolchainEn = {
   'toolchain.phase.installingLanguages': 'Installing OCR languages',
   'toolchain.phase.installingBackgroundRemoval':
     'Installing background removal',
+  'toolchain.phase.installingUpscale':
+    'Installing the upscale pack',
   'toolchain.phase.verifying': 'Verifying',
   'toolchain.phase.ready': 'Ready',
   'toolchain.phase.cancelling': 'Cancelling',

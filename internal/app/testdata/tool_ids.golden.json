@@ -10,6 +10,7 @@
   "tool.image.convert",
   "tool.image.crop",
   "tool.image.ocr",
+  "tool.image.upscale",
   "tool.image.watermark",
   "tool.pdf.crop",
   "tool.pdf.extract_images",

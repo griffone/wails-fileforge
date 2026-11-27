@@ -17,6 +17,7 @@ import { globalDropEs } from './global-drop';
 import { homeEs } from './home';
 import { imageAnnotateEs } from './image-annotate';
 import { imageBackgroundEs } from './image-background';
+import { imageUpscaleEs } from './image-upscale';
 import { imageCompressEs } from './image-compress';
 import { imageConverterEs } from './image-converter';
 import { imageCropEs } from './image-crop';
@@ -75,6 +76,7 @@ export const es: Record<TranslationKey, DictionaryValue> = {
   ...imageWatermarkEs,
   ...imageOcrEs,
   ...imageBackgroundEs,
+  ...imageUpscaleEs,
   ...pdfMergeEs,
   ...pdfSplitEs,
   ...pdfCropEs,

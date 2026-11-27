@@ -43,6 +43,11 @@ export const toolsEs = {
   'tools.tool.image.background.description':
     'Elimina fondos de imágenes localmente y guarda un PNG transparente o un color elegido.',
 
+  'tools.tool.image.upscale.name': 'Ampliar imagen',
+  'tools.tool.image.upscale.navName': 'Ampliar',
+  'tools.tool.image.upscale.description':
+    'Amplía imágenes 2x o 4x localmente con un paquete opcional de modelos ONNX.',
+
   'tools.tool.pdf.merge.name': 'Unir PDF',
   'tools.tool.pdf.merge.navName': 'Unir',
   'tools.tool.pdf.merge.description':

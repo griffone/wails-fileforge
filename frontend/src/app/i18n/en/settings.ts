@@ -23,6 +23,7 @@ export const settingsEn = {
   'settings.toolchain.notReported': 'Not reported',
   'settings.toolchain.storageHelp':
     'Installed under your user data folder. No admin rights or system PATH changes.',
+  'settings.toolchain.installRepair': 'Install / repair',
   'settings.toolchain.install': 'Install local tools',
   'settings.toolchain.openFolder': 'Open folder',
   'settings.toolchain.refresh': 'Refresh',
@@ -247,5 +248,16 @@ export const settingsEn = {
     'Updates are not supported on this platform. Install a new version manually.',
   'settings.updates.unavailable.generic':
     'Updates are unavailable in this build.',
+  'settings.upscale.title': 'Upscale pack',
+  'settings.upscale.subtitle':
+    'The optional upscaler downloads its engine and model once (about 55 MB) and runs locally with ONNX Runtime. Nothing downloads until you press Install / repair.',
+  'settings.upscale.packSize':
+    'Pack size: about 55 MB download. The general model is included; no weights are bundled with the app.',
+  'settings.upscale.animeModel': 'Anime model file',
+  'settings.upscale.animeModelNotSet': 'No anime model chosen.',
+  'settings.upscale.chooseModel': 'Choose .onnx file',
+  'settings.upscale.clearModel': 'Clear',
+  'settings.upscale.help':
+    'The general model is verified and installed by the toolchain. The anime option is a user-provided RealESRGAN x4 anime ONNX export; FileForge never downloads it.',
   'settings.about': 'FileForge Desktop · local-first file tools',
 } as const;

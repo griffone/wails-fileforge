@@ -34,6 +34,7 @@ var toolIDs = []string{
 	image.ToolIDImageWatermark,
 	image.ToolIDImageOCR,
 	image.ToolIDImageBackground,
+	image.ToolIDImageUpscale,
 	pdf.ToolIDPDFMerge,
 	pdf.ToolIDPDFSplit,
 	pdf.ToolIDPDFCrop,
@@ -64,8 +65,8 @@ func TestToolRegistryContract(t *testing.T) {
 	}
 
 	catalog := reg.ListTools(context.Background())
-	if len(catalog) != 27 {
-		t.Fatalf("registered tools = %d, want 27", len(catalog))
+	if len(catalog) != 28 {
+		t.Fatalf("registered tools = %d, want 28", len(catalog))
 	}
 
 	seen := make(map[string]struct{}, len(catalog))

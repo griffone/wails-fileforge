@@ -45,6 +45,11 @@ export const toolsEn = {
   'tools.tool.image.background.description':
     'Remove image backgrounds locally and save a transparent PNG or a chosen color.',
 
+  'tools.tool.image.upscale.name': 'Upscale Image',
+  'tools.tool.image.upscale.navName': 'Upscale',
+  'tools.tool.image.upscale.description':
+    'Enlarge images 2x or 4x locally with an optional ONNX model pack.',
+
   'tools.tool.pdf.merge.name': 'PDF Merge',
   'tools.tool.pdf.merge.navName': 'Merge',
   'tools.tool.pdf.merge.description':

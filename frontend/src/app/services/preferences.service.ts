@@ -37,6 +37,7 @@ interface PreferencesState {
   defaultOutputDir: string;
   whisperPath: string;
   whisperModelPath: string;
+  upscaleAnimeModelPath: string;
   language: Locale | '';
 }
 
@@ -45,6 +46,7 @@ function emptyState(): PreferencesState {
     defaultOutputDir: '',
     whisperPath: '',
     whisperModelPath: '',
+    upscaleAnimeModelPath: '',
     language: '',
   };
 }
@@ -86,6 +88,9 @@ export class PreferencesService {
   /** Whisper model override; empty lets the backend resolve the installed default. */
   readonly whisperModelPath: Signal<string>;
 
+  /** Optional anime upscale model; empty means the anime choice is unavailable. */
+  readonly upscaleAnimeModelPath: Signal<string>;
+
   /** Persisted interface language; empty means detect from the browser. */
   readonly language: Signal<Locale | ''>;
 
@@ -94,6 +99,9 @@ export class PreferencesService {
     this.defaultOutputDir = computed(() => this.state().defaultOutputDir);
     this.whisperPath = computed(() => this.state().whisperPath);
     this.whisperModelPath = computed(() => this.state().whisperModelPath);
+    this.upscaleAnimeModelPath = computed(
+      () => this.state().upscaleAnimeModelPath,
+    );
     this.language = computed(() => this.state().language);
   }
 
@@ -114,6 +122,17 @@ export class PreferencesService {
 
   setWhisperModelPath(path: string): void {
     this.update({ ...this.state(), whisperModelPath: normalizePath(path) });
+  }
+
+  setUpscaleAnimeModelPath(path: string): void {
+    this.update({
+      ...this.state(),
+      upscaleAnimeModelPath: normalizePath(path),
+    });
+  }
+
+  clearUpscaleAnimeModelPath(): void {
+    this.update({ ...this.state(), upscaleAnimeModelPath: '' });
   }
 
   setLanguage(locale: Locale): void {
@@ -227,6 +246,7 @@ export class PreferencesService {
         defaultOutputDir: normalizePath(parsed['defaultOutputDir']),
         whisperPath: normalizePath(parsed['whisperPath']),
         whisperModelPath: normalizePath(parsed['whisperModelPath']),
+        upscaleAnimeModelPath: normalizePath(parsed['upscaleAnimeModelPath']),
         language: normalizeLocale(parsed['language']),
       };
     } catch {
@@ -243,6 +263,7 @@ export class PreferencesService {
           defaultOutputDir: state.defaultOutputDir,
           whisperPath: state.whisperPath,
           whisperModelPath: state.whisperModelPath,
+          upscaleAnimeModelPath: state.upscaleAnimeModelPath,
           language: state.language,
         }),
       );

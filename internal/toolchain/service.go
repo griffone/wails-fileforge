@@ -27,6 +27,7 @@ const (
 	PhaseTessdata    = "tessdata"
 	PhasePdf2Docx    = "pdf2docx"
 	PhaseRembg       = "rembg"
+	PhaseUpscale     = "upscale"
 	PhaseFinalize    = "finalize"
 	PhaseReady       = "ready"
 	PhaseCancelled   = "cancelled"
@@ -53,7 +54,12 @@ const (
 	rembgVenvInstallPercent        = 95
 	rembgVenvEndPercent            = 96
 	rembgModelStartPercent         = 96
-	rembgModelEndPercent           = 99
+	rembgModelEndPercent           = 97
+	upscaleVenvStartPercent        = 97
+	upscaleVenvInstallPercent      = 98
+	upscaleVenvEndPercent          = 98
+	upscaleModelStartPercent       = 98
+	upscaleModelEndPercent         = 99
 	readyPercent                   = 100
 
 	condaPackagesMessage = "Installing FFmpeg, Tesseract, Poppler, Ghostscript and Python…"
@@ -475,6 +481,9 @@ func (s *Service) install(ctx context.Context, model string, languages []string,
 	if err := s.installRembg(ctx, staging, force); err != nil {
 		return err
 	}
+	if err := s.installUpscale(ctx, force); err != nil {
+		return err
+	}
 
 	return s.finalize(model, languages)
 }
@@ -537,6 +546,9 @@ func (s *Service) installEnvironment(ctx context.Context, force bool) error {
 		}
 		if err := os.RemoveAll(rembgVenvDir(s.root)); err != nil {
 			return fmt.Errorf("replace the background removal environment: %w", err)
+		}
+		if err := os.RemoveAll(upscaleVenvDir(s.root)); err != nil {
+			return fmt.Errorf("replace the upscale environment: %w", err)
 		}
 	}
 	action := "create"
@@ -942,6 +954,166 @@ func verifyRembgModel(path string, spec RembgModelSpec) error {
 	return artifact.Verify(path)
 }
 
+// installUpscale creates the dedicated virtual environment for the local
+// upscale engine, verifies that it imports, and installs the pinned model
+// archive. The model lives outside the venv, so repairing the engine never
+// discards the downloaded weights.
+func (s *Service) installUpscale(ctx context.Context, force bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	basePython := managedBasePythonPath(s.root, s.platform.OS)
+	if !fileWithContent(basePython) {
+		return fmt.Errorf("the managed Python is missing; reinstall the toolchain")
+	}
+
+	venv := upscaleVenvDir(s.root)
+	venvPython := upscaleVenvPythonPath(s.root, s.platform.OS)
+	readyMarker := upscaleReadyFilePath(s.root)
+	if !force && fileWithContent(venvPython) && fileWithContent(readyMarker) {
+		s.progress(PhaseUpscale, upscaleVenvEndPercent, "The upscale engine is already installed.", false)
+	} else {
+		if err := os.RemoveAll(venv); err != nil {
+			return fmt.Errorf("replace the upscale environment: %w", err)
+		}
+		// A rebuilt venv must prove itself again: leaving the old marker behind
+		// would let a failed pip or import hide behind a stale success.
+		if err := os.Remove(readyMarker); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("reset the upscale readiness marker: %w", err)
+		}
+
+		environment := withEnvironment(os.Environ(), map[string]string{
+			"PATH": prependPath(os.Getenv("PATH"), managedPathDirs(s.root, s.platform.OS), pathListSeparatorFor(s.platform.OS)),
+		})
+
+		s.progress(PhaseUpscale, upscaleVenvStartPercent, "Creating the upscale environment…", false)
+		if _, err := s.runner.Run(ctx, basePython, []string{"-m", "venv", venv}, environment); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+
+			return fmt.Errorf("create the upscale environment: %w", err)
+		}
+
+		s.progress(PhaseUpscale, upscaleVenvInstallPercent, "Installing the upscale engine…", false)
+		pipArgs := append([]string{"-m", "pip", "install", "--no-cache-dir", "--disable-pip-version-check"}, upscalePins...)
+		if _, err := s.runner.Run(ctx, venvPython, pipArgs, environment); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+
+			return fmt.Errorf("install the upscale engine: %w", err)
+		}
+
+		if !fileWithContent(venvPython) || !upscalePackagesInstalled(s.root, s.platform.OS) {
+			return fmt.Errorf("the upscale engine did not install correctly: the virtual environment is incomplete")
+		}
+
+		// The marker is written only after a real import succeeds, so a venv
+		// with missing shared libraries is never reported as ready.
+		importContext, cancel := context.WithTimeout(ctx, rembgImportTimeout)
+		_, importErr := s.runner.Run(importContext, venvPython, []string{"-c", "import onnxruntime, numpy, PIL"}, environment)
+		cancel()
+		if importErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+
+			return fmt.Errorf("the upscale engine could not be imported: %w", importErr)
+		}
+
+		if err := os.MkdirAll(upscaleHomeDir(s.root), 0o755); err != nil {
+			return fmt.Errorf("create the upscale home: %w", err)
+		}
+		if err := os.WriteFile(readyMarker, []byte("realesr-general-x4v3\n"), 0o644); err != nil {
+			return fmt.Errorf("mark the upscale engine as ready: %w", err)
+		}
+
+		s.progress(PhaseUpscale, upscaleVenvEndPercent, "Upscale engine is verified.", false)
+	}
+
+	return s.installUpscaleModel(ctx, force)
+}
+
+// installUpscaleModel downloads the pinned model archive with size and
+// checksum verification, extracts the graph and its external weights, verifies
+// each file and publishes the model folder atomically. A failed download or a
+// bad checksum leaves the previous model untouched.
+func (s *Service) installUpscaleModel(ctx context.Context, force bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	spec := upscaleModelSpec
+	if !force && upscaleModelFilesMatch(s.root) {
+		s.progress(PhaseUpscale, upscaleModelEndPercent, "The upscale model is already installed.", false)
+
+		return nil
+	}
+
+	s.progress(PhaseUpscale, upscaleModelStartPercent, "Downloading the upscale model…", false)
+
+	modelsParent := filepath.Dir(upscaleModelDir(s.root))
+	if err := os.MkdirAll(modelsParent, 0o755); err != nil {
+		return fmt.Errorf("create the upscale model folder: %w", err)
+	}
+
+	tempDir, err := os.MkdirTemp(modelsParent, ".fileforge-upscale-model-*")
+	if err != nil {
+		return fmt.Errorf("create a temporary upscale model folder: %w", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
+
+	archivePath := filepath.Join(tempDir, spec.ArchiveName)
+	if err := s.downloader.DownloadArtifact(ctx, UpscaleModelArtifact(), archivePath, s.progressRange(
+		PhaseUpscale, "Downloading the upscale model…",
+		upscaleModelStartPercent, upscaleModelEndPercent,
+	)); err != nil {
+		return fmt.Errorf("download the upscale model: %w", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+
+	extractDir := filepath.Join(tempDir, "extract")
+	if err := ExtractZip(archivePath, extractDir); err != nil {
+		return fmt.Errorf("extract the upscale model: %w", err)
+	}
+
+	sourceDir := filepath.Join(extractDir, filepath.FromSlash(spec.ArchiveDir))
+	stagedDir := filepath.Join(tempDir, "model")
+	if err := os.MkdirAll(stagedDir, 0o755); err != nil {
+		return fmt.Errorf("stage the upscale model: %w", err)
+	}
+	for _, file := range spec.Files {
+		source := filepath.Join(sourceDir, file.Name)
+		if err := (Artifact{SHA256: file.SHA256, SizeBytes: file.SizeBytes}).Verify(source); err != nil {
+			return fmt.Errorf("verify the upscale model file %s: %w", file.Name, err)
+		}
+		if err := fsx.ReplaceFile(source, filepath.Join(stagedDir, file.Name)); err != nil {
+			return fmt.Errorf("stage the upscale model file %s: %w", file.Name, err)
+		}
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+
+	targetDir := upscaleModelDir(s.root)
+	if err := os.RemoveAll(targetDir); err != nil {
+		return fmt.Errorf("replace the upscale model: %w", err)
+	}
+	if err := os.Rename(stagedDir, targetDir); err != nil {
+		return fmt.Errorf("install the upscale model: %w", err)
+	}
+
+	s.progress(PhaseUpscale, upscaleModelEndPercent, "The upscale model is installed.", false)
+
+	return nil
+}
+
 func (s *Service) finalize(model string, languages []string) error {
 	s.progress(PhaseFinalize, readyPercent, "Applying the local toolchain…", true)
 
@@ -1327,6 +1499,34 @@ func (s *Service) buildComponents(model string, languages []string, probeVersion
 		rembgModelComponent.Path = rembgModelPath(s.root, rembgModelSpec.Model)
 	}
 	components = append(components, rembgModelComponent)
+
+	// The upscale pack is optional and has the same shape: engine and model are
+	// separate components so the UI can tell a repair from a download.
+	upscaleReady, upscaleDetail := upscaleRuntimeState(s.root, s.platform.OS)
+	upscaleComponent := models.ToolchainComponent{
+		ID:       "upscale",
+		Label:    "Upscale engine",
+		Ready:    upscaleReady,
+		Required: false,
+		Detail:   upscaleDetail,
+	}
+	if upscaleReady {
+		upscaleComponent.Path = upscaleVenvPythonPath(s.root, s.platform.OS)
+	}
+	components = append(components, upscaleComponent)
+
+	upscaleModelReady, upscaleModelDetail := upscaleModelState(s.root)
+	upscaleModelComponent := models.ToolchainComponent{
+		ID:       "upscale-model",
+		Label:    "Upscale model",
+		Ready:    upscaleModelReady,
+		Required: false,
+		Detail:   upscaleModelDetail,
+	}
+	if upscaleModelReady {
+		upscaleModelComponent.Path = upscaleModelONNXPath(s.root)
+	}
+	components = append(components, upscaleModelComponent)
 
 	return components
 }

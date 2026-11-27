@@ -292,7 +292,7 @@
 
           <div class="actions">
             @if (
-              !toolchainReady() &&
+              (!toolchainReady() || optionalPackMissing()) &&
               !toolchainBusy() &&
               !toolchainUnsupported() &&
               !toolchainError()
@@ -302,7 +302,7 @@
                 class="btn btn-primary btn-sm settings-install-toolchain"
                 (click)="installToolchain()"
               >
-                {{ i18n.t('settings.toolchain.install') }}
+                {{ installButtonLabel() }}
               </button>
             }
             @if (toolchainBusy()) {
@@ -332,6 +332,68 @@
             </button>
           </div>
         }
+      </div>
+    </section>
+
+    <section
+      class="panel settings-panel settings-upscale"
+      aria-labelledby="settings-upscale-title"
+    >
+      <div class="panel-head">
+        <h2 id="settings-upscale-title" class="panel-title">
+          {{ i18n.t('settings.upscale.title') }}
+        </h2>
+        @if (hasUpscaleAnimeModel()) {
+          <span class="badge badge-info">
+            {{ i18n.t('settings.status.ready') }}
+          </span>
+        } @else {
+          <span class="badge badge-neutral">
+            {{ i18n.t('settings.status.optional') }}
+          </span>
+        }
+      </div>
+
+      <div class="settings-body">
+        <p class="settings-help">
+          {{ i18n.t('settings.upscale.subtitle') }}
+        </p>
+        <p class="settings-help settings-upscale-size">
+          {{ i18n.t('settings.upscale.packSize') }}
+        </p>
+
+        <div class="settings-transcription-row">
+          <div class="settings-row-text settings-transcription-row-text">
+            <span class="settings-current-label">
+              {{ i18n.t('settings.upscale.animeModel') }}
+            </span>
+            <p class="settings-transcription-path mono settings-upscale-anime-path">
+              {{ upscaleAnimeModelLabel() }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm settings-choose-upscale-anime"
+            (click)="chooseUpscaleAnimeModel()"
+          >
+            {{ i18n.t('settings.upscale.chooseModel') }}
+          </button>
+        </div>
+
+        <div class="actions">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm settings-clear-upscale-anime"
+            [disabled]="!hasUpscaleAnimeModel()"
+            (click)="clearUpscaleAnimeModel()"
+          >
+            {{ i18n.t('settings.upscale.clearModel') }}
+          </button>
+        </div>
+
+        <p class="settings-help">
+          {{ i18n.t('settings.upscale.help') }}
+        </p>
       </div>
     </section>
 

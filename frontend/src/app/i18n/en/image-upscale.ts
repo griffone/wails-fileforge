@@ -1,0 +1,102 @@
+export const imageUpscaleEn = {
+  'imageUpscale.page.eyebrow': 'IMAGE',
+  'imageUpscale.page.titleLead': 'Upscale',
+  'imageUpscale.page.titleTail': 'Image',
+  'imageUpscale.page.sub':
+    'Enlarge images 2x or 4x with a local ONNX model. The model is a one-time download and every pixel is computed on this machine.',
+  'imageUpscale.page.localBadge': 'Local only',
+  'imageUpscale.pack.engineFallback': 'Upscale engine',
+  'imageUpscale.pack.modelFallback': 'Upscale model',
+  'imageUpscale.pack.checkErrorTitle':
+    'The upscale pack could not be checked.',
+  'imageUpscale.pack.checkErrorDetail':
+    'Open Settings and run Install / repair, then recheck the pack here.',
+  'imageUpscale.pack.needsRepairTitle': 'The upscale pack needs repair.',
+  'imageUpscale.pack.missingTitle': 'The upscale pack is not installed.',
+  'imageUpscale.pack.detail':
+    'It downloads {size} once and runs entirely on this machine. Open Settings and run Install / repair, then recheck.',
+  'imageUpscale.pack.size': 'about 55 MB',
+  'imageUpscale.pack.badge.checking': 'Checking pack…',
+  'imageUpscale.pack.badge.ready': 'Pack ready',
+  'imageUpscale.pack.badge.missing': 'Pack missing',
+  'imageUpscale.pack.openSettings': 'Open Settings and run Install / repair',
+  'imageUpscale.pack.recheck': 'Recheck',
+  'imageUpscale.pack.rechecking': 'Rechecking…',
+  'imageUpscale.pack.animeTitle': 'The anime model is not configured.',
+  'imageUpscale.pack.animeDetail':
+    'The anime model is not shipped. Choose a RealESRGAN x4 anime ONNX file in Settings → Tools & Models, then recheck.',
+  'imageUpscale.intake.title': 'Images',
+  'imageUpscale.intake.sub': 'Drop images or choose them from your computer.',
+  'imageUpscale.intake.dropTitle': 'Drop images here',
+  'imageUpscale.intake.dropAria': 'Drop or choose images to upscale',
+  'imageUpscale.intake.actionsAria': 'Image selection actions',
+  'imageUpscale.intake.choose': 'Choose files',
+  'imageUpscale.intake.clear': 'Clear',
+  'imageUpscale.intake.batchNote':
+    'The same scale and model are applied to every image.',
+  'imageUpscale.notice.filesOne': "1 file wasn't added.",
+  'imageUpscale.notice.filesMany': "{count} files weren't added.",
+  'imageUpscale.notice.extensionOne': "{extension} isn't supported.",
+  'imageUpscale.notice.extensionsMany':
+    "{head} and {tail} aren't supported.",
+  'imageUpscale.output.title': 'Output',
+  'imageUpscale.output.sub':
+    'Choose the scale, the model and where the upscaled files go.',
+  'imageUpscale.field.scale': 'Scale',
+  'imageUpscale.scale.2x': '2x',
+  'imageUpscale.scale.4x': '4x',
+  'imageUpscale.field.scaleHelp':
+    '2x is produced by downsampling the 4x model output, so both choices share one model.',
+  'imageUpscale.field.model': 'Model',
+  'imageUpscale.model.general': 'General (bundled)',
+  'imageUpscale.model.anime': 'Anime (custom file)',
+  'imageUpscale.field.modelHelp':
+    'The bundled general model handles photos and illustrations. The anime model is optional and you provide the file.',
+  'imageUpscale.field.tile': 'Tile size',
+  'imageUpscale.tile.64': '64 px',
+  'imageUpscale.tile.128': '128 px',
+  'imageUpscale.tile.256': '256 px',
+  'imageUpscale.tile.512': '512 px',
+  'imageUpscale.field.tileHelp':
+    'The bundled model runs on fixed 128 px tiles. Tile size is used by custom models with dynamic input shapes.',
+  'imageUpscale.field.format': 'Format',
+  'imageUpscale.format.png': 'PNG (lossless)',
+  'imageUpscale.format.jpeg': 'JPEG',
+  'imageUpscale.format.webp': 'WebP',
+  'imageUpscale.field.quality': 'Quality',
+  'imageUpscale.field.qualityAria': 'Output quality',
+  'imageUpscale.field.qualityHelp':
+    'Applies to JPEG and WebP. PNG is always lossless.',
+  'imageUpscale.field.animeModel': 'Anime model file',
+  'imageUpscale.animeModel.configured': 'Configured: {path}',
+  'imageUpscale.animeModel.missing': 'No anime model chosen yet.',
+  'imageUpscale.animeModel.help':
+    'Use a RealESRGAN x4 anime ONNX export. FileForge never downloads it.',
+  'imageUpscale.animeModel.openSettings': 'Choose the file in Settings',
+  'imageUpscale.note.title': 'One download, then offline',
+  'imageUpscale.note.body':
+    'The pack is downloaded once from Settings → Tools & Models and verified with its checksum. Inference runs locally with ONNX Runtime; nothing is uploaded. Outputs are named <name>_2x or <name>_4x.',
+  'imageUpscale.note.limit':
+    'Outputs are limited to 64 megapixels. For a 4x pass, start from an image under 4000 × 4000 px.',
+  'imageUpscale.helper.addImage': 'Add at least one image.',
+  'imageUpscale.helper.checking': 'Checking the upscale pack…',
+  'imageUpscale.helper.notReady':
+    'The upscale pack is not ready. Install it in Settings first.',
+  'imageUpscale.helper.anime':
+    'Choose an anime model file in Settings first.',
+  'imageUpscale.action.upscale': 'Upscale image',
+  'imageUpscale.action.upscaleOne': 'Upscale 1 image',
+  'imageUpscale.action.upscaleMany': 'Upscale {count} images',
+  'imageUpscale.action.upscaling': 'Upscaling…',
+  'imageUpscale.action.cancel': 'Cancel',
+  'imageUpscale.destination.original': 'Next to each image',
+  'imageUpscale.progress.aria': 'Upscale progress',
+  'imageUpscale.status.waiting': 'Waiting to start',
+  'imageUpscale.error.start': 'The upscale could not start.',
+  'imageUpscale.error.plan': 'The output could not be planned.',
+  'imageUpscale.error.cancel': 'The job could not be cancelled.',
+  'imageUpscale.error.openFile': 'The file could not be opened.',
+  'imageUpscale.error.openFolder': 'The folder could not be opened.',
+  'imageUpscale.error.status': 'The job status could not be read.',
+  'imageUpscale.error.inspect': 'File sizes could not be read.',
+} as const;

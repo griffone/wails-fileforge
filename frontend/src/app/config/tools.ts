@@ -13,6 +13,7 @@ import {
   Gauge,
   House,
   Image as ImageIcon,
+  ImageUpscale,
   Images,
   Layers,
   LayoutGrid,
@@ -157,7 +158,7 @@ export const DUPLICATES_TOOL: ToolDefinition = {
   ],
 };
 
-/** The twenty-seven conversion tools. Ids mirror the backend toolId contract. */
+/** The twenty-eight conversion tools. Ids mirror the backend toolId contract. */
 export const TOOLS: readonly ToolDefinition[] = [
   {
     id: 'tool.image.convert',
@@ -272,6 +273,27 @@ export const TOOLS: readonly ToolDefinition[] = [
       'subject',
       'product photo',
       'rembg',
+    ],
+  },
+  {
+    id: 'tool.image.upscale',
+    name: 'Upscale Image',
+    navName: 'Upscale',
+    description:
+      'Enlarge images 2x or 4x locally with an optional ONNX model pack.',
+    route: '/image-upscale',
+    category: 'image',
+    icon: ImageUpscale,
+    formats: ['PNG', 'JPG', 'WebP'],
+    keywords: [
+      'image',
+      'upscale',
+      'enlarge',
+      '2x',
+      '4x',
+      'resolution',
+      'real-esrgan',
+      'onnx',
     ],
   },
   {
@@ -586,7 +608,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-/** Home, every tool, then System Status, Automations, Duplicates and Settings: the full 32-entry navigation model. */
+/** Home, every tool, then System Status, Automations, Duplicates and Settings: the full 33-entry navigation model. */
 export const NAVIGATION: readonly ToolDefinition[] = [
   HOME_TOOL,
   ...TOOLS,

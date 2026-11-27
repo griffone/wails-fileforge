@@ -38,6 +38,7 @@ var toolKeys = map[string][]string{
 	"tool.image.watermark":  {"kind", "text", "logoPath", "anchor", "color", "opacity", "bold", "tile", "scalePercent", "rotationDegrees", "marginPercent", "quality", "format", "outputPath"},
 	"tool.image.ocr":        {"language", "dpi", "writePdf"},
 	"tool.image.background": {"backgroundColor"},
+	"tool.image.upscale":    {"scale", "model", "modelPath", "tileSize", "format", "quality"},
 
 	"tool.video.convert":    {"targetFormat", "qualityPreset", "resolution", "bitrateKbps", "removeAudio", "targetSizeBytes", "outputPath"},
 	"tool.video.trim":       {"startTime", "endTime", "trimMode", "targetFormat", "qualityPreset", "targetSizeBytes", "outputPath"},

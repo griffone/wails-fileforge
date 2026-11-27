@@ -389,6 +389,42 @@
     ]
   },
   {
+    "toolId": "tool.image.upscale",
+    "name": "Upscale Image",
+    "description": "Upscale images 2x or 4x locally with a pinned ONNX model",
+    "domain": "image",
+    "capability": "tool.image.upscale",
+    "version": "1.0",
+    "supportsSingle": true,
+    "supportsBatch": true,
+    "inputExtensions": [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "webp",
+      "bmp",
+      "tiff",
+      "tif"
+    ],
+    "outputExtensions": [
+      "png",
+      "jpg",
+      "webp"
+    ],
+    "runtimeDependencies": [
+      "upscale",
+      "upscale-model"
+    ],
+    "tags": [
+      "image",
+      "upscale",
+      "enlarge",
+      "onnx",
+      "real-esrgan"
+    ]
+  },
+  {
     "toolId": "tool.image.watermark",
     "name": "Image Watermark",
     "description": "Watermark images with text or a logo using nine anchors, opacity, scale, margin and tiling",

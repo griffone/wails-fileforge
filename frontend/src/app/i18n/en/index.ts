@@ -14,6 +14,7 @@ import { globalDropEn } from './global-drop';
 import { homeEn } from './home';
 import { imageAnnotateEn } from './image-annotate';
 import { imageBackgroundEn } from './image-background';
+import { imageUpscaleEn } from './image-upscale';
 import { imageCompressEn } from './image-compress';
 import { imageConverterEn } from './image-converter';
 import { imageCropEn } from './image-crop';
@@ -72,6 +73,7 @@ export const en = {
   ...imageWatermarkEn,
   ...imageOcrEn,
   ...imageBackgroundEn,
+  ...imageUpscaleEn,
   ...pdfMergeEn,
   ...pdfSplitEn,
   ...pdfCropEn,

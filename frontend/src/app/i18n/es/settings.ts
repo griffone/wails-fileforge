@@ -23,6 +23,7 @@ export const settingsEs = {
   'settings.toolchain.notReported': 'No informado',
   'settings.toolchain.storageHelp':
     'Se instalan en tu carpeta de datos de usuario. Sin permisos de administrador ni cambios en el PATH del sistema.',
+  'settings.toolchain.installRepair': 'Instalar / reparar',
   'settings.toolchain.install': 'Instalar herramientas locales',
   'settings.toolchain.openFolder': 'Abrir carpeta',
   'settings.toolchain.refresh': 'Actualizar',
@@ -256,5 +257,16 @@ export const settingsEs = {
     'Las actualizaciones no son compatibles con esta plataforma. Instala una versión nueva manualmente.',
   'settings.updates.unavailable.generic':
     'Las actualizaciones no están disponibles en esta compilación.',
+  'settings.upscale.title': 'Paquete de ampliación',
+  'settings.upscale.subtitle':
+    'El ampliador opcional descarga su motor y su modelo una sola vez (unos 55 MB) y se ejecuta localmente con ONNX Runtime. Nada se descarga hasta que pulses Instalar / reparar.',
+  'settings.upscale.packSize':
+    'Tamaño del paquete: unos 55 MB de descarga. El modelo general está incluido; la aplicación no trae pesos.',
+  'settings.upscale.animeModel': 'Archivo del modelo anime',
+  'settings.upscale.animeModelNotSet': 'No se eligió un modelo anime.',
+  'settings.upscale.chooseModel': 'Elegir archivo .onnx',
+  'settings.upscale.clearModel': 'Quitar',
+  'settings.upscale.help':
+    'El modelo general lo verifica e instala la cadena de herramientas. La opción anime es una exportación ONNX RealESRGAN x4 anime que aporta el usuario; FileForge nunca la descarga.',
   'settings.about': 'FileForge Desktop · herramientas de archivo locales',
 };

@@ -58,6 +58,14 @@ var transientDetailCodesByTool = map[string]map[string]struct{}{
 		"IMAGE_BACKGROUND_PROCESS_FAILED": {},
 		"IMAGE_BACKGROUND_PUBLISH_FAILED": {},
 	},
+	// Upscale failures come from the Python bridge process and from publishing
+	// its output. Runtime/model/verification/input failures are excluded.
+	"tool.image.upscale": {
+		"IMAGE_UPSCALE_EXECUTION":      {},
+		"IMAGE_UPSCALE_BATCH_ITEM":     {},
+		"IMAGE_UPSCALE_PROCESS_FAILED": {},
+		"IMAGE_UPSCALE_PUBLISH_FAILED": {},
+	},
 	// Watermarks render in-process; the only transient outcome is the generic
 	// render/write failure for a single item or a batch item.
 	"tool.image.watermark": {

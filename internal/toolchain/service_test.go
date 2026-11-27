@@ -1,6 +1,7 @@
 package toolchain
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -149,7 +150,7 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []
 	if len(args) >= 3 && args[0] == "-m" && args[1] == "venv" {
 		venvDir := args[2]
 		names := []string{"python"}
-		if filepath.Base(venvDir) != "rembg-venv" {
+		if filepath.Base(venvDir) == "pdf2docx-venv" {
 			names = append(names, "pdf2docx")
 		}
 		for _, name := range names {
@@ -166,7 +167,8 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []
 	}
 	if len(args) >= 3 && args[0] == "-m" && args[1] == "pip" && args[2] == "install" {
 		venvDir := filepath.Dir(filepath.Dir(name))
-		if filepath.Base(venvDir) == "rembg-venv" {
+		switch filepath.Base(venvDir) {
+		case "rembg-venv":
 			if failRembgPip {
 				return nil, fmt.Errorf("fake rembg pip install failed")
 			}
@@ -175,9 +177,15 @@ func (r *fakeRunner) Run(ctx context.Context, name string, args []string, env []
 			}
 
 			return []byte("Successfully installed rembg-2.0.87\n"), nil
-		}
+		case "upscale-venv":
+			if err := writeFakeUpscalePackages(venvDir); err != nil {
+				return nil, err
+			}
 
-		return []byte("Successfully installed pdf2docx-0.5.13\n"), nil
+			return []byte("Successfully installed onnxruntime-1.32.0\n"), nil
+		default:
+			return []byte("Successfully installed pdf2docx-0.5.13\n"), nil
+		}
 	}
 
 	return []byte("fake-version 1.2.3\n"), nil
@@ -197,6 +205,19 @@ func writeFakeRembgPackages(venvDir string) error {
 	}
 
 	return os.MkdirAll(filepath.Join(sitePackages, "onnxruntime-1.32.0.dist-info"), 0o755)
+}
+
+// writeFakeUpscalePackages simulates a pip install of the upscale pins by
+// creating the pip receipt the installer checks.
+func writeFakeUpscalePackages(venvDir string) error {
+	sitePackages := filepath.Join(venvDir, "lib", "python3.11", "site-packages")
+	for _, receipt := range []string{"onnxruntime-1.32.0.dist-info", "numpy-2.3.5.dist-info", "pillow-12.3.0.dist-info"} {
+		if err := os.MkdirAll(filepath.Join(sitePackages, receipt), 0o755); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *fakeRunner) recordedCalls() []fakeRunnerCall {
@@ -270,7 +291,56 @@ func linuxToolchainPayloads(t *testing.T) map[string][]byte {
 		englishURL:             []byte("english traineddata"),
 		spanishURL:             []byte("spanish traineddata"),
 		rembgURL:               fakeRembgModelPayload(t),
+		upscaleModelSpec.URL:   fakeUpscaleModelPayload(t),
 	}
+}
+
+// fakeUpscaleModelPayload returns a small stand-in zip with the pinned model
+// files and points the expected archive and file metadata at it for the
+// duration of the test, so the real verification path runs without writing the
+// real weights.
+func fakeUpscaleModelPayload(t *testing.T) []byte {
+	t.Helper()
+
+	files := map[string][]byte{
+		upscaleModelONNXFileName: []byte("fake real-esrgan onnx graph"),
+		upscaleModelDataFileName: []byte("fake real-esrgan external weights"),
+	}
+
+	buffer := &bytes.Buffer{}
+	writer := zip.NewWriter(buffer)
+	for name, payload := range files {
+		header := &zip.FileHeader{Name: upscaleModelArchiveDir + "/" + name, Method: zip.Deflate}
+		entry, err := writer.CreateHeader(header)
+		if err != nil {
+			t.Fatalf("create upscale fixture entry: %v", err)
+		}
+		if _, err := entry.Write(payload); err != nil {
+			t.Fatalf("write upscale fixture entry: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close upscale fixture zip: %v", err)
+	}
+
+	original := upscaleModelSpec
+	injected := upscaleModelSpec
+	injected.SizeBytes = int64(buffer.Len())
+	injected.SHA256 = fmt.Sprintf("%x", sha256.Sum256(buffer.Bytes()))
+	injected.Files = make([]UpscaleModelFile, 0, len(files))
+	for name, payload := range files {
+		injected.Files = append(injected.Files, UpscaleModelFile{
+			Name:      name,
+			SizeBytes: int64(len(payload)),
+			SHA256:    fmt.Sprintf("%x", sha256.Sum256(payload)),
+		})
+	}
+	upscaleModelSpec = injected
+	t.Cleanup(func() {
+		upscaleModelSpec = original
+	})
+
+	return buffer.Bytes()
 }
 
 // fakeRembgModelPayload returns a small stand-in for the 179 MB ONNX model and
@@ -396,7 +466,7 @@ func TestStatusBeforeInstall(t *testing.T) {
 	expected := []string{
 		"micromamba", "ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext",
 		"ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa",
-		"tesseract-pdf", "pdf2docx", "rembg", "rembg-model",
+		"tesseract-pdf", "pdf2docx", "rembg", "rembg-model", "upscale", "upscale-model",
 	}
 	if len(status.Components) != len(expected) {
 		t.Fatalf("expected %d components, got %d: %+v", len(expected), len(status.Components), status.Components)
@@ -413,10 +483,10 @@ func TestStatusBeforeInstall(t *testing.T) {
 	if !byID["ffmpeg"].Required || !byID["whisper-model"].Required || !byID["tesseract-eng"].Required || !byID["tesseract-pdf"].Required {
 		t.Fatal("expected ffmpeg, whisper-model, tesseract-eng and tesseract-pdf to be required")
 	}
-	if byID["micromamba"].Required || byID["ghostscript"].Required || byID["pdftotext"].Required || byID["pdf2docx"].Required || byID["rembg"].Required || byID["rembg-model"].Required {
-		t.Fatal("expected micromamba, ghostscript, pdftotext, pdf2docx, rembg and rembg-model to be optional")
+	if byID["micromamba"].Required || byID["ghostscript"].Required || byID["pdftotext"].Required || byID["pdf2docx"].Required || byID["rembg"].Required || byID["rembg-model"].Required || byID["upscale"].Required || byID["upscale-model"].Required {
+		t.Fatal("expected micromamba, ghostscript, pdftotext, pdf2docx, rembg, rembg-model, upscale and upscale-model to be optional")
 	}
-	if byID["rembg"].Path != "" || byID["rembg-model"].Path != "" {
+	if byID["rembg"].Path != "" || byID["rembg-model"].Path != "" || byID["upscale"].Path != "" || byID["upscale-model"].Path != "" {
 		t.Fatal("optional pack components must not expose a path before they are ready")
 	}
 }
@@ -461,7 +531,7 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	}
 
 	byID := componentsByID(t, status)
-	for _, id := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa", "pdf2docx", "rembg", "rembg-model"} {
+	for _, id := range []string{"ffmpeg", "ffprobe", "tesseract", "pdftoppm", "pdftotext", "ghostscript", "whisper-cli", "whisper-model", "tesseract-eng", "tesseract-spa", "pdf2docx", "rembg", "rembg-model", "upscale", "upscale-model"} {
 		component := byID[id]
 		if !component.Ready {
 			t.Fatalf("component %q is not ready: %+v", id, component)
@@ -492,6 +562,10 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 		filepath.Join(root, "rembg-venv", "lib", "python3.11", "site-packages", "rembg", "__init__.py"),
 		filepath.Join(root, "rembg", ".ready"),
 		filepath.Join(root, "rembg", "models", DefaultRembgModel, RembgModelFileName(DefaultRembgModel)),
+		filepath.Join(root, "upscale-venv", "bin", "python"),
+		filepath.Join(root, "upscale", ".ready"),
+		upscaleModelONNXPath(root),
+		filepath.Join(upscaleModelDir(root), upscaleModelDataFileName),
 	}
 	for _, path := range requiredFiles {
 		info, err := os.Stat(path)
@@ -558,6 +632,18 @@ func TestInstallCreatesReadyToolchain(t *testing.T) {
 	importCall := findRunnerCallStartingWith(t, rembgCalls, "-c")
 	if len(importCall.args) != 2 || importCall.args[1] != "import rembg, onnxruntime" {
 		t.Fatalf("unexpected background removal import check: %v", importCall.args)
+	}
+
+	// The upscale venv follows the same contract with its own pins.
+	upscalePython := filepath.Join(root, "upscale-venv", "bin", "python")
+	upscaleCalls := runnerCallsForBinary(runner.recordedCalls(), upscalePython)
+	upscalePipCall := findRunnerCallStartingWith(t, upscaleCalls, "-m", "pip", "install")
+	if !containsAll(upscalePipCall.args, upscalePins...) || !containsAll(upscalePipCall.args, "--no-cache-dir", "--disable-pip-version-check") {
+		t.Fatalf("unexpected upscale package install: %v", upscalePipCall.args)
+	}
+	upscaleImportCall := findRunnerCallStartingWith(t, upscaleCalls, "-c")
+	if len(upscaleImportCall.args) != 2 || upscaleImportCall.args[1] != "import onnxruntime, numpy, PIL" {
+		t.Fatalf("unexpected upscale import check: %v", upscaleImportCall.args)
 	}
 
 	manifest := readManifestForTest(t, filepath.Join(root, "manifest.json"))

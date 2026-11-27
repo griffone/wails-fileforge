@@ -13,6 +13,7 @@ func init() {
 	watermarkTool := NewWatermarkTool()
 	ocrTool := NewImageOCRTool()
 	rembgTool := NewBackgroundRemoveTool()
+	upscaleTool := NewUpscaleTool()
 
 	registry.GetGlobalRegistry().SafeRegisterTool(adapter)
 	registry.GetGlobalRegistry().SafeRegisterTool(cropTool)
@@ -21,6 +22,7 @@ func init() {
 	registry.GetGlobalRegistry().SafeRegisterTool(watermarkTool)
 	registry.GetGlobalRegistry().SafeRegisterTool(ocrTool)
 	registry.GetGlobalRegistry().SafeRegisterTool(rembgTool)
+	registry.GetGlobalRegistry().SafeRegisterTool(upscaleTool)
 
 	// Optionally log any initialization errors (non-blocking)
 	go func() {

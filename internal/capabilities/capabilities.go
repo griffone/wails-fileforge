@@ -32,14 +32,18 @@ type Options struct {
 // ManagedRuntime is the managed-toolchain snapshot rendered by the capability
 // panel. It is a value, not a live service, so tests can inject a machine state.
 type ManagedRuntime struct {
-	DataDir          string
-	DataDirError     error
-	PDF2DOCX         bool
-	RembgReady       bool
-	RembgReason      string
-	RembgModelReady  bool
-	RembgModelReason string
-	Whisper          engine.TranscriptionCapabilities
+	DataDir            string
+	DataDirError       error
+	PDF2DOCX           bool
+	RembgReady         bool
+	RembgReason        string
+	RembgModelReady    bool
+	RembgModelReason   string
+	UpscaleReady       bool
+	UpscaleReason      string
+	UpscaleModelReady  bool
+	UpscaleModelReason string
+	Whisper            engine.TranscriptionCapabilities
 }
 
 // Detect probes the real machine: binaries through exec.LookPath, OCR
@@ -141,6 +145,21 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 			"Open Settings and run Install / repair to download the background removal model.")
 	}
 
+	upscaleAvailable := managedState.UpscaleReady && managedState.UpscaleModelReady
+	upscaleDetail := "Not installed"
+	upscaleSuggestion := ""
+	switch {
+	case upscaleAvailable:
+		upscaleDetail = "Upscale engine and general model"
+	case !managedState.UpscaleReady:
+		upscaleSuggestion = managedReason(managedState.UpscaleReason,
+			"Open Settings and run Install / repair to install the upscale pack.")
+	case !managedState.UpscaleModelReady:
+		upscaleDetail = "Engine installed, but the model is not ready"
+		upscaleSuggestion = managedReason(managedState.UpscaleModelReason,
+			"Open Settings and run Install / repair to download the upscale model.")
+	}
+
 	whisper := managedState.Whisper
 	whisperAvailable := whisper.Available()
 	whisperDetail := "Not installed"
@@ -239,6 +258,14 @@ func DetectWith(ctx context.Context, opts Options) models.LocalCapabilitiesRespo
 			Suggestion: rembgSuggestion,
 		},
 		{
+			ID:         "upscale",
+			Label:      "Local upscale pack",
+			Available:  upscaleAvailable,
+			Required:   false,
+			Detail:     upscaleDetail,
+			Suggestion: upscaleSuggestion,
+		},
+		{
 			ID:         "whisper",
 			Label:      "Whisper model",
 			Available:  whisperAvailable,
@@ -272,6 +299,8 @@ func detectManagedRuntime() ManagedRuntime {
 	_, state.PDF2DOCX = toolchain.ManagedPDF2DOCXPythonPath(dataDir)
 	state.RembgReady, state.RembgReason = toolchain.ManagedRembgRuntimeState(dataDir)
 	state.RembgModelReady, state.RembgModelReason = toolchain.ManagedRembgModelState(dataDir)
+	state.UpscaleReady, state.UpscaleReason = toolchain.ManagedUpscaleRuntimeState(dataDir)
+	state.UpscaleModelReady, state.UpscaleModelReason = toolchain.ManagedUpscaleModelState(dataDir)
 	state.Whisper = engine.DetectTranscriptionCapabilities("", "")
 
 	return state

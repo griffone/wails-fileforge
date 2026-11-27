@@ -16,6 +16,8 @@ import (
 //	pdf2docx-venv/        dedicated venv for the PDF to DOCX engine
 //	rembg-venv/           dedicated venv for the background removal engine
 //	rembg/                REMBG_HOME/U2NET_HOME with models/<model>/<model>.onnx
+//	upscale-venv/         dedicated venv for the local upscale engine
+//	upscale/              UPSCALE_HOME with models/general/<model>.onnx + .data
 //	manifest.json
 //
 // The helpers below are the single source of truth for those paths.
@@ -99,6 +101,43 @@ func ManagedRembgModelPath(dataDir, model string) (string, bool) {
 	path := rembgModelPath(ToolchainDir(dataDir), model)
 
 	return path, fileWithContent(path)
+}
+
+// ManagedUpscalePythonPath returns the interpreter of the managed upscale
+// virtual environment for the running OS. The upscale engine runs with the
+// exact pinned package set installed by the toolchain.
+func ManagedUpscalePythonPath(dataDir string) (string, bool) {
+	path := upscaleVenvPythonPath(ToolchainDir(dataDir), runtime.GOOS)
+
+	return path, fileWithContent(path)
+}
+
+// ManagedUpscaleModelPath returns the ONNX file of the pinned general upscale
+// model when both the graph and its external data file are present with the
+// expected sizes.
+func ManagedUpscaleModelPath(dataDir string) (string, bool) {
+	root := ToolchainDir(dataDir)
+	path := upscaleModelONNXPath(root)
+
+	return path, upscaleModelFilesMatch(root)
+}
+
+// ManagedUpscaleRuntimeState reports whether the managed upscale engine is
+// installed and verified: interpreter, pinned packages and the post-import
+// marker. The reason is user-facing and points the user at Settings.
+func ManagedUpscaleRuntimeState(dataDir string) (bool, string) {
+	ready, reason := upscaleRuntimeState(ToolchainDir(dataDir), runtime.GOOS)
+	if ready {
+		return true, reason
+	}
+
+	return false, strings.Replace(reason, "Run Install / repair.", "Open Settings and run Install / repair.", 1)
+}
+
+// ManagedUpscaleModelState reports whether the pinned general upscale model is
+// installed and complete. The reason is user-facing.
+func ManagedUpscaleModelState(dataDir string) (bool, string) {
+	return upscaleModelState(ToolchainDir(dataDir))
 }
 
 // tessdataPDFAssets lists the Tesseract data files required by the searchable
@@ -384,6 +423,143 @@ func rembgModelState(root string) (bool, string) {
 	}
 
 	return false, "Background removal model is not installed. Run Install / repair."
+}
+
+// upscaleVenvDir returns the dedicated virtual environment that hosts the
+// pinned local upscale engine packages. It is separate from the other
+// environments so a repair of one never breaks the others.
+func upscaleVenvDir(root string) string {
+	return filepath.Join(root, "upscale-venv")
+}
+
+// upscaleVenvPythonPath returns the interpreter inside the upscale virtual
+// environment.
+func upscaleVenvPythonPath(root, goos string) string {
+	if goos == "windows" {
+		return filepath.Join(upscaleVenvDir(root), "Scripts", "python.exe")
+	}
+
+	return filepath.Join(upscaleVenvDir(root), "bin", "python")
+}
+
+// upscaleHomeDir returns the upscale home folder. The pinned model files live
+// below it so the application never reads weights from the user home
+// directory.
+func upscaleHomeDir(root string) string {
+	return filepath.Join(root, "upscale")
+}
+
+// upscaleModelDir returns the folder that holds the pinned general model.
+func upscaleModelDir(root string) string {
+	return filepath.Join(upscaleHomeDir(root), "models", DefaultUpscaleModel)
+}
+
+// upscaleModelONNXPath returns the ONNX graph of the pinned general model. The
+// external weights file lives next to it.
+func upscaleModelONNXPath(root string) string {
+	return filepath.Join(upscaleModelDir(root), upscaleModelSpec.ONNXFileName)
+}
+
+// upscaleReadyFileName marks an upscale virtual environment that was installed
+// and imported successfully. It lives in the upscale home, not inside the venv,
+// so a partial venv can never carry the marker by accident.
+const upscaleReadyFileName = ".ready"
+
+// upscaleReadyFilePath returns the readiness marker path.
+func upscaleReadyFilePath(root string) string {
+	return filepath.Join(upscaleHomeDir(root), upscaleReadyFileName)
+}
+
+// upscaleSitePackagesDir returns the site-packages folder of the upscale
+// virtual environment.
+func upscaleSitePackagesDir(root, goos string) (string, bool) {
+	venv := upscaleVenvDir(root)
+	if goos == "windows" {
+		dir := filepath.Join(venv, "Lib", "site-packages")
+
+		return dir, directoryExists(dir)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(venv, "lib", "python*", "site-packages"))
+	if err != nil {
+		return "", false
+	}
+	for _, match := range matches {
+		if directoryExists(match) {
+			return match, true
+		}
+	}
+
+	return "", false
+}
+
+// upscalePackagesInstalled reports whether the venv carries a pip receipt for
+// onnxruntime. A missing dist-info directory means the install was interrupted,
+// so the environment is never reported as ready.
+func upscalePackagesInstalled(root, goos string) bool {
+	sitePackages, found := upscaleSitePackagesDir(root, goos)
+	if !found {
+		return false
+	}
+
+	matches, err := filepath.Glob(filepath.Join(sitePackages, "onnxruntime-*.dist-info"))
+	if err != nil {
+		return false
+	}
+	for _, match := range matches {
+		if directoryExists(match) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// upscaleRuntimeState verifies the upscale engine: the interpreter, the
+// installed packages and the marker written after a successful import.
+func upscaleRuntimeState(root, goos string) (bool, string) {
+	if !fileWithContent(upscaleVenvPythonPath(root, goos)) {
+		return false, "The upscale engine is not installed. Run Install / repair."
+	}
+	if !upscalePackagesInstalled(root, goos) {
+		return false, "The upscale engine is incomplete. Run Install / repair."
+	}
+	if !fileWithContent(upscaleReadyFilePath(root)) {
+		return false, "The upscale engine is not verified. Run Install / repair."
+	}
+
+	return true, "Local upscale engine"
+}
+
+// upscaleModelFilesMatch reports whether every pinned model file is present
+// with its exact size. The checksum is only verified during install because
+// hashing the weights on every status poll would be wasteful.
+func upscaleModelFilesMatch(root string) bool {
+	spec := upscaleModelSpec
+	dir := upscaleModelDir(root)
+	for _, file := range spec.Files {
+		if !fileHasExactSize(filepath.Join(dir, file.Name), file.SizeBytes) {
+			return false
+		}
+	}
+
+	return len(spec.Files) > 0
+}
+
+// upscaleModelState verifies the pinned model by the exact sizes of the graph
+// and its external data file.
+func upscaleModelState(root string) (bool, string) {
+	spec := upscaleModelSpec
+	if upscaleModelFilesMatch(root) {
+		return true, "Local upscale model"
+	}
+	for _, file := range spec.Files {
+		if fileWithContent(filepath.Join(upscaleModelDir(root), file.Name)) {
+			return false, "Upscale model is incomplete. Run Install / repair."
+		}
+	}
+
+	return false, "Upscale model is not installed. Run Install / repair."
 }
 
 func manifestFilePath(root string) string {

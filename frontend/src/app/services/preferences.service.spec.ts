@@ -58,6 +58,7 @@ describe('PreferencesService', () => {
       defaultOutputDir: '/tmp/exports',
       whisperPath: '',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
   });
@@ -84,6 +85,7 @@ describe('PreferencesService', () => {
       defaultOutputDir: '',
       whisperPath: '',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
   });
@@ -108,6 +110,7 @@ describe('PreferencesService', () => {
       defaultOutputDir: '',
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '/models/ggml-base.bin',
+      upscaleAnimeModelPath: '',
       language: '',
     });
   });
@@ -123,6 +126,23 @@ describe('PreferencesService', () => {
     const reloaded = TestBed.inject(PreferencesService);
     expect(reloaded.whisperPath()).toBe('/opt/whisper-cli');
     expect(reloaded.whisperModelPath()).toBe('/models/ggml-base.bin');
+  });
+
+  it('stores and clears the optional anime upscale model path', () => {
+    const service = TestBed.inject(PreferencesService);
+
+    service.setUpscaleAnimeModelPath('  /models/anime.onnx  ');
+    expect(service.upscaleAnimeModelPath()).toBe('/models/anime.onnx');
+    expect(
+      JSON.parse(localStorage.getItem(PREFERENCES_STORAGE_KEY) ?? '{}')
+        .upscaleAnimeModelPath,
+    ).toBe('/models/anime.onnx');
+
+    service.setWhisperPath('/opt/whisper-cli');
+    service.clearUpscaleAnimeModelPath();
+
+    expect(service.upscaleAnimeModelPath()).toBe('');
+    expect(service.whisperPath()).toBe('/opt/whisper-cli');
   });
 
   it('clears whisper paths without touching the output folder', () => {
@@ -210,6 +230,7 @@ describe('PreferencesService', () => {
         defaultOutputDir: 42,
         whisperPath: 7,
         whisperModelPath: false,
+        upscaleAnimeModelPath: '',
       }),
     );
 

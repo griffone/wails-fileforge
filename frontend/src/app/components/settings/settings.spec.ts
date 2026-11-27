@@ -421,6 +421,7 @@ describe('Settings', () => {
       defaultOutputDir: '/tmp/exports',
       whisperPath: '',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(
@@ -438,6 +439,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(element().querySelector('.settings-path')).toBeNull();
@@ -644,6 +646,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith(
@@ -660,6 +663,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '/opt/whisper-cli',
       whisperModelPath: '/models/ggml-medium.bin',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(wailsSpy.getTranscriptionCapabilities).toHaveBeenCalledWith(
@@ -667,6 +671,34 @@ describe('Settings', () => {
       '/models/ggml-medium.bin',
     );
     expect(button('.settings-use-detected-whisper').disabled).toBeFalse();
+  }));
+
+  it('persists the optional anime upscale model file', fakeAsync(() => {
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      element().querySelector('.settings-upscale-anime-path')?.textContent,
+    ).toContain('No anime model chosen.');
+
+    wailsSpy.openFileDialog.and.resolveTo('/models/anime.onnx');
+    button('.settings-choose-upscale-anime').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      element().querySelector('.settings-upscale-anime-path')?.textContent,
+    ).toContain('/models/anime.onnx');
+    expect(button('.settings-clear-upscale-anime').disabled).toBeFalse();
+
+    button('.settings-clear-upscale-anime').click();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    expect(
+      element().querySelector('.settings-upscale-anime-path')?.textContent,
+    ).toContain('No anime model chosen.');
+    expect(button('.settings-clear-upscale-anime').disabled).toBeTrue();
   }));
 
   it('ignores a cancelled whisper file picker', fakeAsync(() => {
@@ -706,6 +738,7 @@ describe('Settings', () => {
       defaultOutputDir: '',
       whisperPath: '',
       whisperModelPath: '',
+      upscaleAnimeModelPath: '',
       language: '',
     });
     expect(
@@ -903,6 +936,46 @@ describe('Settings', () => {
 
     expect(element().textContent).toContain('not available for linux/arm64');
     expect(element().querySelector('.settings-install-toolchain')).toBeNull();
+  }));
+
+  it('keeps Install / repair available when an optional pack is missing', fakeAsync(() => {
+    toolchain.status.set(
+      toolchainStatus({
+        ready: true,
+        components: [
+          ...TOOLCHAIN_COMPONENTS,
+          {
+            id: 'upscale',
+            label: 'Upscale engine',
+            ready: false,
+            required: false,
+            detail: 'The upscale engine is not installed. Run Install / repair.',
+          },
+          {
+            id: 'upscale-model',
+            label: 'Upscale model',
+            ready: false,
+            required: false,
+            detail: 'Upscale model is not installed. Run Install / repair.',
+          },
+        ],
+      }),
+    );
+
+    fixture.detectChanges();
+    flushMicrotasks();
+    fixture.detectChanges();
+
+    const install = element().querySelector(
+      '.settings-install-toolchain',
+    ) as HTMLButtonElement | null;
+    expect(install).not.toBeNull();
+    expect(install?.textContent).toContain('Install / repair');
+
+    install?.click();
+    flushMicrotasks();
+
+    expect(toolchain.install).toHaveBeenCalled();
   }));
 
   it('reloads dependent panels once the toolchain becomes ready', fakeAsync(() => {

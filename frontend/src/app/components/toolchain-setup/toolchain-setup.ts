@@ -80,6 +80,10 @@ export class ToolchainSetup implements OnInit {
         return this.i18n.t('toolchain.phase.downloadingModel');
       case 'tessdata':
         return this.i18n.t('toolchain.phase.installingLanguages');
+      case 'rembg':
+        return this.i18n.t('toolchain.phase.installingBackgroundRemoval');
+      case 'upscale':
+        return this.i18n.t('toolchain.phase.installingUpscale');
       case 'finalize':
         return this.i18n.t('toolchain.phase.verifying');
       case 'ready':
