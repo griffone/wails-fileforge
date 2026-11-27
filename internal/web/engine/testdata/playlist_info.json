@@ -1,0 +1,15 @@
+{
+  "_type": "playlist",
+  "id": "PLFIXTURE",
+  "title": "Fixture playlist",
+  "uploader": "Fixture channel",
+  "entries": [
+    {
+      "_type": "url",
+      "id": "placeholder",
+      "url": "https://www.youtube.com/watch?v=placeholder",
+      "title": "Expanded entry that the flat pass must replace",
+      "duration": 1
+    }
+  ]
+}

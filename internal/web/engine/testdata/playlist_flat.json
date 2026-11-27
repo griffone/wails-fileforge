@@ -1,0 +1,29 @@
+{
+  "_type": "playlist",
+  "id": "PLFIXTURE",
+  "title": "Fixture playlist",
+  "uploader": "Fixture channel",
+  "entries": [
+    {
+      "_type": "url",
+      "id": "aaa",
+      "url": "https://www.youtube.com/watch?v=aaa",
+      "title": "First item",
+      "duration": 12.5
+    },
+    {
+      "_type": "url",
+      "id": "bbb",
+      "url": "https://www.youtube.com/watch?v=bbb",
+      "title": "Second item",
+      "duration": 300
+    },
+    {
+      "_type": "url",
+      "id": "ccc",
+      "webpage_url": "https://www.youtube.com/watch?v=ccc",
+      "title": "Third item",
+      "duration": null
+    }
+  ]
+}
